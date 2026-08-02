@@ -13,7 +13,7 @@ conversation history.
 
 ## PRD → Backlog
 
-1. A product PRD lives at `docs/product/PRD.md`.
+1. A product PRD is stored as a `backlog doc` entry under `backlog/docs/prd/`. List and view it with `npm run backlog -- doc list --plain` / `npm run backlog -- doc view <docId>`.
 2. Decompose it via `/prd-to-backlog`: requirement traceability → milestone →
    independently acceptance-testable tasks → dependency graph.
 3. Do **not** modify product code until the task graph is complete.
