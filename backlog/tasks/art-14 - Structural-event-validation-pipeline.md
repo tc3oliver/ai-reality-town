@@ -5,7 +5,7 @@ status: In Review
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 18:31'
+updated_date: '2026-08-02 18:33'
 labels:
   - prd-1.0
   - epic-e
@@ -113,6 +113,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 Completed exact-key and version/type/union validation, participant dedupe, safe-integer and finite-value checks, bounded reference/key formats, summary limits, recursive JSON-safe acyclic metadata, and stable code/path errors. Commit atomicity tests prove rejected proposals create neither event nor idempotency rows. Focused validation: 3 suites/51 tests. Full npm run check passed architecture checks, typecheck, lint, 18 suites/204 tests, and Vite build.
 
 Committed as e0cb265, pushed to origin, and opened PR #24.
+
+Merged current main/ART-13, preserving atomic append and remediation rules alongside strict validation. Post-merge npm run check passed 18 suites/211 tests plus all other gates.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
