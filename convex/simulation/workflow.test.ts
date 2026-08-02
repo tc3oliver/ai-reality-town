@@ -132,6 +132,8 @@ describe('executeFoundationRun', () => {
     });
     expect(outcome.status).toBe('failed');
     expect(outcome.errorCode).toBe('INVALID_RELATIONSHIP_TARGET');
+    expect(outcome.errorPath).toBe('stateChanges[0]');
+    expect(outcome.errorDetails).toBeUndefined();
   });
 });
 

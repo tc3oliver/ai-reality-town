@@ -78,5 +78,7 @@ export type FoundationRunOutcome = {
   deduplicated?: boolean;
   errorCode?: string;
   errorMessage?: string;
+  errorPath?: string;
+  errorDetails?: Record<string, unknown>;
   attempts?: number;
 };

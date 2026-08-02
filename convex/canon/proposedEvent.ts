@@ -41,6 +41,29 @@ export const stateChangeValidator = v.union(
     value: v.union(v.string(), v.number(), v.boolean()),
     visibility: v.union(v.literal('canon'), v.literal('public'), v.literal('private')),
   }),
+  v.object({
+    type: v.literal('character_life_changed'),
+    characterId: v.string(),
+    alive: v.boolean(),
+    reason: v.string(),
+  }),
+  v.object({
+    type: v.literal('character_knowledge_learned'),
+    characterId: v.string(),
+    factId: v.string(),
+    sourceType: v.union(
+      v.literal('observed'), v.literal('told'), v.literal('public'),
+      v.literal('evidence'), v.literal('inference'), v.literal('memory'),
+    ),
+    sourceEventId: v.string(),
+  }),
+  v.object({
+    type: v.literal('item_transferred'),
+    itemId: v.string(),
+    fromOwnerId: v.optional(v.string()),
+    toOwnerId: v.string(),
+    reason: v.string(),
+  }),
 );
 
 export const proposedByValidator = v.object({
@@ -107,6 +130,8 @@ function normalizeStateChange(value: unknown, index: number): StateChange {
     'type', 'characterId', 'fromLocationId', 'toLocationId', 'sourceCharacterId',
     'targetCharacterId', 'trustDelta', 'affectionDelta', 'resentmentDelta', 'reason',
     'subjectType', 'subjectId', 'predicate', 'value', 'visibility',
+    'alive', 'factId', 'sourceType', 'sourceEventId', 'itemId', 'fromOwnerId',
+    'toOwnerId',
   ]);
   const change = source as unknown as StateChange;
   switch (change.type) {
@@ -118,6 +143,15 @@ function normalizeStateChange(value: unknown, index: number): StateChange {
       return { ...change };
     case 'fact_created':
       exactObject(value, path, ['type', 'subjectType', 'subjectId', 'predicate', 'value', 'visibility']);
+      return { ...change };
+    case 'character_life_changed':
+      exactObject(value, path, ['type', 'characterId', 'alive', 'reason']);
+      return { ...change };
+    case 'character_knowledge_learned':
+      exactObject(value, path, ['type', 'characterId', 'factId', 'sourceType', 'sourceEventId']);
+      return { ...change };
+    case 'item_transferred':
+      exactObject(value, path, ['type', 'itemId', 'fromOwnerId', 'toOwnerId', 'reason']);
       return { ...change };
   }
 }

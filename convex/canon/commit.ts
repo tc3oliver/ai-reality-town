@@ -83,7 +83,11 @@ export async function commitProposedEvent(
   // 3. Load current projection by replaying all accepted events for this world.
     const events = await store.loadAcceptedEvents(proposed.worldId);
     const projection = replayWorldEvents(emptyProjection(proposed.worldId), events);
-    const ruleContext = await store.loadCanonRuleContext(proposed.worldId);
+    const persistedContext = await store.loadCanonRuleContext(proposed.worldId);
+    const ruleContext: CanonRuleContext = {
+      ...(persistedContext ?? { worldId: proposed.worldId, rules: [] }),
+      knownEventIds: events.map((event) => event.eventId),
+    };
 
   // 4. Canon validation against the current projection.
     const canonErr = validateCanon(proposed, projection, ruleContext);
@@ -142,13 +146,29 @@ export function createConvexCanonStore(
       return rows.map(rowToAcceptedEvent);
     },
     async loadCanonRuleContext(worldId) {
-      const rows = await db
-        .query('worldImmutableRules')
-        .withIndex('by_world_id', (q) => q.eq('worldId', worldId))
-        .collect();
-      return rows.length === 0
-        ? null
-        : { worldId, rules: rows.map((row) => row.payload as CanonImmutableRule) };
+      const [rules, characters, locations, items] = await Promise.all([
+        db.query('worldImmutableRules').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).collect(),
+        db.query('worldCharacters').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).collect(),
+        db.query('worldLocations').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).collect(),
+        db.query('worldAssets').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).collect(),
+      ]);
+      if (rules.length === 0 && characters.length === 0 && locations.length === 0 && items.length === 0) return null;
+      const activeLocations = locations.filter((row) => (row.payload as { active?: unknown }).active === true);
+      return {
+        worldId,
+        rules: rules.map((row) => row.payload as CanonImmutableRule),
+        characterIds: characters.map((row) => row.characterId),
+        locationIds: activeLocations.map((row) => row.locationId),
+        itemIds: items.map((row) => row.assetId),
+        initialCharacterAlive: Object.fromEntries(characters.map((row) => [row.characterId, true])),
+        initialItemOwners: Object.fromEntries(items.map((row) => [row.assetId, row.ownerCharacterId])),
+        locationConnections: Object.fromEntries(activeLocations.map((row) => {
+          const connected = (row.payload as { connectedLocationIds?: unknown }).connectedLocationIds;
+          return [row.locationId, Array.isArray(connected)
+            ? connected.filter((id): id is string => typeof id === 'string')
+            : []];
+        })),
+      };
     },
     async appendCommit(accepted) {
       // Split the envelope off the accepted event: the proposed event is stored as
