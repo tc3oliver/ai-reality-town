@@ -1,11 +1,11 @@
 ---
 id: ART-55
 title: Post-generation safety classification and gating
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-02 20:42'
+updated_date: '2026-08-02 20:48'
 labels:
   - prd-1.0
   - epic-n
@@ -69,12 +69,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #3 FR-L002: 公開摘要可移除過度細節，但不得改變核心事實。
 - [x] #4 FR-L002: 所有阻擋具備可查詢原因。
 - [x] #5 Automated tests provide evidence for every mapped FR-L002 acceptance criterion, including rejection and failure paths.
-- [ ] #6 PRD traceability links FR-L002 to doc-1 and the merged implementation evidence.
+- [x] #6 PRD traceability links FR-L002 to doc-1 and the merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -86,8 +86,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -100,10 +100,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented versioned Allow/Allow with Warning/Withhold/Human Review Required classification for scenes and public artifacts. Publication fails closed on high risk or classifier failure; stable reason codes are internally queryable, raw unsafe text is not stored, and sanitized summaries must retain identical ordered core Fact IDs. Safety code has no Canon commit/reducer dependency. Focused Jest passed 8 tests; Convex codegen succeeded; npm run check passed architecture, typecheck, lint, 38 suites/335 tests, and build.
+
+PR #66 merged at 2026-08-02T20:44:26Z: https://github.com/tc3oliver/ai-reality-town/pull/66
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Implemented FR-L002 post-generation safety labels, fail-closed publication gating, queryable block reasons, classifier failure isolation, and core-fact-preserving summary sanitization. Verified with 8 focused tests and full npm run check (335 tests); merge evidence remains pending.
+Implemented FR-L002 post-generation safety labels, fail-closed publication gating, queryable block reasons, classifier failure isolation, and core-fact-preserving summary sanitization. Verified with 8 focused tests, full npm run check (335 tests), and merged PR #66.
 <!-- SECTION:FINAL_SUMMARY:END -->
