@@ -45,6 +45,17 @@ export const getCharacterStates = internalQuery({
   },
 });
 
+/** Private relationship state and causal history; publication is owned by ART-95. */
+export const getRelationshipProjection = internalQuery({
+  args: { worldId: v.string() },
+  handler: async (ctx, { worldId }) => {
+    const rows = await ctx.db.query('canonEvents')
+      .withIndex('by_world_and_sequence', (q) => q.eq('worldId', worldId)).collect();
+    const projection = replayWorldEvents(emptyProjection(worldId), rows.map(rowToAcceptedEvent));
+    return { relationships: projection.relationships, history: projection.relationshipHistory };
+  },
+});
+
 /** The latest persisted snapshot for a world, or null. */
 export const getLatestSnapshot = internalQuery({
   args: { worldId: v.string() },

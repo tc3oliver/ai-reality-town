@@ -71,7 +71,11 @@ function canonFailingProposal(input: SimulationInput): ProposedEvent {
         trustDelta: 1,
         affectionDelta: 0,
         resentmentDelta: 0,
+        fearDelta: 0,
+        dependencyDelta: 0,
+        familiarityDelta: 0,
         reason: 'self-relationship is not allowed',
+        visibility: 'private',
       },
     ],
   };

@@ -18,7 +18,7 @@ function accepted(sequenceNumber = 0): AcceptedEvent {
     causedByEventIds: ['prior'],
     stateChanges: [
       { type: 'character_location_changed', characterId: 'a', fromLocationId: 'station', toLocationId: 'square' },
-      { type: 'relationship_changed', sourceCharacterId: 'a', targetCharacterId: 'b', trustDelta: 4, affectionDelta: -2, resentmentDelta: 1, reason: 'witnessed event' },
+      { type: 'relationship_changed', sourceCharacterId: 'a', targetCharacterId: 'b', trustDelta: 4, affectionDelta: -2, resentmentDelta: 1, fearDelta: 2, dependencyDelta: 3, familiarityDelta: 5, reason: 'witnessed event', visibility: 'private' },
       { type: 'fact_created', subjectType: 'world', subjectId: 'w', predicate: 'weather', value: 'rain', visibility: 'canon' },
       { type: 'character_life_changed', characterId: 'a', alive: false, reason: 'fatal event' },
       { type: 'character_knowledge_learned', characterId: 'b', factId: 'weather-rain', sourceType: 'observed', sourceEventId: 'prior' },
@@ -79,7 +79,7 @@ describe('FR-D005 reducer purity and version contract', () => {
       characterKnowledge: { b: ['weather-rain'] },
       characterStates: { b: { availability: 'busy' } },
     });
-    expect(expected.relationships['a|b']).toEqual({ trust: 4, affection: -2, resentment: 1 });
+    expect(expected.relationships['a|b']).toEqual({ trust: 4, affection: -2, resentment: 1, fear: 2, dependency: 3, familiarity: 5, lastUpdatedEventId: 'w#event#0' });
     expect(expected.facts).toHaveLength(1);
   });
 

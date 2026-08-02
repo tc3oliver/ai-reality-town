@@ -50,7 +50,8 @@ describe('ProposedEvent v1 contract', () => {
     relationship.participantIds = ['resident-1', 'resident-2'];
     relationship.stateChanges = [{
       type: 'relationship_changed', sourceCharacterId: 'resident-1', targetCharacterId: 'resident-2',
-      trustDelta: 1, affectionDelta: 2, resentmentDelta: 0, reason: 'shared evidence',
+      trustDelta: 1, affectionDelta: 2, resentmentDelta: 0, fearDelta: 0,
+      dependencyDelta: 0, familiarityDelta: 3, reason: 'shared evidence', visibility: 'public',
     }];
     expect(normalizeProposedEventOutput(relationship).stateChanges[0].type).toBe('relationship_changed');
     const fact = movement();

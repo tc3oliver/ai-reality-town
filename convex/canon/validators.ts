@@ -124,7 +124,8 @@ function validateStateChangeStructure(change: unknown, path: string): CanonValid
       {
         const error = unknownKeyError(change, [
           'type', 'sourceCharacterId', 'targetCharacterId', 'trustDelta', 'affectionDelta',
-          'resentmentDelta', 'reason',
+          'resentmentDelta', 'fearDelta', 'dependencyDelta', 'familiarityDelta', 'reason',
+          'visibility',
         ], path);
         if (error) return error;
       }
@@ -138,8 +139,16 @@ function validateStateChangeStructure(change: unknown, path: string): CanonValid
         return canonError('INVALID_EVENT_SHAPE', 'affectionDelta must be a finite number', undefined, `${path}.affectionDelta`);
       if (!isFiniteNumber(change.resentmentDelta))
         return canonError('INVALID_EVENT_SHAPE', 'resentmentDelta must be a finite number', undefined, `${path}.resentmentDelta`);
+      if (change.fearDelta !== undefined && !isFiniteNumber(change.fearDelta))
+        return canonError('INVALID_EVENT_SHAPE', 'fearDelta must be a finite number', undefined, `${path}.fearDelta`);
+      if (change.dependencyDelta !== undefined && !isFiniteNumber(change.dependencyDelta))
+        return canonError('INVALID_EVENT_SHAPE', 'dependencyDelta must be a finite number', undefined, `${path}.dependencyDelta`);
+      if (change.familiarityDelta !== undefined && !isFiniteNumber(change.familiarityDelta))
+        return canonError('INVALID_EVENT_SHAPE', 'familiarityDelta must be a finite number', undefined, `${path}.familiarityDelta`);
       if (!isNonEmptyString(change.reason))
         return canonError('INVALID_EVENT_SHAPE', 'reason must be a non-empty string', undefined, `${path}.reason`);
+      if (change.visibility !== undefined && change.visibility !== 'private' && change.visibility !== 'public')
+        return canonError('INVALID_EVENT_SHAPE', 'visibility must be private or public', undefined, `${path}.visibility`);
       return null;
     case 'fact_created':
       {
@@ -414,11 +423,21 @@ export function validateCanon(
       if (change.sourceCharacterId === change.targetCharacterId) {
         return canonError('INVALID_RELATIONSHIP_TARGET', 'relationship source and target must differ', undefined, path);
       }
-      if (change.trustDelta === 0 && change.affectionDelta === 0 && change.resentmentDelta === 0) {
+      if (change.trustDelta === 0 && change.affectionDelta === 0 && change.resentmentDelta === 0
+          && (change.fearDelta ?? 0) === 0 && (change.dependencyDelta ?? 0) === 0
+          && (change.familiarityDelta ?? 0) === 0) {
         return canonError('INVALID_RELATIONSHIP_DELTA', 'relationship delta must not be all zero', undefined, path);
       }
       if (!participants.has(change.sourceCharacterId) || !participants.has(change.targetCharacterId)) {
         return canonError('PARTICIPANT_MISMATCH', 'relationship characters must be event participants', undefined, path);
+      }
+      if ((change.visibility ?? 'private') === 'private' && event.publicSummary !== undefined) {
+        return canonError(
+          'PRIVATE_RELATIONSHIP_DISCLOSURE',
+          'a private relationship change cannot carry a public summary',
+          undefined,
+          'publicSummary',
+        );
       }
       continue;
     }

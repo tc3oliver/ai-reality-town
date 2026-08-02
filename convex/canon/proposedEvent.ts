@@ -26,7 +26,11 @@ export const stateChangeValidator = v.union(
     trustDelta: v.number(),
     affectionDelta: v.number(),
     resentmentDelta: v.number(),
+    fearDelta: v.optional(v.number()),
+    dependencyDelta: v.optional(v.number()),
+    familiarityDelta: v.optional(v.number()),
     reason: v.string(),
+    visibility: v.optional(v.union(v.literal('private'), v.literal('public'))),
   }),
   v.object({
     type: v.literal('fact_created'),
@@ -140,7 +144,8 @@ function normalizeStateChange(value: unknown, index: number): StateChange {
   const path = `stateChanges[${index}]`;
   const source = exactObject(value, path, [
     'type', 'characterId', 'fromLocationId', 'toLocationId', 'sourceCharacterId',
-    'targetCharacterId', 'trustDelta', 'affectionDelta', 'resentmentDelta', 'reason',
+    'targetCharacterId', 'trustDelta', 'affectionDelta', 'resentmentDelta', 'fearDelta',
+    'dependencyDelta', 'familiarityDelta', 'reason',
     'subjectType', 'subjectId', 'predicate', 'value', 'visibility',
     'alive', 'factId', 'sourceType', 'sourceEventId', 'itemId', 'fromOwnerId',
     'toOwnerId', 'field', 'fromValue', 'toValue',
@@ -151,8 +156,18 @@ function normalizeStateChange(value: unknown, index: number): StateChange {
       exactObject(value, path, ['type', 'characterId', 'fromLocationId', 'toLocationId']);
       return { ...change };
     case 'relationship_changed':
-      exactObject(value, path, ['type', 'sourceCharacterId', 'targetCharacterId', 'trustDelta', 'affectionDelta', 'resentmentDelta', 'reason']);
-      return { ...change };
+      exactObject(value, path, [
+        'type', 'sourceCharacterId', 'targetCharacterId', 'trustDelta', 'affectionDelta',
+        'resentmentDelta', 'fearDelta', 'dependencyDelta', 'familiarityDelta', 'reason',
+        'visibility',
+      ]);
+      return {
+        ...change,
+        fearDelta: change.fearDelta ?? 0,
+        dependencyDelta: change.dependencyDelta ?? 0,
+        familiarityDelta: change.familiarityDelta ?? 0,
+        visibility: change.visibility ?? 'private',
+      };
     case 'fact_created':
       exactObject(value, path, ['type', 'subjectType', 'subjectId', 'predicate', 'value', 'visibility']);
       return { ...change };
