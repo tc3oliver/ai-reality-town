@@ -51,6 +51,8 @@ export const FAKE_SCENARIOS: readonly FakeScenario[] = [
  * the projection — the caller supplies the movement context.
  */
 export type SimulationInput = {
+  /** Fixed integer controlling deterministic fake/model sampling in tests and replay. */
+  seed: number;
   worldId: string;
   worldDay: number;
   timeSlot: TimeSlot;

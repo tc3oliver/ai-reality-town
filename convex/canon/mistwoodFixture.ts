@@ -16,11 +16,13 @@
 
 import { CANON_VALIDATION_VERSION } from '../shared/constants';
 import { deriveEventId } from '../shared/ids';
-import { buildSnapshot, type CanonSnapshot } from './snapshots';
+import { buildSnapshot, cloneProjection, type CanonSnapshot } from './snapshots';
 import { replayWorldEvents } from './replay';
 import type { AcceptedEvent, WorldProjection } from './model';
 
 export const MISTWOOD_WORLD_ID = 'mistwood';
+export const MISTWOOD_FIXTURE_VERSION = 1;
+export const MISTWOOD_FIXED_SEED = 20260803;
 
 // Fixed clock values so the fixture is fully deterministic.
 const BASE_ACCEPTED_AT = 1_700_000_000_000;
@@ -163,3 +165,46 @@ export const mistwoodSnapshot: CanonSnapshot = buildSnapshot(
   replayWorldEvents(mistwoodInitialProjection, mistwoodEventsBeforeSnapshot),
   SNAPSHOT_CREATED_AT,
 );
+
+export type MistwoodFixture = {
+  version: number;
+  seed: number;
+  worldId: string;
+  initialProjection: WorldProjection;
+  events: AcceptedEvent[];
+  eventsBeforeSnapshot: AcceptedEvent[];
+  eventsAfterSnapshot: AcceptedEvent[];
+  fullProjection: WorldProjection;
+  snapshot: CanonSnapshot;
+};
+
+function cloneEvents(events: AcceptedEvent[]): AcceptedEvent[] {
+  return events.map((event) => ({
+    ...event,
+    proposedBy: { ...event.proposedBy },
+    participantIds: [...event.participantIds],
+    causedByEventIds: [...event.causedByEventIds],
+    stateChanges: event.stateChanges.map((change) => ({ ...change })),
+    metadata: event.metadata ? { ...event.metadata } : undefined,
+  }));
+}
+
+/** Return an isolated copy so one test cannot mutate another test's world history. */
+export function createMistwoodFixture(): MistwoodFixture {
+  const events = cloneEvents(mistwoodEvents);
+  const beforeCount = mistwoodEventsBeforeSnapshot.length;
+  return {
+    version: MISTWOOD_FIXTURE_VERSION,
+    seed: MISTWOOD_FIXED_SEED,
+    worldId: MISTWOOD_WORLD_ID,
+    initialProjection: cloneProjection(mistwoodInitialProjection),
+    events,
+    eventsBeforeSnapshot: events.slice(0, beforeCount),
+    eventsAfterSnapshot: events.slice(beforeCount),
+    fullProjection: cloneProjection(mistwoodFullProjection),
+    snapshot: {
+      ...mistwoodSnapshot,
+      projection: cloneProjection(mistwoodSnapshot.projection),
+    },
+  };
+}

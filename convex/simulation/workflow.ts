@@ -86,6 +86,7 @@ export async function executeFoundationRun(
 // --- Convex args validator -------------------------------------------------
 
 export const simulationInputArgs = v.object({
+  seed: v.number(),
   worldId: v.string(),
   worldDay: v.number(),
   timeSlot: v.string(),

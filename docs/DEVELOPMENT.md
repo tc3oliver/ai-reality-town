@@ -35,6 +35,8 @@ preset) and **colocated `*.test.ts` files**. There is intentionally no root `tes
 directory and no second framework. The Mistwood fixture lives at
 `convex/canon/mistwoodFixture.ts` (colocated with the canon module) rather than under
 `tests/fixtures/`; this deviation is deliberate and matches how AI Town colocates tests.
+Its fixed seed, isolation guarantees, focused command, and long-run ownership are recorded
+in [`docs/testing/fixtures.md`](testing/fixtures.md).
 
 ## Branch naming
 

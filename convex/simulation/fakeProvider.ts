@@ -20,6 +20,12 @@ import type { SimulationInput } from './model';
 
 /** Build a canon-valid movement proposal from the input fixture context. */
 function successProposal(input: SimulationInput): ProposedEvent {
+  const summaries = [
+    `${input.characterId} travels from ${input.fromLocationId} to ${input.toLocationId}`,
+    `${input.characterId} makes their way from ${input.fromLocationId} to ${input.toLocationId}`,
+    `${input.characterId} leaves ${input.fromLocationId} for ${input.toLocationId}`,
+  ] as const;
+  const summary = summaries[Math.abs(input.seed) % summaries.length];
   return {
     schemaVersion: CANON_SCHEMA_VERSION,
     worldId: input.worldId,
@@ -30,7 +36,7 @@ function successProposal(input: SimulationInput): ProposedEvent {
     eventType: 'movement',
     participantIds: [input.characterId],
     causedByEventIds: [],
-    publicSummary: `${input.characterId} travels from ${input.fromLocationId} to ${input.toLocationId}`,
+    publicSummary: summary,
     stateChanges: [
       {
         type: 'character_location_changed',
@@ -91,6 +97,11 @@ export class FakeSimulationProvider implements SimulationProvider {
   readonly name = 'fake' as const;
 
   proposeEvent(input: SimulationInput): Promise<ProposedEvent> {
+    if (!Number.isSafeInteger(input.seed)) {
+      return Promise.reject(
+        new SimulationProviderError('permanent', 'FAKE_INVALID_SEED', 'fake seed must be a safe integer'),
+      );
+    }
     switch (input.scenario) {
       case 'transient_failure':
         return Promise.reject(
