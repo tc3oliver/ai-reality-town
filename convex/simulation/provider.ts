@@ -31,3 +31,29 @@ export interface SimulationProvider {
   /** Provider wire output is untrusted until the shared proposal normalizer accepts it. */
   proposeEvent(input: SimulationInput): Promise<unknown>;
 }
+
+export type StructuredChatRequest = {
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
+  schemaName: string;
+  jsonSchema: Record<string, unknown>;
+  temperature: number;
+  maxTokens: number;
+};
+
+export type ProviderTraceMetadata = {
+  provider: 'fake' | 'openai-compatible';
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  latencyMs: number;
+  retryCount: number;
+};
+
+export type StructuredChatResult = { output: unknown; trace: ProviderTraceMetadata };
+export type EmbeddingResult = { embedding: number[]; trace: ProviderTraceMetadata };
+
+/** Vendor-neutral capability port used outside adapter roots. */
+export interface LanguageModelProvider {
+  structuredChat(request: StructuredChatRequest): Promise<StructuredChatResult>;
+  embed(text: string): Promise<EmbeddingResult>;
+}
