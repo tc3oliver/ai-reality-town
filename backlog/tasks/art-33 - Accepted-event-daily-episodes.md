@@ -1,11 +1,11 @@
 ---
 id: ART-33
 title: Accepted-event daily episodes
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 21:09'
+updated_date: '2026-08-02 21:18'
 labels:
   - prd-1.0
   - epic-i
@@ -84,12 +84,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #3 FR-G001: 不得將未公開 Canon Secret 誤放入公開內容。
 - [x] #4 FR-G001: Episode 生成失敗不影響 Canon State。
 - [x] #5 Automated tests provide evidence for every mapped FR-G001 acceptance criterion, including rejection and failure paths.
-- [ ] #6 PRD traceability links FR-G001 to doc-1 and the merged implementation evidence.
+- [x] #6 PRD traceability links FR-G001 to doc-1 and the merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -102,7 +102,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -119,10 +119,14 @@ Implemented a versioned, idempotent one-Episode-per-world-day editorial projecti
 Verification: npm test -- --runTestsByPath convex/editorial/episode.test.ts (1 suite, 6 tests passed); npx convex codegen (passed); npm run check (architecture boundaries, 6 architecture tests, typecheck, lint, 42 suites/364 tests, and Vite build all passed). git diff --check passed. No credentials added.
 
 Implementation committed as b41b9eb, pushed, and opened as PR #74; auto-merge enabled.
+
+Merged implementation evidence: PR #74 merged into main at 2026-08-02T21:10:48Z (merge commit 547eac9). FR-G001 remains linked to versioned PRD doc-1 through this task.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
 Added accepted-event daily Episode generation with full FR-G001 metadata, exact Accepted Event provenance, high-importance coverage, secret/safety gates, quiet-day handling, idempotency, and Canon-isolated failure records. Focused tests and the complete 364-test/typecheck/lint/build check pass; merge evidence remains pending.
+
+Implementation PR #74 is merged; all acceptance criteria and Definition of Done items are satisfied.
 <!-- SECTION:FINAL_SUMMARY:END -->
