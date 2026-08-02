@@ -1,11 +1,11 @@
 ---
 id: ART-14
 title: Structural event validation pipeline
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 18:33'
+updated_date: '2026-08-02 18:38'
 labels:
   - prd-1.0
   - epic-e
@@ -77,12 +77,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #2 FR-D003: 不得以自由文字判斷錯誤類型。
 - [x] #3 FR-D003: 驗證失敗不得產生部分寫入。
 - [x] #4 Automated tests provide evidence for every mapped FR-D003 acceptance criterion, including rejection and failure paths.
-- [ ] #5 PRD traceability links FR-D003 to doc-1 and the merged implementation evidence.
+- [x] #5 PRD traceability links FR-D003 to doc-1 and the merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -95,7 +95,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -115,10 +115,14 @@ Completed exact-key and version/type/union validation, participant dedupe, safe-
 Committed as e0cb265, pushed to origin, and opened PR #24.
 
 Merged current main/ART-13, preserving atomic append and remediation rules alongside strict validation. Post-merge npm run check passed 18 suites/211 tests plus all other gates.
+
+Implementation PR #24 merged into main at 2026-08-02T18:34:19Z; merged evidence now links FR-D003 to PRD doc-1.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
 Implemented the FR-D003 fail-closed structural validation pipeline with stable machine-readable code/path errors and complete table-driven boundary coverage. Invalid proposals are rejected before repository access and cannot partially write. Verified with 51 focused tests and the full 204-test quality gate.
+
+Implementation merged in PR #24; traceability and Definition of Done are complete.
 <!-- SECTION:FINAL_SUMMARY:END -->
