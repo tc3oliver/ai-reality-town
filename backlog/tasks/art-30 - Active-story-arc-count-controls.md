@@ -1,10 +1,11 @@
 ---
 id: ART-30
 title: Active story arc count controls
-status: To Do
-assignee: []
+status: In Review
+assignee:
+  - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 16:24'
+updated_date: '2026-08-02 20:20'
 labels:
   - prd-1.0
   - epic-h
@@ -65,27 +66,45 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 FR-F004: 超過上限時必須合併、降級或拒絕。
-- [ ] #2 FR-F004: 首頁預設只展示最高優先級 Arc。
-- [ ] #3 FR-F004: Arc 數量控制不得刪除 Event。
-- [ ] #4 Automated tests provide evidence for every mapped FR-F004 acceptance criterion, including rejection and failure paths.
+- [x] #1 FR-F004: 超過上限時必須合併、降級或拒絕。
+- [x] #2 FR-F004: 首頁預設只展示最高優先級 Arc。
+- [x] #3 FR-F004: Arc 數量控制不得刪除 Event。
+- [x] #4 Automated tests provide evidence for every mapped FR-F004 acceptance criterion, including rejection and failure paths.
 - [ ] #5 PRD traceability links FR-F004 to doc-1 and the merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
 - [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Define a deterministic Arc portfolio control input/output over replayed lifecycle/projection data, with explicit major/minor priority and remediation decisions (accept, downgrade, merge, reject) that never remove Accepted Events. 2. Enforce at most three major Active-family arcs, six minor Active-family arcs, six core characters per major arc, and two major memberships per Accepted Event; reject malformed or unresolvable overflow and validate merge targets. 3. Produce a deterministic homepage selection containing only the highest-priority eligible published Arc, with stable heat/recency/ID ordering and no LLM decision. 4. Add boundary tests for every limit and remediation path, preservation of source Event IDs, deterministic homepage ordering, lifecycle exclusions, malformed inputs, and privacy-safe output; document and run full gates.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented deterministic Story portfolio limits: 3 active-family major arcs, 6 minor arcs, 6 core characters per major arc, and 2 major memberships per Accepted Event. Overflow requires explicit reject/downgrade/merge; every decision retains source Event IDs. Added internal persisted admission with Accepted Event provenance and idempotent decisions. Homepage selection returns one published active-family Arc using tier, priority, heat, recency, and stable ID ordering. Convex codegen succeeded. Focused verification passed 6 tests; npm run check passed architecture, typecheck, lint, 33 suites/309 tests, and build.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented FR-F004 enforced Arc portfolio limits, auditable reject/downgrade/merge remediation without Event deletion, internal persisted admission, and deterministic single-Arc homepage priority. Full verification passed 309 tests; merge evidence remains pending.
+<!-- SECTION:FINAL_SUMMARY:END -->

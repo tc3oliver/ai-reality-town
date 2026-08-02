@@ -60,4 +60,18 @@ export const storyTables = {
   })
     .index('by_world_and_source_event', ['worldId', 'sourceEventSequenceNumber'])
     .index('by_world', ['worldId']),
+
+  storyArcPortfolioEntries: defineTable({
+    worldId: v.string(),
+    arcId: v.string(),
+    entry: v.any(),
+    updatedAt: v.number(),
+  }).index('by_world_and_arc', ['worldId', 'arcId']),
+
+  storyArcPortfolioDecisions: defineTable({
+    worldId: v.string(),
+    decisionId: v.string(),
+    decision: v.any(),
+    createdAt: v.number(),
+  }).index('by_world_and_decision', ['worldId', 'decisionId']),
 };
