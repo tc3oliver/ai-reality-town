@@ -1,17 +1,63 @@
 // AI Reality Town — bootstrap verification.
 //
-// Runs the 22 bootstrap checks. Prints `PASS|WARN|FAIL <check>: <detail>`. Exits non-zero
+// Runs the bootstrap checks. Prints `PASS|WARN|FAIL <check>: <detail>`. Exits non-zero
 // if any FAIL is present. Never hardcodes success. WARN does not fail but explains itself.
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join, relative } from 'node:path';
 
 const ROOT = process.cwd();
 const results = [];
 const fail = (name, detail) => results.push(['FAIL', name, detail]);
 const warn = (name, detail) => results.push(['WARN', name, detail]);
 const pass = (name, detail) => results.push(['PASS', name, detail || '']);
+
+function repositoryFiles(dir = ROOT) {
+  const files = [];
+  const skipped = new Set(['.git', 'node_modules', 'dist', 'build', 'coverage']);
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory() && skipped.has(entry.name)) continue;
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) files.push(...repositoryFiles(full));
+    else if (entry.isFile()) files.push(full);
+  }
+  return files;
+}
+
+function repositoryDirectories(dir = ROOT) {
+  const directories = [];
+  const skipped = new Set(['.git', 'node_modules', 'dist', 'build', 'coverage']);
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory() || skipped.has(entry.name)) continue;
+    const full = join(dir, entry.name);
+    directories.push(full, ...repositoryDirectories(full));
+  }
+  return directories;
+}
+
+function parseCodexConfig(text) {
+  const values = new Map();
+  for (const sourceLine of text.split(/\r?\n/)) {
+    const line = sourceLine.replace(/#.*$/, '').trim();
+    if (!line) continue;
+    const match = /^([A-Za-z0-9_-]+)\s*=\s*(.+)$/.exec(line);
+    if (!match || values.has(match[1])) throw new Error(`invalid or duplicate assignment: ${sourceLine}`);
+    const [, key, raw] = match;
+    if (/^\d+$/.test(raw)) values.set(key, Number(raw));
+    else {
+      const items = /^\[(.*)\]$/.exec(raw)?.[1].trim();
+      if (items === undefined) throw new Error(`unsupported TOML value: ${sourceLine}`);
+      if (!items) values.set(key, []);
+      else {
+        const strings = items.split(',').map((item) => /^"([^"\\]*)"$/.exec(item.trim())?.[1]);
+        if (strings.some((item) => item === undefined)) throw new Error(`invalid string array: ${sourceLine}`);
+        values.set(key, strings);
+      }
+    }
+  }
+  return values;
+}
 
 function git(args) {
   try {
@@ -100,12 +146,88 @@ existsSync(join(ROOT, 'CLAUDE.md')) ? pass('claude-md', 'present') : fail('claud
   ? pass('claude-md-startup', 'mandatory session startup section present')
   : fail('claude-md-startup', 'mandatory session startup section missing');
 
-// 12. four project skills exist
+// 12. Codex loads the shared repository instructions and has no competing control plane
+const codexConfigPath = join(ROOT, '.codex', 'config.toml');
+let codexConfig;
+if (!existsSync(codexConfigPath)) {
+  fail('codex-config-exists', '.codex/config.toml missing');
+} else {
+  pass('codex-config-exists', '.codex/config.toml present');
+  try {
+    codexConfig = parseCodexConfig(readFileSync(codexConfigPath, 'utf8'));
+    pass('codex-config-toml', 'valid TOML for supported project settings');
+  } catch (error) {
+    fail('codex-config-toml', error.message);
+  }
+}
+codexConfig?.get('project_doc_fallback_filenames')?.includes('CLAUDE.md')
+  ? pass('codex-fallback-claude-md', 'project_doc_fallback_filenames includes CLAUDE.md')
+  : fail('codex-fallback-claude-md', 'project_doc_fallback_filenames must include CLAUDE.md');
+
+const repoFiles = repositoryFiles();
+const agentInstructionFiles = repoFiles.filter((file) => ['AGENTS.md', 'AGENTS.override.md'].includes(basename(file)));
+agentInstructionFiles.length === 0
+  ? pass('no-agents-md', 'no AGENTS.md or AGENTS.override.md present')
+  : fail('no-agents-md', agentInstructionFiles.map((file) => relative(ROOT, file)).join(', '));
+
+const codexSkills = repositoryDirectories().filter((dir) => /(^|\/)\.agents\/skills(?:\/|$)/.test(relative(ROOT, dir)));
+codexSkills.length === 0
+  ? pass('no-codex-skills', 'no .agents/skills content present')
+  : fail('no-codex-skills', codexSkills.map((dir) => relative(ROOT, dir)).join(', '));
+
+const claudeText = readFileSync(join(ROOT, 'CLAUDE.md'), 'utf8');
+const startupCommands = [
+  'npm run agent:check',
+  'npm run backlog -- instructions overview',
+  'npm run backlog -- task list --json',
+  'git status --short',
+  'git branch --show-current',
+  'git log -5 --oneline',
+];
+const missingStartupCommands = startupCommands.filter((command) => !claudeText.includes(command));
+missingStartupCommands.length === 0
+  ? pass('claude-mandatory-startup', 'all six mandatory startup commands present')
+  : fail('claude-mandatory-startup', `missing: ${missingStartupCommands.join(', ')}`);
+
+const claudeOnlyRequirements = [/Claude must/i, /Claude Code session must/i, /invoke `?\/(?:bootstrap-autonomy|prd-to-backlog|autonomous-task-loop|human-blocker)/i];
+const claudeOnlyHit = claudeOnlyRequirements.find((pattern) => pattern.test(claudeText));
+claudeOnlyHit
+  ? fail('claude-agent-neutral', `requires Claude-only capability: ${claudeOnlyHit}`)
+  : pass('claude-agent-neutral', 'does not require Claude-only capabilities');
+
+const taskSourceDeclarations = repoFiles
+  .filter((file) => /\.(?:md|txt)$/i.test(file))
+  .filter((file) => /(?:sole|single|only) task source of truth/i.test(readFileSync(file, 'utf8')))
+  .map((file) => relative(ROOT, file));
+taskSourceDeclarations.every((file) => file === 'CLAUDE.md' || file.startsWith('backlog/tasks/'))
+  ? pass('sole-task-source', 'Backlog.md remains the sole declared task source of truth')
+  : fail('sole-task-source', `competing declarations: ${taskSourceDeclarations.join(', ')}`);
+
+const codexWorkflowDocs = repoFiles
+  .map((file) => relative(ROOT, file))
+  .filter((file) => /(?:^|\/)(?:codex)[^/]*(?:workflow|task|blocker|recovery)|(?:workflow|task|blocker|recovery)[^/]*codex/i.test(file));
+codexWorkflowDocs.length === 0
+  ? pass('no-codex-workflow-docs', 'no duplicated Codex workflow documentation present')
+  : fail('no-codex-workflow-docs', codexWorkflowDocs.join(', '));
+
+const codexSpecificRulePatterns = [
+  /^#{1,6} .*Codex.*(?:Workflow|Human Blocker|Session Recovery|Task Loop)/im,
+  /Codex(?:-specific)?\s+(?:task source|human blocker|session recovery|task loop)/i,
+];
+const codexSpecificRules = repoFiles
+  .filter((file) => /\.(?:md|txt)$/i.test(file) && !relative(ROOT, file).startsWith('backlog/tasks/'))
+  .filter((file) => codexSpecificRulePatterns.some((pattern) => pattern.test(readFileSync(file, 'utf8'))))
+  .map((file) => relative(ROOT, file));
+codexSpecificRules.length === 0
+  ? pass('no-codex-specific-rules', 'no Codex-specific task, blocker, recovery, or loop rules present')
+  : fail('no-codex-specific-rules', codexSpecificRules.join(', '));
+
+// 13. four Claude Code convenience skills exist
 const skills = ['bootstrap-autonomy', 'prd-to-backlog', 'autonomous-task-loop', 'human-blocker'];
 const missingSkills = skills.filter((s) => !existsSync(join(ROOT, '.claude', 'skills', s, 'SKILL.md')));
 missingSkills.length === 0 ? pass('skills-exist', `${skills.length} skills`) : fail('skills-exist', `missing: ${missingSkills.join(', ')}`);
 
-// 13. all SKILL.md have valid frontmatter (name + description)
+// 14. all SKILL.md have valid frontmatter (name + description)
 const fmIssues = [];
 for (const s of skills) {
   const text = readFileSync(join(ROOT, '.claude', 'skills', s, 'SKILL.md'), 'utf8');
@@ -116,6 +238,19 @@ for (const s of skills) {
   if (!/^description:\s*.+/m.test(fm)) fmIssues.push(`${s}: missing description`);
 }
 fmIssues.length === 0 ? pass('skills-frontmatter', 'all have name + description') : fail('skills-frontmatter', fmIssues.join('; '));
+
+const nonThinSkills = skills.filter((s) => {
+  const text = readFileSync(join(ROOT, '.claude', 'skills', s, 'SKILL.md'), 'utf8');
+  return !text.includes('convenience entry only') || !text.includes('defines no separate workflow') || text.split('\n').length > 12;
+});
+nonThinSkills.length === 0
+  ? pass('skills-thin-entry', 'Claude Code skills only point to shared workflow documents')
+  : fail('skills-thin-entry', `skills contain duplicated workflow rules: ${nonThinSkills.join(', ')}`);
+
+const platformSpecificAgentDocs = docsWithPlatformRequirements();
+platformSpecificAgentDocs.length === 0
+  ? pass('agent-docs-neutral', 'shared workflow docs do not require platform-specific skills')
+  : fail('agent-docs-neutral', platformSpecificAgentDocs.join(', '));
 
 // 14. .claude/settings.json is valid JSON
 let settingsValid = false;
@@ -167,10 +302,10 @@ existsSync(join(ROOT, 'docs', 'agent', 'BOOTSTRAP-STATUS.md'))
 const milestonesDir = join(ROOT, 'backlog', 'milestones');
 let milestoneCount = 0;
 if (existsSync(milestonesDir)) milestoneCount = readdirSync(milestonesDir).filter((f) => f.endsWith('.md')).length;
-const activeProductTasks = backlogTaskFiles().filter((t) => t.id !== 'ART-1' && t.status !== 'Done');
+const activeProductTasks = backlogTaskFiles().filter((t) => !['chore', 'docs'].includes(t.type) && t.status !== 'Done');
 milestoneCount === 0 && activeProductTasks.length === 0
-  ? pass('no-product-tasks', `milestones=${milestoneCount}, non-bootstrap active tasks=${activeProductTasks.length}`)
-  : fail('no-product-tasks', `milestones=${milestoneCount}, non-bootstrap active tasks=${activeProductTasks.length}`);
+  ? pass('no-product-tasks', `milestones=${milestoneCount}, active product tasks=${activeProductTasks.length}`)
+  : fail('no-product-tasks', `milestones=${milestoneCount}, active product tasks=${activeProductTasks.length}`);
 
 // 21. no real secret committed (offline scan of tracked text files)
 const secretPattern = /(?:sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/;
@@ -202,7 +337,8 @@ function backlogTaskFiles() {
     const text = readFileSync(join(dir, name), 'utf8');
     const id = (/^id:\s*(.+)$/m.exec(text) || [])[1]?.trim();
     const status = (/^status:\s*(.+)$/m.exec(text) || [])[1]?.trim();
-    if (id) out.push({ id, status: status || 'To Do', name });
+    const type = (/^type:\s*(.+)$/m.exec(text) || [])[1]?.trim().toLowerCase();
+    if (id) out.push({ id, status: status || 'To Do', type: type || 'task', name });
   }
   return out;
 }
@@ -222,4 +358,13 @@ function scanTrackedForSecrets(pattern) {
     if (pattern.test(text)) hits.push(rel);
   }
   return hits;
+}
+
+function docsWithPlatformRequirements() {
+  const dir = join(ROOT, 'docs', 'agent');
+  if (!existsSync(dir)) return [];
+  const platformRequirement = /Claude Code session|Claude must|invoke `?\/(?:bootstrap-autonomy|prd-to-backlog|autonomous-task-loop|human-blocker)/i;
+  return readdirSync(dir)
+    .filter((name) => name.endsWith('.md'))
+    .filter((name) => platformRequirement.test(readFileSync(join(dir, name), 'utf8')));
 }

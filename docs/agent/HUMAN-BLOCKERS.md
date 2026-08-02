@@ -15,8 +15,34 @@ Everything else is resolved autonomously.
 | H06 | Legal or license acceptance required. |
 | H07 | Platform-enforced human approval. |
 
-When a blocker applies, invoke `/human-blocker`, set the task to **Blocked**, and continue
-any unrelated autonomous work.
+When a blocker applies, set the task to **Blocked**, emit exactly this report, and continue
+any unrelated autonomous work:
+
+```markdown
+# HUMAN ACTION REQUIRED
+
+## Blocker
+<code and description>
+
+## Affected Task
+<task>
+
+## Evidence
+<why it cannot be solved autonomously>
+
+## Work Already Completed
+<completed work>
+
+## Exact Human Action
+1. <step>
+2. <step>
+
+## Verification
+<how completion will be verified>
+
+## Work Continuing Elsewhere
+<other autonomous work or None>
+```
 
 ## NOT a Human Blocker
 

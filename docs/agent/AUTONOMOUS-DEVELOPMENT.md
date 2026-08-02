@@ -1,6 +1,6 @@
 # Autonomous Development
 
-How Claude Code works autonomously on AI Reality Town, persistently and without relying on
+How the active coding agent works autonomously on AI Reality Town, persistently and without relying on
 conversation history.
 
 ## Principles
@@ -14,16 +14,24 @@ conversation history.
 ## PRD → Backlog
 
 1. A product PRD is stored as a `backlog doc` entry under `backlog/docs/prd/`. List and view it with `npm run backlog -- doc list --plain` / `npm run backlog -- doc view <docId>`.
-2. Decompose it via `/prd-to-backlog`: requirement traceability → milestone →
-   independently acceptance-testable tasks → dependency graph.
+2. Follow the PRD-to-Backlog flow in `BACKLOG-WORKFLOW.md`: requirement traceability →
+   milestone → independently acceptance-testable tasks → dependency graph.
 3. Do **not** modify product code until the task graph is complete.
+
+## Bootstrap repair
+
+When `npm run agent:check` fails, repair only the shared control plane. Verify remotes,
+Backlog initialization, `CLAUDE.md`, the Claude Code convenience skills and hooks,
+`scripts/agent/`, and `docs/agent/`; resolve every failure and justify any warning. Do not
+read or decompose the PRD and do not start product work. Finish the bootstrap task and PR,
+then stop.
 
 ## Task selection
 
 ```
 In Progress task          → resume it
-else first Ready task     → select it (by dependency order, then ID)
-else only Blocked tasks   → invoke /human-blocker
+else Ready tasks          → select highest-priority unblocked task
+else only Blocked tasks   → follow HUMAN-BLOCKERS.md
 else no Ready tasks       → scope complete; stop (or request PRD if absent)
 ```
 
