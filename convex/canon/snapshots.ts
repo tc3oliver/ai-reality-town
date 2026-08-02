@@ -93,6 +93,12 @@ export function cloneProjection(projection: WorldProjection): WorldProjection {
     environmentHistory: Object.fromEntries(
       Object.entries(projection.environmentHistory ?? {}).map(([key, values]) => [key, values.map((value) => ({ ...value }))]),
     ),
+    locations: Object.fromEntries(
+      Object.entries(projection.locations ?? {}).map(([id, location]) => [id, { ...location, connectedLocationIds: [...location.connectedLocationIds] }]),
+    ),
+    locationOccupancy: Object.fromEntries(
+      Object.entries(projection.locationOccupancy ?? {}).map(([id, occupants]) => [id, [...occupants]]),
+    ),
   };
 }
 

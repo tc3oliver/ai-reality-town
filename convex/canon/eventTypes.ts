@@ -44,6 +44,7 @@ export const STATE_CHANGE_TYPES = [
   'character_memory_formed',
   'item_transferred',
   'character_state_changed',
+  'location_state_changed',
 ] as const;
 export type StateChangeType = (typeof STATE_CHANGE_TYPES)[number];
 

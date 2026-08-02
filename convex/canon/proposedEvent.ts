@@ -46,6 +46,11 @@ export const stateChangeValidator = v.union(
     visibility: v.union(v.literal('canon'), v.literal('public'), v.literal('private')),
   }),
   v.object({
+    type: v.literal('location_state_changed'),
+    locationId: v.string(), name: v.string(), description: v.string(), locationType: v.string(),
+    capacity: v.number(), connectedLocationIds: v.array(v.string()), active: v.boolean(), reason: v.string(),
+  }),
+  v.object({
     type: v.literal('character_life_changed'),
     characterId: v.string(),
     alive: v.boolean(),
@@ -188,6 +193,9 @@ function normalizeStateChange(value: unknown, index: number): StateChange {
     case 'fact_created':
       exactObject(value, path, ['type', 'subjectType', 'subjectId', 'predicate', 'value', 'visibility']);
       return { ...change };
+    case 'location_state_changed':
+      exactObject(value, path, ['type', 'locationId', 'name', 'description', 'locationType', 'capacity', 'connectedLocationIds', 'active', 'reason']);
+      return { ...change, connectedLocationIds: [...change.connectedLocationIds] };
     case 'character_life_changed':
       exactObject(value, path, ['type', 'characterId', 'alive', 'reason']);
       return { ...change };

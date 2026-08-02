@@ -84,6 +84,19 @@ describe('atomic world configuration import', () => {
       worldId: 'mistwood', lastSequenceNumber: -1, characterLocations: {}, characterAlive: {}, characterStates: {},
       lastCharacterMovement: {}, itemOwners: {}, characterKnowledge: {}, characterMemories: {}, relationships: {}, relationshipHistory: {}, facts: [],
       worldEnvironment: {}, environmentHistory: {},
+      locations: {
+        square: {
+          locationId: 'square', name: 'Town Square', description: 'The center of Mistwood.',
+          locationType: 'public_square', capacity: 100, connectedLocationIds: ['station'],
+          active: true, lastUpdatedEventId: 'initial-snapshot',
+        },
+        station: {
+          locationId: 'station', name: 'Old Station', description: 'A disused rail station.',
+          locationType: 'station', capacity: 40, connectedLocationIds: ['square'],
+          active: true, lastUpdatedEventId: 'initial-snapshot',
+        },
+      },
+      locationOccupancy: { square: [], station: [] },
     });
   });
 

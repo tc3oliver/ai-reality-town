@@ -91,6 +91,7 @@ in [`docs/testing/fixtures.md`](testing/fixtures.md).
   `architecture/module-boundaries.json`.
 - **Product requirements and delivery:** versioned PRD docs and tasks in Backlog.md.
 - **World import contract:** `docs/world-configuration.md`.
+- **Location and occupancy projection:** `docs/location-projection.md`.
 - **Primary character seed contract:** `docs/character-seed.md`.
 - **Provider proposal boundary:** `docs/proposed-event-contract.md`.
 - **Structural event validation:** `docs/structural-event-validation.md`.

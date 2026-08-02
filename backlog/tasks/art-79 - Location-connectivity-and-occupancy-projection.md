@@ -1,10 +1,11 @@
 ---
 id: ART-79
 title: Location connectivity and occupancy projection
-status: To Do
-assignee: []
+status: In Review
+assignee:
+  - '@codex'
 created_date: '2026-08-02 16:19'
-updated_date: '2026-08-02 16:24'
+updated_date: '2026-08-02 20:15'
 labels:
   - prd-1.0
   - epic-c
@@ -64,25 +65,43 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Location IDs, connectivity, capacity, and active state are replayable.
-- [ ] #2 Character occupancy agrees with character-location projection for every sequence.
-- [ ] #3 Invalid, inactive, over-capacity, and impossible connected-location transitions are rejected or flagged according to Canon rules.
+- [x] #1 Location IDs, connectivity, capacity, and active state are replayable.
+- [x] #2 Character occupancy agrees with character-location projection for every sequence.
+- [x] #3 Invalid, inactive, over-capacity, and impossible connected-location transitions are rejected or flagged according to Canon rules.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
 - [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Add typed location definition and lifecycle state changes so IDs, descriptions/types, capacity, connectivity, and active state derive only from Accepted Events, while retaining compatibility with imported seed rules. 2. Extend the pure WorldProjection with versioned location records and occupancy sets derived from the same character-location changes, cloning through snapshots/replay. 3. Extend structural/Canon validation to reject unknown or inactive destinations, non-connected transitions, over-capacity arrivals, malformed/duplicate definitions, and location deactivation while occupied; keep occupancy consistent at every sequence. 4. Add focused definition, movement, capacity, active-state, replay/snapshot, immutability, and failure-path tests; update proposal schema/docs/codegen and run full gates.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+World import snapshots now contain complete validated location definitions and empty occupancy. Added typed location_state_changed proposal/Accepted Event handling, deterministic reducer projection, deep snapshot clones, and occupancy rebuilding from characterLocations at each sequence. Canon rejects unknown/inactive destinations, disconnected movement, capacity overflow, unknown connections, duplicate location changes, occupied deactivation, and capacity below occupancy. Convex codegen succeeded. Focused verification passed 24 tests; npm run check passed architecture, typecheck, lint, 33 suites/307 tests, and build.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented Section 13.4 and FR-D004 location rules with replayable definition/state, occupancy aligned to character locations, Accepted-Event updates, capacity/active/connectivity validation, and snapshot replay equality. Full verification passed 307 tests; merge evidence remains pending.
+<!-- SECTION:FINAL_SUMMARY:END -->

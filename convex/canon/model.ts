@@ -74,6 +74,17 @@ export type StateChange =
       visibility: FactVisibility;
     }
   | {
+      type: 'location_state_changed';
+      locationId: string;
+      name: string;
+      description: string;
+      locationType: string;
+      capacity: number;
+      connectedLocationIds: string[];
+      active: boolean;
+      reason: string;
+    }
+  | {
       type: 'character_life_changed';
       characterId: string;
       alive: boolean;
@@ -230,6 +241,17 @@ export type ProjectedEnvironmentValue = {
   validUntilEventId: string | null;
 };
 
+export type ProjectedLocation = {
+  locationId: string;
+  name: string;
+  description: string;
+  locationType: string;
+  capacity: number;
+  connectedLocationIds: string[];
+  active: boolean;
+  lastUpdatedEventId: string;
+};
+
 export type CharacterCurrentState = {
   currentLocationId?: string;
   health?: string;
@@ -293,6 +315,8 @@ export type WorldProjection = {
   worldEnvironment: Record<string, ProjectedEnvironmentValue>;
   /** All environment versions retained for audit/replay. */
   environmentHistory: Record<string, ProjectedEnvironmentValue[]>;
+  locations: Record<string, ProjectedLocation>;
+  locationOccupancy: Record<string, string[]>;
 };
 
 /** A projection with no events applied yet (the starting point for replay). */
@@ -312,5 +336,7 @@ export function emptyProjection(worldId: string): WorldProjection {
     facts: [],
     worldEnvironment: {},
     environmentHistory: {},
+    locations: {},
+    locationOccupancy: {},
   };
 }
