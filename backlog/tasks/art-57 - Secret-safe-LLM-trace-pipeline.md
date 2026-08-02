@@ -1,11 +1,11 @@
 ---
 id: ART-57
 title: Secret-safe LLM trace pipeline
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-02 18:38'
+updated_date: '2026-08-02 18:49'
 labels:
   - prd-1.0
   - epic-o
@@ -95,7 +95,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -113,10 +113,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 Implemented LLM trace v1 with every FR-M001 metric, explicit optional scene/arc and required empty-or-populated character list, strict sensitive-field rejection, idempotent/conflict-safe persistence, minimal public projection, and internal-only full queries. Convex codegen succeeded against the configured development deployment only. Focused validation: 1 suite/15 tests. Full npm run check passed architecture checks, typecheck, lint, 19 suites/205 tests, and Vite build.
 
 Committed as d591329, pushed to origin, and opened PR #26.
+
+Implementation PR #26 merged into main on 2026-08-02T18:40:00Z. Merge-dependent Definition of Done is now satisfied.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Implemented a complete secret-safe LLM accounting pipeline: all required model-call metadata is validated and correlated, raw prompts/secrets cannot enter storage, public access is minimized, full access is internal-only, and duplicate counting is prevented. Verified with development codegen, 15 focused tests, and the full 205-test quality gate.
+Delivered the complete FR-M001 secret-safe LLM trace pipeline via merged PR #26: all required metadata is validated and correlated, prompts/secrets are excluded, public access is minimized, full access is internal-only, and duplicate accounting is prevented. Full project check passed with 205 tests before merge.
 <!-- SECTION:FINAL_SUMMARY:END -->
