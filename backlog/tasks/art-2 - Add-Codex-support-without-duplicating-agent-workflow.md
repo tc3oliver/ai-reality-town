@@ -1,11 +1,11 @@
 ---
 id: ART-2
 title: Add Codex support without duplicating agent workflow
-status: In Progress
+status: Done
 assignee:
   - '@tc3oliver'
 created_date: '2026-08-02 15:03'
-updated_date: '2026-08-02 15:19'
+updated_date: '2026-08-02 15:21'
 labels: []
 dependencies: []
 modified_files:
@@ -42,12 +42,12 @@ Configure OpenAI Codex to consume the existing agent-neutral repository workflow
 - [x] #6 Existing Claude Code bootstrap still passes
 - [x] #7 Backlog.md remains the sole task source of truth
 - [x] #8 Codex smoke test confirms mandatory startup instructions are loaded
-- [ ] #9 All CI checks pass
+- [x] #9 All CI checks pass
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -60,7 +60,7 @@ Configure OpenAI Codex to consume the existing agent-neutral repository workflow
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -81,10 +81,14 @@ Codex v0.146.0 smoke test passed in ephemeral read-only mode: it loaded CLAUDE.m
 Final local verification: npm ci passed; agent:check passed 34 checks with 0 FAIL and one expected offline fork-status WARN; typecheck, lint, 12 test suites/102 tests, and build passed; forbidden AGENTS/.agents searches were empty; duplicate Codex phrase grep only found explicit no-duplication assertions; git diff --check passed; README and product code were unchanged.
 
 Commit 8b9bac5 was pushed to origin/chore/ART-2-codex-shared-instructions.
+
+PR #6 passed both required GitHub checks and merged automatically at 2026-08-02T15:21:19Z as 58682c9eee2fe1f553b676a6c3df36a18b6ac1b2.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
 Configured Codex to load the sole repository instruction source, made shared workflow documents platform-neutral, reduced Claude Code skills to thin pointers, and expanded bootstrap validation against duplicate control planes. Verified locally with Codex v0.146.0 read-only smoke output, 34 agent checks, typecheck, lint, 102 tests, build, forbidden-path searches, and diff review; CI/merge evidence will be appended after the PR completes.
+
+GitHub Bootstrap and CI workflows both passed; PR #6 merged as 58682c9eee2fe1f553b676a6c3df36a18b6ac1b2.
 <!-- SECTION:FINAL_SUMMARY:END -->
