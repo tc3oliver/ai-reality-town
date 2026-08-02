@@ -1,17 +1,19 @@
 ---
 id: ART-13
 title: Append-only accepted event store
-status: In Progress
+status: In Review
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 18:26'
+updated_date: '2026-08-02 18:27'
 labels:
   - prd-1.0
   - epic-d
 milestone: m-0
 dependencies:
   - ART-12
+references:
+  - 'https://github.com/tc3oliver/ai-reality-town/pull/22'
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
 modified_files:
@@ -97,7 +99,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -114,6 +116,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented a per-world exclusive commit transaction and atomic event/idempotency append contract, immutable cloned in-memory boundaries, retained trace/source/causal provenance, and admin-only correction/compensation/retcon event types. Focused validation: commit, proposal-contract, and replay suites passed 33 tests. Full npm run check passed architecture checks, typecheck, lint, 17 suites/173 tests, and Vite build.
+
+Committed as a0d17de, pushed to origin, and opened PR #22.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
