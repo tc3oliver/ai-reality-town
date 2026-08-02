@@ -3,7 +3,8 @@
 Machine- and human-readable status of the autonomous development control plane. Verified
 by `npm run agent:check` (the authoritative gate).
 
-**Status: Complete** — bootstrap PR merged to `main`. No product development started.
+**Status: Complete** — bootstrap PR merged to `main`. The repository may now contain a
+versioned PRD and its Backlog task graph; product implementation still follows the task loop.
 
 ## Checklist
 
@@ -25,7 +26,7 @@ by `npm run agent:check` (the authoritative gate).
 - [x] Bootstrap scripts pass (`npm run agent:check`)
 - [x] Bootstrap task completed (ART-1 → Done)
 - [x] Bootstrap PR merged
-- [x] Product development **not** started (no product milestone, no product task)
+- [x] Bootstrap-only scope ended before PRD decomposition and product implementation
 
 ## Manual smoke tests (new session)
 

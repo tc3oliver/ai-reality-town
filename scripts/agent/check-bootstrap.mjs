@@ -298,14 +298,23 @@ existsSync(join(ROOT, 'docs', 'agent', 'BOOTSTRAP-STATUS.md'))
   ? pass('bootstrap-status-doc', 'present')
   : fail('bootstrap-status-doc', 'docs/agent/BOOTSTRAP-STATUS.md missing');
 
-// 20. no product milestone or product task created
+// 20. Product work is forbidden only while bootstrap is incomplete. Once the
+// durable status document marks bootstrap complete, PRD milestones and tasks are
+// expected and must not make the control-plane health check fail.
 const milestonesDir = join(ROOT, 'backlog', 'milestones');
 let milestoneCount = 0;
 if (existsSync(milestonesDir)) milestoneCount = readdirSync(milestonesDir).filter((f) => f.endsWith('.md')).length;
 const activeProductTasks = backlogTaskFiles().filter((t) => !['chore', 'docs'].includes(t.type) && t.status !== 'Done');
-milestoneCount === 0 && activeProductTasks.length === 0
-  ? pass('no-product-tasks', `milestones=${milestoneCount}, active product tasks=${activeProductTasks.length}`)
-  : fail('no-product-tasks', `milestones=${milestoneCount}, active product tasks=${activeProductTasks.length}`);
+const bootstrapStatusPath = join(ROOT, 'docs', 'agent', 'BOOTSTRAP-STATUS.md');
+const bootstrapComplete = existsSync(bootstrapStatusPath)
+  && /\*\*Status:\s*Complete\*\*/.test(readFileSync(bootstrapStatusPath, 'utf8'));
+if (bootstrapComplete) {
+  pass('bootstrap-scope', `complete; milestones=${milestoneCount}, active product tasks=${activeProductTasks.length}`);
+} else if (milestoneCount === 0 && activeProductTasks.length === 0) {
+  pass('bootstrap-scope', 'incomplete; no product work present');
+} else {
+  fail('bootstrap-scope', `bootstrap incomplete; milestones=${milestoneCount}, active product tasks=${activeProductTasks.length}`);
+}
 
 // 21. no real secret committed (offline scan of tracked text files)
 const secretPattern = /(?:sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/;
