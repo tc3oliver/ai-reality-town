@@ -43,14 +43,25 @@ rev === 'true' ? pass('git-repo', 'inside a git work tree') : fail('git-repo', '
 const remotes = (git(['remote']) || '').split('\n').filter(Boolean);
 remotes.includes('origin') ? pass('origin-exists', 'origin remote present') : fail('origin-exists', 'no origin remote');
 
-// 3. upstream exists
-remotes.includes('upstream') ? pass('upstream-exists', 'upstream remote present') : fail('upstream-exists', 'no upstream remote');
-
-// 4. upstream points to AI Town
+// 3. upstream exists (local-only config; absent in fresh clones/CI -> WARN with guidance)
 const upstreamUrl = (git(['remote', 'get-url', 'upstream']) || '').toLowerCase();
-/a16z-infra\/ai-town(\.git)?/.test(upstreamUrl)
-  ? pass('upstream-ai-town', upstreamUrl)
-  : fail('upstream-ai-town', `upstream does not point to AI Town: ${upstreamUrl || '(none)'}`);
+if (upstreamUrl) {
+  pass('upstream-exists', 'upstream remote present');
+} else {
+  warn(
+    'upstream-exists',
+    'upstream remote not configured in this checkout (it is local-only config); add it with: git remote add upstream https://github.com/a16z-infra/ai-town.git',
+  );
+}
+
+// 4. upstream points to AI Town (FAIL only if present and wrong; WARN if absent)
+if (!upstreamUrl) {
+  warn('upstream-ai-town', 'cannot verify (upstream remote not configured in this checkout)');
+} else if (/a16z-infra\/ai-town(\.git)?/.test(upstreamUrl)) {
+  pass('upstream-ai-town', upstreamUrl);
+} else {
+  fail('upstream-ai-town', `upstream does not point to AI Town: ${upstreamUrl}`);
+}
 
 // 5. not a GitHub fork (network); WARN if cannot verify
 try {
