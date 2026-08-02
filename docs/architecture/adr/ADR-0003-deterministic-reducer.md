@@ -26,6 +26,9 @@ reducer** (`reduceWorldEvent`). The reducer:
 Replay (`replayWorldEvents`) and snapshot-resume (`replayFromSnapshot`) work without
 Convex, an LLM, or any external service.
 
+Snapshots use a versioned envelope and canonical integrity hash. Before resume or
+operational rollback, the snapshot must equal replay of the accepted-event prefix.
+
 ## Consequences
 
 - Projections are fully reproducible and unit-testable with no infrastructure.
@@ -40,7 +43,8 @@ Convex, an LLM, or any external service.
   untestable offline.
 - Sorting events silently on replay — rejected: masks broken input.
 
-## Follow-up work
+## Implemented follow-up
 
-- Snapshot acceleration for large logs (replay currently reduces from the full log).
-- A determinism property test that fuzzes the reducer.
+- Daily snapshot resume reduces only events after the latest verified checkpoint.
+- Property-style tests cover every supported event schema and state-change variant.
+- Operational rollback uses an audited recovery pointer and never deletes Canon history.

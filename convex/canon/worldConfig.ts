@@ -4,7 +4,7 @@ import { internalMutation, internalQuery } from '../_generated/server';
 import { v } from 'convex/values';
 import { isEventType } from './eventTypes';
 import { emptyProjection, type CanonImmutableRule, type CanonRuleContext, type WorldProjection } from './model';
-import type { CanonSnapshot } from './snapshots';
+import { buildSnapshot, type CanonSnapshot } from './snapshots';
 
 export const WORLD_CONFIGURATION_SCHEMA_VERSION = 1;
 
@@ -305,7 +305,7 @@ export function buildWorldImportPlan(value: unknown, createdAt: number): WorldIm
   const projection: WorldProjection = emptyProjection(configuration.world.id);
   return {
     configuration,
-    initialSnapshot: { worldId: configuration.world.id, lastSequenceNumber: -1, projection, createdAt },
+    initialSnapshot: buildSnapshot(projection, createdAt, 0),
   };
 }
 
@@ -348,7 +348,7 @@ export const importWorld = internalMutation({
       for (const payload of plan.configuration.organizations) await ctx.db.insert('worldOrganizations', { worldId, organizationId: payload.id, payload });
       for (const payload of plan.configuration.immutableRules) await ctx.db.insert('worldImmutableRules', { worldId, ruleId: payload.id, payload });
       for (const payload of plan.configuration.history) await ctx.db.insert('worldHistory', { worldId, historyId: payload.id, payload });
-      await ctx.db.insert('canonSnapshots', plan.initialSnapshot);
+      await ctx.db.insert('canonSnapshots', { ...plan.initialSnapshot, kind: 'initial' });
     },
   }, configuration, Date.now()),
 });

@@ -5,7 +5,7 @@
  * always reduces from the full log for correctness.)
  */
 
-import { query } from '../_generated/server';
+import { internalQuery, query } from '../_generated/server';
 import { v } from 'convex/values';
 import { emptyProjection, type AcceptedEvent, type WorldProjection } from './model';
 import { replayWorldEvents } from './replay';
@@ -36,7 +36,7 @@ export const getWorldProjection = query({
 });
 
 /** The latest persisted snapshot for a world, or null. */
-export const getLatestSnapshot = query({
+export const getLatestSnapshot = internalQuery({
   args: { worldId: v.string() },
   handler: async (ctx, { worldId }) => {
     const row = await ctx.db

@@ -52,8 +52,9 @@ SimulationInput
 
 ## Current limitations
 
-- The commit step reduces from the **full event log** each time (O(n)); snapshot
-  acceleration is future work.
+- The commit validation step still reduces from the **full event log** each time (O(n));
+  daily replay and recovery reads use verified snapshot acceleration. Commit-side
+  acceleration must preserve identical validation semantics.
 - Convex transactions provide production serialization; the repository contract and
   in-memory reference store also serialize the entire per-world commit for deterministic
   concurrency tests.
