@@ -1,5 +1,5 @@
 webpack*
-.eslintrc.js
+.eslintrc.cjs
 next.config.js
 tailwind.config.js
 postcss.config.js
