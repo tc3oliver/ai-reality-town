@@ -1,8 +1,9 @@
 # CLAUDE.md
 
-Stable rules every Claude Code session must know for **AI Reality Town**. Detailed
+Stable rules every coding agent session must know for **AI Reality Town**. Detailed
 workflows live in `docs/agent/` and via `npm run backlog -- instructions overview`; do not
-duplicate them here.
+duplicate them here. Platform-specific skills and hooks are convenience adapters, not
+workflow sources of truth.
 
 ## 1. Project Control Plane
 
@@ -26,18 +27,18 @@ git log -5 --oneline
 
 Then act by state:
 
-- Bootstrap incomplete → invoke `/bootstrap-autonomy` and **only** repair bootstrap.
+- Bootstrap incomplete → follow `docs/agent/AUTONOMOUS-DEVELOPMENT.md` and **only** repair bootstrap.
 - Bootstrap complete and PRD absent → do **not** invent requirements; request the PRD.
-- PRD exists and no product task graph exists → invoke `/prd-to-backlog`.
-- An In Progress task exists → invoke `/autonomous-task-loop` and resume it.
-- No In Progress task but a Ready task exists → invoke `/autonomous-task-loop` and select the next Ready task.
-- Only human-blocked tasks remain → invoke `/human-blocker`.
+- PRD exists and no product task graph exists → follow the PRD-to-Backlog flow in `docs/agent/BACKLOG-WORKFLOW.md`.
+- An In Progress task exists → resume it using the task loop in `docs/agent/AUTONOMOUS-DEVELOPMENT.md`.
+- No In Progress task but a Ready task exists → select the highest-priority unblocked task using the same task loop.
+- Only genuine Human Blockers remain → use the fixed Human Action Required format in `docs/agent/HUMAN-BLOCKERS.md`.
 
 ## 3. Autonomy Rule
 
 - Do **not** ask for approval for ordinary technical decisions.
 - Do **not** stop after planning, task creation, implementation, or PR creation.
-- Request human help **only** for documented Human Blockers (`docs/agent/HUMAN-BLOCKERS.md`).
+- Request human help **only** for documented H01–H07 Human Blockers (`docs/agent/HUMAN-BLOCKERS.md`).
 
 ## 4. Backlog Rule
 
@@ -54,9 +55,10 @@ Then act by state:
 - Never push to `upstream`.
 - Never force-push shared branches.
 - Never work directly on `main`.
-- Never delete a remote repository.
+- Never delete or archive a remote repository.
 - Never bypass Git hooks.
 - Never commit secrets.
+- Never perform a production deploy.
 - Never append a `Co-Authored-By` (or any AI/model co-author) trailer to commit messages.
 
 ## 6. Project Architecture Invariants

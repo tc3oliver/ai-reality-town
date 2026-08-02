@@ -1,6 +1,6 @@
 # Session Recovery
 
-How every new Claude Code session recovers project state from the repository — without
+How every new coding agent session recovers project state from the repository — without
 relying on conversation history.
 
 ## Startup sequence
@@ -16,12 +16,12 @@ git log -5 --oneline
 
 ## Decide from state
 
-- `agent:check` fails → invoke `/bootstrap-autonomy`; **only** repair the control plane.
+- `agent:check` fails → follow the bootstrap repair flow in `AUTONOMOUS-DEVELOPMENT.md`; **only** repair the control plane.
 - Bootstrap OK, no PRD → do not invent requirements; request the PRD.
-- PRD present, no task graph → invoke `/prd-to-backlog`.
-- An In Progress task exists → resume it via `/autonomous-task-loop`.
-- No In Progress task but a Ready task exists → select the next one via `/autonomous-task-loop`.
-- Only Blocked tasks → invoke `/human-blocker`.
+- PRD present, no task graph → follow the PRD-to-Backlog flow in `BACKLOG-WORKFLOW.md`.
+- An In Progress task exists → resume it using the task loop in `AUTONOMOUS-DEVELOPMENT.md`.
+- No In Progress task but a Ready task exists → select the highest-priority unblocked task using the same loop.
+- Only Blocked tasks → follow `HUMAN-BLOCKERS.md`.
 
 ## Read only what is relevant
 

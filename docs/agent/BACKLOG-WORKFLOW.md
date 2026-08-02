@@ -48,6 +48,18 @@ Configured in `backlog/config.yml`:
 > `statuses`, `priorities`, and `definition_of_done` are edited directly in
 > `backlog/config.yml` — the CLI refuses to set list-valued config keys directly.
 
+## PRD-to-Backlog flow
+
+When a PRD exists but its task graph does not, read the versioned PRD backlog doc, create
+one milestone for that version, map every requirement to independently acceptance-testable
+tasks, and encode their dependencies. Check for gaps, cycles, duplicates, and task sizing;
+merge trivial tasks and split over-large tasks. Do not modify product code or wait for
+approval during decomposition. After the graph is complete, select the highest-priority
+unblocked Ready task through the shared task loop in `AUTONOMOUS-DEVELOPMENT.md`.
+
+Each PRD version remains a separate immutable backlog doc with its own milestone and task
+graph; a later version does not overwrite an earlier one.
+
 ## Rules
 
 - Use the **CLI** for all task lifecycle actions. Do **not** hand-edit task/draft/
