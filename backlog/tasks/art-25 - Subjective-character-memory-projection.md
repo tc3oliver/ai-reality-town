@@ -1,11 +1,11 @@
 ---
 id: ART-25
 title: Subjective character memory projection
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 19:48'
+updated_date: '2026-08-02 19:54'
 labels:
   - prd-1.0
   - epic-g
@@ -13,6 +13,8 @@ milestone: m-0
 dependencies:
   - ART-24
   - ART-16
+references:
+  - 'https://github.com/tc3oliver/ai-reality-town/pull/44'
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
 priority: high
@@ -70,12 +72,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #3 FR-E002: 記憶必須可追蹤至事件。
 - [x] #4 FR-E002: 私人記憶不得直接公開。
 - [x] #5 Automated tests provide evidence for every mapped FR-E002 acceptance criterion, including rejection and failure paths.
-- [ ] #6 PRD traceability links FR-E002 to doc-1 and the merged implementation evidence.
+- [x] #6 PRD traceability links FR-E002 to doc-1 and the merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -88,7 +90,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -103,10 +105,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 Implemented typed subjective memory proposals and deterministic per-character projection with importance, emotional weight, confidence, visibility, accepted-event provenance, and created world time. Memory remains separate from Canon facts; one event can produce divergent or mistaken interpretations. Self/operations-only internal reads reject cross-character access, and no public query or direct projection envelope exists. Snapshots/replay deep-clone memory records. Convex codegen succeeded. Focused verification passed 27 tests; final npm run check passed architecture, typecheck, lint, 27 suites/270 tests, and build.
 
 Implementation commit 088c787 pushed on feat/ART-25-subjective-memory.
+
+Implementation PR #44 merged into main on 2026-08-02T19:49:59Z after Bootstrap and CI checks succeeded.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Implemented FR-E002 divergent subjective memories, accepted-event traceability, Canon separation, validation bounds, deterministic replay/snapshots, and private least-privilege reads. Full verification passed 270 tests; merge evidence remains pending.
+Delivered FR-E002 through merged PR #44: divergent and mistaken subjective memories separated from Canon facts, accepted-event provenance, bounded cognition fields, deterministic replay/snapshots, and private least-privilege internal reads. Full pre-merge verification passed 270 tests.
 <!-- SECTION:FINAL_SUMMARY:END -->
