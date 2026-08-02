@@ -89,6 +89,9 @@ export function reduceWorldEvent(
     Object.entries(projection.lastCharacterMovement).map(([id, movement]) => [id, { ...movement }]),
   );
   const itemOwners = { ...projection.itemOwners };
+  const itemOwnershipHistory = Object.fromEntries(
+    Object.entries(projection.itemOwnershipHistory ?? {}).map(([id, entries]) => [id, entries.map((entry) => ({ ...entry }))]),
+  );
   const characterKnowledge: Record<string, CharacterKnowledgeRecord[]> = Object.fromEntries(
     Object.entries(projection.characterKnowledge).map(([id, records]) => [id, records.map((record) => ({
       ...record,
@@ -277,6 +280,11 @@ export function reduceWorldEvent(
       }
       case 'item_transferred': {
         itemOwners[change.itemId] = change.toOwnerId;
+        itemOwnershipHistory[change.itemId] = [...(itemOwnershipHistory[change.itemId] ?? []), {
+          itemId: change.itemId, fromOwnerId: change.fromOwnerId, toOwnerId: change.toOwnerId,
+          reason: change.reason, sourceEventId: event.eventId, sequenceNumber: event.sequenceNumber,
+          worldDay: event.worldDay, timeSlot: event.timeSlot,
+        }];
         break;
       }
       case 'character_state_changed': {
@@ -309,6 +317,7 @@ export function reduceWorldEvent(
     characterStates,
     lastCharacterMovement,
     itemOwners,
+    itemOwnershipHistory,
     characterKnowledge,
     characterMemories,
     relationships,

@@ -115,7 +115,7 @@ export type StateChange =
   | {
       type: 'item_transferred';
       itemId: string;
-      fromOwnerId?: string;
+      fromOwnerId: string | null;
       toOwnerId: string;
       reason: string;
     }
@@ -252,6 +252,17 @@ export type ProjectedLocation = {
   lastUpdatedEventId: string;
 };
 
+export type ItemOwnershipHistoryEntry = {
+  itemId: string;
+  fromOwnerId: string | null;
+  toOwnerId: string;
+  reason: string;
+  sourceEventId: string;
+  sequenceNumber: number;
+  worldDay: number;
+  timeSlot: TimeSlot;
+};
+
 export type CharacterCurrentState = {
   currentLocationId?: string;
   health?: string;
@@ -306,6 +317,7 @@ export type WorldProjection = {
   characterStates: Record<string, CharacterCurrentState>;
   lastCharacterMovement: Record<string, { worldDay: number; timeSlot: TimeSlot; eventId: string }>;
   itemOwners: Record<string, string>;
+  itemOwnershipHistory: Record<string, ItemOwnershipHistoryEntry[]>;
   characterKnowledge: Record<string, CharacterKnowledgeRecord[]>;
   characterMemories: Record<string, CharacterMemoryRecord[]>;
   relationships: Record<string, RelationshipState>;
@@ -329,6 +341,7 @@ export function emptyProjection(worldId: string): WorldProjection {
     characterStates: {},
     lastCharacterMovement: {},
     itemOwners: {},
+    itemOwnershipHistory: {},
     characterKnowledge: {},
     characterMemories: {},
     relationships: {},
