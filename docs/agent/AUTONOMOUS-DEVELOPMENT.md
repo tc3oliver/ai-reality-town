@@ -27,9 +27,12 @@ else only Blocked tasks   → invoke /human-blocker
 else no Ready tasks       → scope complete; stop (or request PRD if absent)
 ```
 
-## One task / branch / PR
+## Tasks, branches, and PRs
 
-- One task maps to exactly one branch (from `main`) and one pull request.
+- One task ↔ one branch (from `main`). Keep tasks at a meaningful, reviewable size; do not
+  over-decompose work into tiny tasks — fold related small changes into one task.
+- **Batch** related small changes into one PR (multiple commits); open a separate PR only
+  for independently reviewable work.
 - Branch naming: `<type>/ART-<n>-<topic>` (e.g. `feat/ART-12-canon-snapshot-query`).
 - Conventional commit prefixes; single-purpose commits; no AI co-author trailer.
 
@@ -51,8 +54,10 @@ else no Ready tasks       → scope complete; stop (or request PRD if absent)
 
 ## Merge and continue
 
-- Merge after CI passes (merge commit preferred; rebase if merge is disallowed).
-- Sync `main` (`git pull --ff-only origin main`; `git fetch --prune origin`).
+- After opening a PR, enable **auto-merge** (`gh pr merge --auto --merge --delete-branch`)
+  and continue working — do not block-watch CI. GitHub merges automatically when CI passes.
+- If CI fails, GitHub will not auto-merge: investigate → fix → push → re-enable auto-merge.
+- Sync `main` periodically (`git pull --ff-only origin main`; `git fetch --prune origin`).
 - Move the task to **Done** via the Backlog CLI.
 - Continue to the next Ready task automatically.
 

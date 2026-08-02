@@ -19,15 +19,25 @@ Execute Backlog tasks end to end. No human-approval checkpoints between steps.
 7. Review the diff; ensure no secrets and no lowered strictness.
 8. Update task evidence (implementation notes, verification).
 9. Commit (single-purpose, conventional; no AI co-author trailer), push the branch.
-10. Open a PR; watch CI; **fix** failures (investigate → fix → push → re-verify).
-11. Merge (merge commit preferred; rebase if merge commits are disallowed).
-12. Sync `main` (`git pull --ff-only origin main`; prune).
-13. Move the task to **Done** (via CLI).
-14. Continue to the next **Ready** task. Stop only at a documented Human Blocker or when
+   **Batch** related small changes into this same branch/PR; open a separate PR only for
+   independently reviewable work.
+10. Open a PR and enable **auto-merge** (`gh pr merge --auto --merge --delete-branch`); do
+    **not** block-watch CI — continue to the next work. If CI fails, GitHub will not
+    auto-merge: investigate → fix → push → re-enable auto-merge.
+11. (GitHub auto-merges when CI passes.) Sync `main` periodically
+    (`git pull --ff-only origin main`; prune).
+12. Move the task to **Done** (via CLI).
+13. Continue to the next **Ready** task. Stop only at a documented Human Blocker or when
     the requested scope is complete.
+
+## Sizing
+
+Keep tasks at a meaningful size — a task should deliver a reviewable slice of value, not a
+single trivial edit. Do not over-decompose work into tiny tasks; if several small changes
+serve one goal, fold them into one task (and one PR).
 
 ## Rules
 
-- One task ↔ one branch ↔ one PR.
+- One task ↔ one branch; batch related small changes into one PR; use auto-merge.
 - Never push to `upstream`; never force-push shared branches; never work on `main`.
 - See `docs/agent/AUTONOMOUS-DEVELOPMENT.md` and `docs/agent/HUMAN-BLOCKERS.md`.

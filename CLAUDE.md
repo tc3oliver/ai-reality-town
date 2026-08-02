@@ -44,7 +44,9 @@ Then act by state:
 - Use the Backlog.md CLI (`npm run backlog -- …`) for task operations.
 - Do **not** manually edit task Markdown when the CLI can perform the operation.
 - Read the current workflow instructions before creating, executing, or finalizing tasks.
-- One task maps to one branch and one pull request.
+- One task ↔ one branch. **Batch** related small changes into one PR (multiple commits); open a separate PR only for independently reviewable work.
+- After opening a PR, enable **auto-merge** (`gh pr merge --auto --merge --delete-branch`) and continue — do **not** block-watch CI. If CI fails, GitHub will not auto-merge; fix → push → re-enable auto-merge.
+- Keep tasks at a meaningful, reviewable size; do **not** over-decompose work into tiny tasks.
 - Implementation plans are written into the task before coding.
 
 ## 5. Git Rule

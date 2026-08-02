@@ -16,7 +16,8 @@ modify product code until the graph is complete.
 4. Create tasks that are each **independently acceptance-testable** (clear goal, scope,
    out-of-scope, acceptance criteria). Use the Backlog CLI, not manual edits.
 5. Build the dependency graph (`--depends-on`) so order is explicit.
-6. Check for gaps, cycles, duplicates, and over-large tasks; split or re-link as needed.
+6. Check for gaps, cycles, duplicates, and mis-sized tasks — merge trivially small ones and
+   split over-large ones. Prefer fewer, meaningful, reviewable tasks over many tiny ones.
 7. Do **not** wait for human approval during decomposition.
 8. Only after the graph is complete, select the first **Ready** task and invoke
    `/autonomous-task-loop`.
