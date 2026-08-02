@@ -82,7 +82,7 @@ describe('atomic world configuration import', () => {
     expect(plan?.initialSnapshot).toMatchObject({ worldId: 'mistwood', lastSequenceNumber: -1 });
     expect(plan?.initialSnapshot.projection).toEqual({
       worldId: 'mistwood', lastSequenceNumber: -1, characterLocations: {}, characterAlive: {}, characterStates: {},
-      lastCharacterMovement: {}, itemOwners: {}, characterKnowledge: {}, relationships: {}, facts: [],
+      lastCharacterMovement: {}, itemOwners: {}, characterKnowledge: {}, relationships: {}, relationshipHistory: {}, facts: [],
     });
   });
 

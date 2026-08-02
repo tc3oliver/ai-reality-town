@@ -56,8 +56,9 @@ export const mistwoodInitialProjection: WorldProjection = {
   itemOwners: {},
   characterKnowledge: {},
   relationships: {
-    'cassia|rowan': { trust: 20, affection: 10, resentment: 0 },
+    'cassia|rowan': { trust: 20, affection: 10, resentment: 0, fear: 0, dependency: 5, familiarity: 30, lastUpdatedEventId: 'initial-seed' },
   },
+  relationshipHistory: {},
   facts: [],
 };
 
@@ -104,7 +105,11 @@ export const mistwoodEvents: AcceptedEvent[] = [
         trustDelta: 5,
         affectionDelta: 3,
         resentmentDelta: 0,
+        fearDelta: 0,
+        dependencyDelta: 1,
+        familiarityDelta: 4,
         reason: 'shared a quiet morning at the grove',
+        visibility: 'public',
       },
     ],
   }),

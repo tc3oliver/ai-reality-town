@@ -15,7 +15,14 @@
 import { RELATIONSHIP_MAX, RELATIONSHIP_MIN, SUPPORTED_SCHEMA_VERSIONS } from '../shared/constants';
 import { CanonError, canonError } from '../shared/errors';
 import { relationshipKey } from '../shared/ids';
-import type { AcceptedEvent, CharacterCurrentState, CharacterKnowledgeRecord, RelationshipState, WorldProjection } from './model';
+import type {
+  AcceptedEvent,
+  CharacterCurrentState,
+  CharacterKnowledgeRecord,
+  RelationshipHistoryEntry,
+  RelationshipState,
+  WorldProjection,
+} from './model';
 
 function clampRelationship(value: number): number {
   if (value < RELATIONSHIP_MIN) return RELATIONSHIP_MIN;
@@ -88,6 +95,9 @@ export function reduceWorldEvent(
     }))]),
   );
   const relationships: Record<string, RelationshipState> = { ...projection.relationships };
+  const relationshipHistory: Record<string, RelationshipHistoryEntry[]> = Object.fromEntries(
+    Object.entries(projection.relationshipHistory ?? {}).map(([key, entries]) => [key, entries.map((entry) => ({ ...entry }))]),
+  );
   const facts = projection.facts.slice();
 
   for (const [changeIndex, change] of event.stateChanges.entries()) {
@@ -108,12 +118,35 @@ export function reduceWorldEvent(
       }
       case 'relationship_changed': {
         const key = relationshipKey(change.sourceCharacterId, change.targetCharacterId);
-        const prev = relationships[key] ?? { trust: 0, affection: 0, resentment: 0 };
+        const prev = relationships[key] ?? {
+          trust: 0, affection: 0, resentment: 0, fear: 0, dependency: 0, familiarity: 0,
+          lastUpdatedEventId: event.eventId,
+        };
         relationships[key] = {
           trust: clampRelationship(prev.trust + change.trustDelta),
           affection: clampRelationship(prev.affection + change.affectionDelta),
           resentment: clampRelationship(prev.resentment + change.resentmentDelta),
+          fear: clampRelationship((prev.fear ?? 0) + (change.fearDelta ?? 0)),
+          dependency: clampRelationship((prev.dependency ?? 0) + (change.dependencyDelta ?? 0)),
+          familiarity: Math.max(0, clampRelationship((prev.familiarity ?? 0) + (change.familiarityDelta ?? 0))),
+          lastUpdatedEventId: event.eventId,
         };
+        relationshipHistory[key] = [...(relationshipHistory[key] ?? []), {
+          sourceCharacterId: change.sourceCharacterId,
+          targetCharacterId: change.targetCharacterId,
+          trustDelta: change.trustDelta,
+          affectionDelta: change.affectionDelta,
+          resentmentDelta: change.resentmentDelta,
+          fearDelta: change.fearDelta ?? 0,
+          dependencyDelta: change.dependencyDelta ?? 0,
+          familiarityDelta: change.familiarityDelta ?? 0,
+          reason: change.reason,
+          visibility: change.visibility ?? 'private',
+          sourceEventId: event.eventId,
+          sequenceNumber: event.sequenceNumber,
+          worldDay: event.worldDay,
+          timeSlot: event.timeSlot,
+        }];
         break;
       }
       case 'fact_created': {
@@ -197,6 +230,7 @@ export function reduceWorldEvent(
     itemOwners,
     characterKnowledge,
     relationships,
+    relationshipHistory,
     facts,
   };
 }

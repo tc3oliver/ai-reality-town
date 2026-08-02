@@ -64,7 +64,7 @@ describe('reduceWorldEvent', () => {
     const start: WorldProjection = {
       ...emptyProjection('w'),
       characterLocations: { a: 'l', b: 'l' },
-      relationships: { 'a|b': { trust: 98, affection: 0, resentment: 0 } },
+      relationships: { 'a|b': { trust: 98, affection: 0, resentment: 0, fear: 99, dependency: -99, familiarity: 98, lastUpdatedEventId: 'prior' } },
     };
     const event = accepted({
       sequenceNumber: 0,
@@ -77,12 +77,19 @@ describe('reduceWorldEvent', () => {
           trustDelta: 10,
           affectionDelta: 5,
           resentmentDelta: -3,
+          fearDelta: 5,
+          dependencyDelta: -5,
+          familiarityDelta: 10,
           reason: 'bonded',
+          visibility: 'private',
         },
       ],
     });
     const next = reduceWorldEvent(start, event);
-    expect(next.relationships['a|b']).toEqual({ trust: 100, affection: 5, resentment: -3 });
+    expect(next.relationships['a|b']).toEqual({ trust: 100, affection: 5, resentment: -3, fear: 100, dependency: -100, familiarity: 100, lastUpdatedEventId: event.eventId });
+    expect(next.relationshipHistory['a|b']).toEqual([expect.objectContaining({
+      reason: 'bonded', visibility: 'private', sourceEventId: event.eventId, sequenceNumber: 0,
+    })]);
   });
 
   it('appends a canonical fact on a fact_created change', () => {
