@@ -1,11 +1,11 @@
 ---
 id: ART-34
 title: Incremental recap pyramid
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 21:32'
+updated_date: '2026-08-02 21:41'
 labels:
   - prd-1.0
   - epic-i
@@ -78,14 +78,14 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [x] #3 FR-G002: 不得每次讀取完整世界歷史。
 - [x] #4 FR-G002: 摘要可重新生成，但不得改變 Canon。
 - [x] #5 Automated tests provide evidence for every mapped FR-G002 acceptance criterion, including rejection and failure paths.
-- [ ] #6 PRD traceability links FR-G002 to doc-1 and the merged implementation evidence.
+- [x] #6 PRD traceability links FR-G002 to doc-1 and the merged implementation evidence.
 - [x] #7 Section 13.11: Recap Snapshot records id, worldId, recapType, targetId, sourceFromEventId, sourceToEventId, content, structuredPayload, version, and generatedAt; its source range resolves only to Accepted Events.
 - [x] #8 Recap Snapshot regeneration creates a new version, preserves prior versions for audit, and never mutates Canon.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -98,7 +98,7 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -115,10 +115,12 @@ Implemented strict Recap Snapshot v1 for scene, episode, arc, season, and viewer
 Validation rejects proposed-shaped, foreign, duplicate, gapped, overlapping, forged, and mismatched sources. Snapshot ID reuse with different inputs is an explicit conflict. Persistence is internal-only, append-only in recapSnapshots, and does not import Canon commit/reducer paths. Verification: focused Jest 9/9; Convex codegen; npm run check passed architecture, typecheck, lint, 45 suites/384 tests, and build; git diff --check passed.
 
 Post-rebase verification and push evidence: commit 8d40aa0 is published at origin/feat/ART-34-recap-pyramid; npm run check passed after rebasing onto merged ART-22.
+
+Merged implementation evidence: PR #80 merged at 2026-08-02T21:33:42Z as 8afd13243cfbcc727ece5b4ef31171271cda6872, linking FR-G002 and Section 13.11 to PRD doc-1 and accepted implementation.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Added the traceable incremental Raw Event→Scene→Episode→Arc→Season→Viewer recap pyramid and full Recap Snapshot contract. Updates use only prior summary plus bounded new Accepted Events; regeneration preserves old versions and cannot mutate Canon. Focused tests and full 384-test/typecheck/lint/build checks pass; merged traceability evidence remains pending.
+Delivered and merged the incremental Raw Event→Scene→Episode→Arc→Season→Viewer recap pyramid in PR #80 (merge 8afd132), including the complete Section 13.11 contract, bounded Accepted Event provenance, prior-summary incremental updates, and append-only regeneration. Verified by 9 focused tests and full typecheck/lint/test/build checks.
 <!-- SECTION:FINAL_SUMMARY:END -->
