@@ -84,7 +84,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -98,6 +98,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 <!-- SECTION:NOTES:BEGIN -->
 Added an executable reducer import/capability allowlist plus repeated isolated-copy determinism checks over all six state-change variants for every declared supported schema version. Existing reducer/replay tests prove sequence ordering, gaps, duplicates, world mismatch, and mutation isolation. Focused command passed 3 suites/24 tests; full npm run check passed architecture, typecheck, lint, 21 suites/243 tests, and build. ACs are proven; DoD1/13/14 remain commit/merge dependent.
+
+Implementation committed and pushed on feat/ART-16-deterministic-reducer.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
