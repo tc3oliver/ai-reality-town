@@ -1,11 +1,11 @@
 ---
 id: ART-80
 title: Unique item and asset ownership projection
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 16:19'
-updated_date: '2026-08-02 20:23'
+updated_date: '2026-08-02 20:29'
 labels:
   - prd-1.0
   - epic-c
@@ -72,7 +72,7 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -84,8 +84,8 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -98,10 +98,12 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 <!-- SECTION:NOTES:BEGIN -->
 Strengthened item_transferred to require an explicit previous owner or null initial custody, target, and reason. Canon validates the unique current/seed owner, same-target, duplicate same-event transfer, and all references. Reducer appends per-item history with previous/new owner, reason, Accepted Event ID, sequence, world day, and time slot while keeping one current owner. Snapshot/replay clone history; duplicate commit retries return the original event and produce one ledger entry. Convex codegen succeeded. Focused verification passed 27 tests; npm run check passed architecture, typecheck, lint, 34 suites/311 tests, and build.
+
+PR #58 merged at 2026-08-02T20:24:49Z: https://github.com/tc3oliver/ai-reality-town/pull/58
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Implemented Sections 9.1/13 and FR-D004 item ownership with explicit prior-state transfers, unique current ownership, immutable Accepted-Event ledger provenance, deterministic replay/snapshots, and retry idempotency. Full verification passed 311 tests; merge evidence remains pending.
+Implemented Sections 9.1/13 and FR-D004 item ownership with explicit prior-state transfers, unique current ownership, immutable Accepted-Event ledger provenance, deterministic replay/snapshots, and retry idempotency. Verified by npm run check (34 suites, 311 tests) and merged PR #58.
 <!-- SECTION:FINAL_SUMMARY:END -->
