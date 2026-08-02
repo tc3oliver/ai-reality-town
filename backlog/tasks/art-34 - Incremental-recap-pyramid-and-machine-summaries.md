@@ -5,7 +5,7 @@ status: In Review
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 21:30'
+updated_date: '2026-08-02 21:32'
 labels:
   - prd-1.0
   - epic-i
@@ -97,7 +97,7 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -113,6 +113,8 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 Implemented strict Recap Snapshot v1 for scene, episode, arc, season, and viewer_context with every Section 13.11 field, ordered Accepted Event provenance, sequence bounds, prior version, and incremental/regeneration metadata. Normal updates query only the contiguous range after the latest snapshot; explicit regeneration appends a new version over the prior accepted range.
 
 Validation rejects proposed-shaped, foreign, duplicate, gapped, overlapping, forged, and mismatched sources. Snapshot ID reuse with different inputs is an explicit conflict. Persistence is internal-only, append-only in recapSnapshots, and does not import Canon commit/reducer paths. Verification: focused Jest 9/9; Convex codegen; npm run check passed architecture, typecheck, lint, 45 suites/384 tests, and build; git diff --check passed.
+
+Post-rebase verification and push evidence: commit 8d40aa0 is published at origin/feat/ART-34-recap-pyramid; npm run check passed after rebasing onto merged ART-22.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
