@@ -1,11 +1,11 @@
 ---
 id: ART-26
 title: Bounded authorized memory retrieval
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 19:58'
+updated_date: '2026-08-02 20:04'
 labels:
   - prd-1.0
   - epic-g
@@ -13,6 +13,8 @@ milestone: m-0
 dependencies:
   - ART-25
   - ART-57
+references:
+  - 'https://github.com/tc3oliver/ai-reality-town/pull/49'
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
 priority: high
@@ -70,12 +72,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #3 FR-E003: 不得將完整歷史放入每次 Prompt。
 - [x] #4 FR-E003: 不得返回角色無權取得的記憶。
 - [x] #5 Automated tests provide evidence for every mapped FR-E003 acceptance criterion, including rejection and failure paths.
-- [ ] #6 PRD traceability links FR-E003 to doc-1 and the merged implementation evidence.
+- [x] #6 PRD traceability links FR-E003 to doc-1 and the merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -87,8 +89,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -101,10 +103,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented authorization-first deterministic retrieval with a server maximum of 12, five-factor ranking, stable tie-breaking, selected-record event provenance and factor traces, internal-only cognition access, and no prompt/full-history response. Convex codegen succeeded. Focused verification passed 5 tests; final npm run check passed architecture, typecheck, lint, 30 suites/294 tests, and build.
+
+Implementation PR #49 merged into main on 2026-08-02T20:00:14Z after Bootstrap and CI checks succeeded.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Implemented FR-E003 bounded authorized memory retrieval with deterministic five-factor scoring, strict self-access, event-proven traces, hard result limits, and a response boundary that excludes full history and prompts. Full verification passed 294 tests; merge evidence remains pending.
+Delivered FR-E003 through merged PR #49: deterministic five-factor authorized memory retrieval, strict self-access and result bounds, Accepted Event provenance traces, and no full-history or Prompt output. Full pre-merge verification passed 294 tests.
 <!-- SECTION:FINAL_SUMMARY:END -->
