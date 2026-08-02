@@ -100,6 +100,22 @@ export const canonTables = {
     .index('by_world_and_source', ['worldId', 'sourceCharacterId'])
     .index('by_world_and_pair', ['worldId', 'sourceCharacterId', 'targetCharacterId']),
 
+  worldTensionProfiles: defineTable({
+    worldId: v.string(),
+    schemaVersion: v.number(),
+    evaluatedAt: v.number(),
+    payload: v.any(),
+  }).index('by_world_and_time', ['worldId', 'evaluatedAt']),
+
+  worldTensionReadinessReports: defineTable({
+    worldId: v.string(),
+    readyForWarmup: v.boolean(),
+    evaluatedAt: v.number(),
+    payload: v.any(),
+  })
+    .index('by_world_and_time', ['worldId', 'evaluatedAt'])
+    .index('by_ready_and_time', ['readyForWarmup', 'evaluatedAt']),
+
   canonEvents: defineTable({
     worldId: v.string(),
     sequenceNumber: v.number(),
