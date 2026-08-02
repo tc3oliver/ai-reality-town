@@ -5,7 +5,7 @@ status: In Review
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 21:40'
+updated_date: '2026-08-02 21:41'
 labels:
   - prd-1.0
   - epic-f
@@ -95,7 +95,7 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -109,6 +109,8 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented the exact Section 12 stages 1-10 contract with ordered immutable artifacts, durable per-attempt checkpoints, stable failure stage/code, safe first-incomplete-stage resume, terminal completed-run idempotency, and run identity conflict protection. Internal Convex tables/functions persist and inspect run/checkpoint state. Validation stages cannot invoke commit; stage 10 is one atomic idempotent commit adapter boundary and malformed commit evidence fails closed. Verification: NODE_OPTIONS=--experimental-vm-modules npx jest convex/simulation/worldDayOrchestration.test.ts --runInBand passed 16/16 including failure injection at all ten stages, safe retry, duplicate run, validation no-write, atomic rollback, and invalid evidence; npx convex codegen passed; npm run check passed architecture, typecheck, lint, 46 suites/397 tests, and build; git diff --check passed.
+
+Post-rebase verification on merged ART-34 and ART-22 evidence: npm run check passed 47 suites/406 tests plus architecture, typecheck, lint, and build at commit 17487f0.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
