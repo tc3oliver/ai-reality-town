@@ -87,7 +87,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -101,6 +101,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented an event-derived knowledge ledger with all six source types, belief value, truth status, bounded confidence, learned world time, shareability, immutable correction chains, and safe additive v1 normalization. Initial seed knowledge now also retains source provenance. Internal authorization permits self/operations reads and rejects cross-character access; no public query exists. Duplicate corrections in one event and invalid correction targets are rejected. Convex codegen succeeded. Focused verification passed 79 tests; final npm run check passed architecture, typecheck, expanded knowledge lint coverage, 25 suites/262 tests, and build.
+
+Implementation commit 47e5363 pushed on feat/ART-24-knowledge-ledger.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
