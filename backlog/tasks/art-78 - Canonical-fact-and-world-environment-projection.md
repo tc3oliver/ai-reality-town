@@ -1,11 +1,11 @@
 ---
 id: ART-78
 title: Canonical fact and world environment projection
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 16:19'
-updated_date: '2026-08-02 20:09'
+updated_date: '2026-08-02 20:15'
 labels:
   - prd-1.0
   - epic-e
@@ -13,6 +13,8 @@ milestone: m-0
 dependencies:
   - ART-12
   - ART-16
+references:
+  - 'https://github.com/tc3oliver/ai-reality-town/pull/52'
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
 priority: high
@@ -72,7 +74,7 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -84,8 +86,8 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -98,10 +100,12 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 <!-- SECTION:NOTES:BEGIN -->
 Extended every projected Canonical Fact with deterministic identity, typed subject, predicate/value/visibility, valid-from and nullable valid-until Accepted Event provenance. A later Accepted Event for the same subject/predicate closes the old projection version and appends the replacement. World facts additionally maintain cloned current environment state and lossless version history. Canon rejects foreign-world subjects and duplicate same-key changes in one event. Focused verification passed 28 tests including 30-day snapshots; npm run check passed architecture, typecheck, lint, 31 suites/297 tests, and build.
+
+Implementation PR #52 merged into main on 2026-08-02T20:10:40Z after Bootstrap and CI checks succeeded.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Implemented Sections 13.5/13.8 and NFR-008 fact/environment projections: Accepted-Event-only versioning, complete validity and visibility metadata, current plus historical world environment state, and deterministic snapshot/replay equality. Full verification passed 297 tests; merge evidence remains pending.
+Delivered Sections 13.5/13.8 and NFR-008 through merged PR #52: Accepted-Event-only versioned Canonical Facts, validity/visibility provenance, current and historical world environment projections, and deterministic snapshot/replay equality. Full pre-merge verification passed 297 tests.
 <!-- SECTION:FINAL_SUMMARY:END -->
