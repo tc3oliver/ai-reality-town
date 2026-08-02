@@ -5,7 +5,7 @@ status: In Review
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:30'
-updated_date: '2026-08-02 18:04'
+updated_date: '2026-08-02 18:05'
 labels:
   - prd-1.0
   - epic-b
@@ -88,7 +88,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -105,6 +105,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented CharacterSeedBundleV1 for 12–20 adult fictional primary characters with complete persona/public-private goals, valid initial location/organizations, personal secrets/initial knowers, knowledge, owned assets, and six-dimensional directional relationships. Added strict stable-code runtime validation for counts, declarations, duplicates, every cross-reference, per-character completeness, relationship self/duplicate/range rules, missing world, repeated seed, and atomic injected-failure rollback. Added internal-only Convex seed mutation and dedicated character/secret/knowledge/asset/relationship tables. Convex codegen succeeded and uploaded functions/schema to the configured development deployment only. Focused validation: 1 suite/22 tests. Full npm run check: architecture gates, typecheck, lint, 15 suites/138 tests, build.
+
+Implementation and validation evidence committed and pushed to origin/feat/ART-6-character-seed.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
