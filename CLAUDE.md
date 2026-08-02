@@ -7,7 +7,7 @@ duplicate them here.
 ## 1. Project Control Plane
 
 - **Backlog.md is the sole task source of truth.**
-- The PRD (`docs/product/PRD.md`, when present) is the product requirement source of truth.
+- The PRD (stored as `backlog doc` entries under `backlog/docs/prd/`) is the product requirement source of truth.
 - Git history, merged PRs, tests, ADRs, and Backlog tasks are the persistent project record.
 - Conversation history must **not** be treated as the project record.
 
@@ -83,7 +83,7 @@ See `docs/architecture/adr/` and `docs/DEVELOPMENT.md`.
 - `docs/agent/SESSION-RECOVERY.md`
 - `docs/agent/BACKLOG-WORKFLOW.md`
 - `docs/agent/BOOTSTRAP-STATUS.md`
-- `docs/product/PRD.md` (when present)
+- `backlog/docs/prd/` (PRD entries, one per version)
 - `docs/DEVELOPMENT.md`, `docs/architecture/`
 
 <!-- BACKLOG.MD GUIDELINES START -->

@@ -85,7 +85,14 @@ export function renderContext() {
   const inProgress = tasks.find((t) => t.status === 'In Progress');
   const ready = tasks.filter((t) => t.status === 'To Do').length;
   const bootstrapComplete = isBootstrapComplete();
-  const prdPresent = existsSync(join(ROOT, 'docs', 'product', 'PRD.md'));
+  const prdPresent = (() => {
+    const docsDir = join(ROOT, 'backlog', 'docs', 'prd');
+    try {
+      return readdirSync(docsDir).some((f) => f.endsWith('.md'));
+    } catch {
+      return false;
+    }
+  })();
 
   const lines = [];
   lines.push('AI Reality Town session context');
