@@ -83,7 +83,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -100,6 +100,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented policy v1 in architecture/module-boundaries.json with executable import scanning and provider-adapter isolation. Added module ownership and PRD-area routing documentation. Validation: npm run check:architecture (pass, 11 modules); npm run test:architecture (pass, 6 tests including reverse-dependency and provider-leak failures); npm run check (pass: typecheck, lint, 12 Jest suites/102 tests, production build). No external credentials were used.
+
+Committed as the ART-3 implementation commit and pushed to origin/feat/ART-3-module-boundaries.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
