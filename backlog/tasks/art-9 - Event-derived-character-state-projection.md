@@ -1,11 +1,11 @@
 ---
 id: ART-9
 title: Event-derived character state projection
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 19:17'
+updated_date: '2026-08-02 19:19'
 labels:
   - prd-1.0
   - epic-c
@@ -13,6 +13,8 @@ milestone: m-0
 dependencies:
   - ART-12
   - ART-16
+references:
+  - 'https://github.com/tc3oliver/ai-reality-town/pull/36'
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
 priority: high
@@ -69,12 +71,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #2 FR-B001: LLM 不得直接覆寫角色目前狀態。
 - [x] #3 FR-B001: 狀態必須可從 Replay 重建。
 - [x] #4 Automated tests provide evidence for every mapped FR-B001 acceptance criterion, including rejection and failure paths.
-- [ ] #5 PRD traceability links FR-B001 to doc-1 and the merged implementation evidence.
+- [x] #5 PRD traceability links FR-B001 to doc-1 and the merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -87,13 +89,13 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
-1. Extend the versioned Canon state-change contract with typed character current-state updates for health, emotion, finance, occupation, organization memberships, availability, and active status while retaining existing event-derived location/alive transitions. 2. Extend WorldProjection/reducer/snapshot cloning so all named fields are reconstructed exclusively from ordered Accepted Events; validate field-specific value types, prior-state preconditions, references, participants, and non-empty reasons before commit. 3. Add an internal private projection query and prove provider/LLM output cannot directly overwrite projection state or bypass Proposed Event normalization/Canon validation. 4. Add exhaustive reducer/replay/rejection tests, update deterministic-version coverage/docs/codegen, run full gates, finalize, and auto-merge.
+1. Add a typed character-state event union for every FR-B001 field and reject provider-side direct projection mutation. 2. Project unified current state solely through the pure reducer, including movement and life-status synchronization. 3. Extend snapshot/replay cloning and internal read boundaries. 4. Add focused validation, reducer, replay, privacy, and direct-mutation rejection tests; document and run full gates.
 <!-- SECTION:PLAN:END -->
 
 ## Implementation Notes
@@ -102,10 +104,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 Implemented typed character_state_changed proposals for health, emotion, finance, occupation, organization memberships, availability, and active; existing accepted movement/life events synchronously project location and alive, with death forcing active=false. Added prior-value/no-op/duplicate-field/type/reason/participant/character/organization/contradictory-death validation, unified deterministic projection and deep snapshot cloning, organization context loading, and internal-only Canon/state queries. Direct provider projection fields are rejected before commit and cause zero writes. Development Convex codegen succeeded. Focused command passed 4 suites/26 tests; full npm run check passed architecture, typecheck, lint, 23 suites/250 tests, and build. AC5 and DoD1/13/14 remain merge-evidence dependent.
 
 Implementation committed and pushed on feat/ART-9-character-state-projection.
+
+Merged PR #36 on 2026-08-02T19:19:10Z after Bootstrap and CI checks succeeded. The implementation adds event-derived location, health, emotion, finance, occupation, organization memberships, availability, alive, and active projection; rejects direct provider character-state envelopes; preserves deterministic replay and internal-only reads. Full combined verification passed architecture checks, typecheck, lint, build, and 24 suites/256 tests.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Implemented FR-B001 event-derived character state for all required fields. Only validated Accepted Events alter state; provider direct overwrite is rejected, death is consistent, private state stays internal, and full/snapshot replay reconstructs identical results. Full check passed with 250 tests; merge evidence remains pending.
+Delivered FR-B001 through merged PR #36. All current character state is reducer-derived from accepted events, direct LLM projection mutation is rejected, replay reproduces state, and focused plus full checks passed 256 tests.
 <!-- SECTION:FINAL_SUMMARY:END -->
