@@ -73,7 +73,10 @@ export function cloneProjection(projection: WorldProjection): WorldProjection {
     ),
     itemOwners: { ...projection.itemOwners },
     characterKnowledge: Object.fromEntries(
-      Object.entries(projection.characterKnowledge).map(([id, facts]) => [id, [...facts]]),
+      Object.entries(projection.characterKnowledge).map(([id, records]) => [id, records.map((record) => ({
+        ...record,
+        learnedAt: { ...record.learnedAt },
+      }))]),
     ),
     relationships,
     relationshipHistory,

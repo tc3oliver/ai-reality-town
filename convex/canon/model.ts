@@ -12,6 +12,8 @@ import type {
   FactSubjectType,
   FactVisibility,
   KnowledgeSourceType,
+  KnowledgeTruthStatus,
+  KnowledgeShareability,
   ProposedByType,
   TimeSlot,
 } from './eventTypes';
@@ -24,6 +26,8 @@ export type {
   FactSubjectType,
   FactVisibility,
   KnowledgeSourceType,
+  KnowledgeTruthStatus,
+  KnowledgeShareability,
   ProposedByType,
   TimeSlot,
 } from './eventTypes';
@@ -81,6 +85,11 @@ export type StateChange =
       factId: string;
       sourceType: KnowledgeSourceType;
       sourceEventId: string;
+      beliefValue?: string | number | boolean;
+      truthStatus?: KnowledgeTruthStatus;
+      confidence?: number;
+      shareability?: KnowledgeShareability;
+      correctsKnowledgeId?: string;
     }
   | {
       type: 'item_transferred';
@@ -212,6 +221,21 @@ export type CharacterCurrentState = {
   lastUpdatedEventId: string;
 };
 
+export type CharacterKnowledgeRecord = {
+  knowledgeId: string;
+  characterId: string;
+  factId: string;
+  beliefValue: string | number | boolean;
+  truthStatus: KnowledgeTruthStatus;
+  confidence: number;
+  sourceType: KnowledgeSourceType;
+  sourceEventId: string;
+  learnedAt: { worldDay: number; timeSlot: TimeSlot; eventId: string };
+  shareability: KnowledgeShareability;
+  correctsKnowledgeId?: string;
+  correctedByKnowledgeId?: string;
+};
+
 /**
  * Foundation world projection — derived *only* from ordered accepted events. This is a
  * foundation read model, not a complete world state.
@@ -225,7 +249,7 @@ export type WorldProjection = {
   characterStates: Record<string, CharacterCurrentState>;
   lastCharacterMovement: Record<string, { worldDay: number; timeSlot: TimeSlot; eventId: string }>;
   itemOwners: Record<string, string>;
-  characterKnowledge: Record<string, string[]>;
+  characterKnowledge: Record<string, CharacterKnowledgeRecord[]>;
   relationships: Record<string, RelationshipState>;
   relationshipHistory: Record<string, RelationshipHistoryEntry[]>;
   facts: ProjectedFact[];

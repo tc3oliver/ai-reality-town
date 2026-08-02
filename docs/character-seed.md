@@ -16,8 +16,9 @@ A bundle contains 12–20 primary fictional characters. Every character requires
 - at least one initial knowledge record and owned asset;
 - participation in at least one initial relationship.
 
-Secrets require one or more valid initial knowers. Knowledge and assets reference valid
-characters. Directional relationships contain trust, affection, resentment, fear,
+Secrets require one or more valid initial knowers. Knowledge records reference valid
+characters and normalize source type, source reference, and learned world day so even
+initial beliefs retain provenance. Assets reference valid characters. Directional relationships contain trust, affection, resentment, fear,
 dependency, familiarity, and visibility. A reciprocal pair is valid because the two
 directions may differ; duplicate `(sourceCharacterId, targetCharacterId)` pairs,
 self-relationships, unknown characters, and out-of-range dimensions are rejected.

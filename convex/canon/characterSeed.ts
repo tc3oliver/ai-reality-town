@@ -39,6 +39,9 @@ export type SeedKnowledge = {
   truthStatus: 'true' | 'false' | 'unknown';
   confidence: number;
   shareability: 'private' | 'trusted' | 'public';
+  sourceType: 'observed' | 'told' | 'public' | 'evidence' | 'inference' | 'memory';
+  sourceReference: string;
+  learnedAtWorldDay: number;
 };
 
 export type SeedAsset = {
@@ -208,7 +211,16 @@ function parseSecret(value: unknown, index: number): SeedSecret {
 
 function parseKnowledge(value: unknown, index: number): SeedKnowledge {
   const path = `knowledge[${index}]`;
-  const record = object(value, path, ['id', 'characterId', 'content', 'truthStatus', 'confidence', 'shareability']);
+  const record = object(value, path, [
+    'id', 'characterId', 'content', 'truthStatus', 'confidence', 'shareability',
+    'sourceType', 'sourceReference', 'learnedAtWorldDay',
+  ]);
+  const learnedAtWorldDay = record.learnedAtWorldDay === undefined
+    ? 0
+    : bounded(record.learnedAtWorldDay, `${path}.learnedAtWorldDay`, 0, Number.MAX_SAFE_INTEGER);
+  if (!Number.isSafeInteger(learnedAtWorldDay)) {
+    throw new CharacterSeedError('CHARACTER_SEED_INVALID_SHAPE', 'learnedAtWorldDay must be a safe integer', `${path}.learnedAtWorldDay`);
+  }
   return {
     id: string(record.id, `${path}.id`),
     characterId: string(record.characterId, `${path}.characterId`),
@@ -216,6 +228,13 @@ function parseKnowledge(value: unknown, index: number): SeedKnowledge {
     truthStatus: enumValue(record.truthStatus, `${path}.truthStatus`, ['true', 'false', 'unknown'] as const),
     confidence: bounded(record.confidence, `${path}.confidence`, 0, 1),
     shareability: enumValue(record.shareability, `${path}.shareability`, ['private', 'trusted', 'public'] as const),
+    sourceType: record.sourceType === undefined
+      ? 'memory'
+      : enumValue(record.sourceType, `${path}.sourceType`, ['observed', 'told', 'public', 'evidence', 'inference', 'memory'] as const),
+    sourceReference: record.sourceReference === undefined
+      ? 'world-initialization'
+      : string(record.sourceReference, `${path}.sourceReference`),
+    learnedAtWorldDay,
   };
 }
 

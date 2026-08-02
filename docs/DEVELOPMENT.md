@@ -98,6 +98,7 @@ in [`docs/testing/fixtures.md`](testing/fixtures.md).
 - **Deterministic reducer contract:** `docs/deterministic-reducer.md`.
 - **Snapshot and non-destructive recovery:** `docs/snapshot-recovery.md`.
 - **Event-derived character state:** `docs/character-state-projection.md`.
+- **Source-proven character knowledge:** `docs/character-knowledge-ledger.md`.
 - **Directional relationship projection:** `docs/relationship-projection.md`.
 - **World scheduler and run state:** `docs/world-scheduler.md`.
 - **Initial tension warmup gate:** `docs/tension-readiness.md`.

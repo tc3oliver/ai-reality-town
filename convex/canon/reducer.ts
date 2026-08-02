@@ -15,7 +15,14 @@
 import { RELATIONSHIP_MAX, RELATIONSHIP_MIN, SUPPORTED_SCHEMA_VERSIONS } from '../shared/constants';
 import { CanonError, canonError } from '../shared/errors';
 import { relationshipKey } from '../shared/ids';
-import type { AcceptedEvent, CharacterCurrentState, RelationshipHistoryEntry, RelationshipState, WorldProjection } from './model';
+import type {
+  AcceptedEvent,
+  CharacterCurrentState,
+  CharacterKnowledgeRecord,
+  RelationshipHistoryEntry,
+  RelationshipState,
+  WorldProjection,
+} from './model';
 
 function clampRelationship(value: number): number {
   if (value < RELATIONSHIP_MIN) return RELATIONSHIP_MIN;
@@ -81,8 +88,11 @@ export function reduceWorldEvent(
     Object.entries(projection.lastCharacterMovement).map(([id, movement]) => [id, { ...movement }]),
   );
   const itemOwners = { ...projection.itemOwners };
-  const characterKnowledge = Object.fromEntries(
-    Object.entries(projection.characterKnowledge).map(([id, facts]) => [id, [...facts]]),
+  const characterKnowledge: Record<string, CharacterKnowledgeRecord[]> = Object.fromEntries(
+    Object.entries(projection.characterKnowledge).map(([id, records]) => [id, records.map((record) => ({
+      ...record,
+      learnedAt: { ...record.learnedAt },
+    }))]),
   );
   const relationships: Record<string, RelationshipState> = { ...projection.relationships };
   const relationshipHistory: Record<string, RelationshipHistoryEntry[]> = Object.fromEntries(
@@ -90,7 +100,7 @@ export function reduceWorldEvent(
   );
   const facts = projection.facts.slice();
 
-  for (const change of event.stateChanges) {
+  for (const [changeIndex, change] of event.stateChanges.entries()) {
     switch (change.type) {
       case 'character_location_changed': {
         characterLocations[change.characterId] = change.toLocationId;
@@ -162,9 +172,26 @@ export function reduceWorldEvent(
       }
       case 'character_knowledge_learned': {
         const known = characterKnowledge[change.characterId] ?? [];
-        characterKnowledge[change.characterId] = known.includes(change.factId)
-          ? [...known]
-          : [...known, change.factId];
+        const knowledgeId = `${event.eventId}:knowledge:${changeIndex}`;
+        const corrected = change.correctsKnowledgeId === undefined
+          ? known.map((record) => ({ ...record, learnedAt: { ...record.learnedAt } }))
+          : known.map((record) => record.knowledgeId === change.correctsKnowledgeId
+            ? { ...record, learnedAt: { ...record.learnedAt }, correctedByKnowledgeId: knowledgeId }
+            : { ...record, learnedAt: { ...record.learnedAt } });
+        corrected.push({
+          knowledgeId,
+          characterId: change.characterId,
+          factId: change.factId,
+          beliefValue: change.beliefValue ?? change.factId,
+          truthStatus: change.truthStatus ?? 'unknown',
+          confidence: change.confidence ?? 0.5,
+          sourceType: change.sourceType,
+          sourceEventId: change.sourceEventId,
+          learnedAt: { worldDay: event.worldDay, timeSlot: event.timeSlot, eventId: event.eventId },
+          shareability: change.shareability ?? 'private',
+          ...(change.correctsKnowledgeId === undefined ? {} : { correctsKnowledgeId: change.correctsKnowledgeId }),
+        });
+        characterKnowledge[change.characterId] = corrected;
         break;
       }
       case 'item_transferred': {

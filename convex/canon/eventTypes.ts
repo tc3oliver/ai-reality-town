@@ -51,6 +51,12 @@ export const KNOWLEDGE_SOURCE_TYPES = [
 ] as const;
 export type KnowledgeSourceType = (typeof KNOWLEDGE_SOURCE_TYPES)[number];
 
+export const KNOWLEDGE_TRUTH_STATUSES = ['true', 'false', 'unknown'] as const;
+export type KnowledgeTruthStatus = (typeof KNOWLEDGE_TRUTH_STATUSES)[number];
+
+export const KNOWLEDGE_SHAREABILITIES = ['private', 'trusted', 'public'] as const;
+export type KnowledgeShareability = (typeof KNOWLEDGE_SHAREABILITIES)[number];
+
 export const CHARACTER_STATE_FIELDS = [
   'health', 'emotion', 'finance', 'occupation', 'organization_memberships',
   'availability', 'active',
@@ -64,6 +70,8 @@ const FACT_VISIBILITY_SET = new Set<string>(FACT_VISIBILITIES);
 const FACT_SUBJECT_TYPE_SET = new Set<string>(FACT_SUBJECT_TYPES);
 const STATE_CHANGE_TYPE_SET = new Set<string>(STATE_CHANGE_TYPES);
 const KNOWLEDGE_SOURCE_TYPE_SET = new Set<string>(KNOWLEDGE_SOURCE_TYPES);
+const KNOWLEDGE_TRUTH_STATUS_SET = new Set<string>(KNOWLEDGE_TRUTH_STATUSES);
+const KNOWLEDGE_SHAREABILITY_SET = new Set<string>(KNOWLEDGE_SHAREABILITIES);
 const CHARACTER_STATE_FIELD_SET = new Set<string>(CHARACTER_STATE_FIELDS);
 
 export const isTimeSlot = (v: unknown): v is TimeSlot =>
@@ -80,5 +88,9 @@ export const isStateChangeType = (v: unknown): v is StateChangeType =>
   typeof v === 'string' && STATE_CHANGE_TYPE_SET.has(v);
 export const isKnowledgeSourceType = (v: unknown): v is KnowledgeSourceType =>
   typeof v === 'string' && KNOWLEDGE_SOURCE_TYPE_SET.has(v);
+export const isKnowledgeTruthStatus = (v: unknown): v is KnowledgeTruthStatus =>
+  typeof v === 'string' && KNOWLEDGE_TRUTH_STATUS_SET.has(v);
+export const isKnowledgeShareability = (v: unknown): v is KnowledgeShareability =>
+  typeof v === 'string' && KNOWLEDGE_SHAREABILITY_SET.has(v);
 export const isCharacterStateField = (v: unknown): v is CharacterStateField =>
   typeof v === 'string' && CHARACTER_STATE_FIELD_SET.has(v);
