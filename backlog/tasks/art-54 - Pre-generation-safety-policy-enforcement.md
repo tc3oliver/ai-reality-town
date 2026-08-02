@@ -1,17 +1,19 @@
 ---
 id: ART-54
 title: Pre-generation safety policy enforcement
-status: In Progress
+status: In Review
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-02 18:21'
+updated_date: '2026-08-02 18:22'
 labels:
   - prd-1.0
   - epic-n
 milestone: m-0
 dependencies:
   - ART-3
+references:
+  - 'https://github.com/tc3oliver/ai-reality-town/pull/20'
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
 modified_files:
@@ -89,7 +91,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -106,6 +108,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented policy v1 with eight stable prohibited-category codes, text-free rejection records, world/prompt/context evaluation, simple obfuscation normalization, immutable provider constraints, and a provider callback guard. Focused validation: convex/safety/preGeneration.test.ts, 17 tests passed. Full npm run check passed architecture checks, typecheck, safety-inclusive lint, 17 suites/171 tests, and Vite build.
+
+Committed as f224999, pushed to origin, and opened PR #20.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
