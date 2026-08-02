@@ -76,6 +76,45 @@ describe('validateEventStructure', () => {
     };
     expect(validateEventStructure(event)?.code).toBe('INVALID_EVENT_SHAPE');
   });
+
+  it.each<{
+    name: string;
+    mutate: (event: Record<string, unknown>) => void;
+    code: 'INVALID_EVENT_SHAPE' | 'UNSUPPORTED_SCHEMA_VERSION';
+    path: string;
+  }>([
+    { name: 'missing required world', mutate: (event) => { delete event.worldId; }, code: 'INVALID_EVENT_SHAPE', path: 'worldId' },
+    { name: 'unsupported version', mutate: (event) => { event.schemaVersion = 2; }, code: 'UNSUPPORTED_SCHEMA_VERSION', path: 'schemaVersion' },
+    { name: 'unknown event type', mutate: (event) => { event.eventType = 'vendor_event'; }, code: 'INVALID_EVENT_SHAPE', path: 'eventType' },
+    { name: 'unknown state union', mutate: (event) => { event.stateChanges = [{ type: 'vendor_change' }]; }, code: 'INVALID_EVENT_SHAPE', path: 'stateChanges[0]' },
+    { name: 'duplicate participant', mutate: (event) => { event.participantIds = ['a', 'a']; }, code: 'INVALID_EVENT_SHAPE', path: 'participantIds' },
+    { name: 'non-finite delta', mutate: (event) => { event.stateChanges = [{ type: 'relationship_changed', sourceCharacterId: 'a', targetCharacterId: 'b', trustDelta: Number.NaN, affectionDelta: 0, resentmentDelta: 0, reason: 'x' }]; }, code: 'INVALID_EVENT_SHAPE', path: 'stateChanges[0].trustDelta' },
+    { name: 'non-finite fact value', mutate: (event) => { event.stateChanges = [{ type: 'fact_created', subjectType: 'world', subjectId: 'w', predicate: 'x', value: Number.POSITIVE_INFINITY, visibility: 'canon' }]; }, code: 'INVALID_EVENT_SHAPE', path: 'stateChanges[0].value' },
+    { name: 'invalid idempotency key', mutate: (event) => { event.idempotencyKey = 'contains spaces'; }, code: 'INVALID_EVENT_SHAPE', path: 'idempotencyKey' },
+    { name: 'unsafe world day', mutate: (event) => { event.worldDay = Number.MAX_SAFE_INTEGER + 1; }, code: 'INVALID_EVENT_SHAPE', path: 'worldDay' },
+    { name: 'long summary', mutate: (event) => { event.publicSummary = 'x'.repeat(281); }, code: 'INVALID_EVENT_SHAPE', path: 'publicSummary' },
+    { name: 'invalid participant reference', mutate: (event) => { event.participantIds = ['bad/ref']; }, code: 'INVALID_EVENT_SHAPE', path: 'participantIds' },
+    { name: 'unknown envelope key', mutate: (event) => { event.vendorPayload = true; }, code: 'INVALID_EVENT_SHAPE', path: '$' },
+    { name: 'unknown proposal-source key', mutate: (event) => { event.proposedBy = { type: 'system', vendor: true }; }, code: 'INVALID_EVENT_SHAPE', path: 'proposedBy' },
+    { name: 'unknown union key', mutate: (event) => { event.stateChanges = [{ ...(event.stateChanges as Record<string, unknown>[])[0], vendor: true }]; }, code: 'INVALID_EVENT_SHAPE', path: 'stateChanges[0]' },
+    { name: 'non-JSON metadata', mutate: (event) => { event.metadata = { callback: () => true }; }, code: 'INVALID_EVENT_SHAPE', path: 'metadata.callback' },
+    { name: 'non-finite metadata', mutate: (event) => { event.metadata = { score: Number.NaN }; }, code: 'INVALID_EVENT_SHAPE', path: 'metadata.score' },
+  ])('returns stable code/path for $name', ({ mutate, code, path }) => {
+    const event = validMovement(projectionWithAAt('w', 'loc-1')) as unknown as Record<string, unknown>;
+    mutate(event);
+    const error = validateEventStructure(event);
+    expect(error).toMatchObject({ code, path });
+  });
+
+  it('rejects cyclic metadata with a stable path instead of recursing indefinitely', () => {
+    const metadata: Record<string, unknown> = {};
+    metadata.self = metadata;
+    const error = validateEventStructure({
+      ...validMovement(projectionWithAAt('w', 'loc-1')),
+      metadata,
+    });
+    expect(error).toMatchObject({ code: 'INVALID_EVENT_SHAPE', path: 'metadata.self' });
+  });
 });
 
 describe('validateCanon', () => {

@@ -2,6 +2,7 @@ import { reduceWorldEvent } from './reducer';
 import { replayWorldEvents } from './replay';
 import { replayFromSnapshot } from './snapshots';
 import { validateCanon, validateEventStructure } from './validators';
+import type { AcceptedEvent, ProposedEvent } from './model';
 import { createMistwoodFixture, MISTWOOD_FIXED_SEED, MISTWOOD_FIXTURE_VERSION } from './mistwoodFixture';
 
 describe('Mistwood fixed world fixture', () => {
@@ -11,7 +12,15 @@ describe('Mistwood fixed world fixture', () => {
     expect(fixture.seed).toBe(MISTWOOD_FIXED_SEED);
     let projection = fixture.initialProjection;
     for (const event of fixture.events) {
-      expect(validateEventStructure(event)).toBeNull();
+      const {
+        eventId: _eventId,
+        acceptedAt: _acceptedAt,
+        sequenceNumber: _sequenceNumber,
+        validationVersion: _validationVersion,
+        traceId: _traceId,
+        ...proposal
+      } = event as AcceptedEvent & { traceId?: string };
+      expect(validateEventStructure(proposal as ProposedEvent)).toBeNull();
       expect(validateCanon(event, projection)).toBeNull();
       projection = reduceWorldEvent(projection, event);
     }
