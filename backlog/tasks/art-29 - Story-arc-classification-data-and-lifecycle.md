@@ -1,10 +1,11 @@
 ---
 id: ART-29
 title: Story arc event classification
-status: To Do
-assignee: []
+status: In Review
+assignee:
+  - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 16:24'
+updated_date: '2026-08-02 20:04'
 labels:
   - prd-1.0
   - epic-h
@@ -64,27 +65,45 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 FR-F001: Event 可屬於多條 Arc，但主要 Arc 數量有限。
-- [ ] #2 FR-F001: Arc 建立必須有明確 Premise 與 Current Question。
-- [ ] #3 FR-F001: 低重要度事件不得任意建立新 Arc。
-- [ ] #4 Automated tests provide evidence for every mapped FR-F001 acceptance criterion, including rejection and failure paths.
+- [x] #1 FR-F001: Event 可屬於多條 Arc，但主要 Arc 數量有限。
+- [x] #2 FR-F001: Arc 建立必須有明確 Premise 與 Current Question。
+- [x] #3 FR-F001: 低重要度事件不得任意建立新 Arc。
+- [x] #4 Automated tests provide evidence for every mapped FR-F001 acceptance criterion, including rejection and failure paths.
 - [ ] #5 PRD traceability links FR-F001 to doc-1 and the merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
 - [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Define a versioned runtime-validated classification contract for attaching an Accepted Event to existing arcs or proposing one new arc, including bounded memberships, primary designation, event role, importance, core-character changes, premise, and current question. 2. Implement a pure deterministic classifier validator that requires accepted-event provenance, rejects low-importance new-arc creation, and enforces a small primary-membership limit without altering Canon. 3. Add Story-owned internal persistence/query functions that atomically record idempotent classifications and initialize valid new-arc projection/lifecycle state through accepted-event references. 4. Test multi-arc bounds, every event role, low-importance rejection, required premise/question, invalid references, idempotency, and internal privacy; update docs/codegen and run full gates.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented versioned Accepted-Event classification with six-membership/two-primary bounds, seven event roles, importance and core-character deltas, runtime/reference validation, idempotent internal persistence, and atomic new-arc lifecycle/projection creation. New arcs require an inciting role, non-empty title/premise/question, valid characters, and importance >= 0.6. Convex codegen succeeded. Focused verification passed 6 tests; npm run check passed architecture, typecheck, lint, 30 suites/295 tests, and build.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented FR-F001 event-to-Arc classification with bounded multi-arc membership, explicit roles and importance, low-importance creation prevention, and atomic Accepted-Event-proven new Arc initialization. Full verification passed 295 tests; merge evidence remains pending.
+<!-- SECTION:FINAL_SUMMARY:END -->

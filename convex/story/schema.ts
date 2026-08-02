@@ -48,4 +48,16 @@ export const storyTables = {
   })
     .index('by_world_arc_and_revision', ['worldId', 'arcId', 'revision'])
     .index('by_world_and_source_event', ['worldId', 'sourceEventSequenceNumber']),
+
+  storyArcEventClassifications: defineTable({
+    schemaVersion: v.literal(1),
+    worldId: v.string(),
+    sourceEventId: v.string(),
+    sourceEventSequenceNumber: v.number(),
+    memberships: v.any(),
+    newArc: v.any(),
+    createdAt: v.number(),
+  })
+    .index('by_world_and_source_event', ['worldId', 'sourceEventSequenceNumber'])
+    .index('by_world', ['worldId']),
 };
