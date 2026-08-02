@@ -1,11 +1,11 @@
 ---
 id: ART-5
 title: Atomic world configuration import
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:30'
-updated_date: '2026-08-02 17:58'
+updated_date: '2026-08-02 17:59'
 labels:
   - prd-1.0
   - epic-b
@@ -72,12 +72,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #5 FR-A001: 不可變世界規則必須可被 Canon Validator 讀取。
 - [x] #6 FR-A001: 匯入失敗不得產生部分世界。
 - [x] #7 Automated tests provide evidence for every mapped FR-A001 acceptance criterion, including rejection and failure paths.
-- [ ] #8 PRD traceability links FR-A001 to doc-1 and the merged implementation evidence.
+- [x] #8 PRD traceability links FR-A001 to doc-1 and the merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -90,7 +90,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -108,6 +108,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 Implemented WorldConfigurationV1 with strict runtime parsing, stable errors, fictional/no-real-person declaration, duplicate/reference/date validation, typed immutable rule enforcement, and Initial Snapshot planning. Added internal-only Convex import mutation and world definition/location/organization/rule/history tables; all writes occur in one Convex transaction. Canon commit now loads persisted immutable rules before validation. Offline atomic adapter injects mid-write failure and proves zero visible partial state. Convex codegen succeeded and uploaded the schema/functions to the configured development deployment only (no production deploy). Focused validation: 3 suites/30 tests. Full npm run check: architecture gates, typecheck, lint, 14 suites/116 tests, build.
 
 Implementation and validation evidence committed and pushed to origin/feat/ART-5-atomic-world-import.
+
+PR #13 merged to main after both required GitHub checks passed; this is the merged FR-A001 implementation evidence linked to PRD doc-1.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
