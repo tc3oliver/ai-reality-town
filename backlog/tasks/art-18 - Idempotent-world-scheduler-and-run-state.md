@@ -1,17 +1,19 @@
 ---
 id: ART-18
 title: Idempotent world scheduler and run state
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 19:10'
+updated_date: '2026-08-02 19:18'
 labels:
   - prd-1.0
   - epic-f
 milestone: m-0
 dependencies:
   - ART-17
+references:
+  - 'https://github.com/tc3oliver/ai-reality-town/pull/35'
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
 priority: high
@@ -70,7 +72,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #4 FR-C001: 重試不得重複提交已接受事件。
 - [x] #5 FR-C001: 管理者可查看目前排程與執行狀態。
 - [x] #6 Automated tests provide evidence for every mapped FR-C001 acceptance criterion, including rejection and failure paths.
-- [ ] #7 PRD traceability links FR-C001 to doc-1 and the merged implementation evidence.
+- [x] #7 PRD traceability links FR-C001 to doc-1 and the merged implementation evidence.
 - [x] #8 Section 10.1: Public mode defaults to one real calendar day per world day and advances through Morning, Noon, Afternoon, Evening, and Night in order.
 - [x] #9 Section 10.2: Development/test controls can pause time, advance exactly one time slot, advance exactly one world day, and run accelerated simulation.
 - [x] #10 Section 10.2: Fixed-seed clock-controlled runs reproduce the same scheduled slot sequence and do not publish unless explicitly enabled.
@@ -78,7 +80,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -91,7 +93,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -106,10 +108,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 Implemented a deterministic five-slot scheduler, stable slot/Canon idempotency keys, fixed seed derivation, 24-hour public mapping, pause anchor shifting, manual slot/day and 1–90 day acceleration, publication isolation, durable lifecycle/retry state, internal inspection, and a minute Convex cron for all running public worlds. Development Convex codegen succeeded. Focused clock suite passed 6 tests. Full npm run check passed architecture, typecheck, lint, 23 suites/253 tests, and build. Tests prove repeated clock ticks reserve one row, post-commit timeout retry reuses one key/event, controls work while paused, fixed-seed sequences reproduce, and non-public runs remain unpublished unless explicitly enabled. AC7 and DoD1/13/14 remain merge-evidence dependent.
 
 Implementation committed and pushed on feat/ART-18-world-scheduler.
+
+Implementation PR #35 merged into main on 2026-08-02T19:11:50Z after all required checks passed. FR-C001 is now linked to doc-1 and merged evidence.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Implemented FR-C001 and Sections 10.1–10.2 scheduler behavior: one stable run per world slot, public calendar mapping, pause/resume, manual and accelerated controls, deterministic unpublished test runs, safe retries, cron triggering, and internal state inspection. Full check passed with 253 tests; merge evidence remains pending.
+Delivered FR-C001 and Sections 10.1–10.2 via merged PR #35: unique five-slot public scheduling, cron triggering, pause/resume, exact manual and accelerated controls, deterministic unpublished test runs, safe same-key retries, and internal inspection. Full pre-merge check passed 253 tests.
 <!-- SECTION:FINAL_SUMMARY:END -->
