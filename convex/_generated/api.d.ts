@@ -81,6 +81,8 @@ import type * as story_classificationFunctions from "../story/classificationFunc
 import type * as story_functions from "../story/functions.js";
 import type * as story_lifecycle from "../story/lifecycle.js";
 import type * as story_model from "../story/model.js";
+import type * as story_portfolio from "../story/portfolio.js";
+import type * as story_portfolioFunctions from "../story/portfolioFunctions.js";
 import type * as story_projection from "../story/projection.js";
 import type * as story_projectionFunctions from "../story/projectionFunctions.js";
 import type * as testing from "../testing.js";
@@ -178,6 +180,8 @@ declare const fullApi: ApiFromModules<{
   "story/functions": typeof story_functions;
   "story/lifecycle": typeof story_lifecycle;
   "story/model": typeof story_model;
+  "story/portfolio": typeof story_portfolio;
+  "story/portfolioFunctions": typeof story_portfolioFunctions;
   "story/projection": typeof story_projection;
   "story/projectionFunctions": typeof story_projectionFunctions;
   testing: typeof testing;
