@@ -88,7 +88,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -102,6 +102,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented six-dimensional directional relationship projection and append-only causal history. New v1 fields are additive: legacy omissions normalize to zero/private and old snapshots are tolerated, avoiding a schema-version replay regression. Private changes are internal-only and Canon rejects any private relationship change carrying publicSummary with PRIVATE_RELATIONSHIP_DISCLOSURE. Convex codegen succeeded against the development deployment. Focused Jest verification passed 72 tests; final npm run check passed architecture, typecheck, lint, 25 suites/260 tests, and build.
+
+Implementation commit a04efbf pushed on feat/ART-10-relationship-projection.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
