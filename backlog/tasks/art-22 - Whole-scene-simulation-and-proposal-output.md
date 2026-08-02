@@ -1,11 +1,11 @@
 ---
 id: ART-22
 title: Whole-scene simulation and proposal output
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 21:24'
+updated_date: '2026-08-02 21:32'
 labels:
   - prd-1.0
   - epic-f
@@ -83,12 +83,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #4 FR-C005: 完整原始輸出不直接公開。
 - [x] #5 FR-C005: 高風險內容必須進入安全審核。
 - [x] #6 Automated tests provide evidence for every mapped FR-C005 acceptance criterion, including rejection and failure paths.
-- [ ] #7 PRD traceability links FR-C005 to doc-1 and the merged implementation evidence.
+- [x] #7 PRD traceability links FR-C005 to doc-1 and the merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -101,7 +101,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -120,10 +120,12 @@ Complete validated narrative text receives post-generation safety classification
 After rebasing onto merged ART-77 and ART-33 evidence, npm run check passed again with 45 suites/381 tests. Implementation is pushed on feat/ART-22-scene-simulation.
 
 Opened PR #78 and enabled merge-commit auto-merge.
+
+Merged implementation evidence: PR #78 merged at 2026-08-02T21:25:44Z as 5fe7902286b82b22e87dba07afd11a4be09d9fcf. This links FR-C005 and PRD doc-1 to the accepted implementation.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Added FR-C005 whole-scene simulation with strict structured runtime validation, bounded invalid/transient retries, Proposed Event-only output, complete safety review routing, and internal validated-result persistence. Focused provider tests and full 376-test/typecheck/lint/build verification pass; merge evidence remains pending.
+Delivered and merged FR-C005 whole-scene simulation in PR #78 (merge 5fe7902): strict runtime validation, bounded retries, Proposed Event-only output, safety-review routing, internal persistence, and no public/raw or Canon-write path. Verified by 6 focused tests and the post-rebase full check (45 suites/381 tests, typecheck, lint, build).
 <!-- SECTION:FINAL_SUMMARY:END -->
