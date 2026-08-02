@@ -98,7 +98,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -114,6 +114,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 Implemented one structured provider request per complete Grouped Scene, a strict v1 runtime contract for every FR-C005 field, shared Proposed Event normalization and exact Scene provenance. Invalid output/transient providers retry the whole scene up to 1-3 attempts; permanent failures stop. The module only returns Proposed Events and never imports Canon commit/reducer paths.
 
 Complete validated narrative text receives post-generation safety classification; withhold/human-review labels set reviewStatus required. Internal-only idempotent persistence requires an existing Grouped Scene, stores validated result/trace only, and defines no public or raw-output API. Verification: focused Jest 6/6 passed; Convex codegen passed; npm run check passed architecture, typecheck, lint, 44 suites/376 tests, and build; git diff --check passed.
+
+After rebasing onto merged ART-77 and ART-33 evidence, npm run check passed again with 45 suites/381 tests. Implementation is pushed on feat/ART-22-scene-simulation.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
