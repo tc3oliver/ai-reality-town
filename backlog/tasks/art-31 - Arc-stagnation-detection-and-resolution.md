@@ -1,10 +1,11 @@
 ---
 id: ART-31
 title: Arc stagnation detection and resolution
-status: To Do
-assignee: []
+status: In Review
+assignee:
+  - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 16:27'
+updated_date: '2026-08-02 20:34'
 labels:
   - prd-1.0
   - epic-h
@@ -64,26 +65,44 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 FR-F005: A 14-world-day stagnation produces an operator-visible prompt.
-- [ ] #2 FR-F005: A major Arc cannot disappear without a valid lifecycle transition and retained history.
-- [ ] #3 FR-F005: Resolved Arc retains Outcome and Consequences.
-- [ ] #4 Resolution emits source-proven consequence data consumed by ART-82 for character/world summary refresh.
+- [x] #1 FR-F005: A 14-world-day stagnation produces an operator-visible prompt.
+- [x] #2 FR-F005: A major Arc cannot disappear without a valid lifecycle transition and retained history.
+- [x] #3 FR-F005: Resolved Arc retains Outcome and Consequences.
+- [x] #4 Resolution emits source-proven consequence data consumed by ART-82 for character/world summary refresh.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Add a deterministic FR-F005 resolution domain model that detects active-family arcs stalled for 14 world days and emits stable operator prompts. 2. Model source-proven remediation decisions (suggest outcome, merge, downgrade, enter resolving, archive/background-compress) with lifecycle and major-arc disappearance guards; require resolved outcome and consequences. 3. Persist/query prompts and decisions through internal Convex boundaries, verifying Accepted Event provenance and retaining history plus ART-82 consequence payloads. 4. Add time-controlled tests for the threshold, every remediation path, invalid disappearance/provenance, resolution payloads, persistence surface, and update docs/traceability; run codegen and full checks.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented deterministic 14-world-day stagnation prompts and append-only Accepted-Event-proven resolution decisions for suggestion, merge, downgrade, resolving, resolve, archive, and background compression. Terminal decisions require source-proven outcome/consequence payloads for ART-82. Focused Jest passed 6 tests; Convex codegen succeeded; npm run check passed architecture, typecheck, lint, 37 suites/327 tests, and build.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented FR-F005 operator-visible 14-day stagnation detection, lifecycle-safe remediation records, retained terminal outcomes/consequences, and ART-82's source-proven consequence contract. Verified with focused 6-test coverage and full npm run check (327 tests). Merge evidence remains pending.
+<!-- SECTION:FINAL_SUMMARY:END -->

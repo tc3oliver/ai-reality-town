@@ -85,6 +85,8 @@ import type * as story_portfolio from "../story/portfolio.js";
 import type * as story_portfolioFunctions from "../story/portfolioFunctions.js";
 import type * as story_projection from "../story/projection.js";
 import type * as story_projectionFunctions from "../story/projectionFunctions.js";
+import type * as story_resolution from "../story/resolution.js";
+import type * as story_resolutionFunctions from "../story/resolutionFunctions.js";
 import type * as testing from "../testing.js";
 import type * as util_FastIntegerCompression from "../util/FastIntegerCompression.js";
 import type * as util_assertNever from "../util/assertNever.js";
@@ -184,6 +186,8 @@ declare const fullApi: ApiFromModules<{
   "story/portfolioFunctions": typeof story_portfolioFunctions;
   "story/projection": typeof story_projection;
   "story/projectionFunctions": typeof story_projectionFunctions;
+  "story/resolution": typeof story_resolution;
+  "story/resolutionFunctions": typeof story_resolutionFunctions;
   testing: typeof testing;
   "util/FastIntegerCompression": typeof util_FastIntegerCompression;
   "util/assertNever": typeof util_assertNever;

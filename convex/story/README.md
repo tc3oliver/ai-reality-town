@@ -20,6 +20,8 @@ append-only canon event log.
 - ART-64 provides the versioned Story Arc lifecycle, append-only transition history,
   accepted-event provenance, and active-context selection.
 - ART-65 provides the complete event-replayable Story Arc projection data contract.
+- ART-31 provides deterministic 14-day stagnation prompts and append-only,
+  source-proven resolution/consequence records for ART-82.
 - Event classification remains a separate task.
 
 See `docs/story-arc-lifecycle.md`, `docs/story-arc-projection.md`,

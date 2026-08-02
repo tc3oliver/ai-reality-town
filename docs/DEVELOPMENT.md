@@ -110,6 +110,7 @@ in [`docs/testing/fixtures.md`](testing/fixtures.md).
 - **Story Arc projection contract:** `docs/story-arc-projection.md`.
 - **Story Arc event classification:** `docs/story-arc-classification.md`.
 - **Story Arc portfolio controls:** `docs/story-arc-portfolio-controls.md`.
+- **Story Arc stagnation and resolution:** `docs/arc-stagnation-resolution.md`.
 - **World scheduler and run state:** `docs/world-scheduler.md`.
 - **Initial tension warmup gate:** `docs/tension-readiness.md`.
 - **Pre-generation safety gate:** `docs/pre-generation-safety.md`.

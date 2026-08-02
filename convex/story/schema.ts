@@ -74,4 +74,24 @@ export const storyTables = {
     decision: v.any(),
     createdAt: v.number(),
   }).index('by_world_and_decision', ['worldId', 'decisionId']),
+
+  storyArcStagnationPrompts: defineTable({
+    worldId: v.string(),
+    arcId: v.string(),
+    promptId: v.string(),
+    prompt: v.any(),
+    detectedAtWorldDay: v.number(),
+  })
+    .index('by_world_and_prompt', ['worldId', 'promptId'])
+    .index('by_world_and_day', ['worldId', 'detectedAtWorldDay']),
+
+  storyArcResolutionDecisions: defineTable({
+    worldId: v.string(),
+    arcId: v.string(),
+    decisionId: v.string(),
+    decision: v.any(),
+    sourceEventSequenceNumber: v.number(),
+  })
+    .index('by_world_and_decision', ['worldId', 'decisionId'])
+    .index('by_world_and_arc', ['worldId', 'arcId']),
 };
