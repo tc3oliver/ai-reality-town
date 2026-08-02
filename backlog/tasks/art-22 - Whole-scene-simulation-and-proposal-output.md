@@ -5,7 +5,7 @@ status: In Review
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 21:23'
+updated_date: '2026-08-02 21:24'
 labels:
   - prd-1.0
   - epic-f
@@ -15,6 +15,8 @@ dependencies:
   - ART-15
   - ART-55
   - ART-4
+references:
+  - 'PR #78 https://github.com/tc3oliver/ai-reality-town/pull/78'
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
 modified_files:
@@ -116,6 +118,8 @@ Implemented one structured provider request per complete Grouped Scene, a strict
 Complete validated narrative text receives post-generation safety classification; withhold/human-review labels set reviewStatus required. Internal-only idempotent persistence requires an existing Grouped Scene, stores validated result/trace only, and defines no public or raw-output API. Verification: focused Jest 6/6 passed; Convex codegen passed; npm run check passed architecture, typecheck, lint, 44 suites/376 tests, and build; git diff --check passed.
 
 After rebasing onto merged ART-77 and ART-33 evidence, npm run check passed again with 45 suites/381 tests. Implementation is pushed on feat/ART-22-scene-simulation.
+
+Opened PR #78 and enabled merge-commit auto-merge.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
