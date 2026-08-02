@@ -22,6 +22,7 @@ function accepted(sequenceNumber = 0): AcceptedEvent {
       { type: 'fact_created', subjectType: 'world', subjectId: 'w', predicate: 'weather', value: 'rain', visibility: 'canon' },
       { type: 'character_life_changed', characterId: 'a', alive: false, reason: 'fatal event' },
       { type: 'character_knowledge_learned', characterId: 'b', factId: 'weather-rain', sourceType: 'observed', sourceEventId: 'prior' },
+      { type: 'character_memory_formed', characterId: 'b', content: 'Rain began.', interpretation: 'The storm felt ominous.', importance: 0.7, emotionalWeight: -0.4, confidence: 0.8, visibility: 'private' },
       { type: 'item_transferred', itemId: 'ledger', fromOwnerId: 'a', toOwnerId: 'b', reason: 'entrusted' },
       { type: 'character_state_changed', characterId: 'b', field: 'availability', toValue: 'busy', reason: 'accepted duty' },
     ],
@@ -77,6 +78,7 @@ describe('FR-D005 reducer purity and version contract', () => {
       characterAlive: { a: false },
       itemOwners: { ledger: 'b' },
       characterKnowledge: { b: [expect.objectContaining({ factId: 'weather-rain', sourceEventId: 'prior' })] },
+      characterMemories: { b: [expect.objectContaining({ sourceEventId: 'w#event#0', interpretation: 'The storm felt ominous.' })] },
       characterStates: { b: { availability: 'busy' } },
     });
     expect(expected.relationships['a|b']).toEqual({ trust: 4, affection: -2, resentment: 1, fear: 2, dependency: 3, familiarity: 5, lastUpdatedEventId: 'w#event#0' });

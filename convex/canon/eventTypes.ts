@@ -41,6 +41,7 @@ export const STATE_CHANGE_TYPES = [
   'fact_created',
   'character_life_changed',
   'character_knowledge_learned',
+  'character_memory_formed',
   'item_transferred',
   'character_state_changed',
 ] as const;

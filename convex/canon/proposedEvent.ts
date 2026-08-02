@@ -67,6 +67,16 @@ export const stateChangeValidator = v.union(
     correctsKnowledgeId: v.optional(v.string()),
   }),
   v.object({
+    type: v.literal('character_memory_formed'),
+    characterId: v.string(),
+    content: v.string(),
+    interpretation: v.string(),
+    importance: v.number(),
+    emotionalWeight: v.number(),
+    confidence: v.number(),
+    visibility: v.union(v.literal('private'), v.literal('trusted'), v.literal('public')),
+  }),
+  v.object({
     type: v.literal('item_transferred'),
     itemId: v.string(),
     fromOwnerId: v.optional(v.string()),
@@ -153,7 +163,8 @@ function normalizeStateChange(value: unknown, index: number): StateChange {
     'dependencyDelta', 'familiarityDelta', 'reason',
     'subjectType', 'subjectId', 'predicate', 'value', 'visibility',
     'alive', 'factId', 'sourceType', 'sourceEventId', 'beliefValue', 'truthStatus',
-    'confidence', 'shareability', 'correctsKnowledgeId', 'itemId', 'fromOwnerId',
+    'confidence', 'shareability', 'correctsKnowledgeId', 'content', 'interpretation',
+    'importance', 'emotionalWeight', 'itemId', 'fromOwnerId',
     'toOwnerId', 'field', 'fromValue', 'toValue',
   ]);
   const change = source as unknown as StateChange;
@@ -192,6 +203,12 @@ function normalizeStateChange(value: unknown, index: number): StateChange {
         confidence: change.confidence ?? 0.5,
         shareability: change.shareability ?? 'private',
       };
+    case 'character_memory_formed':
+      exactObject(value, path, [
+        'type', 'characterId', 'content', 'interpretation', 'importance',
+        'emotionalWeight', 'confidence', 'visibility',
+      ]);
+      return { ...change };
     case 'item_transferred':
       exactObject(value, path, ['type', 'itemId', 'fromOwnerId', 'toOwnerId', 'reason']);
       return { ...change };

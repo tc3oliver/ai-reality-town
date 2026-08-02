@@ -71,6 +71,14 @@ describe('ProposedEvent v1 contract', () => {
       sourceType: 'evidence', sourceEventId: 'prior-event',
     }];
     expect(normalizeProposedEventOutput(knowledge).stateChanges[0].type).toBe('character_knowledge_learned');
+    const memory = movement();
+    memory.eventType = 'conversation';
+    memory.stateChanges = [{
+      type: 'character_memory_formed', characterId: 'resident-1',
+      content: 'I saw the ledger.', interpretation: 'It was planted to frame me.',
+      importance: 0.9, emotionalWeight: -0.8, confidence: 0.7, visibility: 'private',
+    }];
+    expect(normalizeProposedEventOutput(memory).stateChanges[0].type).toBe('character_memory_formed');
     const item = movement();
     item.eventType = 'world_event';
     item.participantIds = ['resident-1', 'resident-2'];
