@@ -65,4 +65,17 @@ export const simulationTables = {
   })
     .index('by_world_and_status', ['worldId', 'status'])
     .index('by_world_and_event', ['worldId', 'committedEventId']),
+
+  directorPlans: defineTable({
+    schemaVersion: v.literal(1),
+    worldId: v.string(),
+    directorRunId: v.string(),
+    worldDay: v.number(),
+    timeSlot: v.union(v.literal('morning'), v.literal('noon'), v.literal('afternoon'), v.literal('evening'), v.literal('night')),
+    context: v.any(),
+    plan: v.any(),
+    createdAt: v.number(),
+  })
+    .index('by_world_and_run', ['worldId', 'directorRunId'])
+    .index('by_world_day_and_slot', ['worldId', 'worldDay', 'timeSlot']),
 };
