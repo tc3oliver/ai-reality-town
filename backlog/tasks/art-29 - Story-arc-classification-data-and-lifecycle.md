@@ -1,11 +1,11 @@
 ---
 id: ART-29
 title: Story arc event classification
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 20:04'
+updated_date: '2026-08-02 20:09'
 labels:
   - prd-1.0
   - epic-h
@@ -13,6 +13,8 @@ milestone: m-0
 dependencies:
   - ART-13
   - ART-16
+references:
+  - 'https://github.com/tc3oliver/ai-reality-town/pull/50'
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
 priority: high
@@ -69,12 +71,12 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [x] #2 FR-F001: Arc 建立必須有明確 Premise 與 Current Question。
 - [x] #3 FR-F001: 低重要度事件不得任意建立新 Arc。
 - [x] #4 Automated tests provide evidence for every mapped FR-F001 acceptance criterion, including rejection and failure paths.
-- [ ] #5 PRD traceability links FR-F001 to doc-1 and the merged implementation evidence.
+- [x] #5 PRD traceability links FR-F001 to doc-1 and the merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -86,8 +88,8 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -100,10 +102,12 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented versioned Accepted-Event classification with six-membership/two-primary bounds, seven event roles, importance and core-character deltas, runtime/reference validation, idempotent internal persistence, and atomic new-arc lifecycle/projection creation. New arcs require an inciting role, non-empty title/premise/question, valid characters, and importance >= 0.6. Convex codegen succeeded. Focused verification passed 6 tests; npm run check passed architecture, typecheck, lint, 30 suites/295 tests, and build.
+
+Implementation PR #50 merged into main on 2026-08-02T20:05:55Z after Bootstrap and CI checks succeeded.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Implemented FR-F001 event-to-Arc classification with bounded multi-arc membership, explicit roles and importance, low-importance creation prevention, and atomic Accepted-Event-proven new Arc initialization. Full verification passed 295 tests; merge evidence remains pending.
+Delivered FR-F001 through merged PR #50: versioned Accepted Event classification, bounded multi-Arc/primary membership, all narrative roles, low-importance new-Arc prevention, and atomic lifecycle/projection initialization. Full pre-merge verification passed 295 tests.
 <!-- SECTION:FINAL_SUMMARY:END -->
