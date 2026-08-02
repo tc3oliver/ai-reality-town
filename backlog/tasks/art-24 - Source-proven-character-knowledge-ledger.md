@@ -1,11 +1,11 @@
 ---
 id: ART-24
 title: Source-proven character knowledge ledger
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 19:37'
+updated_date: '2026-08-02 19:43'
 labels:
   - prd-1.0
   - epic-g
@@ -13,6 +13,8 @@ milestone: m-0
 dependencies:
   - ART-13
   - ART-16
+references:
+  - 'https://github.com/tc3oliver/ai-reality-town/pull/40'
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
 priority: high
@@ -70,12 +72,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #3 FR-E001: 角色不得存取未授權資訊。
 - [x] #4 FR-E001: Knowledge 更新必須由 Event 產生。
 - [x] #5 Automated tests provide evidence for every mapped FR-E001 acceptance criterion, including rejection and failure paths.
-- [ ] #6 PRD traceability links FR-E001 to doc-1 and the merged implementation evidence.
+- [x] #6 PRD traceability links FR-E001 to doc-1 and the merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -88,7 +90,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -105,10 +107,12 @@ Implemented an event-derived knowledge ledger with all six source types, belief 
 Implementation commit 47e5363 pushed on feat/ART-24-knowledge-ledger.
 
 Merged current main/ART-10 into the feature branch, preserving both relationship history and knowledge ledger behavior. Combined npm run check passed architecture, typecheck, lint, build, and 26 suites/266 tests.
+
+Implementation PR #40 merged into main on 2026-08-02T19:38:32Z after Bootstrap and CI checks succeeded.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Implemented FR-E001 source-proven knowledge projection, corrections, seed provenance, least-privilege internal reads, replay/snapshot support, and validation failure paths. Full verification passed 262 tests; merged PR evidence remains pending.
+Delivered FR-E001 through merged PR #40: source-proven event-derived and initial knowledge, truth/confidence/shareability fields, immutable corrections, deterministic replay/snapshots, least-privilege internal reads, and validation failures. Combined pre-merge verification passed 266 tests.
 <!-- SECTION:FINAL_SUMMARY:END -->
