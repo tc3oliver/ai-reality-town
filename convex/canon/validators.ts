@@ -137,6 +137,10 @@ export function validateEventStructure(event: unknown): CanonValidationError | n
   if (!isEventType(event.eventType))
     return canonError('INVALID_EVENT_SHAPE', 'eventType is not supported', { eventType: event.eventType }, 'eventType');
 
+  const remediationTypes = new Set(['correction', 'compensation', 'retcon']);
+  if (remediationTypes.has(event.eventType as string) && event.proposedBy.type !== 'admin')
+    return canonError('INVALID_EVENT_SHAPE', 'remediation events must be proposed by an administrator', undefined, 'proposedBy.type');
+
   if (event.locationId !== undefined && !isNonEmptyString(event.locationId))
     return canonError('INVALID_EVENT_SHAPE', 'locationId must be a non-empty string when present', undefined, 'locationId');
 
@@ -163,6 +167,8 @@ export function validateEventStructure(event: unknown): CanonValidationError | n
     if (c === event.idempotencyKey)
       return canonError('INVALID_EVENT_SHAPE', 'causedByEventIds must not reference the event itself', { idempotencyKey: c }, 'causedByEventIds');
   }
+  if (remediationTypes.has(event.eventType as string) && event.causedByEventIds.length === 0)
+    return canonError('INVALID_EVENT_SHAPE', 'remediation events must reference corrected events', undefined, 'causedByEventIds');
 
   if (event.publicSummary !== undefined) {
     if (!isString(event.publicSummary))

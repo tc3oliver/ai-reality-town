@@ -21,6 +21,24 @@ function movementProposal(worldId: string, idempotencyKey: string, from: string,
   };
 }
 
+function factProposal(worldId: string, idempotencyKey: string, value: string): ProposedEvent {
+  return {
+    schemaVersion: 1,
+    worldId,
+    idempotencyKey,
+    proposedBy: { type: 'system' },
+    worldDay: 0,
+    timeSlot: 'morning',
+    eventType: 'discovery',
+    participantIds: [],
+    causedByEventIds: [],
+    stateChanges: [{
+      type: 'fact_created', subjectType: 'world', subjectId: worldId,
+      predicate: 'testFact', value, visibility: 'canon',
+    }],
+  };
+}
+
 describe('commitProposedEvent (idempotency)', () => {
   it('commits once for a unique key', async () => {
     const store = new InMemoryCanonStore();
@@ -103,5 +121,89 @@ describe('commitProposedEvent (idempotency)', () => {
     }
     // Nothing was committed for the rejected proposal.
     expect(store.committedEvents()).toHaveLength(1);
+  });
+
+  it('deduplicates concurrent attempts with the same world and key', async () => {
+    const store = new InMemoryCanonStore();
+    const proposed = factProposal('w1', 'same-key', 'one');
+    const results = await Promise.all(Array.from({ length: 20 }, (_, index) =>
+      commitProposedEvent(store, { proposed, traceId: `trace-${index}` })));
+    expect(store.committedEvents()).toHaveLength(1);
+    expect(results.filter((result) => !result.deduplicated)).toHaveLength(1);
+    expect(new Set(results.map((result) => result.eventId))).toEqual(new Set(['w1#event#0']));
+  });
+
+  it('serializes concurrent distinct keys into a complete monotonic log', async () => {
+    const store = new InMemoryCanonStore();
+    const results = await Promise.all(Array.from({ length: 12 }, (_, index) =>
+      commitProposedEvent(store, {
+        proposed: factProposal('w1', `key-${index}`, `value-${index}`),
+        traceId: `trace-${index}`,
+      })));
+    expect(results.map((result) => result.sequenceNumber)).toEqual(
+      Array.from({ length: 12 }, (_, index) => index),
+    );
+    const events = await store.loadAcceptedEvents('w1');
+    expect(events.map((event) => event.sequenceNumber)).toEqual(
+      Array.from({ length: 12 }, (_, index) => index),
+    );
+    expect(events.map((event) => event.traceId)).toEqual(
+      Array.from({ length: 12 }, (_, index) => `trace-${index}`),
+    );
+  });
+
+  it('isolates stored history from proposal and read-result mutation', async () => {
+    const store = new InMemoryCanonStore();
+    const proposed = factProposal('w1', 'immutable', 'original');
+    await commitProposedEvent(store, { proposed, traceId: 'immutable-trace' });
+    proposed.stateChanges[0] = {
+      type: 'fact_created', subjectType: 'world', subjectId: 'w1',
+      predicate: 'testFact', value: 'proposal-mutated', visibility: 'canon',
+    };
+    const firstRead = store.committedEvents();
+    firstRead[0].publicSummary = 'read-mutated';
+    firstRead[0].stateChanges[0] = proposed.stateChanges[0];
+    const persisted = store.committedEvents()[0];
+    expect(persisted.publicSummary).toBeUndefined();
+    expect(persisted.stateChanges[0]).toMatchObject({ value: 'original' });
+    expect(persisted.traceId).toBe('immutable-trace');
+    expect((store as unknown as Record<string, unknown>).updateAcceptedEvent).toBeUndefined();
+    expect((store as unknown as Record<string, unknown>).deleteAcceptedEvent).toBeUndefined();
+  });
+
+  it.each(['correction', 'compensation', 'retcon'] as const)(
+    'appends %s remediation as a new causal admin event',
+    async (eventType) => {
+      const store = new InMemoryCanonStore();
+      const original = await commitProposedEvent(store, {
+        proposed: factProposal('w1', 'original', 'incorrect'), traceId: 'trace-original',
+      });
+      const remediation: ProposedEvent = {
+        ...factProposal('w1', eventType, `${eventType}-value`),
+        eventType,
+        proposedBy: { type: 'admin', id: 'operator-1' },
+        causedByEventIds: [original.eventId],
+      };
+      const result = await commitProposedEvent(store, { proposed: remediation, traceId: `trace-${eventType}` });
+      expect(result.sequenceNumber).toBe(1);
+      const events = store.committedEvents();
+      expect(events).toHaveLength(2);
+      expect(events[0]).toMatchObject({ eventId: original.eventId, stateChanges: [{ value: 'incorrect' }] });
+      expect(events[1]).toMatchObject({ eventType, causedByEventIds: [original.eventId], traceId: `trace-${eventType}` });
+    },
+  );
+
+  it('rejects remediation without admin authority or a corrected-event reference', async () => {
+    const store = new InMemoryCanonStore();
+    await expect(commitProposedEvent(store, {
+      proposed: { ...factProposal('w1', 'bad-source', 'x'), eventType: 'correction' },
+      traceId: 'trace',
+    })).rejects.toMatchObject({ error: { code: 'INVALID_EVENT_SHAPE', path: 'proposedBy.type' } });
+    await expect(commitProposedEvent(store, {
+      proposed: {
+        ...factProposal('w1', 'bad-cause', 'x'), eventType: 'retcon', proposedBy: { type: 'admin' },
+      },
+      traceId: 'trace',
+    })).rejects.toMatchObject({ error: { code: 'INVALID_EVENT_SHAPE', path: 'causedByEventIds' } });
   });
 });

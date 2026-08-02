@@ -19,6 +19,7 @@ export type CanonEventRow = {
   sequenceNumber: number;
   acceptedAt: number;
   validationVersion: string;
+  traceId: string;
 };
 
 /** Reconstruct an {@link AcceptedEvent} from a stored canonEvents row. */
@@ -30,5 +31,11 @@ export function rowToAcceptedEvent(row: CanonEventRow): AcceptedEvent {
     acceptedAt: row.acceptedAt,
     sequenceNumber: row.sequenceNumber,
     validationVersion: row.validationVersion,
+    traceId: row.traceId,
   };
+}
+
+/** Isolate accepted-event values at repository boundaries so callers cannot edit history. */
+export function cloneAcceptedEvent(event: AcceptedEvent): AcceptedEvent {
+  return structuredClone(event);
 }

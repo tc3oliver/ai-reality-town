@@ -30,7 +30,7 @@ const SNAPSHOT_CREATED_AT = 1_700_000_000_999;
 
 function accepted(
   seq: number,
-  partial: Omit<AcceptedEvent, 'eventId' | 'acceptedAt' | 'sequenceNumber' | 'validationVersion'>,
+  partial: Omit<AcceptedEvent, 'eventId' | 'acceptedAt' | 'sequenceNumber' | 'validationVersion' | 'traceId'>,
 ): AcceptedEvent {
   return {
     ...partial,
@@ -38,6 +38,7 @@ function accepted(
     acceptedAt: BASE_ACCEPTED_AT + seq * 1000,
     sequenceNumber: seq,
     validationVersion: CANON_VALIDATION_VERSION,
+    traceId: `mistwood-trace-${seq}`,
   };
 }
 
