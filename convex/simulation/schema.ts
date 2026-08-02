@@ -8,6 +8,45 @@ import { defineTable } from 'convex/server';
 import { v } from 'convex/values';
 
 export const simulationTables = {
+  worldSchedules: defineTable({
+    worldId: v.string(),
+    mode: v.union(v.literal('public'), v.literal('development'), v.literal('test'), v.literal('warmup')),
+    status: v.union(v.literal('running'), v.literal('paused')),
+    baseSeed: v.number(),
+    anchorRealTimeMs: v.number(),
+    anchorWorldDay: v.number(),
+    nextWorldDay: v.number(),
+    nextTimeSlot: v.union(v.literal('morning'), v.literal('noon'), v.literal('afternoon'), v.literal('evening'), v.literal('night')),
+    publishEnabled: v.boolean(),
+    pausedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_world_id', ['worldId'])
+    .index('by_mode_and_status', ['mode', 'status']),
+
+  scheduledSlots: defineTable({
+    slotKey: v.string(),
+    worldId: v.string(),
+    worldDay: v.number(),
+    timeSlot: v.union(v.literal('morning'), v.literal('noon'), v.literal('afternoon'), v.literal('evening'), v.literal('night')),
+    trigger: v.union(v.literal('clock'), v.literal('manual-slot'), v.literal('manual-day'), v.literal('accelerated'), v.literal('retry')),
+    status: v.union(v.literal('queued'), v.literal('running'), v.literal('completed'), v.literal('failed')),
+    seed: v.number(),
+    publishEnabled: v.boolean(),
+    idempotencyKey: v.string(),
+    attemptCount: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    committedEventId: v.optional(v.string()),
+    errorCode: v.optional(v.string()),
+  })
+    .index('by_slot_key', ['slotKey'])
+    .index('by_world_and_status', ['worldId', 'status'])
+    .index('by_world_day_and_slot', ['worldId', 'worldDay', 'timeSlot']),
+
   simulationRuns: defineTable({
     worldId: v.string(),
     runType: v.string(),
