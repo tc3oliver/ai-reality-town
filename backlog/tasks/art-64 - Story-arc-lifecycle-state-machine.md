@@ -1,11 +1,11 @@
 ---
 id: ART-64
 title: Story arc lifecycle state machine
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:43'
-updated_date: '2026-08-02 19:43'
+updated_date: '2026-08-02 19:49'
 labels:
   - prd-1.0
   - epic-h
@@ -13,6 +13,8 @@ milestone: m-0
 dependencies:
   - ART-13
   - ART-16
+references:
+  - 'https://github.com/tc3oliver/ai-reality-town/pull/42'
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
 priority: high
@@ -69,12 +71,12 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [x] #2 FR-F002: Resolved Arc 不應持續被當作主要活躍上下文。
 - [x] #3 FR-F002: Archived Arc 仍可由歷史查詢。
 - [x] #4 Automated tests provide evidence for every mapped FR-F002 acceptance criterion, including rejection and failure paths.
-- [ ] #5 PRD traceability links FR-F002 to doc-1 and the merged implementation evidence.
+- [x] #5 PRD traceability links FR-F002 to doc-1 and the merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -87,7 +89,7 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -102,10 +104,12 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 Implemented a versioned seven-state forward-only lifecycle matrix with optimistic expected-status checks, accepted Canon event provenance, Story-owned current state, append-only transition history, internal create/transition/history/active queries, and archived history retention. Exhaustive tests cover all 49 status pairs, stale status, invalid/mismatched provenance, active-context filtering, terminal archival, and internal API boundaries. Convex codegen succeeded. Final npm run check passed architecture, typecheck, lint, 26 suites/265 tests, and build.
 
 Implementation commit 4dc9048 pushed on feat/ART-64-arc-lifecycle.
+
+Implementation PR #42 merged into main on 2026-08-02T19:44:45Z after Bootstrap and CI checks succeeded.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Implemented FR-F002 explicit Story Arc lifecycle rules, accepted-event provenance, concurrency safety, append-only history, active-context exclusion for resolved/archived arcs, and historical archive queries. Full verification passed 265 tests; merge evidence remains pending.
+Delivered FR-F002 through merged PR #42: explicit seven-state transition rules, accepted-event provenance, optimistic concurrency, append-only lifecycle history, resolved/archived active-context exclusion, and archived historical queries. Full pre-merge verification passed 265 tests.
 <!-- SECTION:FINAL_SUMMARY:END -->
