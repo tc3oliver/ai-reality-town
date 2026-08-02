@@ -84,7 +84,7 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -98,6 +98,8 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented the complete versioned FR-F003 arc projection with all required fields, runtime validation, nullable not-yet-established turning/entry links, accepted-event progress provenance, append-only full-field projection events, deterministic pure replay, lifecycle status composition, optimistic revisions, and internal-only storage/query boundaries. Character/event references are checked against the world; arrays reject duplicates and resolved/unresolved overlap; heat is bounded 0–100. Convex codegen succeeded. Focused verification passed 19 tests; final npm run check passed architecture, typecheck, lint, 28 suites/285 tests, and build.
+
+Implementation commit a3ba216 pushed on feat/ART-65-arc-data-contract.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
