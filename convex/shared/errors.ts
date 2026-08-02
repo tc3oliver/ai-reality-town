@@ -17,7 +17,8 @@ export type CanonErrorCode =
   | 'INVALID_FACT_SUBJECT'
   | 'SEQUENCE_CONFLICT'
   | 'SEQUENCE_GAP'
-  | 'DUPLICATE_SEQUENCE';
+  | 'DUPLICATE_SEQUENCE'
+  | 'IMMUTABLE_WORLD_RULE_VIOLATION';
 
 export type CanonValidationError = {
   code: CanonErrorCode;

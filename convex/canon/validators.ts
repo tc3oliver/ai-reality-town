@@ -23,7 +23,7 @@ import {
   isStateChangeType,
   isTimeSlot,
 } from './eventTypes';
-import type { ProposedEvent, WorldProjection } from './model';
+import type { CanonRuleContext, ProposedEvent, WorldProjection } from './model';
 
 // --- primitive guards -------------------------------------------------------
 
@@ -196,7 +196,29 @@ export function validateEventStructure(event: unknown): CanonValidationError | n
 export function validateCanon(
   event: ProposedEvent,
   projection: WorldProjection,
+  ruleContext?: CanonRuleContext | null,
 ): CanonValidationError | null {
+  if (ruleContext && ruleContext.worldId !== event.worldId) {
+    return canonError('IMMUTABLE_WORLD_RULE_VIOLATION', 'rule context belongs to a different world', {
+      eventWorldId: event.worldId,
+      ruleWorldId: ruleContext.worldId,
+    });
+  }
+  for (const rule of ruleContext?.rules ?? []) {
+    if (rule.enforcement.type === 'forbid_event_type' && rule.enforcement.eventType === event.eventType) {
+      return canonError('IMMUTABLE_WORLD_RULE_VIOLATION', 'event type is forbidden by an immutable world rule', {
+        ruleId: rule.id,
+        eventType: event.eventType,
+      });
+    }
+    if (rule.enforcement.type === 'max_event_participants' && event.participantIds.length > rule.enforcement.maximum) {
+      return canonError('IMMUTABLE_WORLD_RULE_VIOLATION', 'event exceeds immutable participant limit', {
+        ruleId: rule.id,
+        maximum: rule.enforcement.maximum,
+        actual: event.participantIds.length,
+      });
+    }
+  }
   const participants = new Set(event.participantIds);
 
   // Detect a character moved more than once within the same event.

@@ -15,6 +15,45 @@ import { v } from 'convex/values';
 import { proposedEventArgs } from './proposedEvent';
 
 export const canonTables = {
+  worldDefinitions: defineTable({
+    worldId: v.string(),
+    schemaVersion: v.number(),
+    payload: v.any(),
+    contentDeclaration: v.any(),
+  }).index('by_world_id', ['worldId']),
+
+  worldLocations: defineTable({
+    worldId: v.string(),
+    locationId: v.string(),
+    payload: v.any(),
+  })
+    .index('by_world_id', ['worldId'])
+    .index('by_world_and_location', ['worldId', 'locationId']),
+
+  worldOrganizations: defineTable({
+    worldId: v.string(),
+    organizationId: v.string(),
+    payload: v.any(),
+  })
+    .index('by_world_id', ['worldId'])
+    .index('by_world_and_organization', ['worldId', 'organizationId']),
+
+  worldImmutableRules: defineTable({
+    worldId: v.string(),
+    ruleId: v.string(),
+    payload: v.any(),
+  })
+    .index('by_world_id', ['worldId'])
+    .index('by_world_and_rule', ['worldId', 'ruleId']),
+
+  worldHistory: defineTable({
+    worldId: v.string(),
+    historyId: v.string(),
+    payload: v.any(),
+  })
+    .index('by_world_id', ['worldId'])
+    .index('by_world_and_history', ['worldId', 'historyId']),
+
   canonEvents: defineTable({
     worldId: v.string(),
     sequenceNumber: v.number(),

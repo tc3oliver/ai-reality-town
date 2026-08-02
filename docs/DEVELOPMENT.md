@@ -90,6 +90,7 @@ in [`docs/testing/fixtures.md`](testing/fixtures.md).
 - **Module ownership and dependency policy:** `docs/architecture/module-boundaries.md` and
   `architecture/module-boundaries.json`.
 - **Product requirements and delivery:** versioned PRD docs and tasks in Backlog.md.
+- **World import contract:** `docs/world-configuration.md`.
 
 ## Conduct & security
 

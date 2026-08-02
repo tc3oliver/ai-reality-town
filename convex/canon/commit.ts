@@ -22,7 +22,7 @@ import { v } from 'convex/values';
 import { CANON_VALIDATION_VERSION } from '../shared/constants';
 import { CanonError } from '../shared/errors';
 import { deriveEventId } from '../shared/ids';
-import { emptyProjection, type AcceptedEvent, type ProposedEvent } from './model';
+import { emptyProjection, type AcceptedEvent, type CanonImmutableRule, type CanonRuleContext, type ProposedEvent } from './model';
 import { proposedEventArgs } from './proposedEvent';
 import { replayWorldEvents } from './replay';
 import { rowToAcceptedEvent } from './serialize';
@@ -51,6 +51,7 @@ export interface CanonCommitStore {
     idempotencyKey: string,
   ): Promise<{ eventId: string; sequenceNumber: number } | null>;
   loadAcceptedEvents(worldId: string): Promise<AcceptedEvent[]>;
+  loadCanonRuleContext(worldId: string): Promise<CanonRuleContext | null>;
   appendAcceptedEvent(accepted: AcceptedEvent, traceId: string): Promise<void>;
   appendIdempotencyKey(
     worldId: string,
@@ -85,9 +86,10 @@ export async function commitProposedEvent(
   // 3. Load current projection by replaying all accepted events for this world.
   const events = await store.loadAcceptedEvents(proposed.worldId);
   const projection = replayWorldEvents(emptyProjection(proposed.worldId), events);
+  const ruleContext = await store.loadCanonRuleContext(proposed.worldId);
 
   // 4. Canon validation against the current projection.
-  const canonErr = validateCanon(proposed, projection);
+  const canonErr = validateCanon(proposed, projection, ruleContext);
   if (canonErr) throw new CanonError(canonErr);
 
   // 5. Allocate the next sequence number (deterministic within this transaction).
@@ -145,6 +147,15 @@ export function createConvexCanonStore(
         .withIndex('by_world_and_sequence', (q) => q.eq('worldId', worldId))
         .collect();
       return rows.map(rowToAcceptedEvent);
+    },
+    async loadCanonRuleContext(worldId) {
+      const rows = await db
+        .query('worldImmutableRules')
+        .withIndex('by_world_id', (q) => q.eq('worldId', worldId))
+        .collect();
+      return rows.length === 0
+        ? null
+        : { worldId, rules: rows.map((row) => row.payload as CanonImmutableRule) };
     },
     async appendAcceptedEvent(accepted, traceId) {
       // Split the envelope off the accepted event: the proposed event is stored as
