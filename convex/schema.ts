@@ -6,6 +6,7 @@ import { conversationId, playerId } from './aiTown/ids';
 import { engineTables } from './engine/schema';
 import { canonTables } from './canon/schema';
 import { simulationTables } from './simulation/schema';
+import { observabilityTables } from './observability/schema';
 
 export default defineSchema({
   music: defineTable({
@@ -30,4 +31,5 @@ export default defineSchema({
   // AI Reality Town canon + simulation layers (Phase 0 Foundation).
   ...canonTables,
   ...simulationTables,
+  ...observabilityTables,
 });
