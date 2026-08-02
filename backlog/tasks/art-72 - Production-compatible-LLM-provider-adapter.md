@@ -1,11 +1,11 @@
 ---
 id: ART-72
 title: Production-compatible LLM provider adapter
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:43'
-updated_date: '2026-08-02 20:54'
+updated_date: '2026-08-02 21:00'
 labels:
   - prd-1.0
   - epic-a
@@ -77,7 +77,7 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -89,8 +89,8 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -103,10 +103,12 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented vendor-neutral structured chat/embedding ports and an OpenAI-compatible HTTP adapter with runtime wire normalization, abort timeout, bounded retry, stable errors, token/latency/retry trace metadata, config validation, endpoint normalization/overrides, explicit unauthenticated opt-in, and server-only capability probe. Offline Fake/HTTP parity and negative tests passed 7 tests. Dev deployment probe passed chat structured output with model auto and embeddings with model bge-m3 at 1024 dimensions; output was credential/prompt free. npm run check passed architecture, typecheck, lint, 40 suites/348 tests, and build. agent:check confirmed no tracked secrets.
+
+PR #70 merged at 2026-08-02T20:56:35Z: https://github.com/tc3oliver/ai-reality-town/pull/70
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Implemented NFR-004/Milestone 2 OpenAI-compatible chat and embedding adapter with safe Convex configuration, structured-output normalization, timeout/retry/error handling, secret-safe traces, Fake parity, and actionable capability probes. Verified offline with 7 focused tests/full 348-test gate and live dev compatibility for chat model auto plus bge-m3/1024 embeddings; merge evidence remains pending.
+Implemented NFR-004/Milestone 2 OpenAI-compatible chat and embedding adapter with safe Convex configuration, structured-output normalization, timeout/retry/error handling, secret-safe traces, Fake parity, and actionable capability probes. Verified offline with 7 focused tests/full 348-test gate, live dev compatibility for chat model auto plus bge-m3/1024 embeddings, and merged PR #70.
 <!-- SECTION:FINAL_SUMMARY:END -->
