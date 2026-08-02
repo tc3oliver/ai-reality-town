@@ -77,6 +77,10 @@ import type * as simulation_directorFunctions from "../simulation/directorFuncti
 import type * as simulation_fakeProvider from "../simulation/fakeProvider.js";
 import type * as simulation_model from "../simulation/model.js";
 import type * as simulation_provider from "../simulation/provider.js";
+import type * as simulation_providers_actions from "../simulation/providers/actions.js";
+import type * as simulation_providers_config from "../simulation/providers/config.js";
+import type * as simulation_providers_openAICompatible from "../simulation/providers/openAICompatible.js";
+import type * as simulation_providers_probes from "../simulation/providers/probes.js";
 import type * as simulation_queries from "../simulation/queries.js";
 import type * as simulation_runState from "../simulation/runState.js";
 import type * as simulation_scheduler from "../simulation/scheduler.js";
@@ -184,6 +188,10 @@ declare const fullApi: ApiFromModules<{
   "simulation/fakeProvider": typeof simulation_fakeProvider;
   "simulation/model": typeof simulation_model;
   "simulation/provider": typeof simulation_provider;
+  "simulation/providers/actions": typeof simulation_providers_actions;
+  "simulation/providers/config": typeof simulation_providers_config;
+  "simulation/providers/openAICompatible": typeof simulation_providers_openAICompatible;
+  "simulation/providers/probes": typeof simulation_providers_probes;
   "simulation/queries": typeof simulation_queries;
   "simulation/runState": typeof simulation_runState;
   "simulation/scheduler": typeof simulation_scheduler;

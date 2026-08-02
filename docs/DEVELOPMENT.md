@@ -118,6 +118,7 @@ in [`docs/testing/fixtures.md`](testing/fixtures.md).
 - **Pre-generation safety gate:** `docs/pre-generation-safety.md`.
 - **Post-generation safety classification:** `docs/post-generation-safety.md`.
 - **Secret-safe LLM tracing:** `docs/llm-tracing.md`.
+- **OpenAI-compatible provider adapter:** `docs/openai-compatible-provider.md`.
 
 ## Conduct & security
 
