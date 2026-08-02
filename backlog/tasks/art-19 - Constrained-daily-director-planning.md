@@ -1,11 +1,11 @@
 ---
 id: ART-19
 title: Constrained daily director planning
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 20:38'
+updated_date: '2026-08-02 20:43'
 labels:
   - prd-1.0
   - epic-f
@@ -75,13 +75,13 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #3 FR-C002: 場景必須可追蹤至 Director Run。
 - [x] #4 FR-C002: 每日必須限制主要場景數量。
 - [x] #5 Automated tests provide evidence for every mapped FR-C002 acceptance criterion, including rejection and failure paths.
-- [ ] #6 PRD traceability links FR-C002 to doc-1 and the merged implementation evidence.
+- [x] #6 PRD traceability links FR-C002 to doc-1 and the merged implementation evidence.
 - [x] #7 Section 10.1: Each world time slot plans between zero and three major scenes, inclusive, and rejects plans above that limit.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -93,8 +93,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -107,10 +107,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented a strict Director context/plan contract covering all FR-C002 inputs, 0-3 scenes per world slot, Director Run provenance, character location/time conflict prevention, active-Arc validation, protected facts, and expected change types. Unknown output fields—including prescribed finalOutcome/dialogue—are rejected. Persistence is internal and idempotent per Director Run. Focused Jest passed 6 tests; Convex codegen succeeded; npm run check passed architecture, typecheck, lint, 37 suites/327 tests, and build.
+
+PR #64 merged at 2026-08-02T20:40:42Z: https://github.com/tc3oliver/ai-reality-town/pull/64
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Implemented FR-C002 constrained, non-prescriptive Director planning with complete context, deterministic 0-3 scene limits, run traceability, conflict validation, and internal idempotent persistence. Verified with 6 focused tests and full npm run check (327 tests); merge evidence remains pending.
+Implemented FR-C002 constrained, non-prescriptive Director planning with complete context, deterministic 0-3 scene limits, run traceability, conflict validation, and internal idempotent persistence. Verified with 6 focused tests, full npm run check (327 tests), and merged PR #64.
 <!-- SECTION:FINAL_SUMMARY:END -->
