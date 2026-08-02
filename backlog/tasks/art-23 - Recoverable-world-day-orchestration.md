@@ -1,10 +1,11 @@
 ---
 id: ART-23
 title: Core world-day proposal and commit orchestration
-status: To Do
-assignee: []
+status: In Review
+assignee:
+  - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 16:45'
+updated_date: '2026-08-02 21:40'
 labels:
   - prd-1.0
   - epic-f
@@ -14,6 +15,14 @@ dependencies:
   - ART-17
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
+modified_files:
+  - convex/simulation/worldDayOrchestration.ts
+  - convex/simulation/worldDayOrchestrationFunctions.ts
+  - convex/simulation/worldDayOrchestration.test.ts
+  - convex/simulation/schema.ts
+  - convex/_generated/api.d.ts
+  - docs/world-day-orchestration.md
+  - docs/DEVELOPMENT.md
 priority: high
 type: feature
 ordinal: 23000
@@ -64,28 +73,46 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Section 12 stages 1–10 execute in order with durable run and checkpoint status.
-- [ ] #2 Structural and Canon validation failures reject the proposal without any partial Canon write.
-- [ ] #3 Accepted-event commit is durable and idempotent; retry cannot duplicate an accepted event.
-- [ ] #4 A failure records its exact stage and stable error information, and retry resumes only from a safe boundary.
-- [ ] #5 Automated failure-injection tests cover every pre-commit boundary, duplicate commit, and partial-write rejection.
+- [x] #1 Section 12 stages 1–10 execute in order with durable run and checkpoint status.
+- [x] #2 Structural and Canon validation failures reject the proposal without any partial Canon write.
+- [x] #3 Accepted-event commit is durable and idempotent; retry cannot duplicate an accepted event.
+- [x] #4 A failure records its exact stage and stable error information, and retry resumes only from a safe boundary.
+- [x] #5 Automated failure-injection tests cover every pre-commit boundary, duplicate commit, and partial-write rejection.
 - [ ] #6 PRD traceability links Section 12 stages 1–10 to doc-1 and merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
 - [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Define the exact ten pre-commit stage contract, stable stage/error codes, durable checkpoint/run records, and safe-resume rules where completed checkpoints are reused and failed/in-progress stages restart without skipping predecessors. 2. Implement an injected orchestration engine that persists every transition, normalizes stage artifacts, structurally validates and Canon-validates all proposals before a single atomic idempotent batch commit boundary, and records exact failure provenance without partial Canon writes. 3. Add internal Convex persistence/inspection operations and schema indexes for world-day runs and append-only checkpoint attempts, keeping post-commit projection/editorial work out of scope. 4. Add exhaustive failure injection for stages 1–10, validation rejection, commit rollback, retry/resume, and duplicate commit; update documentation, codegen, and run focused plus full checks.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented the exact Section 12 stages 1-10 contract with ordered immutable artifacts, durable per-attempt checkpoints, stable failure stage/code, safe first-incomplete-stage resume, terminal completed-run idempotency, and run identity conflict protection. Internal Convex tables/functions persist and inspect run/checkpoint state. Validation stages cannot invoke commit; stage 10 is one atomic idempotent commit adapter boundary and malformed commit evidence fails closed. Verification: NODE_OPTIONS=--experimental-vm-modules npx jest convex/simulation/worldDayOrchestration.test.ts --runInBand passed 16/16 including failure injection at all ten stages, safe retry, duplicate run, validation no-write, atomic rollback, and invalid evidence; npx convex codegen passed; npm run check passed architecture, typecheck, lint, 46 suites/397 tests, and build; git diff --check passed.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented recoverable PRD Section 12 stages 1-10 orchestration with durable checkpoint attempts, exact stable failure provenance, safe boundary resume, pre-commit validation isolation, and a single atomic/idempotent Accepted Event commit boundary. Focused 16-case failure/retry suite and full 397-test/typecheck/lint/build validation pass; merged PR traceability remains pending.
+<!-- SECTION:FINAL_SUMMARY:END -->

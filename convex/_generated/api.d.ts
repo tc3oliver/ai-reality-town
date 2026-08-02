@@ -95,6 +95,8 @@ import type * as simulation_sceneSimulationFunctions from "../simulation/sceneSi
 import type * as simulation_scheduler from "../simulation/scheduler.js";
 import type * as simulation_schedulerOperations from "../simulation/schedulerOperations.js";
 import type * as simulation_workflow from "../simulation/workflow.js";
+import type * as simulation_worldDayOrchestration from "../simulation/worldDayOrchestration.js";
+import type * as simulation_worldDayOrchestrationFunctions from "../simulation/worldDayOrchestrationFunctions.js";
 import type * as story_classification from "../story/classification.js";
 import type * as story_classificationFunctions from "../story/classificationFunctions.js";
 import type * as story_functions from "../story/functions.js";
@@ -215,6 +217,8 @@ declare const fullApi: ApiFromModules<{
   "simulation/scheduler": typeof simulation_scheduler;
   "simulation/schedulerOperations": typeof simulation_schedulerOperations;
   "simulation/workflow": typeof simulation_workflow;
+  "simulation/worldDayOrchestration": typeof simulation_worldDayOrchestration;
+  "simulation/worldDayOrchestrationFunctions": typeof simulation_worldDayOrchestrationFunctions;
   "story/classification": typeof story_classification;
   "story/classificationFunctions": typeof story_classificationFunctions;
   "story/functions": typeof story_functions;

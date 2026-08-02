@@ -116,6 +116,7 @@ in [`docs/testing/fixtures.md`](testing/fixtures.md).
 - **Knowledge-scoped character intents:** `docs/character-intents.md`.
 - **Conflict-safe scene grouping:** `docs/scene-grouping.md`.
 - **Whole-scene simulation:** `docs/whole-scene-simulation.md`.
+- **Recoverable world-day stages 1–10:** `docs/world-day-orchestration.md`.
 - **Initial tension warmup gate:** `docs/tension-readiness.md`.
 - **Pre-generation safety gate:** `docs/pre-generation-safety.md`.
 - **Post-generation safety classification:** `docs/post-generation-safety.md`.

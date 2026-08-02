@@ -8,6 +8,26 @@ import { defineTable } from 'convex/server';
 import { v } from 'convex/values';
 
 export const simulationTables = {
+  worldDayRuns: defineTable({
+    runId: v.string(), worldId: v.string(), worldDay: v.number(),
+    timeSlot: v.union(v.literal('morning'), v.literal('noon'), v.literal('afternoon'), v.literal('evening'), v.literal('night')),
+    status: v.union(v.literal('running'), v.literal('failed'), v.literal('completed')),
+    attemptCount: v.number(), failureStage: v.optional(v.string()), errorCode: v.optional(v.string()),
+    errorMessage: v.optional(v.string()), committedEventIds: v.optional(v.array(v.string())),
+    createdAt: v.number(), updatedAt: v.number(),
+  })
+    .index('by_run_id', ['runId'])
+    .index('by_world_day_slot', ['worldId', 'worldDay', 'timeSlot']),
+
+  worldDayCheckpoints: defineTable({
+    runId: v.string(), stage: v.string(), attempt: v.number(),
+    status: v.union(v.literal('running'), v.literal('failed'), v.literal('completed')),
+    artifact: v.optional(v.any()), errorCode: v.optional(v.string()), errorMessage: v.optional(v.string()),
+    createdAt: v.number(), updatedAt: v.number(),
+  })
+    .index('by_run_and_stage', ['runId', 'stage'])
+    .index('by_run_stage_attempt', ['runId', 'stage', 'attempt']),
+
   worldSchedules: defineTable({
     worldId: v.string(),
     mode: v.union(v.literal('public'), v.literal('development'), v.literal('test'), v.literal('warmup')),
