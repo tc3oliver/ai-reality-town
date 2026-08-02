@@ -104,12 +104,15 @@ describe('reduceWorldEvent', () => {
     const next = reduceWorldEvent(start, event);
     expect(next.facts).toHaveLength(1);
     expect(next.facts[0]).toEqual({
+      factId: `${event.eventId}:fact:0`,
       subjectType: 'character',
       subjectId: 'a',
       predicate: 'knows',
       value: true,
       visibility: 'canon',
       sourceEventId: event.eventId,
+      validFromEventId: event.eventId,
+      validUntilEventId: null,
     });
   });
 

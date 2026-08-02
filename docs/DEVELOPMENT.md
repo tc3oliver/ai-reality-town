@@ -95,6 +95,7 @@ in [`docs/testing/fixtures.md`](testing/fixtures.md).
 - **Provider proposal boundary:** `docs/proposed-event-contract.md`.
 - **Structural event validation:** `docs/structural-event-validation.md`.
 - **Canon continuity validation:** `docs/canon-continuity.md`.
+- **Canonical facts and world environment:** `docs/canonical-fact-environment.md`.
 - **Deterministic reducer contract:** `docs/deterministic-reducer.md`.
 - **Snapshot and non-destructive recovery:** `docs/snapshot-recovery.md`.
 - **Event-derived character state:** `docs/character-state-projection.md`.

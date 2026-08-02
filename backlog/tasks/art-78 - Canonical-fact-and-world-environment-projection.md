@@ -1,10 +1,11 @@
 ---
 id: ART-78
 title: Canonical fact and world environment projection
-status: To Do
-assignee: []
+status: In Review
+assignee:
+  - '@codex'
 created_date: '2026-08-02 16:19'
-updated_date: '2026-08-02 16:24'
+updated_date: '2026-08-02 20:09'
 labels:
   - prd-1.0
   - epic-e
@@ -64,25 +65,43 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Canonical facts contain subject, predicate, value, validity event range, and visibility.
-- [ ] #2 Only accepted events create, supersede, or end canonical facts and environment state.
-- [ ] #3 Replay reconstructs identical fact and environment projections without editing history.
+- [x] #1 Canonical facts contain subject, predicate, value, validity event range, and visibility.
+- [x] #2 Only accepted events create, supersede, or end canonical facts and environment state.
+- [x] #3 Replay reconstructs identical fact and environment projections without editing history.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
 - [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Audit the current fact_created contract and reducer, then define typed accepted-event state changes for superseding/ending canonical facts and setting world environment values without in-place mutation. 2. Extend the deterministic projection with subject type/id, predicate, JSON value, visibility, valid-from event, nullable valid-until event, and versioned environment entries with the same provenance. 3. Add structural and Canon validation for references, visibility, prior active fact/environment identity, and duplicate changes, preserving append-only Accepted Events and snapshot/replay compatibility. 4. Test creation, supersession, closure, environment updates, invalid/repeated attempts, replay/snapshot equality, input immutability, and privacy fields; update docs/codegen and run full gates.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Extended every projected Canonical Fact with deterministic identity, typed subject, predicate/value/visibility, valid-from and nullable valid-until Accepted Event provenance. A later Accepted Event for the same subject/predicate closes the old projection version and appends the replacement. World facts additionally maintain cloned current environment state and lossless version history. Canon rejects foreign-world subjects and duplicate same-key changes in one event. Focused verification passed 28 tests including 30-day snapshots; npm run check passed architecture, typecheck, lint, 31 suites/297 tests, and build.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented Sections 13.5/13.8 and NFR-008 fact/environment projections: Accepted-Event-only versioning, complete validity and visibility metadata, current plus historical world environment state, and deterministic snapshot/replay equality. Full verification passed 297 tests; merge evidence remains pending.
+<!-- SECTION:FINAL_SUMMARY:END -->

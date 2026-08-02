@@ -210,12 +210,24 @@ export type RelationshipHistoryEntry = {
 
 /** A fact projected from accepted events. */
 export type ProjectedFact = {
-  subjectType: string;
+  factId: string;
+  subjectType: FactSubjectType;
   subjectId: string;
   predicate: string;
   value: string | number | boolean;
-  visibility: string;
+  visibility: FactVisibility;
+  validFromEventId: string;
+  validUntilEventId: string | null;
+  /** Backward-compatible provenance alias for readers migrating to validFromEventId. */
   sourceEventId: string;
+};
+
+export type ProjectedEnvironmentValue = {
+  key: string;
+  value: string | number | boolean;
+  visibility: FactVisibility;
+  validFromEventId: string;
+  validUntilEventId: string | null;
 };
 
 export type CharacterCurrentState = {
@@ -277,6 +289,10 @@ export type WorldProjection = {
   relationships: Record<string, RelationshipState>;
   relationshipHistory: Record<string, RelationshipHistoryEntry[]>;
   facts: ProjectedFact[];
+  /** Current world-subject facts keyed by predicate. */
+  worldEnvironment: Record<string, ProjectedEnvironmentValue>;
+  /** All environment versions retained for audit/replay. */
+  environmentHistory: Record<string, ProjectedEnvironmentValue[]>;
 };
 
 /** A projection with no events applied yet (the starting point for replay). */
@@ -294,5 +310,7 @@ export function emptyProjection(worldId: string): WorldProjection {
     relationships: {},
     relationshipHistory: {},
     facts: [],
+    worldEnvironment: {},
+    environmentHistory: {},
   };
 }

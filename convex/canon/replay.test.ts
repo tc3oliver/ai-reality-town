@@ -66,12 +66,12 @@ describe('snapshots', () => {
     const projection: WorldProjection = {
       ...emptyProjection('w'),
       characterLocations: { a: 'l' },
-      facts: [{ subjectType: 'character', subjectId: 'a', predicate: 'p', value: 1, visibility: 'canon', sourceEventId: 'e' }],
+      facts: [{ factId: 'e:fact:0', subjectType: 'character', subjectId: 'a', predicate: 'p', value: 1, visibility: 'canon', sourceEventId: 'e', validFromEventId: 'e', validUntilEventId: null }],
     };
     const snap = buildSnapshot(projection, 123);
     // Mutate the original after snapshotting.
     projection.characterLocations.a = 'changed';
-    projection.facts.push({ subjectType: 'world', subjectId: 'w', predicate: 'x', value: true, visibility: 'canon', sourceEventId: 'e2' });
+    projection.facts.push({ factId: 'e2:fact:0', subjectType: 'world', subjectId: 'w', predicate: 'x', value: true, visibility: 'canon', sourceEventId: 'e2', validFromEventId: 'e2', validUntilEventId: null });
     expect(snap.projection.characterLocations.a).toBe('l');
     expect(snap.projection.facts).toHaveLength(1);
     expect(snap.lastSequenceNumber).toBe(projection.lastSequenceNumber - 0); // unchanged by mutation
