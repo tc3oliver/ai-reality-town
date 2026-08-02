@@ -1,18 +1,30 @@
 ---
 id: ART-57
 title: Secret-safe LLM trace pipeline
-status: To Do
-assignee: []
+status: In Review
+assignee:
+  - '@codex'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-02 16:24'
+updated_date: '2026-08-02 18:38'
 labels:
   - prd-1.0
   - epic-o
 milestone: m-0
 dependencies:
   - ART-3
+references:
+  - 'https://github.com/tc3oliver/ai-reality-town/pull/26'
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
+modified_files:
+  - convex/observability/llmTrace.ts
+  - convex/observability/llmTrace.test.ts
+  - convex/observability/schema.ts
+  - convex/observability/traces.ts
+  - convex/schema.ts
+  - convex/_generated/api.d.ts
+  - docs/llm-tracing.md
+  - docs/DEVELOPMENT.md
 priority: high
 type: feature
 ordinal: 57000
@@ -63,25 +75,48 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 FR-M001: Every model call records World ID, World Day, Run ID, Scene ID, Arc ID, Character IDs, Model, Prompt Version, Input Tokens, Output Tokens, Latency, Retry Count, Validation Result, and Final Status.
-- [ ] #2 Trace fields have defined optionality for calls without scene, arc, or character context.
-- [ ] #3 Complete prompts and secrets are redacted from public and unauthorized trace access.
+- [x] #1 FR-M001: Every model call records World ID, World Day, Run ID, Scene ID, Arc ID, Character IDs, Model, Prompt Version, Input Tokens, Output Tokens, Latency, Retry Count, Validation Result, and Final Status.
+- [x] #2 Trace fields have defined optionality for calls without scene, arc, or character context.
+- [x] #3 Complete prompts and secrets are redacted from public and unauthorized trace access.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Define a strict versioned LLM trace draft/record contract containing every FR-M001 field, with scene/arc optional and characterIds required as an empty-or-populated list.
+2. Reject sensitive/raw or unknown fields at runtime, store only metadata, and provide separate minimal public versus internal authorized views.
+3. Add idempotent trace persistence through a pure store and Convex internal mutation/query boundary; reject conflicting duplicate trace IDs and invalid metrics.
+4. Test completeness, optionality, correlation, redaction, authorization, and duplicate behavior; document, run codegen/full gates, then finalize and merge.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented LLM trace v1 with every FR-M001 metric, explicit optional scene/arc and required empty-or-populated character list, strict sensitive-field rejection, idempotent/conflict-safe persistence, minimal public projection, and internal-only full queries. Convex codegen succeeded against the configured development deployment only. Focused validation: 1 suite/15 tests. Full npm run check passed architecture checks, typecheck, lint, 19 suites/205 tests, and Vite build.
+
+Committed as d591329, pushed to origin, and opened PR #26.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented a complete secret-safe LLM accounting pipeline: all required model-call metadata is validated and correlated, raw prompts/secrets cannot enter storage, public access is minimized, full access is internal-only, and duplicate counting is prevented. Verified with development codegen, 15 focused tests, and the full 205-test quality gate.
+<!-- SECTION:FINAL_SUMMARY:END -->

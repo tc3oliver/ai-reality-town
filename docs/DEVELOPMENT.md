@@ -96,6 +96,7 @@ in [`docs/testing/fixtures.md`](testing/fixtures.md).
 - **Structural event validation:** `docs/structural-event-validation.md`.
 - **Initial tension warmup gate:** `docs/tension-readiness.md`.
 - **Pre-generation safety gate:** `docs/pre-generation-safety.md`.
+- **Secret-safe LLM tracing:** `docs/llm-tracing.md`.
 
 ## Conduct & security
 
