@@ -1,17 +1,19 @@
 ---
 id: ART-12
 title: Versioned proposed-event contracts
-status: In Progress
+status: In Review
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 18:16'
+updated_date: '2026-08-02 18:17'
 labels:
   - prd-1.0
   - epic-d
 milestone: m-0
 dependencies:
   - ART-3
+references:
+  - 'https://github.com/tc3oliver/ai-reality-town/pull/18'
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
 modified_files:
@@ -95,7 +97,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -112,6 +114,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented a strict ProposedEvent v1 normalizer for untrusted provider output, exact envelope/source/union keys, JSON-safe metadata, and literal schema typing. Routed simulation workflow output through normalization before Canon commit. Validation: npm test -- convex/canon/proposedEvent.test.ts convex/simulation/workflow.test.ts convex/canon/reducer.test.ts (3 suites, 29 tests passed); npm run check (architecture policy and boundary tests, typecheck, lint, 16 suites/150 tests, and Vite build passed).
+
+Committed as 48c6c2b, pushed to origin, and opened PR #18.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
