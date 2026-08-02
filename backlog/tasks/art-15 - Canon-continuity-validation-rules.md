@@ -86,7 +86,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -103,6 +103,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented versioned life, sourced-knowledge, and unique-item state changes; deterministic projection/snapshot metadata; database-backed reference/connectivity context; all FR-D004 rejection rules; and an internal administrator failure query backed by structured simulation-run error code/path/details. Retries re-enter the same validator before sequence/key reservation. Verification: npm run check passed (19 suites, 225 tests; architecture, typecheck, lint, build all passed); focused continuity/schema/reducer/workflow tests passed; npx convex codegen succeeded against the configured development deployment. AC5 and DoD1/13/14 remain merge-evidence dependent.
+
+Implementation and task evidence committed as 580c2da and pushed to origin/feat/ART-15-canon-continuity.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
