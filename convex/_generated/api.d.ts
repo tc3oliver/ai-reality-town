@@ -79,6 +79,8 @@ import type * as simulation_model from "../simulation/model.js";
 import type * as simulation_provider from "../simulation/provider.js";
 import type * as simulation_queries from "../simulation/queries.js";
 import type * as simulation_runState from "../simulation/runState.js";
+import type * as simulation_sceneGrouping from "../simulation/sceneGrouping.js";
+import type * as simulation_sceneGroupingFunctions from "../simulation/sceneGroupingFunctions.js";
 import type * as simulation_scheduler from "../simulation/scheduler.js";
 import type * as simulation_schedulerOperations from "../simulation/schedulerOperations.js";
 import type * as simulation_workflow from "../simulation/workflow.js";
@@ -186,6 +188,8 @@ declare const fullApi: ApiFromModules<{
   "simulation/provider": typeof simulation_provider;
   "simulation/queries": typeof simulation_queries;
   "simulation/runState": typeof simulation_runState;
+  "simulation/sceneGrouping": typeof simulation_sceneGrouping;
+  "simulation/sceneGroupingFunctions": typeof simulation_sceneGroupingFunctions;
   "simulation/scheduler": typeof simulation_scheduler;
   "simulation/schedulerOperations": typeof simulation_schedulerOperations;
   "simulation/workflow": typeof simulation_workflow;

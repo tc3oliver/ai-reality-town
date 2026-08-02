@@ -114,6 +114,7 @@ in [`docs/testing/fixtures.md`](testing/fixtures.md).
 - **World scheduler and run state:** `docs/world-scheduler.md`.
 - **Constrained Director planning:** `docs/director-planning.md`.
 - **Knowledge-scoped character intents:** `docs/character-intents.md`.
+- **Conflict-safe scene grouping:** `docs/scene-grouping.md`.
 - **Initial tension warmup gate:** `docs/tension-readiness.md`.
 - **Pre-generation safety gate:** `docs/pre-generation-safety.md`.
 - **Post-generation safety classification:** `docs/post-generation-safety.md`.

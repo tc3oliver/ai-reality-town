@@ -86,4 +86,12 @@ export const simulationTables = {
   })
     .index('by_world_and_run', ['worldId', 'intentRunId'])
     .index('by_director_run', ['worldId', 'directorRunId']),
+
+  groupedSceneRuns: defineTable({
+    schemaVersion: v.literal(1), worldId: v.string(), groupingRunId: v.string(), directorRunId: v.string(),
+    worldDay: v.number(), timeSlot: v.union(v.literal('morning'), v.literal('noon'), v.literal('afternoon'), v.literal('evening'), v.literal('night')),
+    intentRunIds: v.array(v.string()), result: v.any(), createdAt: v.number(),
+  })
+    .index('by_world_and_run', ['worldId', 'groupingRunId'])
+    .index('by_director_run', ['worldId', 'directorRunId']),
 };
