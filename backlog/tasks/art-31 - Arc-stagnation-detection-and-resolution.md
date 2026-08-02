@@ -1,11 +1,11 @@
 ---
 id: ART-31
 title: Arc stagnation detection and resolution
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 20:34'
+updated_date: '2026-08-02 20:39'
 labels:
   - prd-1.0
   - epic-h
@@ -85,8 +85,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -99,10 +99,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented deterministic 14-world-day stagnation prompts and append-only Accepted-Event-proven resolution decisions for suggestion, merge, downgrade, resolving, resolve, archive, and background compression. Terminal decisions require source-proven outcome/consequence payloads for ART-82. Focused Jest passed 6 tests; Convex codegen succeeded; npm run check passed architecture, typecheck, lint, 37 suites/327 tests, and build.
+
+PR #63 merged at 2026-08-02T20:36:08Z: https://github.com/tc3oliver/ai-reality-town/pull/63
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Implemented FR-F005 operator-visible 14-day stagnation detection, lifecycle-safe remediation records, retained terminal outcomes/consequences, and ART-82's source-proven consequence contract. Verified with focused 6-test coverage and full npm run check (327 tests). Merge evidence remains pending.
+Implemented FR-F005 operator-visible 14-day stagnation detection, lifecycle-safe remediation records, retained terminal outcomes/consequences, and ART-82's source-proven consequence contract. Verified with focused 6-test coverage, full npm run check (327 tests), and merged PR #63.
 <!-- SECTION:FINAL_SUMMARY:END -->
