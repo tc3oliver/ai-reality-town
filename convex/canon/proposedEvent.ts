@@ -100,6 +100,11 @@ export const stateChangeValidator = v.union(
     toValue: v.union(v.string(), v.boolean(), v.array(v.string())),
     reason: v.string(),
   }),
+  v.object({
+    type: v.literal('organization_state_changed'), organizationId: v.string(), name: v.string(),
+    description: v.string(), organizationType: v.string(),
+    headquartersLocationId: v.union(v.string(), v.null()), active: v.boolean(), reason: v.string(),
+  }),
 );
 
 export const proposedByValidator = v.object({
@@ -227,6 +232,9 @@ function normalizeStateChange(value: unknown, index: number): StateChange {
         ...(Array.isArray(change.fromValue) ? { fromValue: [...change.fromValue] } : {}),
         ...(Array.isArray(change.toValue) ? { toValue: [...change.toValue] } : {}),
       };
+    case 'organization_state_changed':
+      exactObject(value, path, ['type', 'organizationId', 'name', 'description', 'organizationType', 'headquartersLocationId', 'active', 'reason']);
+      return { ...change };
   }
 }
 

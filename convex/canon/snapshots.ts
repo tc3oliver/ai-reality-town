@@ -102,6 +102,17 @@ export function cloneProjection(projection: WorldProjection): WorldProjection {
     locationOccupancy: Object.fromEntries(
       Object.entries(projection.locationOccupancy ?? {}).map(([id, occupants]) => [id, [...occupants]]),
     ),
+    organizations: Object.fromEntries(
+      Object.entries(projection.organizations ?? {}).map(([id, organization]) => [id, { ...organization }]),
+    ),
+    organizationMembers: Object.fromEntries(
+      Object.entries(projection.organizationMembers ?? {}).map(([id, members]) => [id, [...members]]),
+    ),
+    organizationMembershipHistory: Object.fromEntries(
+      Object.entries(projection.organizationMembershipHistory ?? {}).map(([id, entries]) => [id, entries.map((entry) => ({
+        ...entry, addedOrganizationIds: [...entry.addedOrganizationIds], removedOrganizationIds: [...entry.removedOrganizationIds],
+      }))]),
+    ),
   };
 }
 

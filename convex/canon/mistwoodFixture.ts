@@ -66,6 +66,9 @@ export const mistwoodInitialProjection: WorldProjection = {
   environmentHistory: {},
   locations: {},
   locationOccupancy: {},
+  organizations: {},
+  organizationMembers: {},
+  organizationMembershipHistory: {},
 };
 
 /** The accepted event log for Mistwood (sequences 0..3). */

@@ -310,6 +310,12 @@ export function buildWorldImportPlan(value: unknown, createdAt: number): WorldIm
     lastUpdatedEventId: 'initial-snapshot',
   }]));
   projection.locationOccupancy = Object.fromEntries(configuration.locations.map(({ id }) => [id, []]));
+  projection.organizations = Object.fromEntries(configuration.organizations.map((organization) => [organization.id, {
+    organizationId: organization.id, name: organization.name, description: organization.description,
+    organizationType: organization.type, headquartersLocationId: organization.headquartersLocationId ?? null,
+    active: true, lastUpdatedEventId: 'initial-snapshot',
+  }]));
+  projection.organizationMembers = Object.fromEntries(configuration.organizations.map(({ id }) => [id, []]));
   return {
     configuration,
     initialSnapshot: buildSnapshot(projection, createdAt, 0),

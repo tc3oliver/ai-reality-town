@@ -97,6 +97,15 @@ describe('atomic world configuration import', () => {
         },
       },
       locationOccupancy: { square: [], station: [] },
+      organizations: {
+        gazette: {
+          organizationId: 'gazette', name: 'Mistwood Gazette', description: 'The local paper.',
+          organizationType: 'newspaper', headquartersLocationId: 'square', active: true,
+          lastUpdatedEventId: 'initial-snapshot',
+        },
+      },
+      organizationMembers: { gazette: [] },
+      organizationMembershipHistory: {},
     });
   });
 
