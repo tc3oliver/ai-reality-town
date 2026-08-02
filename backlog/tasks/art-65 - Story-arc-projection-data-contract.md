@@ -1,11 +1,11 @@
 ---
 id: ART-65
 title: Story arc projection data contract
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:43'
-updated_date: '2026-08-02 19:53'
+updated_date: '2026-08-02 19:56'
 labels:
   - prd-1.0
   - epic-h
@@ -13,6 +13,8 @@ milestone: m-0
 dependencies:
   - ART-12
   - ART-16
+references:
+  - 'https://github.com/tc3oliver/ai-reality-town/pull/46'
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
 priority: high
@@ -67,12 +69,12 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 <!-- AC:BEGIN -->
 - [x] #1 FR-F003: Arc stores Title, Premise, Current Question, Status, Core Characters, Inciting Event, Latest Turning Point, Essential Facts, Unresolved Questions, Resolved Questions, Recommended Entry Point, Heat Score, and Last Progress Time.
 - [x] #2 Every required field is runtime validated and replayable from accepted events.
-- [ ] #3 Traceability links FR-F003 to doc-1 and implementation evidence.
+- [x] #3 Traceability links FR-F003 to doc-1 and implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -85,7 +87,7 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -100,10 +102,12 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 Implemented the complete versioned FR-F003 arc projection with all required fields, runtime validation, nullable not-yet-established turning/entry links, accepted-event progress provenance, append-only full-field projection events, deterministic pure replay, lifecycle status composition, optimistic revisions, and internal-only storage/query boundaries. Character/event references are checked against the world; arrays reject duplicates and resolved/unresolved overlap; heat is bounded 0–100. Convex codegen succeeded. Focused verification passed 19 tests; final npm run check passed architecture, typecheck, lint, 28 suites/285 tests, and build.
 
 Implementation commit a3ba216 pushed on feat/ART-65-arc-data-contract.
+
+Implementation PR #46 merged into main on 2026-08-02T19:55:36Z after Bootstrap and CI checks succeeded.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Implemented FR-F003 complete Story Arc data contract, runtime validation, accepted-event append-only updates, deterministic replay, lifecycle status composition, reference validation, concurrency control, and internal privacy boundary. Full verification passed 285 tests; merge evidence remains pending.
+Delivered FR-F003 through merged PR #46: complete runtime-validated Story Arc projection fields, accepted-event append-only revisions, deterministic replay, lifecycle composition, reference validation, and internal privacy boundaries. Full pre-merge verification passed 285 tests.
 <!-- SECTION:FINAL_SUMMARY:END -->
