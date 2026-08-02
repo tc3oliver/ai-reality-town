@@ -59,6 +59,12 @@ export function cloneProjection(projection: WorldProjection): WorldProjection {
     lastSequenceNumber: projection.lastSequenceNumber,
     characterLocations: { ...projection.characterLocations },
     characterAlive: { ...projection.characterAlive },
+    characterStates: Object.fromEntries(
+      Object.entries(projection.characterStates).map(([id, state]) => [id, {
+        ...state,
+        ...(state.organizationMemberships === undefined ? {} : { organizationMemberships: [...state.organizationMemberships] }),
+      }]),
+    ),
     lastCharacterMovement: Object.fromEntries(
       Object.entries(projection.lastCharacterMovement).map(([id, movement]) => [id, { ...movement }]),
     ),

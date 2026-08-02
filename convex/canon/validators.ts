@@ -17,6 +17,7 @@ import {
 import { CanonValidationError, canonError } from '../shared/errors';
 import {
   isEventType,
+  isCharacterStateField,
   isFactSubjectType,
   isFactVisibility,
   isKnowledgeSourceType,
@@ -199,6 +200,26 @@ function validateStateChangeStructure(change: unknown, path: string): CanonValid
         return canonError('INVALID_EVENT_SHAPE', 'reason must be a non-empty string', undefined, `${path}.reason`);
       return null;
     }
+    case 'character_state_changed': {
+      const error = unknownKeyError(change, ['type', 'characterId', 'field', 'fromValue', 'toValue', 'reason'], path);
+      if (error) return error;
+      if (!isReference(change.characterId))
+        return canonError('INVALID_EVENT_SHAPE', 'characterId has invalid reference format', undefined, `${path}.characterId`);
+      if (!isCharacterStateField(change.field))
+        return canonError('INVALID_EVENT_SHAPE', 'character state field is unsupported', undefined, `${path}.field`);
+      const validValue = (value: unknown): boolean => change.field === 'active'
+        ? typeof value === 'boolean'
+        : change.field === 'organization_memberships'
+          ? Array.isArray(value) && value.every(isReference) && !hasDuplicates(value)
+          : isNonEmptyString(value);
+      if (change.fromValue !== undefined && !validValue(change.fromValue))
+        return canonError('INVALID_EVENT_SHAPE', 'fromValue does not match the selected state field', undefined, `${path}.fromValue`);
+      if (!validValue(change.toValue))
+        return canonError('INVALID_EVENT_SHAPE', 'toValue does not match the selected state field', undefined, `${path}.toValue`);
+      if (!isNonEmptyString(change.reason))
+        return canonError('INVALID_EVENT_SHAPE', 'reason must be a non-empty string', undefined, `${path}.reason`);
+      return null;
+    }
     default:
       return canonError('INVALID_EVENT_SHAPE', 'unhandled state change type', { type }, path);
   }
@@ -334,6 +355,7 @@ export function validateCanon(
   const knownCharacters = ruleContext?.characterIds ? new Set(ruleContext.characterIds) : null;
   const knownLocations = ruleContext?.locationIds ? new Set(ruleContext.locationIds) : null;
   const knownItems = ruleContext?.itemIds ? new Set(ruleContext.itemIds) : null;
+  const knownOrganizations = ruleContext?.organizationIds ? new Set(ruleContext.organizationIds) : null;
   const knownEvents = ruleContext?.knownEventIds ? new Set(ruleContext.knownEventIds) : null;
   const alive = (characterId: string): boolean =>
     projection.characterAlive[characterId]
@@ -379,6 +401,7 @@ export function validateCanon(
   const movedCharacters = new Set<string>();
   const changedLifeCharacters = new Set<string>();
   const transferredItems = new Set<string>();
+  const changedCharacterStateFields = new Set<string>();
 
   for (let i = 0; i < event.stateChanges.length; i++) {
     const change = event.stateChanges[i];
@@ -532,6 +555,53 @@ export function validateCanon(
         return canonError('ITEM_OWNERSHIP_CONFLICT', 'item is already owned by the target character', {
           itemId: change.itemId,
           ownerId: currentOwner,
+        }, path);
+      }
+      continue;
+    }
+
+    if (change.type === 'character_state_changed') {
+      if (knownCharacters && !knownCharacters.has(change.characterId)) {
+        return canonError('UNKNOWN_CHARACTER_REFERENCE', 'state character does not exist', { characterId: change.characterId }, path);
+      }
+      if (!participants.has(change.characterId)) {
+        return canonError('PARTICIPANT_MISMATCH', 'state character must be an event participant', { characterId: change.characterId }, path);
+      }
+      const stateFieldKey = `${change.characterId}:${change.field}`;
+      if (changedCharacterStateFields.has(stateFieldKey)) {
+        return canonError('INVALID_CHARACTER_STATE_CHANGE', 'a character state field may change at most once per event', {
+          characterId: change.characterId, field: change.field,
+        }, path);
+      }
+      changedCharacterStateFields.add(stateFieldKey);
+      if (change.field === 'active' && change.toValue === true
+          && event.stateChanges.some((candidate) => candidate.type === 'character_life_changed'
+            && candidate.characterId === change.characterId && !candidate.alive)) {
+        return canonError('INVALID_CHARACTER_STATE_CHANGE', 'a death event cannot leave the character active', {
+          characterId: change.characterId,
+        }, path);
+      }
+      if (change.field === 'organization_memberships' && knownOrganizations) {
+        for (const organizationId of change.toValue as string[]) {
+          if (!knownOrganizations.has(organizationId)) {
+            return canonError('UNKNOWN_ORGANIZATION_REFERENCE', 'organization membership does not exist', { organizationId }, path);
+          }
+        }
+      }
+      const state = projection.characterStates[change.characterId];
+      const fieldKey = change.field === 'organization_memberships' ? 'organizationMemberships' : change.field;
+      const current = state?.[fieldKey];
+      const equal = (left: unknown, right: unknown): boolean => Array.isArray(left) && Array.isArray(right)
+        ? left.length === right.length && left.every((entry, index) => entry === right[index])
+        : left === right;
+      if (change.fromValue !== undefined && !equal(current, change.fromValue)) {
+        return canonError('CHARACTER_STATE_PRECONDITION_FAILED', 'fromValue does not match projected character state', {
+          characterId: change.characterId, field: change.field,
+        }, path);
+      }
+      if (equal(current, change.toValue)) {
+        return canonError('INVALID_CHARACTER_STATE_CHANGE', 'state change must alter the projected value', {
+          characterId: change.characterId, field: change.field,
         }, path);
       }
       continue;

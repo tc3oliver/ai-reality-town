@@ -15,7 +15,7 @@
 import { RELATIONSHIP_MAX, RELATIONSHIP_MIN, SUPPORTED_SCHEMA_VERSIONS } from '../shared/constants';
 import { CanonError, canonError } from '../shared/errors';
 import { relationshipKey } from '../shared/ids';
-import type { AcceptedEvent, RelationshipState, WorldProjection } from './model';
+import type { AcceptedEvent, CharacterCurrentState, RelationshipState, WorldProjection } from './model';
 
 function clampRelationship(value: number): number {
   if (value < RELATIONSHIP_MIN) return RELATIONSHIP_MIN;
@@ -71,6 +71,12 @@ export function reduceWorldEvent(
   // Structural copies — input objects are never mutated.
   const characterLocations = { ...projection.characterLocations };
   const characterAlive = { ...projection.characterAlive };
+  const characterStates: Record<string, CharacterCurrentState> = Object.fromEntries(
+    Object.entries(projection.characterStates).map(([id, state]) => [id, {
+      ...state,
+      ...(state.organizationMemberships === undefined ? {} : { organizationMemberships: [...state.organizationMemberships] }),
+    }]),
+  );
   const lastCharacterMovement = Object.fromEntries(
     Object.entries(projection.lastCharacterMovement).map(([id, movement]) => [id, { ...movement }]),
   );
@@ -89,6 +95,11 @@ export function reduceWorldEvent(
           worldDay: event.worldDay,
           timeSlot: event.timeSlot,
           eventId: event.eventId,
+        };
+        characterStates[change.characterId] = {
+          ...characterStates[change.characterId],
+          currentLocationId: change.toLocationId,
+          lastUpdatedEventId: event.eventId,
         };
         break;
       }
@@ -115,6 +126,12 @@ export function reduceWorldEvent(
       }
       case 'character_life_changed': {
         characterAlive[change.characterId] = change.alive;
+        characterStates[change.characterId] = {
+          ...characterStates[change.characterId],
+          alive: change.alive,
+          ...(!change.alive ? { active: false } : {}),
+          lastUpdatedEventId: event.eventId,
+        };
         break;
       }
       case 'character_knowledge_learned': {
@@ -126,6 +143,16 @@ export function reduceWorldEvent(
       }
       case 'item_transferred': {
         itemOwners[change.itemId] = change.toOwnerId;
+        break;
+      }
+      case 'character_state_changed': {
+        const key = change.field === 'organization_memberships' ? 'organizationMemberships' : change.field;
+        const value = Array.isArray(change.toValue) ? [...change.toValue] : change.toValue;
+        characterStates[change.characterId] = {
+          ...characterStates[change.characterId],
+          [key]: value,
+          lastUpdatedEventId: event.eventId,
+        };
         break;
       }
       default: {
@@ -145,6 +172,7 @@ export function reduceWorldEvent(
     lastSequenceNumber: event.sequenceNumber,
     characterLocations,
     characterAlive,
+    characterStates,
     lastCharacterMovement,
     itemOwners,
     characterKnowledge,

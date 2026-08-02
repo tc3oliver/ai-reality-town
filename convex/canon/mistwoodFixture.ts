@@ -51,6 +51,7 @@ export const mistwoodInitialProjection: WorldProjection = {
     rowan: 'mistwood-grove',
   },
   characterAlive: { cassia: true, rowan: true },
+  characterStates: {},
   lastCharacterMovement: {},
   itemOwners: {},
   characterKnowledge: {},

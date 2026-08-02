@@ -64,6 +64,18 @@ export const stateChangeValidator = v.union(
     toOwnerId: v.string(),
     reason: v.string(),
   }),
+  v.object({
+    type: v.literal('character_state_changed'),
+    characterId: v.string(),
+    field: v.union(
+      v.literal('health'), v.literal('emotion'), v.literal('finance'),
+      v.literal('occupation'), v.literal('organization_memberships'),
+      v.literal('availability'), v.literal('active'),
+    ),
+    fromValue: v.optional(v.union(v.string(), v.boolean(), v.array(v.string()))),
+    toValue: v.union(v.string(), v.boolean(), v.array(v.string())),
+    reason: v.string(),
+  }),
 );
 
 export const proposedByValidator = v.object({
@@ -131,7 +143,7 @@ function normalizeStateChange(value: unknown, index: number): StateChange {
     'targetCharacterId', 'trustDelta', 'affectionDelta', 'resentmentDelta', 'reason',
     'subjectType', 'subjectId', 'predicate', 'value', 'visibility',
     'alive', 'factId', 'sourceType', 'sourceEventId', 'itemId', 'fromOwnerId',
-    'toOwnerId',
+    'toOwnerId', 'field', 'fromValue', 'toValue',
   ]);
   const change = source as unknown as StateChange;
   switch (change.type) {
@@ -153,6 +165,13 @@ function normalizeStateChange(value: unknown, index: number): StateChange {
     case 'item_transferred':
       exactObject(value, path, ['type', 'itemId', 'fromOwnerId', 'toOwnerId', 'reason']);
       return { ...change };
+    case 'character_state_changed':
+      exactObject(value, path, ['type', 'characterId', 'field', 'fromValue', 'toValue', 'reason']);
+      return {
+        ...change,
+        ...(Array.isArray(change.fromValue) ? { fromValue: [...change.fromValue] } : {}),
+        ...(Array.isArray(change.toValue) ? { toValue: [...change.toValue] } : {}),
+      };
   }
 }
 

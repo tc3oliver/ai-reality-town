@@ -78,6 +78,13 @@ describe('ProposedEvent v1 contract', () => {
       toOwnerId: 'resident-2', reason: 'handed over',
     }];
     expect(normalizeProposedEventOutput(item).stateChanges[0].type).toBe('item_transferred');
+    const state = movement();
+    state.eventType = 'world_event';
+    state.stateChanges = [{
+      type: 'character_state_changed', characterId: 'resident-1', field: 'health',
+      fromValue: 'healthy', toValue: 'injured', reason: 'accepted scene consequence',
+    }];
+    expect(normalizeProposedEventOutput(state).stateChanges[0].type).toBe('character_state_changed');
   });
 
   it('rejects unsupported schema versions', () => {
