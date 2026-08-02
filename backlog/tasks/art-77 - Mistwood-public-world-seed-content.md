@@ -14,6 +14,8 @@ dependencies:
   - ART-5
   - ART-6
   - ART-7
+references:
+  - 'PR #76 https://github.com/tc3oliver/ai-reality-town/pull/76'
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
 modified_files:
@@ -111,6 +113,8 @@ Authored Mistwood seed v1 with 8 connected locations, 3 organizations, 3 histori
 Objective evidence: npm test -- --runTestsByPath convex/canon/mistwoodSeed.test.ts passed 5 tests using the real world/character parsers, atomic adapters, readiness evaluator, safety policy, and public resolver. npm run check passed architecture policy, 6 architecture tests, typecheck, lint, 43 suites/369 tests, and Vite build. git diff --check passed; no credentials or deployment changes.
 
 After rebasing onto merged ART-33/ART-21 evidence, npm run check passed again with 44 suites/375 tests. Implementation commit 5157917 was pushed to origin.
+
+Opened PR #76 and enabled merge-commit auto-merge.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
