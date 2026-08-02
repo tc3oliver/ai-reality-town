@@ -91,6 +91,7 @@ in [`docs/testing/fixtures.md`](testing/fixtures.md).
   `architecture/module-boundaries.json`.
 - **Product requirements and delivery:** versioned PRD docs and tasks in Backlog.md.
 - **World import contract:** `docs/world-configuration.md`.
+- **Primary character seed contract:** `docs/character-seed.md`.
 
 ## Conduct & security
 
