@@ -1,11 +1,11 @@
 ---
 id: ART-10
 title: Directional relationship projection and history
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 19:27'
+updated_date: '2026-08-02 19:37'
 labels:
   - prd-1.0
   - epic-c
@@ -13,6 +13,8 @@ milestone: m-0
 dependencies:
   - ART-12
   - ART-16
+references:
+  - 'https://github.com/tc3oliver/ai-reality-town/pull/39'
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
 priority: high
@@ -71,12 +73,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #4 FR-B002: 關係的雙向數值可以不同。
 - [x] #5 FR-B002: 關係變化不得直接暴露未公開 Secret。
 - [x] #6 Automated tests provide evidence for every mapped FR-B002 acceptance criterion, including rejection and failure paths.
-- [ ] #7 PRD traceability links FR-B002 to doc-1 and the merged implementation evidence.
+- [x] #7 PRD traceability links FR-B002 to doc-1 and the merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -89,7 +91,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -104,10 +106,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 Implemented six-dimensional directional relationship projection and append-only causal history. New v1 fields are additive: legacy omissions normalize to zero/private and old snapshots are tolerated, avoiding a schema-version replay regression. Private changes are internal-only and Canon rejects any private relationship change carrying publicSummary with PRIVATE_RELATIONSHIP_DISCLOSURE. Convex codegen succeeded against the development deployment. Focused Jest verification passed 72 tests; final npm run check passed architecture, typecheck, lint, 25 suites/260 tests, and build.
 
 Implementation commit a04efbf pushed on feat/ART-10-relationship-projection.
+
+Implementation PR #39 merged into main on 2026-08-02T19:28:53Z after Bootstrap and CI checks succeeded.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Implemented FR-B002 directional six-dimensional relationship state, bounded reducer updates, causal event history, replay/snapshot support, internal queryability, backward-compatible v1 normalization, and private-summary disclosure rejection. Full verification passed 260 tests; merge evidence remains pending.
+Delivered FR-B002 through merged PR #39: bounded six-dimensional directional relationships, accepted-event causal history, deterministic replay/snapshots, internal-only private reasons, backward-compatible v1 normalization, and private-summary disclosure rejection. Full pre-merge verification passed 260 tests.
 <!-- SECTION:FINAL_SUMMARY:END -->
