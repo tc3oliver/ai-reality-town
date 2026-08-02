@@ -15,8 +15,10 @@ append-only canon event log.
 - Story content is derived, not authoritative. Corrections happen via new canon events,
   never by editing story projections in place.
 
-## Phase 0 status
+## Implemented foundations
 
-Not implemented. This directory declares the boundary so later phases can add a story
-projection reducer (`reduceStoryEvent`) following the same determinism rules as the canon
-reducer. See `docs/architecture/target-state.md` and ADR-0001.
+- ART-64 provides the versioned Story Arc lifecycle, append-only transition history,
+  accepted-event provenance, and active-context selection.
+- The broader Story Arc data contract and event classification remain separate tasks.
+
+See `docs/story-arc-lifecycle.md`, `docs/architecture/target-state.md`, and ADR-0001.

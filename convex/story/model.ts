@@ -23,4 +23,29 @@ export type StoryArc = {
   summary: string;
   participantIds: string[];
   sourceEventIds: EventId[];
+  status: StoryArcStatus;
+};
+
+export const STORY_ARC_STATUSES = [
+  'emerging', 'active', 'escalating', 'climax', 'resolving', 'resolved', 'archived',
+] as const;
+export type StoryArcStatus = (typeof STORY_ARC_STATUSES)[number];
+
+export type ArcLifecycleTransition = {
+  transitionId: string;
+  fromStatus: StoryArcStatus | null;
+  toStatus: StoryArcStatus;
+  sourceEventId: string;
+  sourceEventSequenceNumber: number;
+  reason: string;
+  changedAt: number;
+};
+
+export type ArcLifecycleRecord = {
+  schemaVersion: 1;
+  worldId: string;
+  arcId: string;
+  status: StoryArcStatus;
+  revision: number;
+  transitions: ArcLifecycleTransition[];
 };

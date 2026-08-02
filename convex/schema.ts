@@ -7,6 +7,7 @@ import { engineTables } from './engine/schema';
 import { canonTables } from './canon/schema';
 import { simulationTables } from './simulation/schema';
 import { observabilityTables } from './observability/schema';
+import { storyTables } from './story/schema';
 
 export default defineSchema({
   music: defineTable({
@@ -32,4 +33,5 @@ export default defineSchema({
   ...canonTables,
   ...simulationTables,
   ...observabilityTables,
+  ...storyTables,
 });
