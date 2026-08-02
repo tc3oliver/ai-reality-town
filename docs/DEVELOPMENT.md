@@ -97,6 +97,7 @@ in [`docs/testing/fixtures.md`](testing/fixtures.md).
 - **Canon continuity validation:** `docs/canon-continuity.md`.
 - **Deterministic reducer contract:** `docs/deterministic-reducer.md`.
 - **Snapshot and non-destructive recovery:** `docs/snapshot-recovery.md`.
+- **World scheduler and run state:** `docs/world-scheduler.md`.
 - **Initial tension warmup gate:** `docs/tension-readiness.md`.
 - **Pre-generation safety gate:** `docs/pre-generation-safety.md`.
 - **Secret-safe LLM tracing:** `docs/llm-tracing.md`.

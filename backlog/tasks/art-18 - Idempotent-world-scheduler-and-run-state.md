@@ -1,10 +1,11 @@
 ---
 id: ART-18
 title: Idempotent world scheduler and run state
-status: To Do
-assignee: []
+status: In Review
+assignee:
+  - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 16:57'
+updated_date: '2026-08-02 19:10'
 labels:
   - prd-1.0
   - epic-f
@@ -63,32 +64,50 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 FR-C001: 同一世界時段不得重複執行。
-- [ ] #2 FR-C001: 支援暫停、恢復與手動觸發。
-- [ ] #3 FR-C001: 任務失敗可以安全重試。
-- [ ] #4 FR-C001: 重試不得重複提交已接受事件。
-- [ ] #5 FR-C001: 管理者可查看目前排程與執行狀態。
-- [ ] #6 Automated tests provide evidence for every mapped FR-C001 acceptance criterion, including rejection and failure paths.
+- [x] #1 FR-C001: 同一世界時段不得重複執行。
+- [x] #2 FR-C001: 支援暫停、恢復與手動觸發。
+- [x] #3 FR-C001: 任務失敗可以安全重試。
+- [x] #4 FR-C001: 重試不得重複提交已接受事件。
+- [x] #5 FR-C001: 管理者可查看目前排程與執行狀態。
+- [x] #6 Automated tests provide evidence for every mapped FR-C001 acceptance criterion, including rejection and failure paths.
 - [ ] #7 PRD traceability links FR-C001 to doc-1 and the merged implementation evidence.
-- [ ] #8 Section 10.1: Public mode defaults to one real calendar day per world day and advances through Morning, Noon, Afternoon, Evening, and Night in order.
-- [ ] #9 Section 10.2: Development/test controls can pause time, advance exactly one time slot, advance exactly one world day, and run accelerated simulation.
-- [ ] #10 Section 10.2: Fixed-seed clock-controlled runs reproduce the same scheduled slot sequence and do not publish unless explicitly enabled.
+- [x] #8 Section 10.1: Public mode defaults to one real calendar day per world day and advances through Morning, Noon, Afternoon, Evening, and Night in order.
+- [x] #9 Section 10.2: Development/test controls can pause time, advance exactly one time slot, advance exactly one world day, and run accelerated simulation.
+- [x] #10 Section 10.2: Fixed-seed clock-controlled runs reproduce the same scheduled slot sequence and do not publish unless explicitly enabled.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
 - [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Define a deterministic scheduler state/cursor and slot-run contract for the five ordered world slots, public 24-hour clock mapping, fixed seeds, publication isolation, and stable slot/idempotency keys. 2. Implement pure clock-controlled pause/resume, public tick, manual one-slot/day, accelerated reservation, lifecycle failure/retry, and uniqueness behavior with an in-memory reference engine. 3. Persist schedule and slot state in Convex with internal configure/control/lifecycle/inspection operations; retries reuse the same slot row and Canon idempotency key. 4. Add clock-controlled integration tests for every FR-C001 and Sections 10.1–10.2 criterion, update docs/codegen, run full gates, finalize, and auto-merge.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented a deterministic five-slot scheduler, stable slot/Canon idempotency keys, fixed seed derivation, 24-hour public mapping, pause anchor shifting, manual slot/day and 1–90 day acceleration, publication isolation, durable lifecycle/retry state, internal inspection, and a minute Convex cron for all running public worlds. Development Convex codegen succeeded. Focused clock suite passed 6 tests. Full npm run check passed architecture, typecheck, lint, 23 suites/253 tests, and build. Tests prove repeated clock ticks reserve one row, post-commit timeout retry reuses one key/event, controls work while paused, fixed-seed sequences reproduce, and non-public runs remain unpublished unless explicitly enabled. AC7 and DoD1/13/14 remain merge-evidence dependent.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented FR-C001 and Sections 10.1–10.2 scheduler behavior: one stable run per world slot, public calendar mapping, pause/resume, manual and accelerated controls, deterministic unpublished test runs, safe retries, cron triggering, and internal state inspection. Full check passed with 253 tests; merge evidence remains pending.
+<!-- SECTION:FINAL_SUMMARY:END -->
