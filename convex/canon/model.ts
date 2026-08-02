@@ -80,6 +80,23 @@ export type ProposedEvent = {
   metadata?: Record<string, unknown>;
 };
 
+export type ImmutableRuleEnforcement =
+  | { type: 'narrative_only' }
+  | { type: 'forbid_event_type'; eventType: EventType }
+  | { type: 'max_event_participants'; maximum: number };
+
+export type CanonImmutableRule = {
+  id: string;
+  description: string;
+  enforcement: ImmutableRuleEnforcement;
+};
+
+/** Immutable world rules loaded by the commit pipeline and read by Canon validation. */
+export type CanonRuleContext = {
+  worldId: string;
+  rules: CanonImmutableRule[];
+};
+
 /** An accepted, immutable, append-only canonical event. */
 export type AcceptedEvent = ProposedEvent & {
   /** Stable identity derived from world + sequence. */

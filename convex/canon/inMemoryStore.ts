@@ -6,7 +6,7 @@
  * {@link commitProposedEvent} logic can be exercised without a deployment.
  */
 
-import type { AcceptedEvent } from './model';
+import type { AcceptedEvent, CanonRuleContext } from './model';
 import type { CanonCommitStore } from './commit';
 
 type IdempotencyRow = {
@@ -20,6 +20,7 @@ type IdempotencyRow = {
 export class InMemoryCanonStore implements CanonCommitStore {
   private readonly events: AcceptedEvent[] = [];
   private readonly idempotency: IdempotencyRow[] = [];
+  private readonly ruleContexts = new Map<string, CanonRuleContext>();
 
   /** All committed events across worlds, in insertion order. */
   committedEvents(): AcceptedEvent[] {
@@ -42,6 +43,14 @@ export class InMemoryCanonStore implements CanonCommitStore {
         .filter((e) => e.worldId === worldId)
         .sort((a, b) => a.sequenceNumber - b.sequenceNumber),
     );
+  }
+
+  setCanonRuleContext(context: CanonRuleContext): void {
+    this.ruleContexts.set(context.worldId, context);
+  }
+
+  loadCanonRuleContext(worldId: string): Promise<CanonRuleContext | null> {
+    return Promise.resolve(this.ruleContexts.get(worldId) ?? null);
   }
 
   appendAcceptedEvent(accepted: AcceptedEvent): Promise<void> {
