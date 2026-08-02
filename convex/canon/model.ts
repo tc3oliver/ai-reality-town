@@ -126,6 +126,16 @@ export type StateChange =
       fromValue?: string | boolean | string[];
       toValue: string | boolean | string[];
       reason: string;
+    }
+  | {
+      type: 'organization_state_changed';
+      organizationId: string;
+      name: string;
+      description: string;
+      organizationType: string;
+      headquartersLocationId: string | null;
+      active: boolean;
+      reason: string;
     };
 
 /** A proposal submitted by a simulation provider (LLM, director, system, admin). */
@@ -263,6 +273,27 @@ export type ItemOwnershipHistoryEntry = {
   timeSlot: TimeSlot;
 };
 
+export type ProjectedOrganization = {
+  organizationId: string;
+  name: string;
+  description: string;
+  organizationType: string;
+  headquartersLocationId: string | null;
+  active: boolean;
+  lastUpdatedEventId: string;
+};
+
+export type OrganizationMembershipHistoryEntry = {
+  characterId: string;
+  addedOrganizationIds: string[];
+  removedOrganizationIds: string[];
+  reason: string;
+  sourceEventId: string;
+  sequenceNumber: number;
+  worldDay: number;
+  timeSlot: TimeSlot;
+};
+
 export type CharacterCurrentState = {
   currentLocationId?: string;
   health?: string;
@@ -329,6 +360,9 @@ export type WorldProjection = {
   environmentHistory: Record<string, ProjectedEnvironmentValue[]>;
   locations: Record<string, ProjectedLocation>;
   locationOccupancy: Record<string, string[]>;
+  organizations: Record<string, ProjectedOrganization>;
+  organizationMembers: Record<string, string[]>;
+  organizationMembershipHistory: Record<string, OrganizationMembershipHistoryEntry[]>;
 };
 
 /** A projection with no events applied yet (the starting point for replay). */
@@ -351,5 +385,8 @@ export function emptyProjection(worldId: string): WorldProjection {
     environmentHistory: {},
     locations: {},
     locationOccupancy: {},
+    organizations: {},
+    organizationMembers: {},
+    organizationMembershipHistory: {},
   };
 }

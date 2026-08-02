@@ -124,6 +124,22 @@ export function reduceWorldEvent(
   for (const [characterId, locationId] of Object.entries(characterLocations)) {
     locationOccupancy[locationId] = [...(locationOccupancy[locationId] ?? []), characterId].sort();
   }
+  const organizations = Object.fromEntries(
+    Object.entries(projection.organizations ?? {}).map(([id, organization]) => [id, { ...organization }]),
+  );
+  const organizationMembers: Record<string, string[]> = Object.fromEntries(
+    Object.keys(organizations).map((id) => [id, []]),
+  );
+  for (const [characterId, state] of Object.entries(characterStates)) {
+    for (const organizationId of state.organizationMemberships ?? []) {
+      organizationMembers[organizationId] = [...(organizationMembers[organizationId] ?? []), characterId].sort();
+    }
+  }
+  const organizationMembershipHistory = Object.fromEntries(
+    Object.entries(projection.organizationMembershipHistory ?? {}).map(([id, entries]) => [id, entries.map((entry) => ({
+      ...entry, addedOrganizationIds: [...entry.addedOrganizationIds], removedOrganizationIds: [...entry.removedOrganizationIds],
+    }))]),
+  );
 
   for (const [changeIndex, change] of event.stateChanges.entries()) {
     switch (change.type) {
@@ -290,11 +306,40 @@ export function reduceWorldEvent(
       case 'character_state_changed': {
         const key = change.field === 'organization_memberships' ? 'organizationMemberships' : change.field;
         const value = Array.isArray(change.toValue) ? [...change.toValue] : change.toValue;
+        const previousMemberships = change.field === 'organization_memberships'
+          ? [...(characterStates[change.characterId]?.organizationMemberships ?? [])]
+          : [];
         characterStates[change.characterId] = {
           ...characterStates[change.characterId],
           [key]: value,
           lastUpdatedEventId: event.eventId,
         };
+        if (change.field === 'organization_memberships') {
+          const previous = previousMemberships;
+          const next = change.toValue as string[];
+          const addedOrganizationIds = next.filter((id) => !previous.includes(id)).sort();
+          const removedOrganizationIds = previous.filter((id) => !next.includes(id)).sort();
+          for (const organizationId of removedOrganizationIds) {
+            organizationMembers[organizationId] = (organizationMembers[organizationId] ?? []).filter((id) => id !== change.characterId);
+          }
+          for (const organizationId of addedOrganizationIds) {
+            organizationMembers[organizationId] = [...new Set([...(organizationMembers[organizationId] ?? []), change.characterId])].sort();
+          }
+          organizationMembershipHistory[change.characterId] = [...(organizationMembershipHistory[change.characterId] ?? []), {
+            characterId: change.characterId, addedOrganizationIds, removedOrganizationIds,
+            reason: change.reason, sourceEventId: event.eventId, sequenceNumber: event.sequenceNumber,
+            worldDay: event.worldDay, timeSlot: event.timeSlot,
+          }];
+        }
+        break;
+      }
+      case 'organization_state_changed': {
+        organizations[change.organizationId] = {
+          organizationId: change.organizationId, name: change.name, description: change.description,
+          organizationType: change.organizationType, headquartersLocationId: change.headquartersLocationId,
+          active: change.active, lastUpdatedEventId: event.eventId,
+        };
+        organizationMembers[change.organizationId] ??= [];
         break;
       }
       default: {
@@ -327,5 +372,8 @@ export function reduceWorldEvent(
     environmentHistory,
     locations,
     locationOccupancy,
+    organizations,
+    organizationMembers,
+    organizationMembershipHistory,
   };
 }

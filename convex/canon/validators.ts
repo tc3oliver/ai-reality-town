@@ -280,6 +280,17 @@ function validateStateChangeStructure(change: unknown, path: string): CanonValid
         return canonError('INVALID_EVENT_SHAPE', 'reason must be a non-empty string', undefined, `${path}.reason`);
       return null;
     }
+    case 'organization_state_changed': {
+      const error = unknownKeyError(change, ['type', 'organizationId', 'name', 'description', 'organizationType', 'headquartersLocationId', 'active', 'reason'], path);
+      if (error) return error;
+      if (!isReference(change.organizationId)) return canonError('INVALID_EVENT_SHAPE', 'organizationId has invalid reference format', undefined, `${path}.organizationId`);
+      if (!isNonEmptyString(change.name) || !isNonEmptyString(change.description) || !isNonEmptyString(change.organizationType) || !isNonEmptyString(change.reason)) {
+        return canonError('INVALID_EVENT_SHAPE', 'organization text fields must be non-empty', undefined, path);
+      }
+      if (change.headquartersLocationId !== null && !isReference(change.headquartersLocationId)) return canonError('INVALID_EVENT_SHAPE', 'headquartersLocationId has invalid reference format', undefined, `${path}.headquartersLocationId`);
+      if (typeof change.active !== 'boolean') return canonError('INVALID_EVENT_SHAPE', 'active must be boolean', undefined, `${path}.active`);
+      return null;
+    }
     default:
       return canonError('INVALID_EVENT_SHAPE', 'unhandled state change type', { type }, path);
   }
@@ -465,6 +476,7 @@ export function validateCanon(
   const correctedKnowledgeIds = new Set<string>();
   const changedFactKeys = new Set<string>();
   const changedLocations = new Set<string>();
+  const changedOrganizations = new Set<string>();
   const prospectiveOccupancy = Object.fromEntries(
     Object.entries(projection.locationOccupancy ?? {}).map(([id, occupants]) => [id, [...occupants]]),
   );
@@ -744,6 +756,17 @@ export function validateCanon(
           }
         }
       }
+      if (change.field === 'organization_memberships') {
+        for (const organizationId of change.toValue as string[]) {
+          const organization = projection.organizations?.[organizationId];
+          if (Object.keys(projection.organizations ?? {}).length > 0 && !organization) {
+            return canonError('UNKNOWN_ORGANIZATION_REFERENCE', 'organization membership does not exist', { organizationId }, path);
+          }
+          if (organization && !organization.active) {
+            return canonError('UNKNOWN_ORGANIZATION_REFERENCE', 'organization is inactive', { organizationId }, path);
+          }
+        }
+      }
       const state = projection.characterStates[change.characterId];
       const fieldKey = change.field === 'organization_memberships' ? 'organizationMemberships' : change.field;
       const current = state?.[fieldKey];
@@ -759,6 +782,27 @@ export function validateCanon(
         return canonError('INVALID_CHARACTER_STATE_CHANGE', 'state change must alter the projected value', {
           characterId: change.characterId, field: change.field,
         }, path);
+      }
+      continue;
+    }
+
+    if (change.type === 'organization_state_changed') {
+      if (changedOrganizations.has(change.organizationId)) {
+        return canonError('UNKNOWN_ORGANIZATION_REFERENCE', 'organization may change at most once per event', { organizationId: change.organizationId }, path);
+      }
+      changedOrganizations.add(change.organizationId);
+      if (knownOrganizations && !knownOrganizations.has(change.organizationId)) {
+        return canonError('UNKNOWN_ORGANIZATION_REFERENCE', 'organization does not exist', { organizationId: change.organizationId }, path);
+      }
+      if (Object.keys(projection.organizations ?? {}).length > 0 && !projection.organizations[change.organizationId]) {
+        return canonError('UNKNOWN_ORGANIZATION_REFERENCE', 'organization does not exist', { organizationId: change.organizationId }, path);
+      }
+      if (change.headquartersLocationId !== null) {
+        if (knownLocations && !knownLocations.has(change.headquartersLocationId)) return canonError('UNKNOWN_LOCATION_REFERENCE', 'organization headquarters does not exist', undefined, path);
+        if (!knownLocations && Object.keys(projection.locations ?? {}).length > 0 && !projection.locations[change.headquartersLocationId]) return canonError('UNKNOWN_LOCATION_REFERENCE', 'organization headquarters does not exist', undefined, path);
+      }
+      if (!change.active && (projection.organizationMembers?.[change.organizationId] ?? []).length > 0) {
+        return canonError('UNKNOWN_ORGANIZATION_REFERENCE', 'organization with members cannot be deactivated', { organizationId: change.organizationId }, path);
       }
       continue;
     }

@@ -93,6 +93,7 @@ in [`docs/testing/fixtures.md`](testing/fixtures.md).
 - **World import contract:** `docs/world-configuration.md`.
 - **Location and occupancy projection:** `docs/location-projection.md`.
 - **Item and asset ownership projection:** `docs/item-ownership-projection.md`.
+- **Organization and membership projection:** `docs/organization-projection.md`.
 - **Primary character seed contract:** `docs/character-seed.md`.
 - **Provider proposal boundary:** `docs/proposed-event-contract.md`.
 - **Structural event validation:** `docs/structural-event-validation.md`.
