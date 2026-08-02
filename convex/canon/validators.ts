@@ -252,7 +252,7 @@ function validateStateChangeStructure(change: unknown, path: string): CanonValid
       if (error) return error;
       if (!isReference(change.itemId))
         return canonError('INVALID_EVENT_SHAPE', 'itemId has invalid reference format', undefined, `${path}.itemId`);
-      if (change.fromOwnerId !== undefined && !isReference(change.fromOwnerId))
+      if (change.fromOwnerId !== null && !isReference(change.fromOwnerId))
         return canonError('INVALID_EVENT_SHAPE', 'fromOwnerId has invalid reference format', undefined, `${path}.fromOwnerId`);
       if (!isReference(change.toOwnerId))
         return canonError('INVALID_EVENT_SHAPE', 'toOwnerId has invalid reference format', undefined, `${path}.toOwnerId`);
@@ -695,12 +695,12 @@ export function validateCanon(
       if (knownItems && !knownItems.has(change.itemId)) {
         return canonError('UNKNOWN_ITEM_REFERENCE', 'transferred item does not exist', { itemId: change.itemId }, path);
       }
-      if (knownCharacters && (!knownCharacters.has(change.toOwnerId) || (change.fromOwnerId !== undefined && !knownCharacters.has(change.fromOwnerId)))) {
+      if (knownCharacters && (!knownCharacters.has(change.toOwnerId) || (change.fromOwnerId !== null && !knownCharacters.has(change.fromOwnerId)))) {
         return canonError('UNKNOWN_CHARACTER_REFERENCE', 'item transfer owner does not exist', undefined, path);
       }
       const currentOwner = projection.itemOwners[change.itemId]
         ?? ruleContext?.initialItemOwners?.[change.itemId];
-      if (currentOwner !== undefined && change.fromOwnerId !== currentOwner) {
+      if ((currentOwner ?? null) !== change.fromOwnerId) {
         return canonError('ITEM_OWNERSHIP_CONFLICT', 'item transfer source is not the unique current owner', {
           itemId: change.itemId,
           expectedOwnerId: currentOwner,

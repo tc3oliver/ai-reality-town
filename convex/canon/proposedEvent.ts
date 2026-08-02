@@ -84,7 +84,7 @@ export const stateChangeValidator = v.union(
   v.object({
     type: v.literal('item_transferred'),
     itemId: v.string(),
-    fromOwnerId: v.optional(v.string()),
+    fromOwnerId: v.union(v.string(), v.null()),
     toOwnerId: v.string(),
     reason: v.string(),
   }),

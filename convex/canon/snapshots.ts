@@ -72,6 +72,9 @@ export function cloneProjection(projection: WorldProjection): WorldProjection {
       Object.entries(projection.lastCharacterMovement).map(([id, movement]) => [id, { ...movement }]),
     ),
     itemOwners: { ...projection.itemOwners },
+    itemOwnershipHistory: Object.fromEntries(
+      Object.entries(projection.itemOwnershipHistory ?? {}).map(([id, entries]) => [id, entries.map((entry) => ({ ...entry }))]),
+    ),
     characterKnowledge: Object.fromEntries(
       Object.entries(projection.characterKnowledge).map(([id, records]) => [id, records.map((record) => ({
         ...record,

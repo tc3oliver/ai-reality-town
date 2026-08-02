@@ -54,6 +54,7 @@ export const mistwoodInitialProjection: WorldProjection = {
   characterStates: {},
   lastCharacterMovement: {},
   itemOwners: {},
+  itemOwnershipHistory: {},
   characterKnowledge: {},
   characterMemories: {},
   relationships: {
