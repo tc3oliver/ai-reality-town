@@ -41,6 +41,7 @@ import type * as canon_reducer from "../canon/reducer.js";
 import type * as canon_replay from "../canon/replay.js";
 import type * as canon_serialize from "../canon/serialize.js";
 import type * as canon_snapshots from "../canon/snapshots.js";
+import type * as canon_tensionReadiness from "../canon/tensionReadiness.js";
 import type * as canon_validators from "../canon/validators.js";
 import type * as canon_worldConfig from "../canon/worldConfig.js";
 import type * as constants from "../constants.js";
@@ -118,6 +119,7 @@ declare const fullApi: ApiFromModules<{
   "canon/replay": typeof canon_replay;
   "canon/serialize": typeof canon_serialize;
   "canon/snapshots": typeof canon_snapshots;
+  "canon/tensionReadiness": typeof canon_tensionReadiness;
   "canon/validators": typeof canon_validators;
   "canon/worldConfig": typeof canon_worldConfig;
   constants: typeof constants;
