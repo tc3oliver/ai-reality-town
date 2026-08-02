@@ -90,7 +90,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -104,6 +104,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented a deterministic five-slot scheduler, stable slot/Canon idempotency keys, fixed seed derivation, 24-hour public mapping, pause anchor shifting, manual slot/day and 1–90 day acceleration, publication isolation, durable lifecycle/retry state, internal inspection, and a minute Convex cron for all running public worlds. Development Convex codegen succeeded. Focused clock suite passed 6 tests. Full npm run check passed architecture, typecheck, lint, 23 suites/253 tests, and build. Tests prove repeated clock ticks reserve one row, post-commit timeout retry reuses one key/event, controls work while paused, fixed-seed sequences reproduce, and non-public runs remain unpublished unless explicitly enabled. AC7 and DoD1/13/14 remain merge-evidence dependent.
+
+Implementation committed and pushed on feat/ART-18-world-scheduler.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
