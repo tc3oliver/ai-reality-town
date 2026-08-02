@@ -34,8 +34,9 @@ describe('Mistwood fixed world fixture', () => {
     first.initialProjection.characterLocations.cassia = 'mutated';
     first.events[0].participantIds.push('intruder');
     first.snapshot.projection.facts.push({
+      factId: 'mutated-event:fact:0',
       subjectType: 'world', subjectId: 'bad', predicate: 'bad', value: true, visibility: 'public',
-      sourceEventId: 'mutated-event',
+      sourceEventId: 'mutated-event', validFromEventId: 'mutated-event', validUntilEventId: null,
     });
     const second = createMistwoodFixture();
     expect(second.initialProjection.characterLocations.cassia).toBe('mistwood-market');

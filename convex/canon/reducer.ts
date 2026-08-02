@@ -105,7 +105,13 @@ export function reduceWorldEvent(
   const relationshipHistory: Record<string, RelationshipHistoryEntry[]> = Object.fromEntries(
     Object.entries(projection.relationshipHistory ?? {}).map(([key, entries]) => [key, entries.map((entry) => ({ ...entry }))]),
   );
-  const facts = projection.facts.slice();
+  const facts = projection.facts.map((fact) => ({ ...fact }));
+  const worldEnvironment = Object.fromEntries(
+    Object.entries(projection.worldEnvironment ?? {}).map(([key, value]) => [key, { ...value }]),
+  );
+  const environmentHistory = Object.fromEntries(
+    Object.entries(projection.environmentHistory ?? {}).map(([key, values]) => [key, values.map((value) => ({ ...value }))]),
+  );
 
   for (const [changeIndex, change] of event.stateChanges.entries()) {
     switch (change.type) {
@@ -157,14 +163,38 @@ export function reduceWorldEvent(
         break;
       }
       case 'fact_created': {
+        const factId = `${event.eventId}:fact:${changeIndex}`;
+        for (const existing of facts) {
+          if (existing.validUntilEventId === null
+            && existing.subjectType === change.subjectType
+            && existing.subjectId === change.subjectId
+            && existing.predicate === change.predicate) {
+            existing.validUntilEventId = event.eventId;
+          }
+        }
         facts.push({
+          factId,
           subjectType: change.subjectType,
           subjectId: change.subjectId,
           predicate: change.predicate,
           value: change.value,
           visibility: change.visibility,
+          validFromEventId: event.eventId,
+          validUntilEventId: null,
           sourceEventId: event.eventId,
         });
+        if (change.subjectType === 'world' && change.subjectId === event.worldId) {
+          const previous = environmentHistory[change.predicate] ?? [];
+          const closed = previous.map((entry) => entry.validUntilEventId === null
+            ? { ...entry, validUntilEventId: event.eventId }
+            : { ...entry });
+          const environment = {
+            key: change.predicate, value: change.value, visibility: change.visibility,
+            validFromEventId: event.eventId, validUntilEventId: null,
+          };
+          environmentHistory[change.predicate] = [...closed, environment];
+          worldEnvironment[change.predicate] = { ...environment };
+        }
         break;
       }
       case 'character_life_changed': {
@@ -258,5 +288,7 @@ export function reduceWorldEvent(
     relationships,
     relationshipHistory,
     facts,
+    worldEnvironment,
+    environmentHistory,
   };
 }

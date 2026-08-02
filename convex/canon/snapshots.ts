@@ -87,6 +87,12 @@ export function cloneProjection(projection: WorldProjection): WorldProjection {
     relationships,
     relationshipHistory,
     facts: projection.facts.map((f) => ({ ...f })),
+    worldEnvironment: Object.fromEntries(
+      Object.entries(projection.worldEnvironment ?? {}).map(([key, value]) => [key, { ...value }]),
+    ),
+    environmentHistory: Object.fromEntries(
+      Object.entries(projection.environmentHistory ?? {}).map(([key, values]) => [key, values.map((value) => ({ ...value }))]),
+    ),
   };
 }
 

@@ -449,6 +449,7 @@ export function validateCanon(
   const transferredItems = new Set<string>();
   const changedCharacterStateFields = new Set<string>();
   const correctedKnowledgeIds = new Set<string>();
+  const changedFactKeys = new Set<string>();
 
   for (let i = 0; i < event.stateChanges.length; i++) {
     const change = event.stateChanges[i];
@@ -540,6 +541,14 @@ export function validateCanon(
       if (change.subjectId.length === 0) {
         return canonError('INVALID_FACT_SUBJECT', 'fact subjectId must not be empty', undefined, path);
       }
+      if (change.subjectType === 'world' && change.subjectId !== event.worldId) {
+        return canonError('INVALID_FACT_SUBJECT', 'world fact subject must match event world', { subjectId: change.subjectId }, path);
+      }
+      const factKey = `${change.subjectType}\u0000${change.subjectId}\u0000${change.predicate}`;
+      if (changedFactKeys.has(factKey)) {
+        return canonError('INVALID_FACT_SUBJECT', 'one event cannot version the same fact twice', { subjectId: change.subjectId, predicate: change.predicate }, path);
+      }
+      changedFactKeys.add(factKey);
       if (change.subjectType === 'character' && knownCharacters && !knownCharacters.has(change.subjectId)) {
         return canonError('UNKNOWN_CHARACTER_REFERENCE', 'fact character subject does not exist', { subjectId: change.subjectId }, path);
       }
