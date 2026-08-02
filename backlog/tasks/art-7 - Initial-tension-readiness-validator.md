@@ -1,17 +1,19 @@
 ---
 id: ART-7
 title: Initial tension readiness validator
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:30'
-updated_date: '2026-08-02 18:11'
+updated_date: '2026-08-02 18:18'
 labels:
   - prd-1.0
   - epic-b
 milestone: m-0
 dependencies:
   - ART-6
+references:
+  - 'https://github.com/tc3oliver/ai-reality-town/pull/17'
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
 priority: high
@@ -68,12 +70,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #2 FR-A003: 系統應產生具體缺失報告。
 - [x] #3 FR-A003: 張力檢查結果必須可由管理者查看。
 - [x] #4 Automated tests provide evidence for every mapped FR-A003 acceptance criterion, including rejection and failure paths.
-- [ ] #5 PRD traceability links FR-A003 to doc-1 and the merged implementation evidence.
+- [x] #5 PRD traceability links FR-A003 to doc-1 and the merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -86,7 +88,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -104,10 +106,14 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 Implemented versioned initial tension profiles and deterministic reports for all seven FR-A003 thresholds: 3 interest conflicts, 3 seeded private secrets, 2 resource/debt dependencies, 2 false-knowledge misconceptions, 2 emotional tensions, 1 history-backed town-wide misunderstanding believed by every primary character, and 1 launchable main arc candidate. Reports persist exact required/actual/missingBy/evidence IDs and messages even on failure. Added internal-only evaluation/admin query and mandatory requireWarmupReadiness guard with stable WORLD_NOT_READY_FOR_WARMUP errors. Convex codegen succeeded against the configured development deployment only. Focused validation: 1 suite/16 tests. Full npm run check: architecture gates, typecheck, lint, 16 suites/154 tests, build.
 
 Implementation and validation evidence committed and pushed to origin/feat/ART-7-tension-readiness.
+
+Implementation PR #17 merged into main at 2026-08-02T18:12:44Z; merged implementation now provides durable FR-A003 evidence linked to PRD doc-1.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
 Implemented the FR-A003 warmup readiness hard gate with exact evidence for every required tension category, detailed persisted administrator deficits, reference-safe profiles, and stable rejection when no passing report exists. Verified 16 focused cases, development codegen, and the complete 154-test build gate.
+
+Implementation merged in PR #17; task acceptance and Definition of Done are complete.
 <!-- SECTION:FINAL_SUMMARY:END -->
