@@ -1,11 +1,11 @@
 ---
 id: ART-6
 title: Character initialization and relationship seed validation
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:30'
-updated_date: '2026-08-02 18:05'
+updated_date: '2026-08-02 18:06'
 labels:
   - prd-1.0
   - epic-b
@@ -71,12 +71,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #5 FR-A002: 相互關係不得產生無效或重複記錄。
 - [x] #6 FR-A002: 不得使用真實個人資料或真實人物作為預設角色。
 - [x] #7 Automated tests provide evidence for every mapped FR-A002 acceptance criterion, including rejection and failure paths.
-- [ ] #8 PRD traceability links FR-A002 to doc-1 and the merged implementation evidence.
+- [x] #8 PRD traceability links FR-A002 to doc-1 and the merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -89,7 +89,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -107,6 +107,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 Implemented CharacterSeedBundleV1 for 12–20 adult fictional primary characters with complete persona/public-private goals, valid initial location/organizations, personal secrets/initial knowers, knowledge, owned assets, and six-dimensional directional relationships. Added strict stable-code runtime validation for counts, declarations, duplicates, every cross-reference, per-character completeness, relationship self/duplicate/range rules, missing world, repeated seed, and atomic injected-failure rollback. Added internal-only Convex seed mutation and dedicated character/secret/knowledge/asset/relationship tables. Convex codegen succeeded and uploaded functions/schema to the configured development deployment only. Focused validation: 1 suite/22 tests. Full npm run check: architecture gates, typecheck, lint, 15 suites/138 tests, build.
 
 Implementation and validation evidence committed and pushed to origin/feat/ART-6-character-seed.
+
+PR #15 merged to main after both required GitHub checks passed; this is the merged FR-A002 implementation evidence linked to PRD doc-1.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
