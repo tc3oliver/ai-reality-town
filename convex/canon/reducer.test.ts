@@ -53,7 +53,10 @@ describe('reduceWorldEvent', () => {
     });
     const next = reduceWorldEvent(start, event);
     expect(next.characterAlive.a).toBe(false);
-    expect(next.characterKnowledge.b).toEqual(['a-is-dead']);
+    expect(next.characterKnowledge.b).toEqual([expect.objectContaining({
+      factId: 'a-is-dead', sourceType: 'observed', sourceEventId: 'prior-event',
+      truthStatus: 'unknown', confidence: 0.5, shareability: 'private',
+    })]);
     expect(next.itemOwners.ledger).toBe('b');
   });
 

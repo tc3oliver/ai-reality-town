@@ -21,6 +21,8 @@ import {
   isFactSubjectType,
   isFactVisibility,
   isKnowledgeSourceType,
+  isKnowledgeTruthStatus,
+  isKnowledgeShareability,
   isProposedByType,
   isStateChangeType,
   isTimeSlot,
@@ -175,7 +177,10 @@ function validateStateChangeStructure(change: unknown, path: string): CanonValid
       return null;
     }
     case 'character_knowledge_learned': {
-      const error = unknownKeyError(change, ['type', 'characterId', 'factId', 'sourceType', 'sourceEventId'], path);
+      const error = unknownKeyError(change, [
+        'type', 'characterId', 'factId', 'sourceType', 'sourceEventId', 'beliefValue',
+        'truthStatus', 'confidence', 'shareability', 'correctsKnowledgeId',
+      ], path);
       if (error) return error;
       if (!isReference(change.characterId))
         return canonError('INVALID_EVENT_SHAPE', 'characterId has invalid reference format', undefined, `${path}.characterId`);
@@ -185,6 +190,16 @@ function validateStateChangeStructure(change: unknown, path: string): CanonValid
         return canonError('INVALID_EVENT_SHAPE', 'sourceType is unsupported', undefined, `${path}.sourceType`);
       if (!isReference(change.sourceEventId))
         return canonError('INVALID_EVENT_SHAPE', 'sourceEventId has invalid reference format', undefined, `${path}.sourceEventId`);
+      if (change.beliefValue !== undefined && !isPrimitiveValue(change.beliefValue))
+        return canonError('INVALID_EVENT_SHAPE', 'beliefValue must be string | number | boolean', undefined, `${path}.beliefValue`);
+      if (change.truthStatus !== undefined && !isKnowledgeTruthStatus(change.truthStatus))
+        return canonError('INVALID_EVENT_SHAPE', 'truthStatus is unsupported', undefined, `${path}.truthStatus`);
+      if (change.confidence !== undefined && (!isFiniteNumber(change.confidence) || change.confidence < 0 || change.confidence > 1))
+        return canonError('INVALID_EVENT_SHAPE', 'confidence must be between 0 and 1', undefined, `${path}.confidence`);
+      if (change.shareability !== undefined && !isKnowledgeShareability(change.shareability))
+        return canonError('INVALID_EVENT_SHAPE', 'shareability is unsupported', undefined, `${path}.shareability`);
+      if (change.correctsKnowledgeId !== undefined && !isReference(change.correctsKnowledgeId))
+        return canonError('INVALID_EVENT_SHAPE', 'correctsKnowledgeId has invalid reference format', undefined, `${path}.correctsKnowledgeId`);
       return null;
     }
     case 'item_transferred': {
@@ -402,6 +417,7 @@ export function validateCanon(
   const changedLifeCharacters = new Set<string>();
   const transferredItems = new Set<string>();
   const changedCharacterStateFields = new Set<string>();
+  const correctedKnowledgeIds = new Set<string>();
 
   for (let i = 0; i < event.stateChanges.length; i++) {
     const change = event.stateChanges[i];
@@ -527,6 +543,22 @@ export function validateCanon(
           characterId: change.characterId,
           sourceEventId: change.sourceEventId,
         }, path);
+      }
+      if (change.correctsKnowledgeId !== undefined) {
+        if (correctedKnowledgeIds.has(change.correctsKnowledgeId)) {
+          return canonError('INVALID_KNOWLEDGE_CORRECTION', 'one knowledge record may be corrected at most once per event', {
+            correctsKnowledgeId: change.correctsKnowledgeId,
+          }, path);
+        }
+        const prior = (projection.characterKnowledge[change.characterId] ?? [])
+          .find((knowledge) => knowledge.knowledgeId === change.correctsKnowledgeId);
+        if (!prior || prior.factId !== change.factId || prior.correctedByKnowledgeId !== undefined) {
+          return canonError('INVALID_KNOWLEDGE_CORRECTION', 'knowledge correction must target an uncorrected belief about the same fact and character', {
+            characterId: change.characterId,
+            correctsKnowledgeId: change.correctsKnowledgeId,
+          }, path);
+        }
+        correctedKnowledgeIds.add(change.correctsKnowledgeId);
       }
       continue;
     }

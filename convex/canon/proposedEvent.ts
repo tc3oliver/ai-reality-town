@@ -56,6 +56,11 @@ export const stateChangeValidator = v.union(
       v.literal('evidence'), v.literal('inference'), v.literal('memory'),
     ),
     sourceEventId: v.string(),
+    beliefValue: v.optional(v.union(v.string(), v.number(), v.boolean())),
+    truthStatus: v.optional(v.union(v.literal('true'), v.literal('false'), v.literal('unknown'))),
+    confidence: v.optional(v.number()),
+    shareability: v.optional(v.union(v.literal('private'), v.literal('trusted'), v.literal('public'))),
+    correctsKnowledgeId: v.optional(v.string()),
   }),
   v.object({
     type: v.literal('item_transferred'),
@@ -142,7 +147,8 @@ function normalizeStateChange(value: unknown, index: number): StateChange {
     'type', 'characterId', 'fromLocationId', 'toLocationId', 'sourceCharacterId',
     'targetCharacterId', 'trustDelta', 'affectionDelta', 'resentmentDelta', 'reason',
     'subjectType', 'subjectId', 'predicate', 'value', 'visibility',
-    'alive', 'factId', 'sourceType', 'sourceEventId', 'itemId', 'fromOwnerId',
+    'alive', 'factId', 'sourceType', 'sourceEventId', 'beliefValue', 'truthStatus',
+    'confidence', 'shareability', 'correctsKnowledgeId', 'itemId', 'fromOwnerId',
     'toOwnerId', 'field', 'fromValue', 'toValue',
   ]);
   const change = source as unknown as StateChange;
@@ -160,8 +166,17 @@ function normalizeStateChange(value: unknown, index: number): StateChange {
       exactObject(value, path, ['type', 'characterId', 'alive', 'reason']);
       return { ...change };
     case 'character_knowledge_learned':
-      exactObject(value, path, ['type', 'characterId', 'factId', 'sourceType', 'sourceEventId']);
-      return { ...change };
+      exactObject(value, path, [
+        'type', 'characterId', 'factId', 'sourceType', 'sourceEventId', 'beliefValue',
+        'truthStatus', 'confidence', 'shareability', 'correctsKnowledgeId',
+      ]);
+      return {
+        ...change,
+        beliefValue: change.beliefValue ?? change.factId,
+        truthStatus: change.truthStatus ?? 'unknown',
+        confidence: change.confidence ?? 0.5,
+        shareability: change.shareability ?? 'private',
+      };
     case 'item_transferred':
       exactObject(value, path, ['type', 'itemId', 'fromOwnerId', 'toOwnerId', 'reason']);
       return { ...change };

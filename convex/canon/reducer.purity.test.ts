@@ -76,7 +76,7 @@ describe('FR-D005 reducer purity and version contract', () => {
       characterLocations: { a: 'square' },
       characterAlive: { a: false },
       itemOwners: { ledger: 'b' },
-      characterKnowledge: { b: ['weather-rain'] },
+      characterKnowledge: { b: [expect.objectContaining({ factId: 'weather-rain', sourceEventId: 'prior' })] },
       characterStates: { b: { availability: 'busy' } },
     });
     expect(expected.relationships['a|b']).toEqual({ trust: 4, affection: -2, resentment: 1 });

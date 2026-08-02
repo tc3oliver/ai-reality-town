@@ -1,5 +1,6 @@
 import {
   InMemoryCharacterSeedStore,
+  CharacterSeedError,
   parseCharacterSeedBundle,
   seedCharacters,
   type CharacterSeedBundleV1,
@@ -48,6 +49,9 @@ function validBundle(count = 12): CharacterSeedBundleV1 {
       truthStatus: 'true',
       confidence: 0.9,
       shareability: 'trusted',
+      sourceType: 'memory',
+      sourceReference: 'world-initialization',
+      learnedAtWorldDay: 0,
     })),
     assets: ids.map((id, index) => ({
       id: `asset-${index + 1}`,
@@ -138,6 +142,16 @@ describe('character seed initialization', () => {
     await expect(seedCharacters(new InMemoryCharacterSeedStore(references), bundle)).rejects.toMatchObject({
       code: 'CHARACTER_SEED_INVALID_REFERENCE', path: 'characters[0]',
     });
+  });
+
+  it('retains source provenance for every normalized initial knowledge record', () => {
+    const parsed = parseCharacterSeedBundle(validBundle(), references);
+    expect(parsed.knowledge[0]).toEqual(expect.objectContaining({
+      sourceType: 'memory', sourceReference: 'world-initialization', learnedAtWorldDay: 0,
+    }));
+    const invalid = validBundle();
+    invalid.knowledge[0].sourceType = 'invalid' as 'memory';
+    expect(() => parseCharacterSeedBundle(invalid, references)).toThrow(CharacterSeedError);
   });
 
   it('requires a character to be an initial knower of each declared personal secret', async () => {
