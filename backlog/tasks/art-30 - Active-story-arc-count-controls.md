@@ -1,11 +1,11 @@
 ---
 id: ART-30
 title: Active story arc count controls
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 20:20'
+updated_date: '2026-08-02 20:23'
 labels:
   - prd-1.0
   - epic-h
@@ -14,6 +14,8 @@ dependencies:
   - ART-29
   - ART-64
   - ART-65
+references:
+  - 'https://github.com/tc3oliver/ai-reality-town/pull/56'
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
 priority: high
@@ -70,12 +72,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #2 FR-F004: 首頁預設只展示最高優先級 Arc。
 - [x] #3 FR-F004: Arc 數量控制不得刪除 Event。
 - [x] #4 Automated tests provide evidence for every mapped FR-F004 acceptance criterion, including rejection and failure paths.
-- [ ] #5 PRD traceability links FR-F004 to doc-1 and the merged implementation evidence.
+- [x] #5 PRD traceability links FR-F004 to doc-1 and the merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -87,8 +89,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -101,10 +103,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented deterministic Story portfolio limits: 3 active-family major arcs, 6 minor arcs, 6 core characters per major arc, and 2 major memberships per Accepted Event. Overflow requires explicit reject/downgrade/merge; every decision retains source Event IDs. Added internal persisted admission with Accepted Event provenance and idempotent decisions. Homepage selection returns one published active-family Arc using tier, priority, heat, recency, and stable ID ordering. Convex codegen succeeded. Focused verification passed 6 tests; npm run check passed architecture, typecheck, lint, 33 suites/309 tests, and build.
+
+Implementation PR #56 merged into main on 2026-08-02T20:21:22Z after Bootstrap and CI checks succeeded.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Implemented FR-F004 enforced Arc portfolio limits, auditable reject/downgrade/merge remediation without Event deletion, internal persisted admission, and deterministic single-Arc homepage priority. Full verification passed 309 tests; merge evidence remains pending.
+Delivered FR-F004 through merged PR #56: persisted Arc portfolio hard limits, explicit auditable reject/downgrade/merge outcomes retaining Accepted Event provenance, and deterministic one-Arc homepage selection. Full pre-merge verification passed 309 tests.
 <!-- SECTION:FINAL_SUMMARY:END -->
