@@ -87,7 +87,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -101,6 +101,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented typed subjective memory proposals and deterministic per-character projection with importance, emotional weight, confidence, visibility, accepted-event provenance, and created world time. Memory remains separate from Canon facts; one event can produce divergent or mistaken interpretations. Self/operations-only internal reads reject cross-character access, and no public query or direct projection envelope exists. Snapshots/replay deep-clone memory records. Convex codegen succeeded. Focused verification passed 27 tests; final npm run check passed architecture, typecheck, lint, 27 suites/270 tests, and build.
+
+Implementation commit 088c787 pushed on feat/ART-25-subjective-memory.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
