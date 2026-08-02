@@ -68,6 +68,8 @@ import type * as simulation_model from "../simulation/model.js";
 import type * as simulation_provider from "../simulation/provider.js";
 import type * as simulation_queries from "../simulation/queries.js";
 import type * as simulation_runState from "../simulation/runState.js";
+import type * as simulation_scheduler from "../simulation/scheduler.js";
+import type * as simulation_schedulerOperations from "../simulation/schedulerOperations.js";
 import type * as simulation_workflow from "../simulation/workflow.js";
 import type * as story_model from "../story/model.js";
 import type * as testing from "../testing.js";
@@ -152,6 +154,8 @@ declare const fullApi: ApiFromModules<{
   "simulation/provider": typeof simulation_provider;
   "simulation/queries": typeof simulation_queries;
   "simulation/runState": typeof simulation_runState;
+  "simulation/scheduler": typeof simulation_scheduler;
+  "simulation/schedulerOperations": typeof simulation_schedulerOperations;
   "simulation/workflow": typeof simulation_workflow;
   "story/model": typeof story_model;
   testing: typeof testing;
