@@ -5,7 +5,7 @@ status: In Review
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 19:16'
+updated_date: '2026-08-02 19:17'
 labels:
   - prd-1.0
   - epic-c
@@ -86,7 +86,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -100,6 +100,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented typed character_state_changed proposals for health, emotion, finance, occupation, organization memberships, availability, and active; existing accepted movement/life events synchronously project location and alive, with death forcing active=false. Added prior-value/no-op/duplicate-field/type/reason/participant/character/organization/contradictory-death validation, unified deterministic projection and deep snapshot cloning, organization context loading, and internal-only Canon/state queries. Direct provider projection fields are rejected before commit and cause zero writes. Development Convex codegen succeeded. Focused command passed 4 suites/26 tests; full npm run check passed architecture, typecheck, lint, 23 suites/250 tests, and build. AC5 and DoD1/13/14 remain merge-evidence dependent.
+
+Implementation committed and pushed on feat/ART-9-character-state-projection.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
