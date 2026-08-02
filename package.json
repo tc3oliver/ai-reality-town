@@ -15,7 +15,7 @@
   "scripts": {
     "dev": "npm-run-all --parallel dev:backend dev:frontend",
     "build": "tsc && vite build",
-    "lint": "eslint convex/canon convex/simulation convex/shared convex/observability convex/knowledge convex/story convex/recaps convex/safety",
+    "lint": "eslint convex/canon convex/simulation convex/shared convex/observability convex/knowledge convex/story convex/editorial convex/recaps convex/safety",
     "predev": "convex dev --run init --until-success",
     "dev:backend": "convex dev --tail-logs",
     "dev:frontend": "vite",

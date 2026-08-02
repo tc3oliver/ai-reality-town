@@ -1,10 +1,11 @@
 ---
 id: ART-33
 title: Accepted-event daily episodes
-status: To Do
-assignee: []
+status: In Review
+assignee:
+  - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 16:24'
+updated_date: '2026-08-02 21:08'
 labels:
   - prd-1.0
   - epic-i
@@ -16,6 +17,16 @@ dependencies:
   - ART-55
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
+modified_files:
+  - convex/editorial/episode.ts
+  - convex/editorial/episodeFunctions.ts
+  - convex/editorial/episode.test.ts
+  - convex/editorial/schema.ts
+  - convex/schema.ts
+  - convex/_generated/api.d.ts
+  - package.json
+  - docs/accepted-event-episodes.md
+  - docs/DEVELOPMENT.md
 priority: high
 type: feature
 ordinal: 33000
@@ -66,28 +77,48 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 FR-G001: Episode 只能使用 Accepted Event。
-- [ ] #2 FR-G001: 高重要度事件必須被涵蓋。
-- [ ] #3 FR-G001: 不得將未公開 Canon Secret 誤放入公開內容。
-- [ ] #4 FR-G001: Episode 生成失敗不影響 Canon State。
-- [ ] #5 Automated tests provide evidence for every mapped FR-G001 acceptance criterion, including rejection and failure paths.
+- [x] #1 FR-G001: Episode 只能使用 Accepted Event。
+- [x] #2 FR-G001: 高重要度事件必須被涵蓋。
+- [x] #3 FR-G001: 不得將未公開 Canon Secret 誤放入公開內容。
+- [x] #4 FR-G001: Episode 生成失敗不影響 Canon State。
+- [x] #5 Automated tests provide evidence for every mapped FR-G001 acceptance criterion, including rejection and failure paths.
 - [ ] #6 PRD traceability links FR-G001 to doc-1 and the merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
 - [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Define a versioned daily Episode candidate contract with episode number/title/headline/one-line summary, 3-5 key scenes, relationship changes, new/resolved questions, Arc/character IDs, tease, and immutable source Event IDs. 2. Build the editorial input exclusively from one world's Accepted Events for one day; require every high-importance event to appear and validate all Episode/scene references against that accepted set. 3. Enforce visibility-safe public facts and post-generation safety labels so private/secret facts cannot enter public fields; persist editorial failure separately and leave Canon untouched. 4. Add one-episode-per-day idempotency, provenance, high-importance coverage, secret/spoiler rejection, generation/safety failure isolation tests and docs; run codegen and full checks.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented a versioned, idempotent one-Episode-per-world-day editorial projection sourced exclusively from accepted canonEvents. Validation enforces exact source-reference provenance, public Fact visibility, complete >=0.7 importance coverage across 3-5 scenes, and unpublished-secret exclusion. Post-generation safety scans every public Episode field; withheld output stores no raw Episode. Generation/validation failures persist only an editorial failure record and never invoke Canon commit/reducer paths.
+
+Verification: npm test -- --runTestsByPath convex/editorial/episode.test.ts (1 suite, 6 tests passed); npx convex codegen (passed); npm run check (architecture boundaries, 6 architecture tests, typecheck, lint, 42 suites/364 tests, and Vite build all passed). git diff --check passed. No credentials added.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added accepted-event daily Episode generation with full FR-G001 metadata, exact Accepted Event provenance, high-importance coverage, secret/safety gates, quiet-day handling, idempotency, and Canon-isolated failure records. Focused tests and the complete 364-test/typecheck/lint/build check pass; merge evidence remains pending.
+<!-- SECTION:FINAL_SUMMARY:END -->

@@ -48,6 +48,8 @@ import type * as canon_validators from "../canon/validators.js";
 import type * as canon_worldConfig from "../canon/worldConfig.js";
 import type * as constants from "../constants.js";
 import type * as crons from "../crons.js";
+import type * as editorial_episode from "../editorial/episode.js";
+import type * as editorial_episodeFunctions from "../editorial/episodeFunctions.js";
 import type * as engine_abstractGame from "../engine/abstractGame.js";
 import type * as engine_historicalObject from "../engine/historicalObject.js";
 import type * as http from "../http.js";
@@ -159,6 +161,8 @@ declare const fullApi: ApiFromModules<{
   "canon/worldConfig": typeof canon_worldConfig;
   constants: typeof constants;
   crons: typeof crons;
+  "editorial/episode": typeof editorial_episode;
+  "editorial/episodeFunctions": typeof editorial_episodeFunctions;
   "engine/abstractGame": typeof engine_abstractGame;
   "engine/historicalObject": typeof engine_historicalObject;
   http: typeof http;

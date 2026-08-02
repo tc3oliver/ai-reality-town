@@ -9,6 +9,7 @@ import { simulationTables } from './simulation/schema';
 import { observabilityTables } from './observability/schema';
 import { storyTables } from './story/schema';
 import { safetyTables } from './safety/schema';
+import { editorialTables } from './editorial/schema';
 
 export default defineSchema({
   music: defineTable({
@@ -36,4 +37,5 @@ export default defineSchema({
   ...observabilityTables,
   ...storyTables,
   ...safetyTables,
+  ...editorialTables,
 });

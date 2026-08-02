@@ -119,6 +119,7 @@ in [`docs/testing/fixtures.md`](testing/fixtures.md).
 - **Post-generation safety classification:** `docs/post-generation-safety.md`.
 - **Secret-safe LLM tracing:** `docs/llm-tracing.md`.
 - **OpenAI-compatible provider adapter:** `docs/openai-compatible-provider.md`.
+- **Accepted-event daily Episodes:** `docs/accepted-event-episodes.md`.
 
 ## Conduct & security
 
