@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@tc3oliver'
 created_date: '2026-08-02 15:03'
-updated_date: '2026-08-02 15:17'
+updated_date: '2026-08-02 15:19'
 labels: []
 dependencies: []
 modified_files:
@@ -59,7 +59,7 @@ Configure OpenAI Codex to consume the existing agent-neutral repository workflow
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -79,6 +79,8 @@ Configure OpenAI Codex to consume the existing agent-neutral repository workflow
 Codex v0.146.0 smoke test passed in ephemeral read-only mode: it loaded CLAUDE.md, identified Backlog.md, reproduced all six startup commands, and limited human intervention to H01-H07. Backlog.md v1.48.0 rejects the mandated task list --json option; this pre-existing CLI mismatch was observed without creating an alternate Codex command or workflow.
 
 Final local verification: npm ci passed; agent:check passed 34 checks with 0 FAIL and one expected offline fork-status WARN; typecheck, lint, 12 test suites/102 tests, and build passed; forbidden AGENTS/.agents searches were empty; duplicate Codex phrase grep only found explicit no-duplication assertions; git diff --check passed; README and product code were unchanged.
+
+Commit 8b9bac5 was pushed to origin/chore/ART-2-codex-shared-instructions.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
