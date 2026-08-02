@@ -115,6 +115,7 @@ in [`docs/testing/fixtures.md`](testing/fixtures.md).
 - **Constrained Director planning:** `docs/director-planning.md`.
 - **Initial tension warmup gate:** `docs/tension-readiness.md`.
 - **Pre-generation safety gate:** `docs/pre-generation-safety.md`.
+- **Post-generation safety classification:** `docs/post-generation-safety.md`.
 - **Secret-safe LLM tracing:** `docs/llm-tracing.md`.
 
 ## Conduct & security
