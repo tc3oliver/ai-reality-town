@@ -1,87 +1,80 @@
 # AI Reality Town
 
-> A persistent AI social simulation and interactive reality-show world built on AI Town.
-
-**Current status: Phase 0 — Foundation.**
+> A persistent AI social simulation and interactive reality-show world, built on AI Town.
 
 AI Reality Town is an **independent** project derived from
 [`a16z-infra/ai-town`](https://github.com/a16z-infra/ai-town) (MIT). It is **not** the
 official AI Town project, and it is **not** a GitHub fork — the full upstream history is
-preserved while this project diverges.
+preserved while this project grows in its own direction.
 
-This repository currently ships the **Canon Event foundation**: an append-only,
-validated, deterministic event store with a fake simulation provider. It does **not** yet
-run a real simulation, has **no real LLM**, and is **not** ready for public production
-deployment.
+**AI Reality Town is under active development and is not yet ready for production deployment.**
 
 ---
 
-## Project vision
+## Vision
 
-A persistent world (codename: **Mistwood**) whose canonical history is an authoritative,
-auditable, replayable log of events — objective facts, public information, character
-cognition, and rumor kept deliberately separate. AI Town remains the visual and realtime
-runtime; the independent Canon domain is the long-term source of truth.
+A living town of AI characters you can watch unfold over time — friendships forming, rumors
+spreading, secrets surfacing, alliances shifting. Underneath the visuals, every meaningful
+thing that happens is captured as an authoritative, replayable history, so the world has a
+consistent past the audience can trust and revisit.
 
-## What currently works (Phase 0)
+## What you'll be able to see
 
-- **Append-only Canon Event store** with structural + canon validation and stable error
-  codes.
-- **Idempotent commit** — a repeated proposal never creates a second event.
-- **Deterministic reducer** — pure; same events always produce the same projection, with
-  no database, clock, or randomness.
-- **Replay & snapshots** — replay the log, or resume from a snapshot, identically.
-- **Deterministic Fake Simulation Provider** — proposes events with no network/LLM/key.
-- **Foundation workflow** — runs a fake proposal through commit, with retry-safe
-  idempotency.
-- **Mistwood fixture** — a fixed, repeatable world for tests.
-- **Offline tests (102 passing), CI, and documentation.**
+- A persistent town where AI residents move around, meet, talk, and remember.
+- Relationships and reputations that evolve from what actually happens.
+- Public facts, private knowledge, and hearsay kept deliberately separate.
+- A world whose state can always be reconstructed from its history.
 
-## What does not work yet
+## Core concepts
 
-- No real LLM provider.
-- No full character autonomy, story-arc engine, episode/recap generation.
-- No audience onboarding, voting, or public operations backend.
-- No server-side authorization; **no public production deployment**.
-- 200 residents, economy, items, voice, video, multi-world, user-created worlds.
+- **Canonical events.** What happens in the world is recorded as an append-only, validated
+  log of events. This log is the authoritative history of the world.
+- **Propose, never write.** Any AI or director only *proposes* events; a validation pipeline
+  decides what enters the canon. AI output can never directly mutate world truth.
+- **Deterministic replay.** World state is derived by pure reducers, so the same events
+  always reproduce the same world — no hidden state, no clock or randomness in the math.
+- **AI Town as the visual runtime.** [AI Town](https://github.com/a16z-infra/ai-town)
+  powers the map, movement, and realtime visuals. The canonical domain is the long-term
+  source of truth that sits alongside it.
 
-## Architecture summary
+## Architecture
 
 ```
-Provider (propose only) → ProposedEvent → Structural + Canon validation
-  → Idempotent commit → canonEvents (append-only)
-  → Deterministic reducer → WorldProjection (read model)
+Proposer (AI / director / system)
+   │  proposes only
+   ▼
+Proposed Event  ──►  Structural + canonical validation
+                          │
+                          ▼
+               Append-only event log  ──►  Deterministic reducer  ──►  World projection
+                                                                          (read models)
+                                          ▲
+                            AI Town = visual & realtime runtime
 ```
 
-- **Simulation** proposes events; **never** writes canon.
-- **Canon** is append-only; corrections are new events, never in-place edits.
-- **Reducer** is pure and deterministic.
-- **AI Town** stays the visual/realtime runtime.
+The canonical event log is the source of truth; the visible world and any narrative
+projections are derived from it.
 
-See `docs/architecture/` and `docs/architecture/adr/` (ADR-0001…0003).
-
-## Repository structure
+## Repository layout
 
 ```
 convex/
-  canon/         event model, validation, commit, reducer, replay, snapshots, fixture
-  simulation/    provider interface, fake provider, workflow, run state
-  story/         story projection boundary (declared, not implemented)
-  recaps/        recap projection boundary (declared, not implemented)
-  observability/ trace-id plumbing
-  shared/        constants, errors, ids
+  canon/         canonical event model, validation, commit, reducer, replay
+  simulation/    simulation provider interface and workflow
+  story/         story projection boundary
+  recaps/        recap projection boundary
   aiTown/        upstream AI Town game logic (retained)
   engine/        upstream AI Town engine (retained)
-  agent/         upstream AI Town agent/LLM layer (retained)
-src/             upstream PixiJS client (retained) + features/ placeholders
-docs/            architecture, baseline, upstream, scope, development
+src/             upstream PixiJS client (retained)
+docs/            architecture and development docs
 ```
 
 ## Prerequisites
 
 - Node.js 20+ and npm.
-- Git and the GitHub CLI (`gh`) for repo/PR operations.
-- A Convex deployment **only** to run the live simulation; offline checks need none.
+- Git. The GitHub CLI (`gh`) is handy for repository operations.
+- A [Convex](https://convex.dev) deployment is required **only** to run the live
+  simulation; building and testing need none.
 
 ## Local setup
 
@@ -91,55 +84,37 @@ cd ai-reality-town
 npm ci
 ```
 
-## Available commands
+## Commands
 
 | Command | What it does |
 | --- | --- |
-| `npm run check:offline` | typecheck + lint + foundation tests + build (no Convex/key/network) |
-| `npm run typecheck` | `tsc --noEmit` |
-| `npm run lint` | ESLint |
-| `npm run test:foundation` | Canon + simulation domain tests |
-| `npm test` | Full Jest suite |
-| `npm run build` | `tsc && vite build` (offline-safe) |
-| `npm run check` | typecheck + lint + full tests + build |
-| `npm run dev` | Convex backend + Vite frontend (needs a Convex deployment) |
-
-## Testing
-
-```bash
-npm test                 # full suite
-npm run test:foundation  # canon + simulation only
-```
-
-Tests follow upstream AI Town's colocated Jest convention. No second framework.
-
-## Convex setup status
-
-A Convex deployment is **not required** for any offline check. It is only needed to run
-`npm run dev` (the live simulation). The Convex generated files are committed, so
-typechecks succeed offline.
-
-## GitHub repository
-
-- Source: https://github.com/tc3oliver/ai-reality-town
-- Upstream: https://github.com/a16z-infra/ai-town (tracked via the `upstream` remote)
-
-## Upstream attribution
-
-This project is based on AI Town by `a16z-infra` and its contributors, distributed under
-the MIT License. AI Reality Town preserves the upstream history and MIT attribution, and
-has diverged into an independent platform. See `ATTRIBUTION.md` and `docs/upstream.md`.
-
-## License
-
-MIT — unchanged from upstream. See `LICENSE`.
-
-## Security status
-
-**Not ready for public production deployment.** A server-side authorization audit is
-required first. Report vulnerabilities privately — see `SECURITY.md`.
+| `npm run dev` | Run the simulation and frontend (needs a Convex deployment). |
+| `npm run build` | Type-check and build the frontend. |
+| `npm test` | Run the test suite. |
+| `npm run typecheck` | Type-check the project. |
+| `npm run lint` | Lint the project-owned modules. |
 
 ## Contributing
 
-Phase 0 keeps the accepted scope narrow. See `CONTRIBUTING.md` and
-`docs/DEVELOPMENT.md`.
+Contributions are welcome. Please read [`CONTRIBUTING.md`](./CONTRIBUTING.md) for setup,
+branching, commit, and testing expectations, and [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md)
+for conventions. Keep changes focused, tested, and free of secrets.
+
+## Upstream attribution
+
+This project is based on **AI Town** by `a16z-infra` and its contributors, distributed under
+the MIT License. AI Reality Town preserves the upstream history and MIT attribution, and has
+diverged into an independent platform. See [`ATTRIBUTION.md`](./ATTRIBUTION.md).
+
+- **Not** the official AI Town project.
+- **Not** a GitHub fork — derived by clone, with full upstream history retained.
+
+## License
+
+MIT — unchanged from upstream. See [`LICENSE`](./LICENSE).
+
+## Security
+
+A public production security audit has **not** been completed, and server-side authorization
+is not yet in place. Please do not deploy AI Reality Town as a public production service.
+Report vulnerabilities privately — see [`SECURITY.md`](./SECURITY.md).
