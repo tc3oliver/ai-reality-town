@@ -99,6 +99,7 @@ in [`docs/testing/fixtures.md`](testing/fixtures.md).
 - **Snapshot and non-destructive recovery:** `docs/snapshot-recovery.md`.
 - **Event-derived character state:** `docs/character-state-projection.md`.
 - **Source-proven character knowledge:** `docs/character-knowledge-ledger.md`.
+- **Subjective character memory:** `docs/subjective-character-memory.md`.
 - **Directional relationship projection:** `docs/relationship-projection.md`.
 - **Story Arc lifecycle:** `docs/story-arc-lifecycle.md`.
 - **World scheduler and run state:** `docs/world-scheduler.md`.

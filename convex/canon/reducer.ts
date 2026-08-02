@@ -19,6 +19,7 @@ import type {
   AcceptedEvent,
   CharacterCurrentState,
   CharacterKnowledgeRecord,
+  CharacterMemoryRecord,
   RelationshipHistoryEntry,
   RelationshipState,
   WorldProjection,
@@ -92,6 +93,12 @@ export function reduceWorldEvent(
     Object.entries(projection.characterKnowledge).map(([id, records]) => [id, records.map((record) => ({
       ...record,
       learnedAt: { ...record.learnedAt },
+    }))]),
+  );
+  const characterMemories: Record<string, CharacterMemoryRecord[]> = Object.fromEntries(
+    Object.entries(projection.characterMemories ?? {}).map(([id, records]) => [id, records.map((record) => ({
+      ...record,
+      createdAt: { ...record.createdAt },
     }))]),
   );
   const relationships: Record<string, RelationshipState> = { ...projection.relationships };
@@ -194,6 +201,24 @@ export function reduceWorldEvent(
         characterKnowledge[change.characterId] = corrected;
         break;
       }
+      case 'character_memory_formed': {
+        const memories = characterMemories[change.characterId] ?? [];
+        characterMemories[change.characterId] = [...memories.map((memory) => ({
+          ...memory, createdAt: { ...memory.createdAt },
+        })), {
+          memoryId: `${event.eventId}:memory:${changeIndex}`,
+          characterId: change.characterId,
+          content: change.content,
+          interpretation: change.interpretation,
+          importance: change.importance,
+          emotionalWeight: change.emotionalWeight,
+          confidence: change.confidence,
+          visibility: change.visibility,
+          sourceEventId: event.eventId,
+          createdAt: { worldDay: event.worldDay, timeSlot: event.timeSlot, eventId: event.eventId },
+        }];
+        break;
+      }
       case 'item_transferred': {
         itemOwners[change.itemId] = change.toOwnerId;
         break;
@@ -229,6 +254,7 @@ export function reduceWorldEvent(
     lastCharacterMovement,
     itemOwners,
     characterKnowledge,
+    characterMemories,
     relationships,
     relationshipHistory,
     facts,

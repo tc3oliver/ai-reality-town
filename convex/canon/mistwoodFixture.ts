@@ -55,6 +55,7 @@ export const mistwoodInitialProjection: WorldProjection = {
   lastCharacterMovement: {},
   itemOwners: {},
   characterKnowledge: {},
+  characterMemories: {},
   relationships: {
     'cassia|rowan': { trust: 20, affection: 10, resentment: 0, fear: 0, dependency: 5, familiarity: 30, lastUpdatedEventId: 'initial-seed' },
   },

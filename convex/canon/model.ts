@@ -92,6 +92,16 @@ export type StateChange =
       correctsKnowledgeId?: string;
     }
   | {
+      type: 'character_memory_formed';
+      characterId: string;
+      content: string;
+      interpretation: string;
+      importance: number;
+      emotionalWeight: number;
+      confidence: number;
+      visibility: KnowledgeShareability;
+    }
+  | {
       type: 'item_transferred';
       itemId: string;
       fromOwnerId?: string;
@@ -236,6 +246,19 @@ export type CharacterKnowledgeRecord = {
   correctedByKnowledgeId?: string;
 };
 
+export type CharacterMemoryRecord = {
+  memoryId: string;
+  characterId: string;
+  content: string;
+  interpretation: string;
+  importance: number;
+  emotionalWeight: number;
+  confidence: number;
+  visibility: KnowledgeShareability;
+  sourceEventId: string;
+  createdAt: { worldDay: number; timeSlot: TimeSlot; eventId: string };
+};
+
 /**
  * Foundation world projection — derived *only* from ordered accepted events. This is a
  * foundation read model, not a complete world state.
@@ -250,6 +273,7 @@ export type WorldProjection = {
   lastCharacterMovement: Record<string, { worldDay: number; timeSlot: TimeSlot; eventId: string }>;
   itemOwners: Record<string, string>;
   characterKnowledge: Record<string, CharacterKnowledgeRecord[]>;
+  characterMemories: Record<string, CharacterMemoryRecord[]>;
   relationships: Record<string, RelationshipState>;
   relationshipHistory: Record<string, RelationshipHistoryEntry[]>;
   facts: ProjectedFact[];
@@ -266,6 +290,7 @@ export function emptyProjection(worldId: string): WorldProjection {
     lastCharacterMovement: {},
     itemOwners: {},
     characterKnowledge: {},
+    characterMemories: {},
     relationships: {},
     relationshipHistory: {},
     facts: [],

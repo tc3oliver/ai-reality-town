@@ -211,6 +211,28 @@ function validateStateChangeStructure(change: unknown, path: string): CanonValid
         return canonError('INVALID_EVENT_SHAPE', 'correctsKnowledgeId has invalid reference format', undefined, `${path}.correctsKnowledgeId`);
       return null;
     }
+    case 'character_memory_formed': {
+      const error = unknownKeyError(change, [
+        'type', 'characterId', 'content', 'interpretation', 'importance',
+        'emotionalWeight', 'confidence', 'visibility',
+      ], path);
+      if (error) return error;
+      if (!isReference(change.characterId))
+        return canonError('INVALID_EVENT_SHAPE', 'characterId has invalid reference format', undefined, `${path}.characterId`);
+      if (!isNonEmptyString(change.content))
+        return canonError('INVALID_EVENT_SHAPE', 'memory content must be non-empty', undefined, `${path}.content`);
+      if (!isNonEmptyString(change.interpretation))
+        return canonError('INVALID_EVENT_SHAPE', 'memory interpretation must be non-empty', undefined, `${path}.interpretation`);
+      if (!isFiniteNumber(change.importance) || change.importance < 0 || change.importance > 1)
+        return canonError('INVALID_EVENT_SHAPE', 'importance must be between 0 and 1', undefined, `${path}.importance`);
+      if (!isFiniteNumber(change.emotionalWeight) || change.emotionalWeight < -1 || change.emotionalWeight > 1)
+        return canonError('INVALID_EVENT_SHAPE', 'emotionalWeight must be between -1 and 1', undefined, `${path}.emotionalWeight`);
+      if (!isFiniteNumber(change.confidence) || change.confidence < 0 || change.confidence > 1)
+        return canonError('INVALID_EVENT_SHAPE', 'confidence must be between 0 and 1', undefined, `${path}.confidence`);
+      if (!isKnowledgeShareability(change.visibility))
+        return canonError('INVALID_EVENT_SHAPE', 'memory visibility is unsupported', undefined, `${path}.visibility`);
+      return null;
+    }
     case 'item_transferred': {
       const error = unknownKeyError(change, ['type', 'itemId', 'fromOwnerId', 'toOwnerId', 'reason'], path);
       if (error) return error;
@@ -578,6 +600,16 @@ export function validateCanon(
           }, path);
         }
         correctedKnowledgeIds.add(change.correctsKnowledgeId);
+      }
+      continue;
+    }
+
+    if (change.type === 'character_memory_formed') {
+      if (knownCharacters && !knownCharacters.has(change.characterId)) {
+        return canonError('UNKNOWN_CHARACTER_REFERENCE', 'memory character does not exist', { characterId: change.characterId }, path);
+      }
+      if (!participants.has(change.characterId)) {
+        return canonError('PARTICIPANT_MISMATCH', 'memory character must be an event participant', { characterId: change.characterId }, path);
       }
       continue;
     }
