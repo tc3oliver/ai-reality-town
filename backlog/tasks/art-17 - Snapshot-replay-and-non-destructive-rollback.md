@@ -1,11 +1,11 @@
 ---
 id: ART-17
 title: 'Snapshot, replay, and non-destructive rollback'
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 19:01'
+updated_date: '2026-08-02 19:03'
 labels:
   - prd-1.0
   - epic-e
@@ -14,6 +14,8 @@ dependencies:
   - ART-13
   - ART-15
   - ART-16
+references:
+  - 'https://github.com/tc3oliver/ai-reality-town/pull/33'
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
 priority: high
@@ -88,7 +90,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -103,10 +105,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 Implemented versioned, canonically hashed snapshots; daily idempotent persistence that resumes from the latest verified snapshot; exact accepted-prefix verification; internal Convex operations; and reversible audited recovery heads separate from append-only Canon. Snapshot projection access is internal-only. Development Convex codegen succeeded. Focused snapshot/replay/world-import command passed 3 suites/24 tests. Full npm run check passed architecture, typecheck, lint, 22 suites/247 tests, and build. The 30-day test creates exactly one snapshot per day, proves full/snapshot equality daily, rejects forged/corrupt/unsupported/gapped data, and proves rollback/clear leaves all accepted events byte-equivalent. DoD13/14 remain commit/merge dependent.
 
 Implementation committed and pushed on feat/ART-17-snapshot-recovery.
+
+Implementation PR #33 merged into main on 2026-08-02T19:03:00Z after all required checks passed.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Implemented FR-D006/NFR-003/NFR-008 snapshot recovery: daily verified checkpoints, deterministic initial and snapshot replay, explicit corruption/version/gap failures, and audited reversible rollback that never edits or deletes accepted Canon history. Full check passed with 247 tests; commit and merge evidence remain pending.
+Delivered FR-D006/NFR-003/NFR-008 via merged PR #33: verified daily snapshots, initial/snapshot replay, 30-day equality, explicit corruption/version/gap failures, and audited reversible rollback that preserves every accepted event. Full pre-merge check passed 247 tests.
 <!-- SECTION:FINAL_SUMMARY:END -->
