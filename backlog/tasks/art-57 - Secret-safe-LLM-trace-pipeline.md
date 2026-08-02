@@ -1,7 +1,7 @@
 ---
 id: ART-57
 title: Secret-safe LLM trace pipeline
-status: In Progress
+status: In Review
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:33'
@@ -12,6 +12,8 @@ labels:
 milestone: m-0
 dependencies:
   - ART-3
+references:
+  - 'https://github.com/tc3oliver/ai-reality-town/pull/26'
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
 modified_files:
@@ -92,7 +94,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -109,6 +111,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented LLM trace v1 with every FR-M001 metric, explicit optional scene/arc and required empty-or-populated character list, strict sensitive-field rejection, idempotent/conflict-safe persistence, minimal public projection, and internal-only full queries. Convex codegen succeeded against the configured development deployment only. Focused validation: 1 suite/15 tests. Full npm run check passed architecture checks, typecheck, lint, 19 suites/205 tests, and Vite build.
+
+Committed as d591329, pushed to origin, and opened PR #26.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
