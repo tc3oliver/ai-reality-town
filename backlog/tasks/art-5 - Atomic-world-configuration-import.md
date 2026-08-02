@@ -5,7 +5,7 @@ status: In Review
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:30'
-updated_date: '2026-08-02 17:57'
+updated_date: '2026-08-02 17:58'
 labels:
   - prd-1.0
   - epic-b
@@ -89,7 +89,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -106,6 +106,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented WorldConfigurationV1 with strict runtime parsing, stable errors, fictional/no-real-person declaration, duplicate/reference/date validation, typed immutable rule enforcement, and Initial Snapshot planning. Added internal-only Convex import mutation and world definition/location/organization/rule/history tables; all writes occur in one Convex transaction. Canon commit now loads persisted immutable rules before validation. Offline atomic adapter injects mid-write failure and proves zero visible partial state. Convex codegen succeeded and uploaded the schema/functions to the configured development deployment only (no production deploy). Focused validation: 3 suites/30 tests. Full npm run check: architecture gates, typecheck, lint, 14 suites/116 tests, build.
+
+Implementation and validation evidence committed and pushed to origin/feat/ART-5-atomic-world-import.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
