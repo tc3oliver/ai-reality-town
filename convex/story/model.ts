@@ -1,0 +1,26 @@
+/**
+ * Story projection boundary (Phase 0 placeholder).
+ *
+ * The story layer will derive narrative projections (arcs, tensions, beats) from the
+ * append-only canon event log. It is a READ model over canon — it never writes canon
+ * state directly. Phase 0 only declares the boundary; no story engine is implemented.
+ */
+
+import type { EventId } from '../shared/ids';
+
+/**
+ * A future story projection record. Kept as an explicit type so later phases can fill it
+ * without re-drawing the boundary.
+ */
+export type StoryProjection = {
+  worldId: string;
+  lastSequenceNumber: number;
+  arcs: StoryArc[];
+};
+
+export type StoryArc = {
+  id: string;
+  summary: string;
+  participantIds: string[];
+  sourceEventIds: EventId[];
+};
