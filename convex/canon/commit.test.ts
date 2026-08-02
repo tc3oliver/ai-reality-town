@@ -123,6 +123,23 @@ describe('commitProposedEvent (idempotency)', () => {
     expect(store.committedEvents()).toHaveLength(1);
   });
 
+  it.each([
+    ['missing required field', (event: Record<string, unknown>): void => { delete event.worldId; }],
+    ['unknown event type', (event: Record<string, unknown>): void => { event.eventType = 'vendor'; }],
+    ['non-finite value', (event: Record<string, unknown>): void => { event.stateChanges = [{ type: 'fact_created', subjectType: 'world', subjectId: 'w1', predicate: 'x', value: Number.NaN, visibility: 'canon' }]; }],
+    ['invalid reference', (event: Record<string, unknown>): void => { event.participantIds = ['bad/ref']; }],
+  ] as const)('performs no write when structural validation rejects %s', async (_name, mutate) => {
+    const store = new InMemoryCanonStore();
+    const raw = movementProposal('w1', 'atomic-reject', 'loc-1', 'loc-2') as unknown as Record<string, unknown>;
+    mutate(raw);
+    await expect(commitProposedEvent(store, {
+      proposed: raw as unknown as ProposedEvent,
+      traceId: 'trace-rejected',
+    })).rejects.toMatchObject({ error: { code: 'INVALID_EVENT_SHAPE' } });
+    expect(store.committedEvents()).toHaveLength(0);
+    await expect(store.findExistingCommit('w1', 'atomic-reject')).resolves.toBeNull();
+  });
+
   it('deduplicates concurrent attempts with the same world and key', async () => {
     const store = new InMemoryCanonStore();
     const proposed = factProposal('w1', 'same-key', 'one');

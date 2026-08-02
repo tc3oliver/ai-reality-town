@@ -36,7 +36,55 @@ const isFiniteNumber = (v: unknown): v is number =>
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 const isPrimitiveValue = (v: unknown): v is string | number | boolean =>
-  typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean';
+  typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v)) || typeof v === 'boolean';
+
+const REFERENCE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:#|\-]{0,159}$/u;
+const isReference = (v: unknown): v is string =>
+  isString(v) && REFERENCE_PATTERN.test(v);
+
+function unknownKeyError(
+  value: Record<string, unknown>,
+  allowed: readonly string[],
+  path: string,
+): CanonValidationError | null {
+  const fields = Object.keys(value).filter((key) => !allowed.includes(key));
+  return fields.length === 0
+    ? null
+    : canonError('INVALID_EVENT_SHAPE', 'object contains unknown fields', { fields }, path);
+}
+
+function validateJsonValue(
+  value: unknown,
+  path: string,
+  ancestors: Set<object>,
+): CanonValidationError | null {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return null;
+  if (typeof value === 'number') {
+    return Number.isFinite(value)
+      ? null
+      : canonError('INVALID_EVENT_SHAPE', 'JSON number must be finite', undefined, path);
+  }
+  if (typeof value !== 'object' || value === undefined) {
+    return canonError('INVALID_EVENT_SHAPE', 'metadata must contain JSON-safe values', undefined, path);
+  }
+  if (ancestors.has(value)) {
+    return canonError('INVALID_EVENT_SHAPE', 'metadata must not contain cycles', undefined, path);
+  }
+  ancestors.add(value);
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index++) {
+      const error = validateJsonValue(value[index], `${path}[${index}]`, ancestors);
+      if (error) return error;
+    }
+  } else {
+    for (const [key, entry] of Object.entries(value)) {
+      const error = validateJsonValue(entry, `${path}.${key}`, ancestors);
+      if (error) return error;
+    }
+  }
+  ancestors.delete(value);
+  return null;
+}
 
 function hasDuplicates(values: string[]): boolean {
   const seen = new Set<string>();
@@ -59,18 +107,29 @@ function validateStateChangeStructure(change: unknown, path: string): CanonValid
   }
   switch (type) {
     case 'character_location_changed':
-      if (!isNonEmptyString(change.characterId))
-        return canonError('INVALID_EVENT_SHAPE', 'characterId must be a non-empty string', undefined, `${path}.characterId`);
-      if (!isNonEmptyString(change.fromLocationId))
-        return canonError('INVALID_EVENT_SHAPE', 'fromLocationId must be a non-empty string', undefined, `${path}.fromLocationId`);
-      if (!isNonEmptyString(change.toLocationId))
-        return canonError('INVALID_EVENT_SHAPE', 'toLocationId must be a non-empty string', undefined, `${path}.toLocationId`);
+      {
+        const error = unknownKeyError(change, ['type', 'characterId', 'fromLocationId', 'toLocationId'], path);
+        if (error) return error;
+      }
+      if (!isReference(change.characterId))
+        return canonError('INVALID_EVENT_SHAPE', 'characterId has invalid reference format', undefined, `${path}.characterId`);
+      if (!isReference(change.fromLocationId))
+        return canonError('INVALID_EVENT_SHAPE', 'fromLocationId has invalid reference format', undefined, `${path}.fromLocationId`);
+      if (!isReference(change.toLocationId))
+        return canonError('INVALID_EVENT_SHAPE', 'toLocationId has invalid reference format', undefined, `${path}.toLocationId`);
       return null;
     case 'relationship_changed':
-      if (!isNonEmptyString(change.sourceCharacterId))
-        return canonError('INVALID_EVENT_SHAPE', 'sourceCharacterId must be a non-empty string', undefined, `${path}.sourceCharacterId`);
-      if (!isNonEmptyString(change.targetCharacterId))
-        return canonError('INVALID_EVENT_SHAPE', 'targetCharacterId must be a non-empty string', undefined, `${path}.targetCharacterId`);
+      {
+        const error = unknownKeyError(change, [
+          'type', 'sourceCharacterId', 'targetCharacterId', 'trustDelta', 'affectionDelta',
+          'resentmentDelta', 'reason',
+        ], path);
+        if (error) return error;
+      }
+      if (!isReference(change.sourceCharacterId))
+        return canonError('INVALID_EVENT_SHAPE', 'sourceCharacterId has invalid reference format', undefined, `${path}.sourceCharacterId`);
+      if (!isReference(change.targetCharacterId))
+        return canonError('INVALID_EVENT_SHAPE', 'targetCharacterId has invalid reference format', undefined, `${path}.targetCharacterId`);
       if (!isFiniteNumber(change.trustDelta))
         return canonError('INVALID_EVENT_SHAPE', 'trustDelta must be a finite number', undefined, `${path}.trustDelta`);
       if (!isFiniteNumber(change.affectionDelta))
@@ -81,10 +140,18 @@ function validateStateChangeStructure(change: unknown, path: string): CanonValid
         return canonError('INVALID_EVENT_SHAPE', 'reason must be a non-empty string', undefined, `${path}.reason`);
       return null;
     case 'fact_created':
+      {
+        const error = unknownKeyError(change, [
+          'type', 'subjectType', 'subjectId', 'predicate', 'value', 'visibility',
+        ], path);
+        if (error) return error;
+      }
       // subjectId emptiness is a *canon* rule (INVALID_FACT_SUBJECT); here we only
       // require it is a string so the canon code path stays reachable/testable.
       if (!isString(change.subjectId))
         return canonError('INVALID_EVENT_SHAPE', 'subjectId must be a string', undefined, `${path}.subjectId`);
+      if (change.subjectId.length > 0 && !isReference(change.subjectId))
+        return canonError('INVALID_EVENT_SHAPE', 'subjectId has invalid reference format', undefined, `${path}.subjectId`);
       if (!isFactSubjectType(change.subjectType))
         return canonError('INVALID_EVENT_SHAPE', 'subjectType is not supported', { subjectType: change.subjectType }, `${path}.subjectType`);
       if (!isNonEmptyString(change.predicate))
@@ -107,6 +174,14 @@ export function validateEventStructure(event: unknown): CanonValidationError | n
   if (!isPlainObject(event)) {
     return canonError('INVALID_EVENT_SHAPE', 'event must be a plain object');
   }
+  {
+    const error = unknownKeyError(event, [
+      'schemaVersion', 'worldId', 'idempotencyKey', 'proposedBy', 'worldDay', 'timeSlot',
+      'eventType', 'locationId', 'participantIds', 'causedByEventIds', 'publicSummary',
+      'stateChanges', 'metadata',
+    ], '$');
+    if (error) return error;
+  }
 
   // schemaVersion — type first (shape), then membership (version policy).
   if (!isInteger(event.schemaVersion)) {
@@ -118,20 +193,24 @@ export function validateEventStructure(event: unknown): CanonValidationError | n
     }, 'schemaVersion');
   }
 
-  if (!isNonEmptyString(event.worldId))
-    return canonError('INVALID_EVENT_SHAPE', 'worldId must be a non-empty string', undefined, 'worldId');
-  if (!isNonEmptyString(event.idempotencyKey))
-    return canonError('INVALID_EVENT_SHAPE', 'idempotencyKey must be a non-empty string', undefined, 'idempotencyKey');
+  if (!isReference(event.worldId))
+    return canonError('INVALID_EVENT_SHAPE', 'worldId has invalid reference format', undefined, 'worldId');
+  if (!isReference(event.idempotencyKey))
+    return canonError('INVALID_EVENT_SHAPE', 'idempotencyKey has invalid key format', undefined, 'idempotencyKey');
 
   if (!isPlainObject(event.proposedBy))
     return canonError('INVALID_EVENT_SHAPE', 'proposedBy must be an object', undefined, 'proposedBy');
+  {
+    const error = unknownKeyError(event.proposedBy, ['type', 'id'], 'proposedBy');
+    if (error) return error;
+  }
   if (!isProposedByType(event.proposedBy.type))
     return canonError('INVALID_EVENT_SHAPE', 'proposedBy.type is not supported', { type: event.proposedBy.type }, 'proposedBy.type');
-  if (event.proposedBy.id !== undefined && !isNonEmptyString(event.proposedBy.id))
-    return canonError('INVALID_EVENT_SHAPE', 'proposedBy.id must be a non-empty string when present', undefined, 'proposedBy.id');
+  if (event.proposedBy.id !== undefined && !isReference(event.proposedBy.id))
+    return canonError('INVALID_EVENT_SHAPE', 'proposedBy.id has invalid reference format', undefined, 'proposedBy.id');
 
-  if (!isInteger(event.worldDay) || event.worldDay < 0)
-    return canonError('INVALID_EVENT_SHAPE', 'worldDay must be a non-negative integer', undefined, 'worldDay');
+  if (!Number.isSafeInteger(event.worldDay) || (event.worldDay as number) < 0)
+    return canonError('INVALID_EVENT_SHAPE', 'worldDay must be a non-negative safe integer', undefined, 'worldDay');
   if (!isTimeSlot(event.timeSlot))
     return canonError('INVALID_EVENT_SHAPE', 'timeSlot is not supported', { timeSlot: event.timeSlot }, 'timeSlot');
   if (!isEventType(event.eventType))
@@ -141,8 +220,8 @@ export function validateEventStructure(event: unknown): CanonValidationError | n
   if (remediationTypes.has(event.eventType as string) && event.proposedBy.type !== 'admin')
     return canonError('INVALID_EVENT_SHAPE', 'remediation events must be proposed by an administrator', undefined, 'proposedBy.type');
 
-  if (event.locationId !== undefined && !isNonEmptyString(event.locationId))
-    return canonError('INVALID_EVENT_SHAPE', 'locationId must be a non-empty string when present', undefined, 'locationId');
+  if (event.locationId !== undefined && !isReference(event.locationId))
+    return canonError('INVALID_EVENT_SHAPE', 'locationId has invalid reference format', undefined, 'locationId');
 
   // participantIds — non-empty strings, bounded, no empties, no duplicates.
   if (!Array.isArray(event.participantIds))
@@ -150,8 +229,8 @@ export function validateEventStructure(event: unknown): CanonValidationError | n
   if (event.participantIds.length > MAX_PARTICIPANTS)
     return canonError('INVALID_EVENT_SHAPE', 'too many participants', { count: event.participantIds.length, max: MAX_PARTICIPANTS }, 'participantIds');
   for (const p of event.participantIds) {
-    if (!isNonEmptyString(p))
-      return canonError('INVALID_EVENT_SHAPE', 'participantIds must not contain empty strings', undefined, 'participantIds');
+    if (!isReference(p))
+      return canonError('INVALID_EVENT_SHAPE', 'participantIds contain an invalid reference', undefined, 'participantIds');
   }
   if (hasDuplicates(event.participantIds as string[]))
     return canonError('INVALID_EVENT_SHAPE', 'participantIds must not contain duplicates', undefined, 'participantIds');
@@ -162,8 +241,8 @@ export function validateEventStructure(event: unknown): CanonValidationError | n
   if (event.causedByEventIds.length > MAX_CAUSED_BY_EVENT_IDS)
     return canonError('INVALID_EVENT_SHAPE', 'too many causedByEventIds', { count: event.causedByEventIds.length, max: MAX_CAUSED_BY_EVENT_IDS }, 'causedByEventIds');
   for (const c of event.causedByEventIds) {
-    if (!isNonEmptyString(c))
-      return canonError('INVALID_EVENT_SHAPE', 'causedByEventIds must not contain empty strings', undefined, 'causedByEventIds');
+    if (!isReference(c))
+      return canonError('INVALID_EVENT_SHAPE', 'causedByEventIds contain an invalid reference', undefined, 'causedByEventIds');
     if (c === event.idempotencyKey)
       return canonError('INVALID_EVENT_SHAPE', 'causedByEventIds must not reference the event itself', { idempotencyKey: c }, 'causedByEventIds');
   }
@@ -189,8 +268,12 @@ export function validateEventStructure(event: unknown): CanonValidationError | n
     if (err) return err;
   }
 
-  if (event.metadata !== undefined && !isPlainObject(event.metadata))
-    return canonError('INVALID_EVENT_SHAPE', 'metadata must be an object', undefined, 'metadata');
+  if (event.metadata !== undefined) {
+    if (!isPlainObject(event.metadata))
+      return canonError('INVALID_EVENT_SHAPE', 'metadata must be an object', undefined, 'metadata');
+    const error = validateJsonValue(event.metadata, 'metadata', new Set<object>());
+    if (error) return error;
+  }
 
   return null;
 }
