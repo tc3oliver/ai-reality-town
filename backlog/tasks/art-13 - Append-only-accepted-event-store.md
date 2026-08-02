@@ -1,11 +1,11 @@
 ---
 id: ART-13
 title: Append-only accepted event store
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 18:27'
+updated_date: '2026-08-02 18:33'
 labels:
   - prd-1.0
   - epic-d
@@ -100,7 +100,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -118,10 +118,14 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 Implemented a per-world exclusive commit transaction and atomic event/idempotency append contract, immutable cloned in-memory boundaries, retained trace/source/causal provenance, and admin-only correction/compensation/retcon event types. Focused validation: commit, proposal-contract, and replay suites passed 33 tests. Full npm run check passed architecture checks, typecheck, lint, 17 suites/173 tests, and Vite build.
 
 Committed as a0d17de, pushed to origin, and opened PR #22.
+
+Implementation PR #22 merged into main at 2026-08-02T18:28:29Z.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
 Implemented the append-only Accepted Event store contract with atomic idempotent commits, monotonic concurrent sequencing, immutable reads, complete ordered replay, retained trace/source links, and append-only remediation event types. Verified by 33 focused tests and the full 173-test quality gate.
+
+Implementation merged in PR #22; task acceptance and Definition of Done are complete.
 <!-- SECTION:FINAL_SUMMARY:END -->
