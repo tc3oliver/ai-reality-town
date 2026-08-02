@@ -1,11 +1,11 @@
 ---
 id: ART-81
 title: Organization membership and state projection
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 16:19'
-updated_date: '2026-08-02 20:28'
+updated_date: '2026-08-02 20:30'
 labels:
   - prd-1.0
   - epic-c
@@ -72,7 +72,7 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -84,8 +84,8 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -98,10 +98,12 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 <!-- SECTION:NOTES:BEGIN -->
 World import snapshots now contain validated organization definitions with active state and headquarters. Added typed organization_state_changed proposals and Accepted Event reduction. Character organization_memberships changes atomically update character state, reverse members, and append added/removed history with Event/time provenance. Canon rejects unknown/inactive/duplicate memberships, repeated same-event changes, invalid headquarters, unknown organizations, and deactivation with members. Convex codegen succeeded. Focused verification passed 17 tests; npm run check passed architecture, typecheck, lint, 36 suites/321 tests, and build.
+
+PR #60 merged at 2026-08-02T20:29:38Z: https://github.com/tc3oliver/ai-reality-town/pull/60
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Implemented Sections 9.1/13.2 and NFR-008 organization state and membership projections with Accepted-Event history, bidirectional consistency, deterministic replay/snapshots, and invalid/duplicate/inactive enforcement. Full verification passed 321 tests; merge evidence remains pending.
+Implemented organization definitions, event-derived active/headquarters state, bidirectional character membership projection, immutable membership history, and deterministic replay/snapshot behavior. Verified by npm run check (36 suites, 321 tests) and merged PR #60.
 <!-- SECTION:FINAL_SUMMARY:END -->
