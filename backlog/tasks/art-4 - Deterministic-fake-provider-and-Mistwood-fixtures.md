@@ -84,7 +84,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -101,6 +101,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented explicit fixed integer seeds for simulation inputs and deterministic Fake Provider variants, including stable invalid-seed errors. Added versioned Mistwood seed/fixture factory with isolated copies and sequential structural, Canon, reducer, full-replay, and snapshot-replay validation. Focused validation: npm test -- --runInBand --runTestsByPath convex/simulation/fakeProvider.test.ts convex/simulation/workflow.test.ts convex/canon/mistwoodFixture.test.ts (3 suites, 16 tests). Full validation: npm run check (architecture policy/tests, typecheck, lint, 13 Jest suites/106 tests, build). Tests run without LLM credentials and fail on attempted network, clock, or random access.
+
+Implementation and validation evidence committed and pushed to origin/feat/ART-4-deterministic-fixtures.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
