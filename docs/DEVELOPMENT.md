@@ -94,6 +94,7 @@ in [`docs/testing/fixtures.md`](testing/fixtures.md).
 - **Primary character seed contract:** `docs/character-seed.md`.
 - **Provider proposal boundary:** `docs/proposed-event-contract.md`.
 - **Initial tension warmup gate:** `docs/tension-readiness.md`.
+- **Pre-generation safety gate:** `docs/pre-generation-safety.md`.
 
 ## Conduct & security
 
