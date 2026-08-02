@@ -1,11 +1,11 @@
 ---
 id: ART-54
 title: Pre-generation safety policy enforcement
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-02 18:22'
+updated_date: '2026-08-02 18:27'
 labels:
   - prd-1.0
   - epic-n
@@ -92,7 +92,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -110,10 +110,14 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 Implemented policy v1 with eight stable prohibited-category codes, text-free rejection records, world/prompt/context evaluation, simple obfuscation normalization, immutable provider constraints, and a provider callback guard. Focused validation: convex/safety/preGeneration.test.ts, 17 tests passed. Full npm run check passed architecture checks, typecheck, safety-inclusive lint, 17 suites/171 tests, and Vite build.
 
 Committed as f224999, pushed to origin, and opened PR #20.
+
+Implementation PR #20 merged into main at 2026-08-02T18:23:30Z.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
 Added the FR-L001 generation preflight boundary. It blocks all eight required categories with stable privacy-safe reasons, attaches immutable safety constraints to allowed requests, and guarantees rejected content never reaches the provider. Verified by 17 focused tests and the full 171-test quality gate.
+
+Implementation merged in PR #20; task acceptance and Definition of Done are complete.
 <!-- SECTION:FINAL_SUMMARY:END -->
