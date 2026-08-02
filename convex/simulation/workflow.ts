@@ -27,6 +27,7 @@ import {
   type CommitResult,
 } from '../canon/commit';
 import type { ProposedEvent } from '../canon/model';
+import { normalizeProposedEventOutput } from '../canon/proposedEvent';
 import {
   FakeSimulationProvider,
 } from './fakeProvider';
@@ -38,7 +39,7 @@ export const MAX_PROVIDER_ATTEMPTS = 3;
 
 /** Dependencies injected into the pure orchestration (mockable in tests). */
 export type FoundationRunDeps = {
-  propose: (input: SimulationInput) => Promise<ProposedEvent>;
+  propose: (input: SimulationInput) => Promise<unknown>;
   commit: (proposed: ProposedEvent, traceId: string) => Promise<CommitResult>;
 };
 
@@ -63,7 +64,7 @@ export async function executeFoundationRun(
   for (let attempt = 1; attempt <= MAX_PROVIDER_ATTEMPTS; attempt++) {
     attempts = attempt;
     try {
-      const proposed = await deps.propose(input);
+      const proposed = normalizeProposedEventOutput(await deps.propose(input));
       const result = await deps.commit(proposed, input.traceId);
       return {
         status: 'completed',

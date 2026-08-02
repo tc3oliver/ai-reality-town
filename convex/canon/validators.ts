@@ -115,7 +115,7 @@ export function validateEventStructure(event: unknown): CanonValidationError | n
   if (event.schemaVersion !== 1) {
     return canonError('UNSUPPORTED_SCHEMA_VERSION', 'only schemaVersion 1 is supported', {
       schemaVersion: event.schemaVersion,
-    });
+    }, 'schemaVersion');
   }
 
   if (!isNonEmptyString(event.worldId))

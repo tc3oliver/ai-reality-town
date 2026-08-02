@@ -8,6 +8,9 @@
  */
 
 import { v } from 'convex/values';
+import { CanonError, canonError } from '../shared/errors';
+import type { JsonValue, ProposedBy, ProposedEvent, StateChange } from './model';
+import { validateEventStructure } from './validators';
 
 export const stateChangeValidator = v.union(
   v.object({
@@ -66,3 +69,90 @@ export const proposedEventArgs = v.object({
   stateChanges: v.array(stateChangeValidator),
   metadata: v.optional(v.any()),
 });
+
+type PlainObject = Record<string, unknown>;
+
+function isPlainObject(value: unknown): value is PlainObject {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function exactObject(value: unknown, path: string, allowedKeys: readonly string[]): PlainObject {
+  if (!isPlainObject(value)) throw new CanonError(canonError('INVALID_EVENT_SHAPE', 'must be a plain object', undefined, path));
+  const unknownKeys = Object.keys(value).filter((key) => !allowedKeys.includes(key));
+  if (unknownKeys.length) {
+    throw new CanonError(canonError('INVALID_EVENT_SHAPE', 'contains unknown fields', { fields: unknownKeys }, path));
+  }
+  return value;
+}
+
+function jsonValue(value: unknown, path: string): JsonValue {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (Array.isArray(value)) return value.map((entry, index) => jsonValue(entry, `${path}[${index}]`));
+  if (isPlainObject(value)) {
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, jsonValue(entry, `${path}.${key}`)]));
+  }
+  throw new CanonError(canonError('INVALID_EVENT_SHAPE', 'metadata must contain JSON-safe values', undefined, path));
+}
+
+function normalizeProposedBy(value: unknown): ProposedBy {
+  const source = exactObject(value, 'proposedBy', ['type', 'id']);
+  const typed = source as ProposedBy;
+  return { type: typed.type, ...(typed.id === undefined ? {} : { id: typed.id }) };
+}
+
+function normalizeStateChange(value: unknown, index: number): StateChange {
+  const path = `stateChanges[${index}]`;
+  const source = exactObject(value, path, [
+    'type', 'characterId', 'fromLocationId', 'toLocationId', 'sourceCharacterId',
+    'targetCharacterId', 'trustDelta', 'affectionDelta', 'resentmentDelta', 'reason',
+    'subjectType', 'subjectId', 'predicate', 'value', 'visibility',
+  ]);
+  const change = source as unknown as StateChange;
+  switch (change.type) {
+    case 'character_location_changed':
+      exactObject(value, path, ['type', 'characterId', 'fromLocationId', 'toLocationId']);
+      return { ...change };
+    case 'relationship_changed':
+      exactObject(value, path, ['type', 'sourceCharacterId', 'targetCharacterId', 'trustDelta', 'affectionDelta', 'resentmentDelta', 'reason']);
+      return { ...change };
+    case 'fact_created':
+      exactObject(value, path, ['type', 'subjectType', 'subjectId', 'predicate', 'value', 'visibility']);
+      return { ...change };
+  }
+}
+
+/**
+ * Convert unknown provider JSON into the canonical ProposedEvent v1 contract.
+ * No provider output may reach the commit boundary without passing this function.
+ */
+export function normalizeProposedEventOutput(value: unknown): ProposedEvent {
+  const structuralError = validateEventStructure(value);
+  if (structuralError) throw new CanonError(structuralError);
+  const source = exactObject(value, '$', [
+    'schemaVersion', 'worldId', 'idempotencyKey', 'proposedBy', 'worldDay', 'timeSlot',
+    'eventType', 'locationId', 'participantIds', 'causedByEventIds', 'publicSummary',
+    'stateChanges', 'metadata',
+  ]) as unknown as ProposedEvent;
+  const metadata = source.metadata === undefined
+    ? undefined
+    : jsonValue(source.metadata, 'metadata') as Record<string, JsonValue>;
+  if (metadata !== undefined && (typeof metadata !== 'object' || Array.isArray(metadata) || metadata === null)) {
+    throw new CanonError(canonError('INVALID_EVENT_SHAPE', 'metadata must be an object', undefined, 'metadata'));
+  }
+  return {
+    schemaVersion: source.schemaVersion,
+    worldId: source.worldId,
+    idempotencyKey: source.idempotencyKey,
+    proposedBy: normalizeProposedBy(source.proposedBy),
+    worldDay: source.worldDay,
+    timeSlot: source.timeSlot,
+    eventType: source.eventType,
+    ...(source.locationId === undefined ? {} : { locationId: source.locationId }),
+    participantIds: [...source.participantIds],
+    causedByEventIds: [...source.causedByEventIds],
+    ...(source.publicSummary === undefined ? {} : { publicSummary: source.publicSummary }),
+    stateChanges: source.stateChanges.map(normalizeStateChange),
+    ...(metadata === undefined ? {} : { metadata }),
+  };
+}

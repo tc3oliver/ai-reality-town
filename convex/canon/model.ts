@@ -13,6 +13,7 @@ import type {
   ProposedByType,
   TimeSlot,
 } from './eventTypes';
+import { CANON_SCHEMA_VERSION } from '../shared/constants';
 
 export { CANON_SCHEMA_VERSION, CANON_VALIDATION_VERSION, SUPPORTED_SCHEMA_VERSIONS } from '../shared/constants';
 export type {
@@ -61,7 +62,7 @@ export type StateChange =
 
 /** A proposal submitted by a simulation provider (LLM, director, system, admin). */
 export type ProposedEvent = {
-  schemaVersion: number;
+  schemaVersion: typeof CANON_SCHEMA_VERSION;
   worldId: string;
   idempotencyKey: string;
 
@@ -77,8 +78,10 @@ export type ProposedEvent = {
   publicSummary?: string;
 
   stateChanges: StateChange[];
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, JsonValue>;
 };
+
+export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
 export type ImmutableRuleEnforcement =
   | { type: 'narrative_only' }
