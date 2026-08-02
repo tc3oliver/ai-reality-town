@@ -87,7 +87,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -101,6 +101,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented versioned, canonically hashed snapshots; daily idempotent persistence that resumes from the latest verified snapshot; exact accepted-prefix verification; internal Convex operations; and reversible audited recovery heads separate from append-only Canon. Snapshot projection access is internal-only. Development Convex codegen succeeded. Focused snapshot/replay/world-import command passed 3 suites/24 tests. Full npm run check passed architecture, typecheck, lint, 22 suites/247 tests, and build. The 30-day test creates exactly one snapshot per day, proves full/snapshot equality daily, rejects forged/corrupt/unsupported/gapped data, and proves rollback/clear leaves all accepted events byte-equivalent. DoD13/14 remain commit/merge dependent.
+
+Implementation committed and pushed on feat/ART-17-snapshot-recovery.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
