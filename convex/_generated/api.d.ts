@@ -73,6 +73,8 @@ import type * as simulation_runState from "../simulation/runState.js";
 import type * as simulation_scheduler from "../simulation/scheduler.js";
 import type * as simulation_schedulerOperations from "../simulation/schedulerOperations.js";
 import type * as simulation_workflow from "../simulation/workflow.js";
+import type * as story_functions from "../story/functions.js";
+import type * as story_lifecycle from "../story/lifecycle.js";
 import type * as story_model from "../story/model.js";
 import type * as testing from "../testing.js";
 import type * as util_FastIntegerCompression from "../util/FastIntegerCompression.js";
@@ -161,6 +163,8 @@ declare const fullApi: ApiFromModules<{
   "simulation/scheduler": typeof simulation_scheduler;
   "simulation/schedulerOperations": typeof simulation_schedulerOperations;
   "simulation/workflow": typeof simulation_workflow;
+  "story/functions": typeof story_functions;
+  "story/lifecycle": typeof story_lifecycle;
   "story/model": typeof story_model;
   testing: typeof testing;
   "util/FastIntegerCompression": typeof util_FastIntegerCompression;
