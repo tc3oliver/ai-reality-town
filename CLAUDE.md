@@ -1,77 +1,109 @@
 # CLAUDE.md
 
-Long-lived engineering rules for AI Reality Town. Keep this concise; prefer discoverable
-code and `package.json` scripts over restating details here.
+Stable rules every Claude Code session must know for **AI Reality Town**. Detailed
+workflows live in `docs/agent/` and via `npm run backlog -- instructions overview`; do not
+duplicate them here.
 
-## Project purpose
+## 1. Project Control Plane
 
-A persistent AI social simulation and interactive reality-show world **built on AI Town**.
-AI Town remains the visual/realtime runtime; an independent **Canon Event** domain is the
-long-term source of truth.
+- **Backlog.md is the sole task source of truth.**
+- The PRD (`docs/product/PRD.md`, when present) is the product requirement source of truth.
+- Git history, merged PRs, tests, ADRs, and Backlog tasks are the persistent project record.
+- Conversation history must **not** be treated as the project record.
 
-## Current phase
+## 2. Mandatory Session Startup
 
-**Phase 0 — Foundation.** Append-only canon events, deterministic reducer/replay,
-deterministic fake simulation provider, offline tests, CI, docs. No real LLM, no full
-product. See `docs/foundation-scope.md`.
+Before planning or modifying code in any session, run:
 
-## Architecture boundaries
+```bash
+npm run agent:check
+npm run backlog -- instructions overview
+npm run backlog -- task list --json
+git status --short
+git branch --show-current
+git log -5 --oneline
+```
 
-- **Simulation** → proposes `ProposedEvent` only; **never** writes canon.
-- **Canon** → append-only event store + deterministic projection; the source of truth.
-- **Story / Recap / UI** → read models derived from canon; never write canon.
-- **AI Town** → visual/realtime runtime; high-frequency tick state is **not** canon.
+Then act by state:
 
-## Canon source of truth
+- Bootstrap incomplete → invoke `/bootstrap-autonomy` and **only** repair bootstrap.
+- Bootstrap complete and PRD absent → do **not** invent requirements; request the PRD.
+- PRD exists and no product task graph exists → invoke `/prd-to-backlog`.
+- An In Progress task exists → invoke `/autonomous-task-loop` and resume it.
+- No In Progress task but a Ready task exists → invoke `/autonomous-task-loop` and select the next Ready task.
+- Only human-blocked tasks remain → invoke `/human-blocker`.
 
-The `canonEvents` table is the authoritative history. `WorldProjection` is derived from it
-by the pure reducer. LLMs (and any provider) may only *propose* events.
+## 3. Autonomy Rule
 
-## Append-only event policy
+- Do **not** ask for approval for ordinary technical decisions.
+- Do **not** stop after planning, task creation, implementation, or PR creation.
+- Request human help **only** for documented Human Blockers (`docs/agent/HUMAN-BLOCKERS.md`).
 
-Accepted events are immutable. Corrections are new events, never in-place edits.
+## 4. Backlog Rule
 
-## Reducer determinism
+- Use the Backlog.md CLI (`npm run backlog -- …`) for task operations.
+- Do **not** manually edit task Markdown when the CLI can perform the operation.
+- Read the current workflow instructions before creating, executing, or finalizing tasks.
+- One task maps to one branch and one pull request.
+- Implementation plans are written into the task before coding.
 
-`reduceWorldEvent` is pure: no DB, env, clock, or unseeded randomness. Same events ⇒ same
-projection. Never turn it into a Convex mutation or add side effects.
+## 5. Git Rule
 
-## Idempotency
+- Never push to `upstream`.
+- Never force-push shared branches.
+- Never work directly on `main`.
+- Never delete a remote repository.
+- Never bypass Git hooks.
+- Never commit secrets.
+- Never append a `Co-Authored-By` (or any AI/model co-author) trailer to commit messages.
 
-Commits are keyed by `idempotencyKey` per world. A duplicate proposal returns the existing
-event, never a second one. Retries must rely on this, not on ad-hoc guards.
+## 6. Project Architecture Invariants
 
-## Schema migration safety
+High-level, long-term rules (not implemented in the bootstrap session):
 
-New Convex tables are added via the spread pattern in `convex/schema.ts`
-(`...canonTables`, `...simulationTables`). Don't duplicate upstream data models; don't
-lower TS strictness to satisfy a migration.
+- LLM providers may only **propose** events.
+- Canonical events are **append-only**.
+- Accepted canonical history is **never edited in place**.
+- World reducers must be **deterministic**.
+- Public reads must not directly trigger LLM generation.
 
-## How to add an event type
+See `docs/architecture/adr/` and `docs/DEVELOPMENT.md`.
 
-See `docs/DEVELOPMENT.md` ("How to add a new event type"). Always extend the
-discriminated union; never use `Record<string, unknown>` for a core canon change.
+## 7. Stop Rule
 
-## Commands
+- Completing one task, milestone, plan, commit, or PR is **not** a stop condition.
+- Stop only when the requested delivery scope is complete, or all remaining work is genuinely human-blocked.
 
-- `npm run check:offline` — typecheck + lint + foundation tests (no Convex/key/network).
-- `npm run typecheck` | `npm run lint` | `npm run test:foundation` | `npm test` |
-  `npm run build`.
-- `npm run dev` — live simulation (needs a Convex deployment).
+## 8. References
 
-## Definition of Done
+- `docs/agent/AUTONOMOUS-DEVELOPMENT.md`
+- `docs/agent/HUMAN-BLOCKERS.md`
+- `docs/agent/SESSION-RECOVERY.md`
+- `docs/agent/BACKLOG-WORKFLOW.md`
+- `docs/agent/BOOTSTRAP-STATUS.md`
+- `docs/product/PRD.md` (when present)
+- `docs/DEVELOPMENT.md`, `docs/architecture/`
 
-`check:offline` (and `build` where relevant) passes; new behavior is tested; no secrets;
-no lowered strictness; no skipped failing tests; docs/ADRs updated for architectural
-changes.
+<!-- BACKLOG.MD GUIDELINES START -->
+<!-- backlog.md-instructions-version: 1.48.0 -->
+<CRITICAL_INSTRUCTION>
 
-## PR & git workflow
+## Backlog.md Workflow
 
-- Branch from `main`; conventional commit prefixes; one purpose per commit.
-- `origin` = this repo; `upstream` = `a16z-infra/ai-town`.
-- **Never push to `upstream`. Never force push.** Never commit secrets.
+This project uses Backlog.md for task and project management.
 
-## Where PRDs and ADRs belong
+**For every user request in this project, run `backlog instructions overview` before answering or taking action.**
 
-- ADRs: `docs/architecture/adr/`. Architecture: `docs/architecture/`.
-- PRDs / large backlogs are intentionally **not** maintained in Phase 0.
+Use the overview to decide whether to search, read, create, or update Backlog tasks.
+
+Before task lifecycle actions, read the matching detailed guide:
+- `backlog instructions task-creation` before creating or splitting tasks
+- `backlog instructions task-execution` before planning, changing status or assignee, adding a plan or implementation notes, or implementing task work
+- `backlog instructions task-finalization` before checking acceptance criteria, writing final summaries, or moving tasks to terminal statuses
+
+Use `backlog <command> --help` before running unfamiliar commands. Help shows options, fields, and examples.
+
+Do not edit Backlog task, draft, document, decision, or milestone markdown files directly. Use the `backlog` CLI so metadata, relationships, and history stay consistent.
+
+</CRITICAL_INSTRUCTION>
+<!-- BACKLOG.MD GUIDELINES END -->
