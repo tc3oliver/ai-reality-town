@@ -104,6 +104,7 @@ in [`docs/testing/fixtures.md`](testing/fixtures.md).
 - **Directional relationship projection:** `docs/relationship-projection.md`.
 - **Story Arc lifecycle:** `docs/story-arc-lifecycle.md`.
 - **Story Arc projection contract:** `docs/story-arc-projection.md`.
+- **Story Arc event classification:** `docs/story-arc-classification.md`.
 - **World scheduler and run state:** `docs/world-scheduler.md`.
 - **Initial tension warmup gate:** `docs/tension-readiness.md`.
 - **Pre-generation safety gate:** `docs/pre-generation-safety.md`.

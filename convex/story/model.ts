@@ -94,3 +94,36 @@ export type ArcLifecycleRecord = {
   revision: number;
   transitions: ArcLifecycleTransition[];
 };
+
+export const ARC_EVENT_ROLES = [
+  'inciting_incident', 'development', 'escalation', 'turning_point',
+  'climax', 'resolution', 'aftermath',
+] as const;
+export type ArcEventRole = (typeof ARC_EVENT_ROLES)[number];
+
+export type ArcEventMembership = {
+  arcId: string;
+  primary: boolean;
+  importance: number;
+  role: ArcEventRole;
+  coreCharacterIdsAdded: string[];
+  coreCharacterIdsRemoved: string[];
+};
+
+export type NewArcProposal = {
+  arcId: string;
+  title: string;
+  premise: string;
+  currentQuestion: string;
+  coreCharacterIds: string[];
+};
+
+/** Story-only classification of one immutable Accepted Event. */
+export type ArcEventClassification = {
+  schemaVersion: 1;
+  worldId: string;
+  sourceEventId: string;
+  sourceEventSequenceNumber: number;
+  memberships: ArcEventMembership[];
+  newArc: NewArcProposal | null;
+};
