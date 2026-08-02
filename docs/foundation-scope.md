@@ -46,7 +46,7 @@ SimulationInput
       → idempotency check (canonIdempotencyKeys)
       → loadAcceptedEvents → replayWorldEvents (current projection)
       → validateCanon (preconditions vs projection)
-      → allocate sequence → append canonEvents + canonIdempotencyKeys
+      → allocate sequence → atomically append canonEvents + canonIdempotencyKeys
   → CommitResult { eventId, sequenceNumber, deduplicated }
 ```
 
@@ -54,6 +54,9 @@ SimulationInput
 
 - The commit step reduces from the **full event log** each time (O(n)); snapshot
   acceleration is future work.
+- Convex transactions provide production serialization; the repository contract and
+  in-memory reference store also serialize the entire per-world commit for deterministic
+  concurrency tests.
 - `@convex-dev/workflow` is **not** installed; the workflow is a single Convex mutation
   with retry-safe idempotency. See `docs/upstream.md` and ADR notes.
 - Convex integration (actually running the mutation/action against a deployment) is not

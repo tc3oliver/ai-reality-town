@@ -17,6 +17,10 @@ provider (LLM, director, system, admin) may only submit a `ProposedEvent`; it ma
 write to canon tables directly. Proposals are validated (structural + canon) and, if
 accepted, appended with a monotonic per-world sequence number. Corrections are made with
 new events (compensation/correction events), never by editing accepted history in place.
+The repository API exposes a per-world exclusive commit transaction and one atomic
+event-plus-idempotency append; it exposes no accepted-event update or delete operation.
+`correction`, `compensation`, and `retcon` are explicit admin-proposed event types and
+must reference the prior events they remediate.
 
 ## Consequences
 
@@ -24,6 +28,8 @@ new events (compensation/correction events), never by editing accepted history i
 - Idempotency keys make commits safe to retry (a duplicate proposal returns the existing
   event, never a second one).
 - Provenance is preserved: every fact carries the `sourceEventId` that established it.
+- Proposal source, causal event IDs, and the committing trace ID remain on every accepted
+  event returned for audit or replay.
 - The history grows monotonically; snapshots mitigate replay cost (future work).
 
 ## Rejected alternatives
@@ -34,5 +40,4 @@ new events (compensation/correction events), never by editing accepted history i
 
 ## Follow-up work
 
-- Define compensation/correction event types for future "undo" semantics.
 - Snapshot cadence and pruning policy.

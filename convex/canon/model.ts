@@ -110,6 +110,8 @@ export type AcceptedEvent = ProposedEvent & {
   sequenceNumber: number;
   /** Which validation rule set accepted this event. */
   validationVersion: string;
+  /** Trace that proposed/committed this event; retained for audit and never inferred. */
+  traceId: string;
 };
 
 /** A derived relationship between two characters in the projection. */

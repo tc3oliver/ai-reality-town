@@ -8,6 +8,7 @@
 
 import type { AcceptedEvent, CanonRuleContext } from './model';
 import type { CanonCommitStore } from './commit';
+import { cloneAcceptedEvent } from './serialize';
 
 type IdempotencyRow = {
   worldId: string;
@@ -21,10 +22,26 @@ export class InMemoryCanonStore implements CanonCommitStore {
   private readonly events: AcceptedEvent[] = [];
   private readonly idempotency: IdempotencyRow[] = [];
   private readonly ruleContexts = new Map<string, CanonRuleContext>();
+  private readonly worldLocks = new Map<string, Promise<void>>();
 
   /** All committed events across worlds, in insertion order. */
   committedEvents(): AcceptedEvent[] {
-    return [...this.events];
+    return this.events.map(cloneAcceptedEvent);
+  }
+
+  async runExclusive<T>(worldId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.worldLocks.get(worldId) ?? Promise.resolve();
+    let release = (): void => undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const tail = previous.then(() => gate);
+    this.worldLocks.set(worldId, tail);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.worldLocks.get(worldId) === tail) this.worldLocks.delete(worldId);
+    }
   }
 
   findExistingCommit(
@@ -41,7 +58,8 @@ export class InMemoryCanonStore implements CanonCommitStore {
     return Promise.resolve(
       this.events
         .filter((e) => e.worldId === worldId)
-        .sort((a, b) => a.sequenceNumber - b.sequenceNumber),
+        .sort((a, b) => a.sequenceNumber - b.sequenceNumber)
+        .map(cloneAcceptedEvent),
     );
   }
 
@@ -53,19 +71,15 @@ export class InMemoryCanonStore implements CanonCommitStore {
     return Promise.resolve(this.ruleContexts.get(worldId) ?? null);
   }
 
-  appendAcceptedEvent(accepted: AcceptedEvent): Promise<void> {
-    this.events.push(accepted);
-    return Promise.resolve();
-  }
-
-  appendIdempotencyKey(
-    worldId: string,
-    idempotencyKey: string,
-    eventId: string,
-    sequenceNumber: number,
-    createdAt: number,
-  ): Promise<void> {
-    this.idempotency.push({ worldId, idempotencyKey, eventId, sequenceNumber, createdAt });
+  appendCommit(accepted: AcceptedEvent): Promise<void> {
+    this.events.push(cloneAcceptedEvent(accepted));
+    this.idempotency.push({
+      worldId: accepted.worldId,
+      idempotencyKey: accepted.idempotencyKey,
+      eventId: accepted.eventId,
+      sequenceNumber: accepted.sequenceNumber,
+      createdAt: accepted.acceptedAt,
+    });
     return Promise.resolve();
   }
 }

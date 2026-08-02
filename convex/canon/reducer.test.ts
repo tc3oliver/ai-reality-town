@@ -20,6 +20,7 @@ function accepted(over: Partial<AcceptedEvent> & Pick<AcceptedEvent, 'sequenceNu
     eventId: 'w#event#0',
     acceptedAt: 1,
     validationVersion: 'canon-v1',
+    traceId: 'trace-1',
     ...over,
   } as AcceptedEvent;
 }
