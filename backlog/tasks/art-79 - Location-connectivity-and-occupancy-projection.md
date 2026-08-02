@@ -1,11 +1,11 @@
 ---
 id: ART-79
 title: Location connectivity and occupancy projection
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 16:19'
-updated_date: '2026-08-02 20:15'
+updated_date: '2026-08-02 20:20'
 labels:
   - prd-1.0
   - epic-c
@@ -13,6 +13,8 @@ milestone: m-0
 dependencies:
   - ART-12
   - ART-16
+references:
+  - 'https://github.com/tc3oliver/ai-reality-town/pull/54'
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
 priority: high
@@ -72,7 +74,7 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -84,8 +86,8 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -98,10 +100,12 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 <!-- SECTION:NOTES:BEGIN -->
 World import snapshots now contain complete validated location definitions and empty occupancy. Added typed location_state_changed proposal/Accepted Event handling, deterministic reducer projection, deep snapshot clones, and occupancy rebuilding from characterLocations at each sequence. Canon rejects unknown/inactive destinations, disconnected movement, capacity overflow, unknown connections, duplicate location changes, occupied deactivation, and capacity below occupancy. Convex codegen succeeded. Focused verification passed 24 tests; npm run check passed architecture, typecheck, lint, 33 suites/307 tests, and build.
+
+Implementation PR #54 merged into main on 2026-08-02T20:16:41Z after Bootstrap and CI checks succeeded.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Implemented Section 13.4 and FR-D004 location rules with replayable definition/state, occupancy aligned to character locations, Accepted-Event updates, capacity/active/connectivity validation, and snapshot replay equality. Full verification passed 307 tests; merge evidence remains pending.
+Delivered Section 13.4 and FR-D004 location rules through merged PR #54: replayable definitions/state, deterministic occupancy alignment, Accepted Event changes, and inactive/connectivity/capacity Canon enforcement. Full pre-merge verification passed 307 tests.
 <!-- SECTION:FINAL_SUMMARY:END -->
