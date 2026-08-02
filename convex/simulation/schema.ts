@@ -78,4 +78,12 @@ export const simulationTables = {
   })
     .index('by_world_and_run', ['worldId', 'directorRunId'])
     .index('by_world_day_and_slot', ['worldId', 'worldDay', 'timeSlot']),
+
+  characterIntents: defineTable({
+    schemaVersion: v.literal(1), worldId: v.string(), intentRunId: v.string(), directorRunId: v.string(),
+    characterId: v.string(), context: v.any(), intent: v.any(), disposition: v.union(v.literal('accepted'), v.literal('downgraded')),
+    createdAt: v.number(),
+  })
+    .index('by_world_and_run', ['worldId', 'intentRunId'])
+    .index('by_director_run', ['worldId', 'directorRunId']),
 };
