@@ -303,6 +303,13 @@ export function buildWorldImportPlan(value: unknown, createdAt: number): WorldIm
   if (!Number.isSafeInteger(createdAt) || createdAt < 0) throw new WorldImportError('WORLD_CONFIG_INVALID_SHAPE', 'createdAt must be a non-negative safe integer', 'createdAt');
   const configuration = parseWorldConfiguration(value);
   const projection: WorldProjection = emptyProjection(configuration.world.id);
+  projection.locations = Object.fromEntries(configuration.locations.map((location) => [location.id, {
+    locationId: location.id, name: location.name, description: location.description,
+    locationType: location.type, capacity: location.capacity,
+    connectedLocationIds: [...location.connectedLocationIds], active: location.active,
+    lastUpdatedEventId: 'initial-snapshot',
+  }]));
+  projection.locationOccupancy = Object.fromEntries(configuration.locations.map(({ id }) => [id, []]));
   return {
     configuration,
     initialSnapshot: buildSnapshot(projection, createdAt, 0),

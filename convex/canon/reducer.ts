@@ -112,10 +112,26 @@ export function reduceWorldEvent(
   const environmentHistory = Object.fromEntries(
     Object.entries(projection.environmentHistory ?? {}).map(([key, values]) => [key, values.map((value) => ({ ...value }))]),
   );
+  const locations = Object.fromEntries(
+    Object.entries(projection.locations ?? {}).map(([id, location]) => [id, { ...location, connectedLocationIds: [...location.connectedLocationIds] }]),
+  );
+  const locationOccupancy: Record<string, string[]> = Object.fromEntries(
+    Object.keys(locations).map((id) => [id, []]),
+  );
+  for (const [characterId, locationId] of Object.entries(characterLocations)) {
+    locationOccupancy[locationId] = [...(locationOccupancy[locationId] ?? []), characterId].sort();
+  }
 
   for (const [changeIndex, change] of event.stateChanges.entries()) {
     switch (change.type) {
       case 'character_location_changed': {
+        if (characterLocations[change.characterId]) {
+          locationOccupancy[change.fromLocationId] = (locationOccupancy[change.fromLocationId] ?? [])
+            .filter((id) => id !== change.characterId);
+        }
+        locationOccupancy[change.toLocationId] = [...new Set([
+          ...(locationOccupancy[change.toLocationId] ?? []), change.characterId,
+        ])].sort();
         characterLocations[change.characterId] = change.toLocationId;
         lastCharacterMovement[change.characterId] = {
           worldDay: event.worldDay,
@@ -127,6 +143,16 @@ export function reduceWorldEvent(
           currentLocationId: change.toLocationId,
           lastUpdatedEventId: event.eventId,
         };
+        break;
+      }
+      case 'location_state_changed': {
+        locations[change.locationId] = {
+          locationId: change.locationId, name: change.name, description: change.description,
+          locationType: change.locationType, capacity: change.capacity,
+          connectedLocationIds: [...change.connectedLocationIds], active: change.active,
+          lastUpdatedEventId: event.eventId,
+        };
+        locationOccupancy[change.locationId] ??= [];
         break;
       }
       case 'relationship_changed': {
@@ -290,5 +316,7 @@ export function reduceWorldEvent(
     facts,
     worldEnvironment,
     environmentHistory,
+    locations,
+    locationOccupancy,
   };
 }

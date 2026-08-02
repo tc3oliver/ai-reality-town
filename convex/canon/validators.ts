@@ -174,6 +174,20 @@ function validateStateChangeStructure(change: unknown, path: string): CanonValid
       if (!isFactVisibility(change.visibility))
         return canonError('INVALID_EVENT_SHAPE', 'visibility is not supported', { visibility: change.visibility }, `${path}.visibility`);
       return null;
+    case 'location_state_changed': {
+      const error = unknownKeyError(change, ['type', 'locationId', 'name', 'description', 'locationType', 'capacity', 'connectedLocationIds', 'active', 'reason'], path);
+      if (error) return error;
+      if (!isReference(change.locationId)) return canonError('INVALID_EVENT_SHAPE', 'locationId has invalid reference format', undefined, `${path}.locationId`);
+      if (!isNonEmptyString(change.name) || !isNonEmptyString(change.description) || !isNonEmptyString(change.locationType) || !isNonEmptyString(change.reason)) {
+        return canonError('INVALID_EVENT_SHAPE', 'location text fields must be non-empty', undefined, path);
+      }
+      if (typeof change.capacity !== 'number' || !Number.isSafeInteger(change.capacity) || change.capacity < 1) return canonError('INVALID_EVENT_SHAPE', 'capacity must be a positive safe integer', undefined, `${path}.capacity`);
+      if (!Array.isArray(change.connectedLocationIds) || change.connectedLocationIds.some((id) => !isReference(id)) || new Set(change.connectedLocationIds).size !== change.connectedLocationIds.length || change.connectedLocationIds.includes(change.locationId)) {
+        return canonError('INVALID_EVENT_SHAPE', 'connections must be unique valid other locations', undefined, `${path}.connectedLocationIds`);
+      }
+      if (typeof change.active !== 'boolean') return canonError('INVALID_EVENT_SHAPE', 'active must be boolean', undefined, `${path}.active`);
+      return null;
+    }
     case 'character_life_changed': {
       const error = unknownKeyError(change, ['type', 'characterId', 'alive', 'reason'], path);
       if (error) return error;
@@ -450,6 +464,10 @@ export function validateCanon(
   const changedCharacterStateFields = new Set<string>();
   const correctedKnowledgeIds = new Set<string>();
   const changedFactKeys = new Set<string>();
+  const changedLocations = new Set<string>();
+  const prospectiveOccupancy = Object.fromEntries(
+    Object.entries(projection.locationOccupancy ?? {}).map(([id, occupants]) => [id, [...occupants]]),
+  );
 
   for (let i = 0; i < event.stateChanges.length; i++) {
     const change = event.stateChanges[i];
@@ -491,6 +509,13 @@ export function validateCanon(
           toLocationId: change.toLocationId,
         }, path);
       }
+      const destination = projection.locations?.[change.toLocationId];
+      if (Object.keys(projection.locations ?? {}).length > 0 && !destination) {
+        return canonError('UNKNOWN_LOCATION_REFERENCE', 'destination location does not exist', { locationId: change.toLocationId }, path);
+      }
+      if (destination && !destination.active) {
+        return canonError('UNKNOWN_LOCATION_REFERENCE', 'destination location is inactive', { locationId: change.toLocationId }, path);
+      }
       if (movedCharacters.has(change.characterId)) {
         return canonError('DUPLICATE_CHARACTER_MOVEMENT', 'a character may move at most once per event', { characterId: change.characterId }, path);
       }
@@ -524,8 +549,10 @@ export function validateCanon(
           priorEventId: lastMovement.eventId,
         }, path);
       }
-      if (current !== undefined && current !== change.toLocationId && ruleContext?.locationConnections) {
-        const connected = ruleContext.locationConnections[current] ?? [];
+      if (current !== undefined && current !== change.toLocationId
+        && (projection.locations?.[current] || ruleContext?.locationConnections)) {
+        const connected = projection.locations?.[current]?.connectedLocationIds
+          ?? ruleContext?.locationConnections?.[current] ?? [];
         if (!connected.includes(change.toLocationId)) {
           return canonError('TELEPORTATION_NOT_ALLOWED', 'destination is not connected to the current location', {
             characterId: change.characterId,
@@ -533,6 +560,43 @@ export function validateCanon(
             toLocationId: change.toLocationId,
           }, path);
         }
+      }
+      if (current !== undefined) {
+        prospectiveOccupancy[change.fromLocationId] = (prospectiveOccupancy[change.fromLocationId] ?? []).filter((id) => id !== change.characterId);
+      }
+      const destinationOccupants = [...new Set([...(prospectiveOccupancy[change.toLocationId] ?? []), change.characterId])];
+      const capacity = destination?.capacity;
+      if (capacity !== undefined && destinationOccupants.length > capacity) {
+        return canonError('UNKNOWN_LOCATION_REFERENCE', 'destination capacity would be exceeded', { locationId: change.toLocationId, capacity }, path);
+      }
+      prospectiveOccupancy[change.toLocationId] = destinationOccupants;
+      continue;
+    }
+
+    if (change.type === 'location_state_changed') {
+      if (changedLocations.has(change.locationId)) {
+        return canonError('UNKNOWN_LOCATION_REFERENCE', 'location may change at most once per event', { locationId: change.locationId }, path);
+      }
+      changedLocations.add(change.locationId);
+      if (knownLocations && !knownLocations.has(change.locationId)) {
+        return canonError('UNKNOWN_LOCATION_REFERENCE', 'location does not exist', { locationId: change.locationId }, path);
+      }
+      if (knownLocations && change.connectedLocationIds.some((id) => !knownLocations.has(id))) {
+        return canonError('UNKNOWN_LOCATION_REFERENCE', 'connection references unknown location', undefined, path);
+      }
+      if (!knownLocations && Object.keys(projection.locations ?? {}).length > 0
+        && change.connectedLocationIds.some((id) => !projection.locations[id])) {
+        return canonError('UNKNOWN_LOCATION_REFERENCE', 'connection references unknown location', undefined, path);
+      }
+      if (Object.keys(projection.locations ?? {}).length > 0 && !projection.locations[change.locationId]) {
+        return canonError('UNKNOWN_LOCATION_REFERENCE', 'location does not exist', { locationId: change.locationId }, path);
+      }
+      const occupants = prospectiveOccupancy[change.locationId] ?? [];
+      if (!change.active && occupants.length > 0) {
+        return canonError('UNKNOWN_LOCATION_REFERENCE', 'occupied location cannot be deactivated', { locationId: change.locationId }, path);
+      }
+      if (occupants.length > change.capacity) {
+        return canonError('UNKNOWN_LOCATION_REFERENCE', 'capacity cannot be lower than current occupancy', { locationId: change.locationId }, path);
       }
       continue;
     }
