@@ -1,17 +1,19 @@
 ---
 id: ART-21
 title: Conflict-safe scene grouping
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 20:59'
+updated_date: '2026-08-02 21:09'
 labels:
   - prd-1.0
   - epic-f
 milestone: m-0
 dependencies:
   - ART-20
+references:
+  - 'PR #72 https://github.com/tc3oliver/ai-reality-town/pull/72'
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
 priority: high
@@ -69,12 +71,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #3 FR-C004: 合併結果必須保留原始 Intent 參照。
 - [x] #4 FR-C004: 每個主要場景應限制參與角色數量。
 - [x] #5 Automated tests provide evidence for every mapped FR-C004 acceptance criterion, including rejection and failure paths.
-- [ ] #6 PRD traceability links FR-C004 to doc-1 and the merged implementation evidence.
+- [x] #6 PRD traceability links FR-C004 to doc-1 and the merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -86,8 +88,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -100,10 +102,14 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented deterministic grouping of compatible same-slot/location Intents, retaining all source Intent IDs, Arc/participant/run provenance, stable ordering and decisions. Rejects duplicate/cross-run/cross-slot/character conflicts, prevents a participant appearing in two scenes, defers wait/downgraded Intents, and enforces a six-participant scene cap. Persistence requires actual stored Intents and is idempotent without Canon mutation. Focused Jest passed 6 tests; Convex codegen succeeded; npm run check passed architecture, typecheck, lint, 41 suites/357 tests, and build.
+
+Merged implementation evidence: PR #72 merged into main at 2026-08-02T21:01:02Z (merge commit a6540e4). FR-C004 remains linked to versioned PRD doc-1 through this task.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
 Implemented FR-C004 conflict-safe deterministic scene grouping with source Intent retention, one-scene-per-character enforcement, six-participant cap, explicit deferrals, and idempotent persisted-run validation. Verified with 6 focused tests and full npm run check (357 tests); merge evidence remains pending.
+
+Implementation PR #72 is merged; all acceptance criteria and Definition of Done items are satisfied.
 <!-- SECTION:FINAL_SUMMARY:END -->
