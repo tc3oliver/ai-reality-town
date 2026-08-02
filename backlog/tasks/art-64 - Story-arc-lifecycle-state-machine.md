@@ -5,7 +5,7 @@ status: In Review
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:43'
-updated_date: '2026-08-02 19:42'
+updated_date: '2026-08-02 19:43'
 labels:
   - prd-1.0
   - epic-h
@@ -86,7 +86,7 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -100,6 +100,8 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented a versioned seven-state forward-only lifecycle matrix with optimistic expected-status checks, accepted Canon event provenance, Story-owned current state, append-only transition history, internal create/transition/history/active queries, and archived history retention. Exhaustive tests cover all 49 status pairs, stale status, invalid/mismatched provenance, active-context filtering, terminal archival, and internal API boundaries. Convex codegen succeeded. Final npm run check passed architecture, typecheck, lint, 26 suites/265 tests, and build.
+
+Implementation commit 4dc9048 pushed on feat/ART-64-arc-lifecycle.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
