@@ -68,6 +68,8 @@ import type * as safety_preGeneration from "../safety/preGeneration.js";
 import type * as shared_constants from "../shared/constants.js";
 import type * as shared_errors from "../shared/errors.js";
 import type * as shared_ids from "../shared/ids.js";
+import type * as simulation_director from "../simulation/director.js";
+import type * as simulation_directorFunctions from "../simulation/directorFunctions.js";
 import type * as simulation_fakeProvider from "../simulation/fakeProvider.js";
 import type * as simulation_model from "../simulation/model.js";
 import type * as simulation_provider from "../simulation/provider.js";
@@ -169,6 +171,8 @@ declare const fullApi: ApiFromModules<{
   "shared/constants": typeof shared_constants;
   "shared/errors": typeof shared_errors;
   "shared/ids": typeof shared_ids;
+  "simulation/director": typeof simulation_director;
+  "simulation/directorFunctions": typeof simulation_directorFunctions;
   "simulation/fakeProvider": typeof simulation_fakeProvider;
   "simulation/model": typeof simulation_model;
   "simulation/provider": typeof simulation_provider;
