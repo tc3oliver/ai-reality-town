@@ -1,7 +1,7 @@
 ---
 id: ART-14
 title: Structural event validation pipeline
-status: In Progress
+status: In Review
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
@@ -12,6 +12,8 @@ labels:
 milestone: m-0
 dependencies:
   - ART-12
+references:
+  - 'https://github.com/tc3oliver/ai-reality-town/pull/24'
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
 modified_files:
@@ -92,7 +94,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -109,6 +111,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 <!-- SECTION:NOTES:BEGIN -->
 Completed exact-key and version/type/union validation, participant dedupe, safe-integer and finite-value checks, bounded reference/key formats, summary limits, recursive JSON-safe acyclic metadata, and stable code/path errors. Commit atomicity tests prove rejected proposals create neither event nor idempotency rows. Focused validation: 3 suites/51 tests. Full npm run check passed architecture checks, typecheck, lint, 18 suites/204 tests, and Vite build.
+
+Committed as e0cb265, pushed to origin, and opened PR #24.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
