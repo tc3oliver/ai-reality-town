@@ -1,11 +1,11 @@
 ---
 id: ART-15
 title: Canon continuity validation rules
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 18:48'
+updated_date: '2026-08-02 18:52'
 labels:
   - prd-1.0
   - epic-e
@@ -13,6 +13,8 @@ milestone: m-0
 dependencies:
   - ART-14
   - ART-13
+references:
+  - 'https://github.com/tc3oliver/ai-reality-town/pull/28'
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
 priority: high
@@ -69,12 +71,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #2 FR-D004: 驗證拒絕原因可在管理介面查看。
 - [x] #3 FR-D004: 重試不得繞過 Canon Validation。
 - [x] #4 Automated tests provide evidence for every mapped FR-D004 acceptance criterion, including rejection and failure paths.
-- [ ] #5 PRD traceability links FR-D004 to doc-1 and the merged implementation evidence.
+- [x] #5 PRD traceability links FR-D004 to doc-1 and the merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -87,7 +89,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -105,10 +107,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 Implemented versioned life, sourced-knowledge, and unique-item state changes; deterministic projection/snapshot metadata; database-backed reference/connectivity context; all FR-D004 rejection rules; and an internal administrator failure query backed by structured simulation-run error code/path/details. Retries re-enter the same validator before sequence/key reservation. Verification: npm run check passed (19 suites, 225 tests; architecture, typecheck, lint, build all passed); focused continuity/schema/reducer/workflow tests passed; npx convex codegen succeeded against the configured development deployment. AC5 and DoD1/13/14 remain merge-evidence dependent.
 
 Implementation and task evidence committed as 580c2da and pushed to origin/feat/ART-15-canon-continuity.
+
+Implementation PR #28 merged into main on 2026-08-02T18:50:10Z after required CI passed. FR-D004 now links doc-1, automated evidence, and merged implementation.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Implemented FR-D004 Canon continuity validation and structured internal rejection inspection. Automated coverage proves teleportation, same-slot double movement, dead participation, sourced knowledge, unique ownership, invalid references, self-relationships, zero deltas, sequence/idempotency, retry rejection, and deterministic projection behavior. Full npm run check passed with 225 tests; merge evidence remains pending.
+Delivered all FR-D004 continuity rules through merged PR #28. Invalid movement, death participation, knowledge, ownership, references, relationships, sequences, duplicate keys, and retries are rejected before Canon writes; structured reasons are available internally for operations. Full pre-merge check passed 225 tests.
 <!-- SECTION:FINAL_SUMMARY:END -->
