@@ -1,11 +1,11 @@
 ---
 id: ART-12
 title: Versioned proposed-event contracts
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 18:17'
+updated_date: '2026-08-02 18:22'
 labels:
   - prd-1.0
   - epic-d
@@ -98,7 +98,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -116,10 +116,14 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 Implemented a strict ProposedEvent v1 normalizer for untrusted provider output, exact envelope/source/union keys, JSON-safe metadata, and literal schema typing. Routed simulation workflow output through normalization before Canon commit. Validation: npm test -- convex/canon/proposedEvent.test.ts convex/simulation/workflow.test.ts convex/canon/reducer.test.ts (3 suites, 29 tests passed); npm run check (architecture policy and boundary tests, typecheck, lint, 16 suites/150 tests, and Vite build passed).
 
 Committed as 48c6c2b, pushed to origin, and opened PR #18.
+
+Implementation PR #18 merged into main at 2026-08-02T18:18:59Z.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
 Defined and documented the versioned ProposedEvent v1 provider boundary. Provider wire output is now treated as unknown, strictly normalized before commit, rejects unsupported versions, missing provenance, untyped/extra state payloads, and unsafe metadata. Verified with 29 focused tests and the full npm run check gate (150 tests plus typecheck, lint, architecture checks, and build).
+
+Implementation merged in PR #18; task acceptance and Definition of Done are complete.
 <!-- SECTION:FINAL_SUMMARY:END -->
