@@ -5,7 +5,7 @@ status: In Review
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 21:08'
+updated_date: '2026-08-02 21:09'
 labels:
   - prd-1.0
   - epic-i
@@ -15,6 +15,8 @@ dependencies:
   - ART-29
   - ART-65
   - ART-55
+references:
+  - 'PR #74 https://github.com/tc3oliver/ai-reality-town/pull/74'
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
 modified_files:
@@ -99,7 +101,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -115,6 +117,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 Implemented a versioned, idempotent one-Episode-per-world-day editorial projection sourced exclusively from accepted canonEvents. Validation enforces exact source-reference provenance, public Fact visibility, complete >=0.7 importance coverage across 3-5 scenes, and unpublished-secret exclusion. Post-generation safety scans every public Episode field; withheld output stores no raw Episode. Generation/validation failures persist only an editorial failure record and never invoke Canon commit/reducer paths.
 
 Verification: npm test -- --runTestsByPath convex/editorial/episode.test.ts (1 suite, 6 tests passed); npx convex codegen (passed); npm run check (architecture boundaries, 6 architecture tests, typecheck, lint, 42 suites/364 tests, and Vite build all passed). git diff --check passed. No credentials added.
+
+Implementation committed as b41b9eb, pushed, and opened as PR #74; auto-merge enabled.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
