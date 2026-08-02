@@ -31,6 +31,30 @@ describe('reduceWorldEvent', () => {
     const next = reduceWorldEvent(start, accepted({ sequenceNumber: 0 }));
     expect(next.characterLocations.a).toBe('loc-2');
     expect(next.lastSequenceNumber).toBe(0);
+    expect(next.lastCharacterMovement.a).toEqual({ worldDay: 0, timeSlot: 'morning', eventId: 'w#event#0' });
+  });
+
+  it('deterministically projects life, sourced knowledge, and unique item ownership', () => {
+    const start: WorldProjection = {
+      ...emptyProjection('w'),
+      characterAlive: { a: true },
+      itemOwners: { ledger: 'a' },
+    };
+    const event = accepted({
+      sequenceNumber: 0,
+      eventType: 'world_event',
+      participantIds: ['a', 'b'],
+      causedByEventIds: ['prior-event'],
+      stateChanges: [
+        { type: 'character_life_changed', characterId: 'a', alive: false, reason: 'fatal event' },
+        { type: 'character_knowledge_learned', characterId: 'b', factId: 'a-is-dead', sourceType: 'observed', sourceEventId: 'prior-event' },
+        { type: 'item_transferred', itemId: 'ledger', fromOwnerId: 'a', toOwnerId: 'b', reason: 'inheritance' },
+      ],
+    });
+    const next = reduceWorldEvent(start, event);
+    expect(next.characterAlive.a).toBe(false);
+    expect(next.characterKnowledge.b).toEqual(['a-is-dead']);
+    expect(next.itemOwners.ledger).toBe('b');
   });
 
   it('applies a relationship delta and clamps to bounds', () => {

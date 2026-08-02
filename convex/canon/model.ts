@@ -10,6 +10,7 @@ import type {
   EventType,
   FactSubjectType,
   FactVisibility,
+  KnowledgeSourceType,
   ProposedByType,
   TimeSlot,
 } from './eventTypes';
@@ -20,6 +21,7 @@ export type {
   EventType,
   FactSubjectType,
   FactVisibility,
+  KnowledgeSourceType,
   ProposedByType,
   TimeSlot,
 } from './eventTypes';
@@ -58,6 +60,26 @@ export type StateChange =
       predicate: string;
       value: string | number | boolean;
       visibility: FactVisibility;
+    }
+  | {
+      type: 'character_life_changed';
+      characterId: string;
+      alive: boolean;
+      reason: string;
+    }
+  | {
+      type: 'character_knowledge_learned';
+      characterId: string;
+      factId: string;
+      sourceType: KnowledgeSourceType;
+      sourceEventId: string;
+    }
+  | {
+      type: 'item_transferred';
+      itemId: string;
+      fromOwnerId?: string;
+      toOwnerId: string;
+      reason: string;
     };
 
 /** A proposal submitted by a simulation provider (LLM, director, system, admin). */
@@ -98,6 +120,13 @@ export type CanonImmutableRule = {
 export type CanonRuleContext = {
   worldId: string;
   rules: CanonImmutableRule[];
+  characterIds?: string[];
+  locationIds?: string[];
+  itemIds?: string[];
+  locationConnections?: Record<string, string[]>;
+  initialCharacterAlive?: Record<string, boolean>;
+  initialItemOwners?: Record<string, string>;
+  knownEventIds?: string[];
 };
 
 /** An accepted, immutable, append-only canonical event. */
@@ -140,6 +169,10 @@ export type WorldProjection = {
   /** Sequence number of the last event applied; -1 means "no events yet". */
   lastSequenceNumber: number;
   characterLocations: Record<string, string>;
+  characterAlive: Record<string, boolean>;
+  lastCharacterMovement: Record<string, { worldDay: number; timeSlot: TimeSlot; eventId: string }>;
+  itemOwners: Record<string, string>;
+  characterKnowledge: Record<string, string[]>;
   relationships: Record<string, RelationshipState>;
   facts: ProjectedFact[];
 };
@@ -150,6 +183,10 @@ export function emptyProjection(worldId: string): WorldProjection {
     worldId,
     lastSequenceNumber: -1,
     characterLocations: {},
+    characterAlive: {},
+    lastCharacterMovement: {},
+    itemOwners: {},
+    characterKnowledge: {},
     relationships: {},
     facts: [],
   };

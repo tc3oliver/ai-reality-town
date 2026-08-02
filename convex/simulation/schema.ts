@@ -16,6 +16,8 @@ export const simulationTables = {
     completedAt: v.optional(v.number()),
     errorCode: v.optional(v.string()),
     errorMessage: v.optional(v.string()),
+    errorPath: v.optional(v.string()),
+    errorDetails: v.optional(v.any()),
     provider: v.string(),
     traceId: v.string(),
     // Extensions over the minimum spec fields: link a completed run to its event.

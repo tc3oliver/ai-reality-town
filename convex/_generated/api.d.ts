@@ -64,6 +64,7 @@ import type * as shared_ids from "../shared/ids.js";
 import type * as simulation_fakeProvider from "../simulation/fakeProvider.js";
 import type * as simulation_model from "../simulation/model.js";
 import type * as simulation_provider from "../simulation/provider.js";
+import type * as simulation_queries from "../simulation/queries.js";
 import type * as simulation_runState from "../simulation/runState.js";
 import type * as simulation_workflow from "../simulation/workflow.js";
 import type * as story_model from "../story/model.js";
@@ -145,6 +146,7 @@ declare const fullApi: ApiFromModules<{
   "simulation/fakeProvider": typeof simulation_fakeProvider;
   "simulation/model": typeof simulation_model;
   "simulation/provider": typeof simulation_provider;
+  "simulation/queries": typeof simulation_queries;
   "simulation/runState": typeof simulation_runState;
   "simulation/workflow": typeof simulation_workflow;
   "story/model": typeof story_model;

@@ -19,6 +19,7 @@ import {
   isEventType,
   isFactSubjectType,
   isFactVisibility,
+  isKnowledgeSourceType,
   isProposedByType,
   isStateChangeType,
   isTimeSlot,
@@ -161,6 +162,43 @@ function validateStateChangeStructure(change: unknown, path: string): CanonValid
       if (!isFactVisibility(change.visibility))
         return canonError('INVALID_EVENT_SHAPE', 'visibility is not supported', { visibility: change.visibility }, `${path}.visibility`);
       return null;
+    case 'character_life_changed': {
+      const error = unknownKeyError(change, ['type', 'characterId', 'alive', 'reason'], path);
+      if (error) return error;
+      if (!isReference(change.characterId))
+        return canonError('INVALID_EVENT_SHAPE', 'characterId has invalid reference format', undefined, `${path}.characterId`);
+      if (typeof change.alive !== 'boolean')
+        return canonError('INVALID_EVENT_SHAPE', 'alive must be a boolean', undefined, `${path}.alive`);
+      if (!isNonEmptyString(change.reason))
+        return canonError('INVALID_EVENT_SHAPE', 'reason must be a non-empty string', undefined, `${path}.reason`);
+      return null;
+    }
+    case 'character_knowledge_learned': {
+      const error = unknownKeyError(change, ['type', 'characterId', 'factId', 'sourceType', 'sourceEventId'], path);
+      if (error) return error;
+      if (!isReference(change.characterId))
+        return canonError('INVALID_EVENT_SHAPE', 'characterId has invalid reference format', undefined, `${path}.characterId`);
+      if (!isReference(change.factId))
+        return canonError('INVALID_EVENT_SHAPE', 'factId has invalid reference format', undefined, `${path}.factId`);
+      if (!isKnowledgeSourceType(change.sourceType))
+        return canonError('INVALID_EVENT_SHAPE', 'sourceType is unsupported', undefined, `${path}.sourceType`);
+      if (!isReference(change.sourceEventId))
+        return canonError('INVALID_EVENT_SHAPE', 'sourceEventId has invalid reference format', undefined, `${path}.sourceEventId`);
+      return null;
+    }
+    case 'item_transferred': {
+      const error = unknownKeyError(change, ['type', 'itemId', 'fromOwnerId', 'toOwnerId', 'reason'], path);
+      if (error) return error;
+      if (!isReference(change.itemId))
+        return canonError('INVALID_EVENT_SHAPE', 'itemId has invalid reference format', undefined, `${path}.itemId`);
+      if (change.fromOwnerId !== undefined && !isReference(change.fromOwnerId))
+        return canonError('INVALID_EVENT_SHAPE', 'fromOwnerId has invalid reference format', undefined, `${path}.fromOwnerId`);
+      if (!isReference(change.toOwnerId))
+        return canonError('INVALID_EVENT_SHAPE', 'toOwnerId has invalid reference format', undefined, `${path}.toOwnerId`);
+      if (!isNonEmptyString(change.reason))
+        return canonError('INVALID_EVENT_SHAPE', 'reason must be a non-empty string', undefined, `${path}.reason`);
+      return null;
+    }
     default:
       return canonError('INVALID_EVENT_SHAPE', 'unhandled state change type', { type }, path);
   }
@@ -293,6 +331,33 @@ export function validateCanon(
       ruleWorldId: ruleContext.worldId,
     });
   }
+  const knownCharacters = ruleContext?.characterIds ? new Set(ruleContext.characterIds) : null;
+  const knownLocations = ruleContext?.locationIds ? new Set(ruleContext.locationIds) : null;
+  const knownItems = ruleContext?.itemIds ? new Set(ruleContext.itemIds) : null;
+  const knownEvents = ruleContext?.knownEventIds ? new Set(ruleContext.knownEventIds) : null;
+  const alive = (characterId: string): boolean =>
+    projection.characterAlive[characterId]
+      ?? ruleContext?.initialCharacterAlive?.[characterId]
+      ?? true;
+
+  if (event.locationId !== undefined && knownLocations && !knownLocations.has(event.locationId)) {
+    return canonError('UNKNOWN_LOCATION_REFERENCE', 'event location does not exist', { locationId: event.locationId }, 'locationId');
+  }
+  for (const characterId of event.participantIds) {
+    if (knownCharacters && !knownCharacters.has(characterId)) {
+      return canonError('UNKNOWN_CHARACTER_REFERENCE', 'event participant does not exist', { characterId }, 'participantIds');
+    }
+    if (!alive(characterId)) {
+      return canonError('DEAD_CHARACTER_ACTION', 'dead characters cannot participate in normal events', { characterId }, 'participantIds');
+    }
+  }
+  if (knownEvents) {
+    for (const eventId of event.causedByEventIds) {
+      if (!knownEvents.has(eventId)) {
+        return canonError('UNKNOWN_EVENT_REFERENCE', 'causal event does not exist', { eventId }, 'causedByEventIds');
+      }
+    }
+  }
   for (const rule of ruleContext?.rules ?? []) {
     if (rule.enforcement.type === 'forbid_event_type' && rule.enforcement.eventType === event.eventType) {
       return canonError('IMMUTABLE_WORLD_RULE_VIOLATION', 'event type is forbidden by an immutable world rule', {
@@ -312,12 +377,17 @@ export function validateCanon(
 
   // Detect a character moved more than once within the same event.
   const movedCharacters = new Set<string>();
+  const changedLifeCharacters = new Set<string>();
+  const transferredItems = new Set<string>();
 
   for (let i = 0; i < event.stateChanges.length; i++) {
     const change = event.stateChanges[i];
     const path = `stateChanges[${i}]`;
 
     if (change.type === 'relationship_changed') {
+      if (knownCharacters && (!knownCharacters.has(change.sourceCharacterId) || !knownCharacters.has(change.targetCharacterId))) {
+        return canonError('UNKNOWN_CHARACTER_REFERENCE', 'relationship character does not exist', undefined, path);
+      }
       if (change.sourceCharacterId === change.targetCharacterId) {
         return canonError('INVALID_RELATIONSHIP_TARGET', 'relationship source and target must differ', undefined, path);
       }
@@ -331,6 +401,15 @@ export function validateCanon(
     }
 
     if (change.type === 'character_location_changed') {
+      if (knownCharacters && !knownCharacters.has(change.characterId)) {
+        return canonError('UNKNOWN_CHARACTER_REFERENCE', 'moved character does not exist', { characterId: change.characterId }, path);
+      }
+      if (knownLocations && (!knownLocations.has(change.fromLocationId) || !knownLocations.has(change.toLocationId))) {
+        return canonError('UNKNOWN_LOCATION_REFERENCE', 'movement references an unknown location', {
+          fromLocationId: change.fromLocationId,
+          toLocationId: change.toLocationId,
+        }, path);
+      }
       if (movedCharacters.has(change.characterId)) {
         return canonError('DUPLICATE_CHARACTER_MOVEMENT', 'a character may move at most once per event', { characterId: change.characterId }, path);
       }
@@ -351,12 +430,109 @@ export function validateCanon(
           actual: change.fromLocationId,
         }, path);
       }
+      if (current !== undefined && current === change.toLocationId) {
+        return canonError('LOCATION_PRECONDITION_FAILED', 'movement must change the character location', {
+          characterId: change.characterId,
+          locationId: current,
+        }, path);
+      }
+      const lastMovement = projection.lastCharacterMovement[change.characterId];
+      if (lastMovement?.worldDay === event.worldDay && lastMovement.timeSlot === event.timeSlot) {
+        return canonError('CHARACTER_ALREADY_MOVED_THIS_SLOT', 'character already moved during this world time slot', {
+          characterId: change.characterId,
+          priorEventId: lastMovement.eventId,
+        }, path);
+      }
+      if (current !== undefined && current !== change.toLocationId && ruleContext?.locationConnections) {
+        const connected = ruleContext.locationConnections[current] ?? [];
+        if (!connected.includes(change.toLocationId)) {
+          return canonError('TELEPORTATION_NOT_ALLOWED', 'destination is not connected to the current location', {
+            characterId: change.characterId,
+            fromLocationId: current,
+            toLocationId: change.toLocationId,
+          }, path);
+        }
+      }
       continue;
     }
 
     if (change.type === 'fact_created') {
       if (change.subjectId.length === 0) {
         return canonError('INVALID_FACT_SUBJECT', 'fact subjectId must not be empty', undefined, path);
+      }
+      if (change.subjectType === 'character' && knownCharacters && !knownCharacters.has(change.subjectId)) {
+        return canonError('UNKNOWN_CHARACTER_REFERENCE', 'fact character subject does not exist', { subjectId: change.subjectId }, path);
+      }
+      if (change.subjectType === 'location' && knownLocations && !knownLocations.has(change.subjectId)) {
+        return canonError('UNKNOWN_LOCATION_REFERENCE', 'fact location subject does not exist', { subjectId: change.subjectId }, path);
+      }
+      if (change.subjectType === 'item' && knownItems && !knownItems.has(change.subjectId)) {
+        return canonError('UNKNOWN_ITEM_REFERENCE', 'fact item subject does not exist', { subjectId: change.subjectId }, path);
+      }
+      continue;
+    }
+
+    if (change.type === 'character_life_changed') {
+      if (knownCharacters && !knownCharacters.has(change.characterId)) {
+        return canonError('UNKNOWN_CHARACTER_REFERENCE', 'life-state character does not exist', { characterId: change.characterId }, path);
+      }
+      if (alive(change.characterId) === change.alive) {
+        return canonError('INVALID_LIFE_STATE_CHANGE', 'life-state change must alter the current state', { characterId: change.characterId }, path);
+      }
+      if (change.alive) {
+        return canonError('INVALID_LIFE_STATE_CHANGE', 'resurrection is not a normal Canon transition', { characterId: change.characterId }, path);
+      }
+      if (!participants.has(change.characterId)) {
+        return canonError('PARTICIPANT_MISMATCH', 'life-state character must be an event participant', { characterId: change.characterId }, path);
+      }
+      if (changedLifeCharacters.has(change.characterId)) {
+        return canonError('INVALID_LIFE_STATE_CHANGE', 'character life state may change at most once per event', { characterId: change.characterId }, path);
+      }
+      changedLifeCharacters.add(change.characterId);
+      continue;
+    }
+
+    if (change.type === 'character_knowledge_learned') {
+      if (knownCharacters && !knownCharacters.has(change.characterId)) {
+        return canonError('UNKNOWN_CHARACTER_REFERENCE', 'knowledge character does not exist', { characterId: change.characterId }, path);
+      }
+      if (!participants.has(change.characterId)) {
+        return canonError('PARTICIPANT_MISMATCH', 'knowledge character must be an event participant', { characterId: change.characterId }, path);
+      }
+      if ((knownEvents && !knownEvents.has(change.sourceEventId)) || !event.causedByEventIds.includes(change.sourceEventId)) {
+        return canonError('KNOWLEDGE_SOURCE_MISSING', 'knowledge must cite an existing causal source event', {
+          characterId: change.characterId,
+          sourceEventId: change.sourceEventId,
+        }, path);
+      }
+      continue;
+    }
+
+    if (change.type === 'item_transferred') {
+      if (transferredItems.has(change.itemId)) {
+        return canonError('ITEM_OWNERSHIP_CONFLICT', 'an item may transfer at most once per event', { itemId: change.itemId }, path);
+      }
+      transferredItems.add(change.itemId);
+      if (knownItems && !knownItems.has(change.itemId)) {
+        return canonError('UNKNOWN_ITEM_REFERENCE', 'transferred item does not exist', { itemId: change.itemId }, path);
+      }
+      if (knownCharacters && (!knownCharacters.has(change.toOwnerId) || (change.fromOwnerId !== undefined && !knownCharacters.has(change.fromOwnerId)))) {
+        return canonError('UNKNOWN_CHARACTER_REFERENCE', 'item transfer owner does not exist', undefined, path);
+      }
+      const currentOwner = projection.itemOwners[change.itemId]
+        ?? ruleContext?.initialItemOwners?.[change.itemId];
+      if (currentOwner !== undefined && change.fromOwnerId !== currentOwner) {
+        return canonError('ITEM_OWNERSHIP_CONFLICT', 'item transfer source is not the unique current owner', {
+          itemId: change.itemId,
+          expectedOwnerId: currentOwner,
+          actualOwnerId: change.fromOwnerId,
+        }, path);
+      }
+      if (currentOwner === change.toOwnerId) {
+        return canonError('ITEM_OWNERSHIP_CONFLICT', 'item is already owned by the target character', {
+          itemId: change.itemId,
+          ownerId: currentOwner,
+        }, path);
       }
       continue;
     }

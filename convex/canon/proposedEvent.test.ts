@@ -59,6 +59,25 @@ describe('ProposedEvent v1 contract', () => {
       type: 'fact_created', subjectType: 'location', subjectId: 'station', predicate: 'sealed', value: true, visibility: 'canon',
     }];
     expect(normalizeProposedEventOutput(fact).stateChanges[0].type).toBe('fact_created');
+    const life = movement();
+    life.eventType = 'world_event';
+    life.stateChanges = [{ type: 'character_life_changed', characterId: 'resident-1', alive: false, reason: 'fatal event' }];
+    expect(normalizeProposedEventOutput(life).stateChanges[0].type).toBe('character_life_changed');
+    const knowledge = movement();
+    knowledge.eventType = 'discovery';
+    knowledge.stateChanges = [{
+      type: 'character_knowledge_learned', characterId: 'resident-1', factId: 'ledger-location',
+      sourceType: 'evidence', sourceEventId: 'prior-event',
+    }];
+    expect(normalizeProposedEventOutput(knowledge).stateChanges[0].type).toBe('character_knowledge_learned');
+    const item = movement();
+    item.eventType = 'world_event';
+    item.participantIds = ['resident-1', 'resident-2'];
+    item.stateChanges = [{
+      type: 'item_transferred', itemId: 'ledger', fromOwnerId: 'resident-1',
+      toOwnerId: 'resident-2', reason: 'handed over',
+    }];
+    expect(normalizeProposedEventOutput(item).stateChanges[0].type).toBe('item_transferred');
   });
 
   it('rejects unsupported schema versions', () => {

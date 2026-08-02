@@ -17,6 +17,8 @@ export type SimulationRunRecord = {
   completedAt?: number;
   errorCode?: string;
   errorMessage?: string;
+  errorPath?: string;
+  errorDetails?: Record<string, unknown>;
   provider: SimulationProviderName;
   traceId: string;
   /** Event committed by this run, when it reached `completed`. */

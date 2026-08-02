@@ -50,6 +50,10 @@ export const mistwoodInitialProjection: WorldProjection = {
     cassia: 'mistwood-market',
     rowan: 'mistwood-grove',
   },
+  characterAlive: { cassia: true, rowan: true },
+  lastCharacterMovement: {},
+  itemOwners: {},
+  characterKnowledge: {},
   relationships: {
     'cassia|rowan': { trust: 20, affection: 10, resentment: 0 },
   },

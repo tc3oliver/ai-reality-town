@@ -44,8 +44,18 @@ export type FoundationRunDeps = {
 };
 
 /** Reduce any thrown value to a stable {code, message}. */
-export function describeRunError(e: unknown): { code: string; message: string } {
-  if (isCanonError(e)) return { code: e.error.code, message: e.error.message };
+export function describeRunError(e: unknown): {
+  code: string;
+  message: string;
+  path?: string;
+  details?: Record<string, unknown>;
+} {
+  if (isCanonError(e)) return {
+    code: e.error.code,
+    message: e.error.message,
+    ...(e.error.path === undefined ? {} : { path: e.error.path }),
+    ...(e.error.details === undefined ? {} : { details: e.error.details }),
+  };
   if (e instanceof SimulationProviderError) return { code: e.code, message: e.message };
   if (e instanceof Error) return { code: 'UNKNOWN', message: e.message };
   return { code: 'UNKNOWN', message: String(e) };
@@ -80,8 +90,15 @@ export async function executeFoundationRun(
       break;
     }
   }
-  const { code, message } = describeRunError(lastError);
-  return { status: 'failed', errorCode: code, errorMessage: message, attempts };
+  const { code, message, path, details } = describeRunError(lastError);
+  return {
+    status: 'failed',
+    errorCode: code,
+    errorMessage: message,
+    ...(path === undefined ? {} : { errorPath: path }),
+    ...(details === undefined ? {} : { errorDetails: details }),
+    attempts,
+  };
 }
 
 // --- Convex args validator -------------------------------------------------
@@ -144,6 +161,8 @@ export const runFoundationSimulation = mutation({
         completedAt,
         errorCode: outcome.errorCode,
         errorMessage: outcome.errorMessage,
+        errorPath: outcome.errorPath,
+        errorDetails: outcome.errorDetails,
       });
     }
     return { runId, ...outcome };

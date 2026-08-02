@@ -4,13 +4,13 @@ import { isCanonError } from '../shared/errors';
 import type { ProposedEvent } from './model';
 
 /** A valid movement proposal that spawns / moves character 'a'. */
-function movementProposal(worldId: string, idempotencyKey: string, from: string, to: string): ProposedEvent {
+function movementProposal(worldId: string, idempotencyKey: string, from: string, to: string, worldDay = 0): ProposedEvent {
   return {
     schemaVersion: 1,
     worldId,
     idempotencyKey,
     proposedBy: { type: 'character', id: 'a' },
-    worldDay: 0,
+    worldDay,
     timeSlot: 'morning',
     eventType: 'movement',
     participantIds: ['a'],
@@ -73,7 +73,7 @@ describe('commitProposedEvent (idempotency)', () => {
     await commitProposedEvent(store, { proposed: movementProposal('w1', 'k1', 'loc-1', 'loc-2'), traceId: 't1' });
     // Second proposal moves the now-placed character onward (canon-valid continuation).
     const second = await commitProposedEvent(store, {
-      proposed: movementProposal('w1', 'k2', 'loc-2', 'loc-3'),
+      proposed: movementProposal('w1', 'k2', 'loc-2', 'loc-3', 1),
       traceId: 't2',
     });
     expect(second.deduplicated).toBe(false);
@@ -100,8 +100,8 @@ describe('commitProposedEvent (idempotency)', () => {
   it('allocates monotonically increasing sequence numbers', async () => {
     const store = new InMemoryCanonStore();
     const r1 = await commitProposedEvent(store, { proposed: movementProposal('w1', 'k1', 'loc-1', 'loc-2'), traceId: 't1' });
-    const r2 = await commitProposedEvent(store, { proposed: movementProposal('w1', 'k2', 'loc-2', 'loc-3'), traceId: 't2' });
-    const r3 = await commitProposedEvent(store, { proposed: movementProposal('w1', 'k3', 'loc-3', 'loc-4'), traceId: 't3' });
+    const r2 = await commitProposedEvent(store, { proposed: movementProposal('w1', 'k2', 'loc-2', 'loc-3', 1), traceId: 't2' });
+    const r3 = await commitProposedEvent(store, { proposed: movementProposal('w1', 'k3', 'loc-3', 'loc-4', 2), traceId: 't3' });
     expect([r1.sequenceNumber, r2.sequenceNumber, r3.sequenceNumber]).toEqual([0, 1, 2]);
   });
 

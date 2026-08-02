@@ -29,6 +29,14 @@ export function cloneProjection(projection: WorldProjection): WorldProjection {
     worldId: projection.worldId,
     lastSequenceNumber: projection.lastSequenceNumber,
     characterLocations: { ...projection.characterLocations },
+    characterAlive: { ...projection.characterAlive },
+    lastCharacterMovement: Object.fromEntries(
+      Object.entries(projection.lastCharacterMovement).map(([id, movement]) => [id, { ...movement }]),
+    ),
+    itemOwners: { ...projection.itemOwners },
+    characterKnowledge: Object.fromEntries(
+      Object.entries(projection.characterKnowledge).map(([id, facts]) => [id, [...facts]]),
+    ),
     relationships,
     facts: projection.facts.map((f) => ({ ...f })),
   };

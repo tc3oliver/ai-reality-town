@@ -70,6 +70,14 @@ export function reduceWorldEvent(
 
   // Structural copies — input objects are never mutated.
   const characterLocations = { ...projection.characterLocations };
+  const characterAlive = { ...projection.characterAlive };
+  const lastCharacterMovement = Object.fromEntries(
+    Object.entries(projection.lastCharacterMovement).map(([id, movement]) => [id, { ...movement }]),
+  );
+  const itemOwners = { ...projection.itemOwners };
+  const characterKnowledge = Object.fromEntries(
+    Object.entries(projection.characterKnowledge).map(([id, facts]) => [id, [...facts]]),
+  );
   const relationships: Record<string, RelationshipState> = { ...projection.relationships };
   const facts = projection.facts.slice();
 
@@ -77,6 +85,11 @@ export function reduceWorldEvent(
     switch (change.type) {
       case 'character_location_changed': {
         characterLocations[change.characterId] = change.toLocationId;
+        lastCharacterMovement[change.characterId] = {
+          worldDay: event.worldDay,
+          timeSlot: event.timeSlot,
+          eventId: event.eventId,
+        };
         break;
       }
       case 'relationship_changed': {
@@ -100,6 +113,21 @@ export function reduceWorldEvent(
         });
         break;
       }
+      case 'character_life_changed': {
+        characterAlive[change.characterId] = change.alive;
+        break;
+      }
+      case 'character_knowledge_learned': {
+        const known = characterKnowledge[change.characterId] ?? [];
+        characterKnowledge[change.characterId] = known.includes(change.factId)
+          ? [...known]
+          : [...known, change.factId];
+        break;
+      }
+      case 'item_transferred': {
+        itemOwners[change.itemId] = change.toOwnerId;
+        break;
+      }
       default: {
         // Exhaustiveness guard — an unknown change type is a code/contract bug.
         const _exhaustive: never = change;
@@ -116,6 +144,10 @@ export function reduceWorldEvent(
     worldId: projection.worldId,
     lastSequenceNumber: event.sequenceNumber,
     characterLocations,
+    characterAlive,
+    lastCharacterMovement,
+    itemOwners,
+    characterKnowledge,
     relationships,
     facts,
   };
