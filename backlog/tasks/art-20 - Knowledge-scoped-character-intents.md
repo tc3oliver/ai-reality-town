@@ -1,11 +1,11 @@
 ---
 id: ART-20
 title: Knowledge-scoped character intents
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 20:48'
+updated_date: '2026-08-02 20:55'
 labels:
   - prd-1.0
   - epic-f
@@ -73,12 +73,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #3 FR-C003: Intent 不得直接修改世界。
 - [x] #4 FR-C003: 不合法 Intent 必須被拒絕或降級。
 - [x] #5 Automated tests provide evidence for every mapped FR-C003 acceptance criterion, including rejection and failure paths.
-- [ ] #6 PRD traceability links FR-C003 to doc-1 and the merged implementation evidence.
+- [x] #6 PRD traceability links FR-C003 to doc-1 and the merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -90,8 +90,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -104,10 +104,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented source-proven character cognition contexts, strict structured intents with no mutation/outcome fields, authorization against the target character's replayed Canon/seed knowledge, memories, current asset ownership, and location, plus safe unreachable-location downgrade. Persistence is internal, Director-linked, and idempotent. Focused Jest passed 10 tests; Convex codegen succeeded; npm run check passed architecture, typecheck, lint, 39 suites/343 tests, and build.
+
+PR #68 merged at 2026-08-02T20:49:50Z: https://github.com/tc3oliver/ai-reality-town/pull/68
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Implemented FR-C003 traceable, knowledge-scoped Character Intents with strict non-mutating output, Canon-backed context authorization, illegal-reference rejection, and deterministic safe downgrade. Verified with 10 focused tests and full npm run check (343 tests); merge evidence remains pending.
+Implemented FR-C003 traceable, knowledge-scoped Character Intents with strict non-mutating output, Canon-backed context authorization, illegal-reference rejection, and deterministic safe downgrade. Verified with 10 focused tests, full npm run check (343 tests), and merged PR #68.
 <!-- SECTION:FINAL_SUMMARY:END -->
