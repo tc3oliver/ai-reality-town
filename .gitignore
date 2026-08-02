@@ -27,6 +27,16 @@ yarn-error.log*
 
 # local env files
 .env*.local
+.env.local
+.env.*.local
+
+# secrets / credentials (AI Reality Town)
+*.key
+credentials*
+secrets*
+
+# local tooling state (oh-my-claudecode)
+.omc/
 
 # vercel
 .vercel

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: https://github.com/tc3oliver/ai-reality-town/security
+    about: Report security vulnerabilities privately via Security → Report a vulnerability. Do not open a public issue.

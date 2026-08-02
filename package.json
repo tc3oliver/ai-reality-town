@@ -1,16 +1,30 @@
 {
-  "name": "ai-town",
+  "name": "ai-reality-town",
   "version": "0.0.0",
   "private": true,
+  "description": "A persistent AI social simulation and interactive reality-show world built on AI Town.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tc3oliver/ai-reality-town.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tc3oliver/ai-reality-town/issues"
+  },
+  "homepage": "https://github.com/tc3oliver/ai-reality-town#readme",
   "scripts": {
     "dev": "npm-run-all --parallel dev:backend dev:frontend",
     "build": "tsc && vite build",
-    "lint": "eslint .",
+    "lint": "eslint convex/canon convex/simulation convex/shared convex/observability convex/story convex/recaps",
     "predev": "convex dev --run init --until-success",
     "dev:backend": "convex dev --tail-logs",
     "dev:frontend": "vite",
     "dashboard": "convex dashboard",
     "test": "NODE_OPTIONS=--experimental-vm-modules jest --verbose",
+    "typecheck": "tsc --noEmit",
+    "test:foundation": "NODE_OPTIONS=--experimental-vm-modules jest --testPathPattern='canon|simulation'",
+    "check:offline": "run-s typecheck lint test:foundation build",
+    "check": "run-s typecheck lint test build",
     "level-editor": "vite src/editor/",
     "le": "vite src/editor/"
   },
