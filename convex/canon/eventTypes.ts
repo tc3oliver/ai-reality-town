@@ -42,6 +42,7 @@ export const STATE_CHANGE_TYPES = [
   'character_life_changed',
   'character_knowledge_learned',
   'item_transferred',
+  'character_state_changed',
 ] as const;
 export type StateChangeType = (typeof STATE_CHANGE_TYPES)[number];
 
@@ -50,6 +51,12 @@ export const KNOWLEDGE_SOURCE_TYPES = [
 ] as const;
 export type KnowledgeSourceType = (typeof KNOWLEDGE_SOURCE_TYPES)[number];
 
+export const CHARACTER_STATE_FIELDS = [
+  'health', 'emotion', 'finance', 'occupation', 'organization_memberships',
+  'availability', 'active',
+] as const;
+export type CharacterStateField = (typeof CHARACTER_STATE_FIELDS)[number];
+
 const TIME_SLOT_SET = new Set<string>(TIME_SLOTS);
 const EVENT_TYPE_SET = new Set<string>(EVENT_TYPES);
 const PROPOSED_BY_TYPE_SET = new Set<string>(PROPOSED_BY_TYPES);
@@ -57,6 +64,7 @@ const FACT_VISIBILITY_SET = new Set<string>(FACT_VISIBILITIES);
 const FACT_SUBJECT_TYPE_SET = new Set<string>(FACT_SUBJECT_TYPES);
 const STATE_CHANGE_TYPE_SET = new Set<string>(STATE_CHANGE_TYPES);
 const KNOWLEDGE_SOURCE_TYPE_SET = new Set<string>(KNOWLEDGE_SOURCE_TYPES);
+const CHARACTER_STATE_FIELD_SET = new Set<string>(CHARACTER_STATE_FIELDS);
 
 export const isTimeSlot = (v: unknown): v is TimeSlot =>
   typeof v === 'string' && TIME_SLOT_SET.has(v);
@@ -72,3 +80,5 @@ export const isStateChangeType = (v: unknown): v is StateChangeType =>
   typeof v === 'string' && STATE_CHANGE_TYPE_SET.has(v);
 export const isKnowledgeSourceType = (v: unknown): v is KnowledgeSourceType =>
   typeof v === 'string' && KNOWLEDGE_SOURCE_TYPE_SET.has(v);
+export const isCharacterStateField = (v: unknown): v is CharacterStateField =>
+  typeof v === 'string' && CHARACTER_STATE_FIELD_SET.has(v);

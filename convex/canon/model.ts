@@ -8,6 +8,7 @@
 
 import type {
   EventType,
+  CharacterStateField,
   FactSubjectType,
   FactVisibility,
   KnowledgeSourceType,
@@ -19,6 +20,7 @@ import { CANON_SCHEMA_VERSION } from '../shared/constants';
 export { CANON_SCHEMA_VERSION, CANON_VALIDATION_VERSION, SUPPORTED_SCHEMA_VERSIONS } from '../shared/constants';
 export type {
   EventType,
+  CharacterStateField,
   FactSubjectType,
   FactVisibility,
   KnowledgeSourceType,
@@ -80,6 +82,14 @@ export type StateChange =
       fromOwnerId?: string;
       toOwnerId: string;
       reason: string;
+    }
+  | {
+      type: 'character_state_changed';
+      characterId: string;
+      field: CharacterStateField;
+      fromValue?: string | boolean | string[];
+      toValue: string | boolean | string[];
+      reason: string;
     };
 
 /** A proposal submitted by a simulation provider (LLM, director, system, admin). */
@@ -123,6 +133,7 @@ export type CanonRuleContext = {
   characterIds?: string[];
   locationIds?: string[];
   itemIds?: string[];
+  organizationIds?: string[];
   locationConnections?: Record<string, string[]>;
   initialCharacterAlive?: Record<string, boolean>;
   initialItemOwners?: Record<string, string>;
@@ -160,6 +171,19 @@ export type ProjectedFact = {
   sourceEventId: string;
 };
 
+export type CharacterCurrentState = {
+  currentLocationId?: string;
+  health?: string;
+  emotion?: string;
+  finance?: string;
+  occupation?: string;
+  organizationMemberships?: string[];
+  availability?: string;
+  alive?: boolean;
+  active?: boolean;
+  lastUpdatedEventId: string;
+};
+
 /**
  * Foundation world projection — derived *only* from ordered accepted events. This is a
  * foundation read model, not a complete world state.
@@ -170,6 +194,7 @@ export type WorldProjection = {
   lastSequenceNumber: number;
   characterLocations: Record<string, string>;
   characterAlive: Record<string, boolean>;
+  characterStates: Record<string, CharacterCurrentState>;
   lastCharacterMovement: Record<string, { worldDay: number; timeSlot: TimeSlot; eventId: string }>;
   itemOwners: Record<string, string>;
   characterKnowledge: Record<string, string[]>;
@@ -184,6 +209,7 @@ export function emptyProjection(worldId: string): WorldProjection {
     lastSequenceNumber: -1,
     characterLocations: {},
     characterAlive: {},
+    characterStates: {},
     lastCharacterMovement: {},
     itemOwners: {},
     characterKnowledge: {},

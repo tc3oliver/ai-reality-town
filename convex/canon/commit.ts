@@ -146,13 +146,14 @@ export function createConvexCanonStore(
       return rows.map(rowToAcceptedEvent);
     },
     async loadCanonRuleContext(worldId) {
-      const [rules, characters, locations, items] = await Promise.all([
+      const [rules, characters, locations, items, organizations] = await Promise.all([
         db.query('worldImmutableRules').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).collect(),
         db.query('worldCharacters').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).collect(),
         db.query('worldLocations').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).collect(),
         db.query('worldAssets').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).collect(),
+        db.query('worldOrganizations').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).collect(),
       ]);
-      if (rules.length === 0 && characters.length === 0 && locations.length === 0 && items.length === 0) return null;
+      if (rules.length === 0 && characters.length === 0 && locations.length === 0 && items.length === 0 && organizations.length === 0) return null;
       const activeLocations = locations.filter((row) => (row.payload as { active?: unknown }).active === true);
       return {
         worldId,
@@ -160,6 +161,7 @@ export function createConvexCanonStore(
         characterIds: characters.map((row) => row.characterId),
         locationIds: activeLocations.map((row) => row.locationId),
         itemIds: items.map((row) => row.assetId),
+        organizationIds: organizations.map((row) => row.organizationId),
         initialCharacterAlive: Object.fromEntries(characters.map((row) => [row.characterId, true])),
         initialItemOwners: Object.fromEntries(items.map((row) => [row.assetId, row.ownerCharacterId])),
         locationConnections: Object.fromEntries(activeLocations.map((row) => {
