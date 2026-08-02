@@ -54,6 +54,52 @@ export const canonTables = {
     .index('by_world_id', ['worldId'])
     .index('by_world_and_history', ['worldId', 'historyId']),
 
+  worldCharacters: defineTable({
+    worldId: v.string(),
+    characterId: v.string(),
+    payload: v.any(),
+  })
+    .index('by_world_id', ['worldId'])
+    .index('by_world_and_character', ['worldId', 'characterId']),
+
+  worldSecrets: defineTable({
+    worldId: v.string(),
+    secretId: v.string(),
+    payload: v.any(),
+  })
+    .index('by_world_id', ['worldId'])
+    .index('by_world_and_secret', ['worldId', 'secretId']),
+
+  worldCharacterKnowledge: defineTable({
+    worldId: v.string(),
+    knowledgeId: v.string(),
+    characterId: v.string(),
+    payload: v.any(),
+  })
+    .index('by_world_id', ['worldId'])
+    .index('by_world_and_character', ['worldId', 'characterId'])
+    .index('by_world_and_knowledge', ['worldId', 'knowledgeId']),
+
+  worldAssets: defineTable({
+    worldId: v.string(),
+    assetId: v.string(),
+    ownerCharacterId: v.string(),
+    payload: v.any(),
+  })
+    .index('by_world_id', ['worldId'])
+    .index('by_world_and_owner', ['worldId', 'ownerCharacterId'])
+    .index('by_world_and_asset', ['worldId', 'assetId']),
+
+  worldSeedRelationships: defineTable({
+    worldId: v.string(),
+    sourceCharacterId: v.string(),
+    targetCharacterId: v.string(),
+    payload: v.any(),
+  })
+    .index('by_world_id', ['worldId'])
+    .index('by_world_and_source', ['worldId', 'sourceCharacterId'])
+    .index('by_world_and_pair', ['worldId', 'sourceCharacterId', 'targetCharacterId']),
+
   canonEvents: defineTable({
     worldId: v.string(),
     sequenceNumber: v.number(),

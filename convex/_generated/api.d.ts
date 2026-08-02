@@ -29,6 +29,7 @@ import type * as aiTown_player from "../aiTown/player.js";
 import type * as aiTown_playerDescription from "../aiTown/playerDescription.js";
 import type * as aiTown_world from "../aiTown/world.js";
 import type * as aiTown_worldMap from "../aiTown/worldMap.js";
+import type * as canon_characterSeed from "../canon/characterSeed.js";
 import type * as canon_commit from "../canon/commit.js";
 import type * as canon_eventTypes from "../canon/eventTypes.js";
 import type * as canon_inMemoryStore from "../canon/inMemoryStore.js";
@@ -105,6 +106,7 @@ declare const fullApi: ApiFromModules<{
   "aiTown/playerDescription": typeof aiTown_playerDescription;
   "aiTown/world": typeof aiTown_world;
   "aiTown/worldMap": typeof aiTown_worldMap;
+  "canon/characterSeed": typeof canon_characterSeed;
   "canon/commit": typeof canon_commit;
   "canon/eventTypes": typeof canon_eventTypes;
   "canon/inMemoryStore": typeof canon_inMemoryStore;
