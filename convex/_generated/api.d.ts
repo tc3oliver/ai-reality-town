@@ -64,6 +64,8 @@ import type * as observability_model from "../observability/model.js";
 import type * as observability_trace from "../observability/trace.js";
 import type * as observability_traces from "../observability/traces.js";
 import type * as recaps_model from "../recaps/model.js";
+import type * as safety_postGeneration from "../safety/postGeneration.js";
+import type * as safety_postGenerationFunctions from "../safety/postGenerationFunctions.js";
 import type * as safety_preGeneration from "../safety/preGeneration.js";
 import type * as shared_constants from "../shared/constants.js";
 import type * as shared_errors from "../shared/errors.js";
@@ -165,6 +167,8 @@ declare const fullApi: ApiFromModules<{
   "observability/trace": typeof observability_trace;
   "observability/traces": typeof observability_traces;
   "recaps/model": typeof recaps_model;
+  "safety/postGeneration": typeof safety_postGeneration;
+  "safety/postGenerationFunctions": typeof safety_postGenerationFunctions;
   "safety/preGeneration": typeof safety_preGeneration;
   "shared/constants": typeof shared_constants;
   "shared/errors": typeof shared_errors;

@@ -8,6 +8,7 @@ import { canonTables } from './canon/schema';
 import { simulationTables } from './simulation/schema';
 import { observabilityTables } from './observability/schema';
 import { storyTables } from './story/schema';
+import { safetyTables } from './safety/schema';
 
 export default defineSchema({
   music: defineTable({
@@ -34,4 +35,5 @@ export default defineSchema({
   ...simulationTables,
   ...observabilityTables,
   ...storyTables,
+  ...safetyTables,
 });
