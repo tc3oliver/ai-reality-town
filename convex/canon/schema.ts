@@ -4,10 +4,12 @@
  * Added to the schema via the existing upstream aggregation pattern:
  *   defineSchema({ ...canonTables, ...simulationTables, ...aiTownTables, ... })
  *
- * Three tables:
+ * Canon storage tables include:
  *  - canonEvents: the append-only, immutable accepted-event log (source of truth).
  *  - canonIdempotencyKeys: dedup guard so a repeated proposal never creates a second event.
- *  - canonSnapshots: persisted projections to accelerate replay (foundation only).
+ *  - canonSnapshots: versioned daily/manual projections that accelerate replay.
+ *  - canonRecoveryHeads / canonRecoveryAudit: reversible operational rollback pointer
+ *    plus immutable operator audit; neither changes accepted history.
  */
 
 import { defineTable } from 'convex/server';
@@ -147,9 +149,34 @@ export const canonTables = {
   }).index('by_world_and_key', ['worldId', 'idempotencyKey']),
 
   canonSnapshots: defineTable({
+    snapshotVersion: v.optional(v.number()),
     worldId: v.string(),
+    worldDay: v.optional(v.number()),
     lastSequenceNumber: v.number(),
     projection: v.any(),
+    projectionHash: v.optional(v.string()),
+    kind: v.optional(v.union(v.literal('initial'), v.literal('daily'), v.literal('manual'))),
     createdAt: v.number(),
-  }).index('by_world_and_sequence', ['worldId', 'lastSequenceNumber']),
+  })
+    .index('by_world_and_sequence', ['worldId', 'lastSequenceNumber'])
+    .index('by_world_day_and_kind', ['worldId', 'worldDay', 'kind']),
+
+  canonRecoveryHeads: defineTable({
+    worldId: v.string(),
+    targetSnapshotId: v.id('canonSnapshots'),
+    targetSequenceNumber: v.number(),
+    activatedAt: v.number(),
+    operatorId: v.string(),
+    reason: v.string(),
+  }).index('by_world_id', ['worldId']),
+
+  canonRecoveryAudit: defineTable({
+    worldId: v.string(),
+    action: v.union(v.literal('activated'), v.literal('cleared')),
+    targetSnapshotId: v.optional(v.id('canonSnapshots')),
+    targetSequenceNumber: v.optional(v.number()),
+    operatorId: v.string(),
+    reason: v.string(),
+    createdAt: v.number(),
+  }).index('by_world_and_time', ['worldId', 'createdAt']),
 };

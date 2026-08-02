@@ -40,6 +40,8 @@ import type * as canon_queries from "../canon/queries.js";
 import type * as canon_reducer from "../canon/reducer.js";
 import type * as canon_replay from "../canon/replay.js";
 import type * as canon_serialize from "../canon/serialize.js";
+import type * as canon_snapshotManager from "../canon/snapshotManager.js";
+import type * as canon_snapshotOperations from "../canon/snapshotOperations.js";
 import type * as canon_snapshots from "../canon/snapshots.js";
 import type * as canon_tensionReadiness from "../canon/tensionReadiness.js";
 import type * as canon_validators from "../canon/validators.js";
@@ -122,6 +124,8 @@ declare const fullApi: ApiFromModules<{
   "canon/reducer": typeof canon_reducer;
   "canon/replay": typeof canon_replay;
   "canon/serialize": typeof canon_serialize;
+  "canon/snapshotManager": typeof canon_snapshotManager;
+  "canon/snapshotOperations": typeof canon_snapshotOperations;
   "canon/snapshots": typeof canon_snapshots;
   "canon/tensionReadiness": typeof canon_tensionReadiness;
   "canon/validators": typeof canon_validators;
