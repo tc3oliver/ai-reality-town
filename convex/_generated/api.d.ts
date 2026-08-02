@@ -55,6 +55,7 @@ import type * as init from "../init.js";
 import type * as knowledge_authorization from "../knowledge/authorization.js";
 import type * as knowledge_memoryAuthorization from "../knowledge/memoryAuthorization.js";
 import type * as knowledge_memoryQueries from "../knowledge/memoryQueries.js";
+import type * as knowledge_memoryRetrieval from "../knowledge/memoryRetrieval.js";
 import type * as knowledge_queries from "../knowledge/queries.js";
 import type * as messages from "../messages.js";
 import type * as music from "../music.js";
@@ -149,6 +150,7 @@ declare const fullApi: ApiFromModules<{
   "knowledge/authorization": typeof knowledge_authorization;
   "knowledge/memoryAuthorization": typeof knowledge_memoryAuthorization;
   "knowledge/memoryQueries": typeof knowledge_memoryQueries;
+  "knowledge/memoryRetrieval": typeof knowledge_memoryRetrieval;
   "knowledge/queries": typeof knowledge_queries;
   messages: typeof messages;
   music: typeof music;

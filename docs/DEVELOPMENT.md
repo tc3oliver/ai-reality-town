@@ -100,6 +100,7 @@ in [`docs/testing/fixtures.md`](testing/fixtures.md).
 - **Event-derived character state:** `docs/character-state-projection.md`.
 - **Source-proven character knowledge:** `docs/character-knowledge-ledger.md`.
 - **Subjective character memory:** `docs/subjective-character-memory.md`.
+- **Authorized memory retrieval:** `docs/authorized-memory-retrieval.md`.
 - **Directional relationship projection:** `docs/relationship-projection.md`.
 - **Story Arc lifecycle:** `docs/story-arc-lifecycle.md`.
 - **Story Arc projection contract:** `docs/story-arc-projection.md`.
