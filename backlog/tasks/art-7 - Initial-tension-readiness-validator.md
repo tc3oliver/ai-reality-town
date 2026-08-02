@@ -85,7 +85,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -102,6 +102,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented versioned initial tension profiles and deterministic reports for all seven FR-A003 thresholds: 3 interest conflicts, 3 seeded private secrets, 2 resource/debt dependencies, 2 false-knowledge misconceptions, 2 emotional tensions, 1 history-backed town-wide misunderstanding believed by every primary character, and 1 launchable main arc candidate. Reports persist exact required/actual/missingBy/evidence IDs and messages even on failure. Added internal-only evaluation/admin query and mandatory requireWarmupReadiness guard with stable WORLD_NOT_READY_FOR_WARMUP errors. Convex codegen succeeded against the configured development deployment only. Focused validation: 1 suite/16 tests. Full npm run check: architecture gates, typecheck, lint, 16 suites/154 tests, build.
+
+Implementation and validation evidence committed and pushed to origin/feat/ART-7-tension-readiness.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
