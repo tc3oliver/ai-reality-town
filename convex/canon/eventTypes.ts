@@ -17,6 +17,9 @@ export const EVENT_TYPES = [
   'discovery',
   'rumor',
   'world_event',
+  'correction',
+  'compensation',
+  'retcon',
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 

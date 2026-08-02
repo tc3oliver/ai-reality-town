@@ -46,20 +46,16 @@ export type CommitArgs = {
  * `ctx.db` to this interface; tests supply an in-memory implementation.
  */
 export interface CanonCommitStore {
+  /** Serialize the complete read-validate-append transaction for one world. */
+  runExclusive<T>(worldId: string, operation: () => Promise<T>): Promise<T>;
   findExistingCommit(
     worldId: string,
     idempotencyKey: string,
   ): Promise<{ eventId: string; sequenceNumber: number } | null>;
   loadAcceptedEvents(worldId: string): Promise<AcceptedEvent[]>;
   loadCanonRuleContext(worldId: string): Promise<CanonRuleContext | null>;
-  appendAcceptedEvent(accepted: AcceptedEvent, traceId: string): Promise<void>;
-  appendIdempotencyKey(
-    worldId: string,
-    idempotencyKey: string,
-    eventId: string,
-    sequenceNumber: number,
-    createdAt: number,
-  ): Promise<void>;
+  /** Atomically append the accepted event and its idempotency record. */
+  appendCommit(accepted: AcceptedEvent): Promise<void>;
 }
 
 /** Commit a proposed event. Throws {@link CanonError} on validation failure. */
@@ -73,49 +69,45 @@ export async function commitProposedEvent(
   const structErr = validateEventStructure(proposed);
   if (structErr) throw new CanonError(structErr);
 
-  // 2. Idempotency — a repeated proposal returns the existing event, never a second one.
-  const existing = await store.findExistingCommit(proposed.worldId, proposed.idempotencyKey);
-  if (existing) {
-    return {
-      eventId: existing.eventId,
-      sequenceNumber: existing.sequenceNumber,
-      deduplicated: true,
-    };
-  }
+  return store.runExclusive(proposed.worldId, async () => {
+    // 2. Idempotency — a repeated proposal returns the existing event, never a second one.
+    const existing = await store.findExistingCommit(proposed.worldId, proposed.idempotencyKey);
+    if (existing) {
+      return {
+        eventId: existing.eventId,
+        sequenceNumber: existing.sequenceNumber,
+        deduplicated: true,
+      };
+    }
 
   // 3. Load current projection by replaying all accepted events for this world.
-  const events = await store.loadAcceptedEvents(proposed.worldId);
-  const projection = replayWorldEvents(emptyProjection(proposed.worldId), events);
-  const ruleContext = await store.loadCanonRuleContext(proposed.worldId);
+    const events = await store.loadAcceptedEvents(proposed.worldId);
+    const projection = replayWorldEvents(emptyProjection(proposed.worldId), events);
+    const ruleContext = await store.loadCanonRuleContext(proposed.worldId);
 
   // 4. Canon validation against the current projection.
-  const canonErr = validateCanon(proposed, projection, ruleContext);
-  if (canonErr) throw new CanonError(canonErr);
+    const canonErr = validateCanon(proposed, projection, ruleContext);
+    if (canonErr) throw new CanonError(canonErr);
 
   // 5. Allocate the next sequence number (deterministic within this transaction).
-  const sequenceNumber = projection.lastSequenceNumber + 1;
-  const eventId = deriveEventId(proposed.worldId, sequenceNumber);
-  const acceptedAt = Date.now();
+    const sequenceNumber = projection.lastSequenceNumber + 1;
+    const eventId = deriveEventId(proposed.worldId, sequenceNumber);
+    const acceptedAt = Date.now();
 
-  const accepted: AcceptedEvent = {
-    ...proposed,
-    eventId,
-    acceptedAt,
-    sequenceNumber,
-    validationVersion: CANON_VALIDATION_VERSION,
-  };
+    const accepted: AcceptedEvent = {
+      ...proposed,
+      eventId,
+      acceptedAt,
+      sequenceNumber,
+      validationVersion: CANON_VALIDATION_VERSION,
+      traceId,
+    };
 
-  // 6. Append the immutable accepted event, then the idempotency record.
-  await store.appendAcceptedEvent(accepted, traceId);
-  await store.appendIdempotencyKey(
-    proposed.worldId,
-    proposed.idempotencyKey,
-    eventId,
-    sequenceNumber,
-    acceptedAt,
-  );
+    // 6. Append event + idempotency record as one repository operation.
+    await store.appendCommit(accepted);
 
-  return { eventId, sequenceNumber, deduplicated: false };
+    return { eventId, sequenceNumber, deduplicated: false };
+  });
 }
 
 // --- Convex wiring ---------------------------------------------------------
@@ -132,6 +124,7 @@ export function createConvexCanonStore(
   db: GenericMutationCtx<DataModel>['db'],
 ): CanonCommitStore {
   return {
+    runExclusive: (_worldId, operation) => operation(),
     async findExistingCommit(worldId, idempotencyKey) {
       const row = await db
         .query('canonIdempotencyKeys')
@@ -157,7 +150,7 @@ export function createConvexCanonStore(
         ? null
         : { worldId, rules: rows.map((row) => row.payload as CanonImmutableRule) };
     },
-    async appendAcceptedEvent(accepted, traceId) {
+    async appendCommit(accepted) {
       // Split the envelope off the accepted event: the proposed event is stored as
       // `payload`, the envelope as top-level columns.
       const {
@@ -165,6 +158,7 @@ export function createConvexCanonStore(
         acceptedAt: _acceptedAt,
         sequenceNumber: _sequenceNumber,
         validationVersion: _validationVersion,
+        traceId: _traceId,
         ...proposed
       } = accepted;
       await db.insert('canonEvents', {
@@ -181,17 +175,15 @@ export function createConvexCanonStore(
         payload: proposed,
         validationVersion: accepted.validationVersion,
         idempotencyKey: accepted.idempotencyKey,
-        traceId,
+        traceId: accepted.traceId,
         acceptedAt: accepted.acceptedAt,
       });
-    },
-    async appendIdempotencyKey(worldId, idempotencyKey, eventId, sequenceNumber, createdAt) {
       await db.insert('canonIdempotencyKeys', {
-        worldId,
-        idempotencyKey,
-        eventId,
-        sequenceNumber,
-        createdAt,
+        worldId: accepted.worldId,
+        idempotencyKey: accepted.idempotencyKey,
+        eventId: accepted.eventId,
+        sequenceNumber: accepted.sequenceNumber,
+        createdAt: accepted.acceptedAt,
       });
     },
   };
