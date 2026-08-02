@@ -5,7 +5,7 @@ status: In Review
 assignee:
   - '@codex'
 created_date: '2026-08-02 16:19'
-updated_date: '2026-08-02 21:16'
+updated_date: '2026-08-02 21:17'
 labels:
   - prd-1.0
   - epic-b
@@ -93,7 +93,7 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -109,6 +109,8 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 Authored Mistwood seed v1 with 8 connected locations, 3 organizations, 3 historical events, 12 complete fictional residents, 12 secrets, source-proven true/false knowledge, 12 assets, directional relationships involving every resident, and a launchable Station Ledger Arc. Added a fail-closed public registry containing only Mistwood; fixture, test, warmup, and unknown routes resolve to null.
 
 Objective evidence: npm test -- --runTestsByPath convex/canon/mistwoodSeed.test.ts passed 5 tests using the real world/character parsers, atomic adapters, readiness evaluator, safety policy, and public resolver. npm run check passed architecture policy, 6 architecture tests, typecheck, lint, 43 suites/369 tests, and Vite build. git diff --check passed; no credentials or deployment changes.
+
+After rebasing onto merged ART-33/ART-21 evidence, npm run check passed again with 44 suites/375 tests. Implementation commit 5157917 was pushed to origin.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
