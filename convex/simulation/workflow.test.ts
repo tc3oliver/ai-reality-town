@@ -9,6 +9,7 @@ import type { ProposedEvent } from '../canon/model';
 
 function baseInput(over: Partial<SimulationInput>): SimulationInput {
   return {
+    seed: 20260803,
     worldId: 'w1',
     worldDay: 1,
     timeSlot: 'morning',

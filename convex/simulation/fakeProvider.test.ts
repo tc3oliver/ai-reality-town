@@ -1,9 +1,11 @@
+import { jest } from '@jest/globals';
 import { FakeSimulationProvider } from './fakeProvider';
 import { SimulationProviderError, isTransientProviderError } from './provider';
 import type { SimulationInput } from './model';
 
 function baseInput(over: Partial<SimulationInput>): SimulationInput {
   return {
+    seed: 20260803,
     worldId: 'w1',
     worldDay: 1,
     timeSlot: 'morning',
@@ -28,6 +30,36 @@ describe('FakeSimulationProvider', () => {
     expect(a).toEqual(b);
     expect(a.stateChanges).toHaveLength(1);
     expect(a.eventType).toBe('movement');
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+  });
+
+  it('uses the fixed seed deterministically without clock, randomness, network, or credentials', async () => {
+    const provider = new FakeSimulationProvider();
+    const now = jest.spyOn(Date, 'now').mockImplementation(() => { throw new Error('clock accessed'); });
+    const random = jest.spyOn(Math, 'random').mockImplementation(() => { throw new Error('randomness accessed'); });
+    const fetch = jest.spyOn(globalThis, 'fetch').mockImplementation(() => { throw new Error('network accessed'); });
+    const previousKey = process.env.LLM_API_KEY;
+    delete process.env.LLM_API_KEY;
+    try {
+      const a = await provider.proposeEvent(baseInput({ seed: 7 }));
+      const b = await provider.proposeEvent(baseInput({ seed: 7 }));
+      const other = await provider.proposeEvent(baseInput({ seed: 8 }));
+      expect(a).toEqual(b);
+      expect(a.publicSummary).not.toBe(other.publicSummary);
+    } finally {
+      if (previousKey === undefined) delete process.env.LLM_API_KEY;
+      else process.env.LLM_API_KEY = previousKey;
+      now.mockRestore();
+      random.mockRestore();
+      fetch.mockRestore();
+    }
+  });
+
+  it('rejects a non-integer seed with a stable permanent error', async () => {
+    await expect(new FakeSimulationProvider().proposeEvent(baseInput({ seed: 1.5 }))).rejects.toMatchObject({
+      code: 'FAKE_INVALID_SEED',
+      kind: 'permanent',
+    });
   });
 
   it('throws a transient failure for the transient_failure scenario', async () => {
