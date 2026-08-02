@@ -1,11 +1,11 @@
 ---
 id: ART-3
 title: Project architecture and module boundaries
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:30'
-updated_date: '2026-08-02 17:44'
+updated_date: '2026-08-02 17:45'
 labels:
   - prd-1.0
   - epic-a
@@ -84,7 +84,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -102,6 +102,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 Implemented policy v1 in architecture/module-boundaries.json with executable import scanning and provider-adapter isolation. Added module ownership and PRD-area routing documentation. Validation: npm run check:architecture (pass, 11 modules); npm run test:architecture (pass, 6 tests including reverse-dependency and provider-leak failures); npm run check (pass: typecheck, lint, 12 Jest suites/102 tests, production build). No external credentials were used.
 
 Committed as the ART-3 implementation commit and pushed to origin/feat/ART-3-module-boundaries.
+
+PR #9 merged to main after both required GitHub checks passed.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
