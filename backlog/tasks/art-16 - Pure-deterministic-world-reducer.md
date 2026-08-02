@@ -1,17 +1,19 @@
 ---
 id: ART-16
 title: Pure deterministic world reducer
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 18:52'
+updated_date: '2026-08-02 18:54'
 labels:
   - prd-1.0
   - epic-e
 milestone: m-0
 dependencies:
   - ART-12
+references:
+  - 'https://github.com/tc3oliver/ai-reality-town/pull/30'
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
 priority: high
@@ -72,7 +74,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -85,7 +87,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -100,10 +102,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 Added an executable reducer import/capability allowlist plus repeated isolated-copy determinism checks over all six state-change variants for every declared supported schema version. Existing reducer/replay tests prove sequence ordering, gaps, duplicates, world mismatch, and mutation isolation. Focused command passed 3 suites/24 tests; full npm run check passed architecture, typecheck, lint, 21 suites/243 tests, and build. ACs are proven; DoD1/13/14 remain commit/merge dependent.
 
 Implementation committed and pushed on feat/ART-16-deterministic-reducer.
+
+Implementation PR #30 merged into main on 2026-08-02T18:53:35Z after all required checks passed.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Hardened FR-D005/NFR-003 with CI-enforced purity and supported-version property tests. The reducer cannot silently gain database/API/clock/random dependencies, every state-change variant produces identical projections from identical inputs, and invalid versions/sequences fail explicitly. Full npm run check passed with 243 tests; commit and merge evidence remain pending.
+Delivered FR-D005/NFR-003 via merged PR #30. CI now prevents reducer database/API/clock/random dependencies, property-tests every supported schema and state-change variant, and explicitly verifies version/sequence corruption failures. Full pre-merge check passed 243 tests.
 <!-- SECTION:FINAL_SUMMARY:END -->
