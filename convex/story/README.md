@@ -19,6 +19,8 @@ append-only canon event log.
 
 - ART-64 provides the versioned Story Arc lifecycle, append-only transition history,
   accepted-event provenance, and active-context selection.
-- The broader Story Arc data contract and event classification remain separate tasks.
+- ART-65 provides the complete event-replayable Story Arc projection data contract.
+- Event classification remains a separate task.
 
-See `docs/story-arc-lifecycle.md`, `docs/architecture/target-state.md`, and ADR-0001.
+See `docs/story-arc-lifecycle.md`, `docs/story-arc-projection.md`,
+`docs/architecture/target-state.md`, and ADR-0001.

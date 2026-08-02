@@ -1,10 +1,11 @@
 ---
 id: ART-65
 title: Story arc projection data contract
-status: To Do
-assignee: []
+status: In Review
+assignee:
+  - '@codex'
 created_date: '2026-08-02 15:43'
-updated_date: '2026-08-02 16:24'
+updated_date: '2026-08-02 19:53'
 labels:
   - prd-1.0
   - epic-h
@@ -64,25 +65,45 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 FR-F003: Arc stores Title, Premise, Current Question, Status, Core Characters, Inciting Event, Latest Turning Point, Essential Facts, Unresolved Questions, Resolved Questions, Recommended Entry Point, Heat Score, and Last Progress Time.
-- [ ] #2 Every required field is runtime validated and replayable from accepted events.
+- [x] #1 FR-F003: Arc stores Title, Premise, Current Question, Status, Core Characters, Inciting Event, Latest Turning Point, Essential Facts, Unresolved Questions, Resolved Questions, Recommended Entry Point, Heat Score, and Last Progress Time.
+- [x] #2 Every required field is runtime validated and replayable from accepted events.
 - [ ] #3 Traceability links FR-F003 to doc-1 and implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
 - [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Define and runtime-validate a versioned Story Arc projection containing every FR-F003 field, with deterministic world-time progress provenance and nullable not-yet-established turning/entry links. 2. Represent arc initialization and updates as append-only Story projection events linked to accepted Canon events; implement a pure reducer that replays them and composes status from ART-64 lifecycle history. 3. Add Story-owned Convex event storage and internal create/update/replay queries with optimistic revision and accepted-event/reference validation; never expose unpublished arc facts publicly. 4. Test every required field, malformed/duplicate/conflicting arrays, invalid bounds/references, revision conflicts, deterministic replay, lifecycle status composition, and internal boundaries; update docs/codegen and run full gates.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented the complete versioned FR-F003 arc projection with all required fields, runtime validation, nullable not-yet-established turning/entry links, accepted-event progress provenance, append-only full-field projection events, deterministic pure replay, lifecycle status composition, optimistic revisions, and internal-only storage/query boundaries. Character/event references are checked against the world; arrays reject duplicates and resolved/unresolved overlap; heat is bounded 0–100. Convex codegen succeeded. Focused verification passed 19 tests; final npm run check passed architecture, typecheck, lint, 28 suites/285 tests, and build.
+
+Implementation commit a3ba216 pushed on feat/ART-65-arc-data-contract.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented FR-F003 complete Story Arc data contract, runtime validation, accepted-event append-only updates, deterministic replay, lifecycle status composition, reference validation, concurrency control, and internal privacy boundary. Full verification passed 285 tests; merge evidence remains pending.
+<!-- SECTION:FINAL_SUMMARY:END -->
