@@ -33,4 +33,19 @@ export const storyTables = {
   })
     .index('by_world_arc_and_revision', ['worldId', 'arcId', 'revision'])
     .index('by_source_event', ['worldId', 'sourceEventSequenceNumber']),
+
+  storyArcProjectionEvents: defineTable({
+    schemaVersion: v.literal(1),
+    worldId: v.string(),
+    arcId: v.string(),
+    revision: v.number(),
+    kind: v.union(v.literal('initialized'), v.literal('updated')),
+    fields: v.any(),
+    sourceEventId: v.string(),
+    sourceEventSequenceNumber: v.number(),
+    worldDay: v.number(),
+    timeSlot: v.string(),
+  })
+    .index('by_world_arc_and_revision', ['worldId', 'arcId', 'revision'])
+    .index('by_world_and_source_event', ['worldId', 'sourceEventSequenceNumber']),
 };

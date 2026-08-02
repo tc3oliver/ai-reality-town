@@ -26,6 +26,51 @@ export type StoryArc = {
   status: StoryArcStatus;
 };
 
+export type ArcProgressTime = {
+  worldDay: number;
+  timeSlot: 'morning' | 'noon' | 'afternoon' | 'evening' | 'night';
+  sourceEventId: string;
+};
+
+/** Complete FR-F003 Story read model. Null means the milestone is not established yet. */
+export type StoryArcProjectionData = {
+  schemaVersion: 1;
+  worldId: string;
+  arcId: string;
+  title: string;
+  premise: string;
+  currentQuestion: string;
+  status: StoryArcStatus;
+  coreCharacterIds: string[];
+  incitingEventId: string;
+  latestTurningPointEventId: string | null;
+  essentialFactIds: string[];
+  unresolvedQuestions: string[];
+  resolvedQuestions: string[];
+  recommendedEntryEventId: string | null;
+  heatScore: number;
+  lastProgressTime: ArcProgressTime;
+  revision: number;
+};
+
+export type ArcProjectionFields = Omit<
+  StoryArcProjectionData,
+  'schemaVersion' | 'worldId' | 'arcId' | 'status' | 'lastProgressTime' | 'revision'
+>;
+
+export type ArcProjectionEvent = {
+  schemaVersion: 1;
+  worldId: string;
+  arcId: string;
+  revision: number;
+  kind: 'initialized' | 'updated';
+  fields: ArcProjectionFields;
+  sourceEventId: string;
+  sourceEventSequenceNumber: number;
+  worldDay: number;
+  timeSlot: ArcProgressTime['timeSlot'];
+};
+
 export const STORY_ARC_STATUSES = [
   'emerging', 'active', 'escalating', 'climax', 'resolving', 'resolved', 'archived',
 ] as const;
