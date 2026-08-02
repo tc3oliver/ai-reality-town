@@ -94,4 +94,13 @@ export const simulationTables = {
   })
     .index('by_world_and_run', ['worldId', 'groupingRunId'])
     .index('by_director_run', ['worldId', 'directorRunId']),
+
+  sceneSimulationRuns: defineTable({
+    schemaVersion: v.literal(1), worldId: v.string(), simulationRunId: v.string(), groupingRunId: v.string(),
+    sceneId: v.string(), status: v.union(v.literal('validated'), v.literal('review_required')),
+    result: v.any(), createdAt: v.number(),
+  })
+    .index('by_world_and_run', ['worldId', 'simulationRunId'])
+    .index('by_grouping_run', ['worldId', 'groupingRunId'])
+    .index('by_scene', ['worldId', 'sceneId']),
 };
