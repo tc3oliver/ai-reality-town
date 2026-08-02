@@ -6,7 +6,6 @@
  * through the commit pipeline.
  */
 
-import type { ProposedEvent } from '../canon/model';
 import type { SimulationInput, SimulationProviderName } from './model';
 
 /** A provider error, tagged transient vs permanent so callers can decide to retry. */
@@ -29,5 +28,6 @@ export const isTransientProviderError = (e: unknown): boolean =>
  *  both implement this. */
 export interface SimulationProvider {
   readonly name: SimulationProviderName;
-  proposeEvent(input: SimulationInput): Promise<ProposedEvent>;
+  /** Provider wire output is untrusted until the shared proposal normalizer accepts it. */
+  proposeEvent(input: SimulationInput): Promise<unknown>;
 }

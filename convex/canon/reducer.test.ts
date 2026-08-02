@@ -95,7 +95,8 @@ describe('reduceWorldEvent', () => {
 
   it('fails on an unsupported schema version', () => {
     const start: WorldProjection = { ...emptyProjection('w'), characterLocations: { a: 'loc-1' } };
-    const event = accepted({ sequenceNumber: 0, schemaVersion: 7 });
+    const event = accepted({ sequenceNumber: 0 });
+    (event as unknown as { schemaVersion: number }).schemaVersion = 7;
     expect(() => reduceWorldEvent(start, event)).toThrow(CanonError);
     try {
       reduceWorldEvent(start, event);

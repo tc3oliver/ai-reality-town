@@ -34,7 +34,7 @@ class FlakyThenSuccessProvider implements SimulationProvider {
     this.remainingFailures = failTimes;
     this.inner = inner;
   }
-  async proposeEvent(input: SimulationInput): Promise<ProposedEvent> {
+  async proposeEvent(input: SimulationInput): Promise<unknown> {
     if (this.remainingFailures > 0) {
       this.remainingFailures -= 1;
       throw new SimulationProviderError('transient', 'FAKE_TRANSIENT_ONCE', 'transient then succeed');
@@ -44,6 +44,34 @@ class FlakyThenSuccessProvider implements SimulationProvider {
 }
 
 describe('executeFoundationRun', () => {
+  it('normalizes unknown structured provider output before commit', async () => {
+    const input = baseInput({});
+    const raw = await new FakeSimulationProvider().proposeEvent(input);
+    const wireOutput = JSON.parse(JSON.stringify(raw)) as unknown;
+    let committed: ProposedEvent | null = null;
+    const outcome = await executeFoundationRun(input, {
+      propose: () => Promise.resolve(wireOutput),
+      commit: (proposed) => {
+        committed = proposed;
+        return Promise.resolve({ eventId: 'event-1', sequenceNumber: 0, deduplicated: false });
+      },
+    });
+    expect(outcome.status).toBe('completed');
+    expect(committed).toEqual(raw);
+    expect(committed).not.toBe(wireOutput);
+  });
+
+  it('does not call commit when provider output fails normalization', async () => {
+    const raw = await new FakeSimulationProvider().proposeEvent(baseInput({}));
+    let commitCalls = 0;
+    const outcome = await executeFoundationRun(baseInput({}), {
+      propose: () => Promise.resolve({ ...raw, vendorPayload: true }),
+      commit: () => { commitCalls += 1; return Promise.resolve({ eventId: 'never', sequenceNumber: 0, deduplicated: false }); },
+    });
+    expect(outcome).toMatchObject({ status: 'failed', errorCode: 'INVALID_EVENT_SHAPE' });
+    expect(commitCalls).toBe(0);
+  });
+
   it('moves a successful run to completed and references the committed event', async () => {
     const store = new InMemoryCanonStore();
     const provider = new FakeSimulationProvider();
