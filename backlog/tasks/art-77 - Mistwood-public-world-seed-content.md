@@ -1,11 +1,11 @@
 ---
 id: ART-77
 title: Mistwood public-world seed content
-status: In Review
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-08-02 16:19'
-updated_date: '2026-08-02 21:17'
+updated_date: '2026-08-02 21:24'
 labels:
   - prd-1.0
   - epic-b
@@ -96,7 +96,7 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -115,10 +115,14 @@ Objective evidence: npm test -- --runTestsByPath convex/canon/mistwoodSeed.test.
 After rebasing onto merged ART-33/ART-21 evidence, npm run check passed again with 44 suites/375 tests. Implementation commit 5157917 was pushed to origin.
 
 Opened PR #76 and enabled merge-commit auto-merge.
+
+Merged implementation evidence: PR #76 merged into main at 2026-08-02T21:19:11Z (merge commit 8ddf6e5).
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
 Added the production-intended Mistwood world seed and single-public-world registry. Real import paths accept 8 locations and 12 complete fictional residents; all seven initial-tension checks and deterministic safety review pass; duplicate/partial-write and non-public route tests pass. Full verification: 43 suites/369 tests, typecheck, lint, architecture checks, and build.
+
+Implementation PR #76 is merged; all acceptance criteria and Definition of Done items are satisfied.
 <!-- SECTION:FINAL_SUMMARY:END -->
