@@ -19,6 +19,8 @@ npm ci
 | --- | --- |
 | `npm run typecheck` | `tsc --noEmit` — type-check the whole project. |
 | `npm run lint` | ESLint (type-checked). |
+| `npm run check:architecture` | Enforce the versioned domain dependency policy. |
+| `npm run test:architecture` | Run positive and negative boundary-policy tests. |
 | `npm run test:foundation` | Only the canon + simulation domain tests. |
 | `npm test` | The full Jest suite (upstream utilities + foundation). |
 | `npm run check:offline` | typecheck + lint + foundation tests (no Convex/key/network). |
@@ -83,7 +85,9 @@ directory and no second framework. The Mistwood fixture lives at
 - **Upstream/baseline records:** `docs/upstream.md`, `docs/baseline.md`.
 - **Scope:** `docs/foundation-scope.md`.
 - **Long-lived engineering rules:** root `CLAUDE.md`.
-- PRDs and product backlogs are intentionally **not** maintained in Phase 0.
+- **Module ownership and dependency policy:** `docs/architecture/module-boundaries.md` and
+  `architecture/module-boundaries.json`.
+- **Product requirements and delivery:** versioned PRD docs and tasks in Backlog.md.
 
 ## Conduct & security
 

@@ -1,10 +1,11 @@
 ---
 id: ART-3
 title: Project architecture and module boundaries
-status: To Do
-assignee: []
+status: In Review
+assignee:
+  - '@codex'
 created_date: '2026-08-02 15:30'
-updated_date: '2026-08-02 16:24'
+updated_date: '2026-08-02 17:44'
 labels:
   - prd-1.0
   - epic-a
@@ -62,26 +63,49 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Architecture defines and enforces dependency boundaries for Canon, Simulation, Character Knowledge, Story, Editorial/Recap, Public Read Model, Viewer, Operations, Safety, and Observability modules.
-- [ ] #2 Provider-specific formats remain behind a shared versioned adapter boundary.
-- [ ] #3 Project installs, typechecks, lints, tests, and builds without external credentials.
-- [ ] #4 PRD traceability and module ownership documentation identify the owner of every module.
+- [x] #1 Architecture defines and enforces dependency boundaries for Canon, Simulation, Character Knowledge, Story, Editorial/Recap, Public Read Model, Viewer, Operations, Safety, and Observability modules.
+- [x] #2 Provider-specific formats remain behind a shared versioned adapter boundary.
+- [x] #3 Project installs, typechecks, lints, tests, and builds without external credentials.
+- [x] #4 PRD traceability and module ownership documentation identify the owner of every module.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Inventory current and target modules, provider boundaries, build/test baseline, and PRD traceability requirements.
+2. Add executable architecture-boundary policy and fixtures/tests covering all ten required domains and provider isolation.
+3. Add durable module ownership, dependency direction, provider contract, and PRD traceability documentation; align stale Phase 0 development docs.
+4. Run focused architecture checks plus npm run check, record evidence, finalize the task, and merge its PR.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented policy v1 in architecture/module-boundaries.json with executable import scanning and provider-adapter isolation. Added module ownership and PRD-area routing documentation. Validation: npm run check:architecture (pass, 11 modules); npm run test:architecture (pass, 6 tests including reverse-dependency and provider-leak failures); npm run check (pass: typecheck, lint, 12 Jest suites/102 tests, production build). No external credentials were used.
+
+Committed as the ART-3 implementation commit and pushed to origin/feat/ART-3-module-boundaries.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Defined and enforced versioned dependency and provider boundaries for every PRD domain, documented module ownership and requirement routing, and added the architecture gate to offline/full checks. Verified with 6 policy tests and the complete npm run check gate (102 existing tests plus build).
+<!-- SECTION:FINAL_SUMMARY:END -->
