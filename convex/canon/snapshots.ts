@@ -8,7 +8,7 @@
 
 import { CanonError, canonError } from '../shared/errors';
 import { replayWorldEvents } from './replay';
-import type { AcceptedEvent, RelationshipState, WorldProjection } from './model';
+import type { AcceptedEvent, RelationshipHistoryEntry, RelationshipState, WorldProjection } from './model';
 
 export const CANON_SNAPSHOT_VERSION = 1 as const;
 
@@ -54,6 +54,9 @@ export function cloneProjection(projection: WorldProjection): WorldProjection {
   for (const key of Object.keys(projection.relationships)) {
     relationships[key] = { ...projection.relationships[key] };
   }
+  const relationshipHistory: Record<string, RelationshipHistoryEntry[]> = Object.fromEntries(
+    Object.entries(projection.relationshipHistory ?? {}).map(([key, entries]) => [key, entries.map((entry) => ({ ...entry }))]),
+  );
   return {
     worldId: projection.worldId,
     lastSequenceNumber: projection.lastSequenceNumber,
@@ -73,6 +76,7 @@ export function cloneProjection(projection: WorldProjection): WorldProjection {
       Object.entries(projection.characterKnowledge).map(([id, facts]) => [id, [...facts]]),
     ),
     relationships,
+    relationshipHistory,
     facts: projection.facts.map((f) => ({ ...f })),
   };
 }

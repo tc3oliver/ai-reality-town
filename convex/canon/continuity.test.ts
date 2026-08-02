@@ -117,8 +117,8 @@ describe('FR-D004 Canon continuity rules', () => {
     ['unknown participant', movement({ participantIds: ['ghost'] }), 'UNKNOWN_CHARACTER_REFERENCE'],
     ['unknown location', movement({ locationId: 'missing' }), 'UNKNOWN_LOCATION_REFERENCE'],
     ['unknown causal event', movement({ causedByEventIds: ['w#event#999'] }), 'UNKNOWN_EVENT_REFERENCE'],
-    ['self relationship', movement({ eventType: 'relationship_change', stateChanges: [{ type: 'relationship_changed', sourceCharacterId: 'a', targetCharacterId: 'a', trustDelta: 1, affectionDelta: 0, resentmentDelta: 0, reason: 'invalid' }] }), 'INVALID_RELATIONSHIP_TARGET'],
-    ['unexplained numeric change', movement({ eventType: 'relationship_change', participantIds: ['a', 'b'], stateChanges: [{ type: 'relationship_changed', sourceCharacterId: 'a', targetCharacterId: 'b', trustDelta: 0, affectionDelta: 0, resentmentDelta: 0, reason: 'none' }] }), 'INVALID_RELATIONSHIP_DELTA'],
+    ['self relationship', movement({ eventType: 'relationship_change', stateChanges: [{ type: 'relationship_changed', sourceCharacterId: 'a', targetCharacterId: 'a', trustDelta: 1, affectionDelta: 0, resentmentDelta: 0, fearDelta: 0, dependencyDelta: 0, familiarityDelta: 0, reason: 'invalid', visibility: 'private' }] }), 'INVALID_RELATIONSHIP_TARGET'],
+    ['unexplained numeric change', movement({ eventType: 'relationship_change', participantIds: ['a', 'b'], stateChanges: [{ type: 'relationship_changed', sourceCharacterId: 'a', targetCharacterId: 'b', trustDelta: 0, affectionDelta: 0, resentmentDelta: 0, fearDelta: 0, dependencyDelta: 0, familiarityDelta: 0, reason: 'none', visibility: 'private' }] }), 'INVALID_RELATIONSHIP_DELTA'],
   ] as const)('rejects %s with a stable reason', (_name, event, code) => {
     expectCanonCode(event, projection(), code);
   });

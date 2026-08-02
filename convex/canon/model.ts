@@ -53,7 +53,13 @@ export type StateChange =
       trustDelta: number;
       affectionDelta: number;
       resentmentDelta: number;
+      /** Additive v1 fields; omitted legacy events normalize/reduce as zero. */
+      fearDelta?: number;
+      dependencyDelta?: number;
+      familiarityDelta?: number;
       reason: string;
+      /** Omitted legacy events are private by default. */
+      visibility?: 'private' | 'public';
     }
   | {
       type: 'fact_created';
@@ -159,6 +165,28 @@ export type RelationshipState = {
   trust: number;
   affection: number;
   resentment: number;
+  fear: number;
+  dependency: number;
+  familiarity: number;
+  lastUpdatedEventId: string;
+};
+
+/** Internal causal history. Reasons may contain secrets and are never a public read model. */
+export type RelationshipHistoryEntry = {
+  sourceCharacterId: string;
+  targetCharacterId: string;
+  trustDelta: number;
+  affectionDelta: number;
+  resentmentDelta: number;
+  fearDelta: number;
+  dependencyDelta: number;
+  familiarityDelta: number;
+  reason: string;
+  visibility: 'private' | 'public';
+  sourceEventId: string;
+  sequenceNumber: number;
+  worldDay: number;
+  timeSlot: TimeSlot;
 };
 
 /** A fact projected from accepted events. */
@@ -199,6 +227,7 @@ export type WorldProjection = {
   itemOwners: Record<string, string>;
   characterKnowledge: Record<string, string[]>;
   relationships: Record<string, RelationshipState>;
+  relationshipHistory: Record<string, RelationshipHistoryEntry[]>;
   facts: ProjectedFact[];
 };
 
@@ -214,6 +243,7 @@ export function emptyProjection(worldId: string): WorldProjection {
     itemOwners: {},
     characterKnowledge: {},
     relationships: {},
+    relationshipHistory: {},
     facts: [],
   };
 }
