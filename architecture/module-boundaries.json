@@ -1,0 +1,23 @@
+{
+  "$schema": "./module-boundaries.schema.json",
+  "version": 1,
+  "modules": {
+    "canon": { "roots": ["convex/canon"], "mayDependOn": ["shared"] },
+    "simulation": { "roots": ["convex/simulation"], "mayDependOn": ["canon", "knowledge", "story", "safety", "observability", "shared"] },
+    "knowledge": { "roots": ["convex/knowledge"], "mayDependOn": ["canon", "shared"] },
+    "story": { "roots": ["convex/story"], "mayDependOn": ["canon", "knowledge", "shared"] },
+    "editorial": { "roots": ["convex/editorial", "convex/recaps"], "mayDependOn": ["canon", "story", "safety", "shared"] },
+    "publicRead": { "roots": ["convex/publicRead"], "mayDependOn": ["canon", "knowledge", "story", "editorial", "shared"] },
+    "viewer": { "roots": ["convex/viewer"], "mayDependOn": ["publicRead", "safety", "shared"] },
+    "operations": { "roots": ["convex/operations"], "mayDependOn": ["canon", "simulation", "knowledge", "story", "editorial", "publicRead", "safety", "observability", "shared"] },
+    "safety": { "roots": ["convex/safety"], "mayDependOn": ["shared"] },
+    "observability": { "roots": ["convex/observability"], "mayDependOn": ["shared"] },
+    "shared": { "roots": ["convex/shared"], "mayDependOn": [] }
+  },
+  "providerBoundary": {
+    "contract": "convex/simulation/provider.ts",
+    "contractVersion": 1,
+    "adapterRoots": ["convex/simulation/providers"],
+    "providerPackagePatterns": ["^openai$", "^@anthropic-ai/", "^@google/generative-ai$"]
+  }
+}

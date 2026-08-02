@@ -62,15 +62,18 @@ flowchart TD
 
 ## Boundaries
 
+- The versioned dependency policy and complete module ownership matrix live in
+  [`module-boundaries.md`](module-boundaries.md) and are enforced by
+  `npm run check:architecture`.
 - **Simulation → Canon:** providers propose; only the commit pipeline writes canon.
 - **Canon → Projections:** story/recap/UI are read models derived from canon; they never
   write canon.
 - **Canon → AI Town:** a future director step (🟡) mirrors canonical facts into AI Town
   inputs for visualization. AI Town never writes canon.
 
-## Phase 0 scope vs. later
+## Foundation scope vs. PRD delivery
 
 - **Phase 0 (✅):** canon model, validation, idempotent commit, deterministic reducer,
   replay, snapshots, fake provider, foundation workflow, tests, CI, docs.
-- **Later (🟡):** real LLM provider, durable workflow (`@convex-dev/workflow`), story/recap
-  engines, audience UI, voting, multi-world, public operations.
+- **PRD task graph (🟡):** real LLM provider, durable workflow, story/recap engines,
+  audience UI, voting, and public operations. Backlog tasks are the delivery authority.
