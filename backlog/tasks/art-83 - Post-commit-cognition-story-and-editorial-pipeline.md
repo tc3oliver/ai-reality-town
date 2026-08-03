@@ -1,10 +1,11 @@
 ---
 id: ART-83
 title: Post-commit cognition story and editorial pipeline
-status: To Do
-assignee: []
+status: Done
+assignee:
+  - '@tc3oliver'
 created_date: '2026-08-02 16:20'
-updated_date: '2026-08-02 16:51'
+updated_date: '2026-08-03 23:08'
 labels:
   - prd-1.0
   - epic-f
@@ -89,28 +90,46 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each post-commit stage has durable status and a safe retry boundary.
-- [ ] #2 Accepted events remain durable when any downstream stage fails.
-- [ ] #3 Public content remains at the last valid published version until replacement is ready.
-- [ ] #4 Retry resumes safely without duplicating events or memories.
-- [ ] #5 Stage 21 records a durable run/stage metrics hook linked to ART-57 trace data; asynchronous quality evaluators consume it without blocking or mutating Canon.
-- [ ] #6 Stages 11–21 invoke the completed projection, cognition, story, editorial, safety, publication, snapshot, and trace capabilities in PRD order; the orchestrator does not reimplement those capabilities.
+- [x] #1 Each post-commit stage has durable status and a safe retry boundary.
+- [x] #2 Accepted events remain durable when any downstream stage fails.
+- [x] #3 Public content remains at the last valid published version until replacement is ready.
+- [x] #4 Retry resumes safely without duplicating events or memories.
+- [x] #5 Stage 21 records a durable run/stage metrics hook linked to ART-57 trace data; asynchronous quality evaluators consume it without blocking or mutating Canon.
+- [x] #6 Stages 11–21 invoke the completed projection, cognition, story, editorial, safety, publication, snapshot, and trace capabilities in PRD order; the orchestrator does not reimplement those capabilities.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+IMPLEMENTED: convex/operations/ (new module; boundary policy already declared it). postCommitOrchestration.ts (pure, mirrors ART-23 worldDayOrchestration): POST_COMMIT_STAGES (projection→knowledge→memory→relationship→arc→episode→recap→safety→publication→snapshot→metrics, PRD §12 stages 11-21), PostCommitRunStore injectable interface, executePostCommitPipeline (resume-from-safe-boundary via completedPrefix; per-stage durable checkpoints AC#1; failure isolation — never touches accepted events AC#2; retry skips completed stages AC#4; metrics stage records PostCommitMetricsHook linked to traceId via StageContext.traceId AC#5; injectable handlers — orchestrator does NOT reimplement capabilities AC#6). postCommitOrchestrationFunctions.ts (wiring): createPostCommitRun/recordPostCommitCheckpoint/updatePostCommitRun/inspectPostCommitRun over postCommitRuns+postCommitCheckpoints tables (mirror ART-23 store). schema.ts: operationsTables (postCommitRuns, postCommitCheckpoints). Registered via ...operationsTables; added convex/operations to lint dirs.
+
+AC#3 (public content last valid published until replacement): the publication stage DELEGATES to the LKG-aware publication capability (ART-40 publicRead); the orchestrator does not force publication or override LKG.
+
+PRD TRACEABILITY: PRD §12 stages 11-21 -> doc-1.
+
+VALIDATION: npm run check = exit 0. Architecture boundaries valid (policy v1, 11 modules — operations now implemented). typecheck clean. lint clean. Tests: 530 passed (+6 from convex/operations/postCommitOrchestration.test.ts). build OK.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added the post-commit cognition + editorial pipeline orchestrator (PRD §12 stages 11-21): convex/operations/postCommitOrchestration.ts (pure resumable stage sequencer mirroring ART-23 — durable checkpoints AC#1, failure isolation AC#2, safe retry without duplication AC#4, durable metrics hook linked to trace AC#5, injectable handlers that invoke capabilities in PRD order without reimplementing them AC#6) + durable store wiring + tables. AC#3 upheld by delegating publication to the LKG-aware capability. Verified: npm run check exit 0; 530 tests pass (+6); architecture boundaries valid; typecheck/lint/build clean.
+<!-- SECTION:FINAL_SUMMARY:END -->
