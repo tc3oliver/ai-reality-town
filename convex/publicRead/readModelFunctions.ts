@@ -88,8 +88,8 @@ function readStore(db: GenericQueryCtx<DataModel>['db']): PublicReadReadStore {
   };
 }
 
-/** Full store adapter backed by a Convex mutation context. */
-function writeStore(db: GenericMutationCtx<DataModel>['db']): PublicReadStore {
+/** Full store adapter backed by a Convex mutation context (exported for projection builders). */
+export function writeStore(db: GenericMutationCtx<DataModel>['db']): PublicReadStore {
   return {
     async loadTargetVersions(worldId, modelKind, modelRef) {
       const rows = await db
