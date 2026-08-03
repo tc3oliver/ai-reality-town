@@ -37,7 +37,7 @@ export const READ_MODEL_SCHEMA_VERSION = 1;
  * kind-agnostic — it versions, gates, and sanitises any JSON payload.
  */
 export const READ_MODEL_KINDS = [
-  'world', 'character', 'episode', 'arc', 'relationship', 'liveState',
+  'world', 'character', 'episode', 'arc', 'relationship', 'liveState', 'timeline',
 ] as const;
 export type ReadModelKind = (typeof READ_MODEL_KINDS)[number];
 

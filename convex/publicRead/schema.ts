@@ -16,7 +16,7 @@ export const publicReadTables = {
     worldId: v.string(),
     modelKind: v.union(
       v.literal('world'), v.literal('character'), v.literal('episode'),
-      v.literal('arc'), v.literal('relationship'), v.literal('liveState'),
+      v.literal('arc'), v.literal('relationship'), v.literal('liveState'), v.literal('timeline'),
     ),
     modelRef: v.string(),
     version: v.number(),
