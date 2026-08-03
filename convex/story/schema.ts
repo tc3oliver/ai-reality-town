@@ -94,4 +94,29 @@ export const storyTables = {
   })
     .index('by_world_and_decision', ['worldId', 'decisionId'])
     .index('by_world_and_arc', ['worldId', 'arcId']),
+
+  // FR-F005 consequence summaries derived from resolved arcs. Separate from
+  // canon: rows here are derived public-summary artifacts with full provenance.
+  // Upserting/superseding a row never touches an accepted Canon Event.
+  arcConsequenceSummaries: defineTable({
+    schemaVersion: v.literal(1),
+    worldId: v.string(),
+    arcId: v.string(),
+    summaryId: v.string(),
+    scope: v.union(v.literal('character'), v.literal('world')),
+    subjectId: v.string(),
+    outcome: v.string(),
+    consequenceId: v.string(),
+    summary: v.string(),
+    sourceEventId: v.string(),
+    sourceEventIds: v.array(v.string()),
+    resolutionSequenceNumber: v.number(),
+    revision: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_summary_id', ['summaryId'])
+    .index('by_world_and_arc', ['worldId', 'arcId'])
+    .index('by_subject', ['worldId', 'scope', 'subjectId'])
+    .index('by_arc_and_revision', ['worldId', 'arcId', 'revision']),
 };
