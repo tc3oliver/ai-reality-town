@@ -119,4 +119,16 @@ export const storyTables = {
     .index('by_world_and_arc', ['worldId', 'arcId'])
     .index('by_subject', ['worldId', 'scope', 'subjectId'])
     .index('by_arc_and_revision', ['worldId', 'arcId', 'revision']),
+
+  // FR-H003 recommended entry episodes for major active arcs. Derived artifacts
+  // reassessed after major changes; upserting never touches accepted Canon.
+  storyArcRecommendedEntries: defineTable({
+    worldId: v.string(),
+    arcId: v.string(),
+    entry: v.any(),
+    reassessedAtSequenceNumber: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_world_and_arc', ['worldId', 'arcId'])
+    .index('by_world', ['worldId']),
 };

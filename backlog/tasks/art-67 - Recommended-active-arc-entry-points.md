@@ -1,10 +1,11 @@
 ---
 id: ART-67
 title: Recommended active-arc entry points
-status: To Do
-assignee: []
+status: Done
+assignee:
+  - '@tc3oliver'
 created_date: '2026-08-02 15:43'
-updated_date: '2026-08-02 16:24'
+updated_date: '2026-08-03 17:11'
 labels:
   - prd-1.0
   - epic-j
@@ -65,27 +66,45 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 FR-H003: 每條主要 Active Arc 必須有推薦入坑點。
-- [ ] #2 FR-H003: 推薦原因可查詢。
-- [ ] #3 FR-H003: Arc 重大變化後重新評估。
-- [ ] #4 Automated tests provide evidence for every mapped FR-H003 acceptance criterion, including rejection and failure paths.
-- [ ] #5 PRD traceability links FR-H003 to doc-1 and the merged implementation evidence.
+- [x] #1 FR-H003: 每條主要 Active Arc 必須有推薦入坑點。
+- [x] #2 FR-H003: 推薦原因可查詢。
+- [x] #3 FR-H003: Arc 重大變化後重新評估。
+- [x] #4 Automated tests provide evidence for every mapped FR-H003 acceptance criterion, including rejection and failure paths.
+- [x] #5 PRD traceability links FR-H003 to doc-1 and the merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+IMPLEMENTED: convex/story/entryRecommendation.ts (pure): recommendArcEntry deterministic explainable entry-episode selector — priority inciting > turning_point > earliest arc episode > world's earliest episode (first_episode fallback guarantees AC#1: every major active arc with a published episode gets an entry); RecommendedArcEntry carries episodeNumber/worldDay/sourceEventId/reason(CJK)/signals{basis,heatScore}/reassessedAtSequenceNumber; EntryRecommendationError; validateRecommendedArcEntry persisted-envelope validator. entryRecommendationFunctions.ts (wiring): reassessArcEntryRecommendation (single arc, idempotent upsert keyed by world+arc; AC#3), reassessMajorActiveArcEntries (covers every major active arc; AC#1), getRecommendedArcEntry internalQuery (AC#2 queryable reason). Reads portfolio (tier major + active status via isActiveArcStatus), published episodes (dailyEpisodes), latest accepted sequence; zero canon writes. schema.ts: storyArcRecommendedEntries table (by_world_and_arc, by_world).
+
+PRD TRACEABILITY: FR-H003 -> doc-1 (task Documentation already links backlog/docs/prd/ai-reality-town-prd-1.0/doc-1).
+
+KEY DECISION: sourceEventId is basis-dependent (inciting/turning-point anchor on the respective event; earliest/first_episode anchor on the arc inciting event) — caught by the turning_point unit test during development.
+
+VALIDATION: npm run check = exit 0. Architecture boundaries valid. typecheck clean. lint clean. Tests: 490 passed (+13 from convex/story/entryRecommendation.test.ts). build OK.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added recommended active-arc entry points (FR-H003): convex/story/entryRecommendation.ts (pure recommendArcEntry — explainable entry-episode selector with first_episode fallback so every major active arc gets an entry) + wiring (reassess single/all major active arcs idempotently, queryable reason). Zero canon writes; visitor reads never generate. Verified: npm run check exit 0; 490 tests pass (+13 entryRecommendation); architecture boundaries valid; typecheck/lint/build clean. FR-H003 traceable to doc-1.
+<!-- SECTION:FINAL_SUMMARY:END -->
