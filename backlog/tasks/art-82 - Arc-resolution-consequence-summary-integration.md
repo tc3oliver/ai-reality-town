@@ -4,7 +4,7 @@ title: Arc resolution consequence summary integration
 status: To Do
 assignee: []
 created_date: '2026-08-02 16:20'
-updated_date: '2026-08-02 16:24'
+updated_date: '2026-08-03 16:26'
 labels:
   - prd-1.0
   - epic-h
@@ -87,3 +87,21 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+ART-82 — Arc resolution consequence summary integration (FR-F005). Apply resolved-arc outcomes/consequences to related character & world summaries derived from accepted events, WITHOUT rewriting canon history.
+
+EXPLORATION NEEDED (next session):
+- convex/story/resolution.ts + resolutionFunctions.ts (ART-31 arc resolution lifecycle/outcome)
+- convex/story/projection.ts + projectionFunctions.ts (arc projection, currentQuestion/status)
+- convex/recaps/recapFormats.ts (ART-66 formats) + convex/recaps/model.ts (recap snapshot)
+- convex/canon/model.ts AcceptedEvent + reducer (character/world projection)
+
+DESIGN DIRECTION: a pure consequence-summary layer. Given a resolved arc + its accepted source events, derive a consequence summary (outcome text + affected characterIds/world scope) tagged with provenance (arcId + sourceEventIds). Pure module — never mutates canon; refresh failure leaves canon intact and is idempotent/safely retryable on arc resolution version.
+
+AC MAP: #1 resolved/resolving arc updates affected character+world summaries from accepted events; #2 every summary retains arc+event provenance; #3 refresh failure is non-destructive + retryable (no canon writes).
+
+GATE: npm run check green; PRD FR-F005 -> doc-1. Use the ART-66 pattern: implement -> check -> finalize task Done BEFORE push -> one PR carries code+task metadata.
+<!-- SECTION:PLAN:END -->
