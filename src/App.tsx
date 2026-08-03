@@ -1,4 +1,5 @@
 import Game from './components/Game.tsx';
+import EpisodeDetail from './components/public/EpisodeDetail.tsx';
 
 import { ToastContainer } from 'react-toastify';
 import a16zImg from '../assets/a16z.png';
@@ -19,6 +20,12 @@ import PoweredByConvex from './components/PoweredByConvex.tsx';
 
 export default function Home() {
   const [helpModalOpen, setHelpModalOpen] = useState(false);
+  // Public newcomer-facing pages live behind a hash route (#episode/…, #home),
+  // separate from the PixiJS game. Public reads use the failure-isolated public
+  // read model and trigger no generation (FR-I003 AC#5).
+  if (typeof window !== 'undefined' && window.location.hash.startsWith('#episode/')) {
+    return <EpisodeDetail />;
+  }
   return (
     <main className="relative flex min-h-screen flex-col items-center justify-between font-body game-background">
       <PoweredByConvex />
