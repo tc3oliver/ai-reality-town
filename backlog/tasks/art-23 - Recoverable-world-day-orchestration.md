@@ -1,11 +1,11 @@
 ---
 id: ART-23
 title: Core world-day proposal and commit orchestration
-status: In Review
+status: Done
 assignee:
-  - '@codex'
+  - '@tc3oliver'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 21:41'
+updated_date: '2026-08-03 16:04'
 labels:
   - prd-1.0
   - epic-f
@@ -78,12 +78,12 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [x] #3 Accepted-event commit is durable and idempotent; retry cannot duplicate an accepted event.
 - [x] #4 A failure records its exact stage and stable error information, and retry resumes only from a safe boundary.
 - [x] #5 Automated failure-injection tests cover every pre-commit boundary, duplicate commit, and partial-write rejection.
-- [ ] #6 PRD traceability links Section 12 stages 1–10 to doc-1 and merged implementation evidence.
+- [x] #6 PRD traceability links Section 12 stages 1–10 to doc-1 and merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -96,7 +96,7 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -116,5 +116,5 @@ Post-rebase verification on merged ART-34 and ART-22 evidence: npm run check pas
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Implemented recoverable PRD Section 12 stages 1-10 orchestration with durable checkpoint attempts, exact stable failure provenance, safe boundary resume, pre-commit validation isolation, and a single atomic/idempotent Accepted Event commit boundary. Focused 16-case failure/retry suite and full 397-test/typecheck/lint/build validation pass; merged PR traceability remains pending.
+Implemented world-day orchestration for PRD Section 12 stages 1-10 (load state -> env events -> arcs -> director plan -> intents -> grouping -> scene sim -> structural validation -> canon validation -> commit) as a pure, dependency-injected orchestrator (convex/simulation/worldDayOrchestration.ts) with durable checkpoint + failure-stage records, atomic idempotent commit, and resume-from-safe-boundary retry. Verified: 16/16 tests pass in worldDayOrchestration.test.ts covering every pre-commit failure boundary, atomic rollback, idempotent reruns, and safe-boundary resume. Merged via PR #82 (feat/ART-23-world-day-orchestration). PRD Section 12 stages 1-10 traced to doc-1 in docs/world-day-orchestration.md. (Metadata finalized retroactively: code merged in a prior session; task status is being corrected to Done.)
 <!-- SECTION:FINAL_SUMMARY:END -->
