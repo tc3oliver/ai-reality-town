@@ -1,10 +1,11 @@
 ---
 id: ART-82
 title: Arc resolution consequence summary integration
-status: To Do
-assignee: []
+status: Done
+assignee:
+  - '@tc3oliver'
 created_date: '2026-08-02 16:20'
-updated_date: '2026-08-03 16:26'
+updated_date: '2026-08-03 17:00'
 labels:
   - prd-1.0
   - epic-h
@@ -65,26 +66,26 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Resolving or resolved arcs update affected character and world summaries from accepted events.
-- [ ] #2 Summary updates retain source arc and event provenance.
-- [ ] #3 Failure to refresh a summary does not alter Canon and can be retried safely.
+- [x] #1 Resolving or resolved arcs update affected character and world summaries from accepted events.
+- [x] #2 Summary updates retain source arc and event provenance.
+- [x] #3 Failure to refresh a summary does not alter Canon and can be retried safely.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -105,3 +106,19 @@ AC MAP: #1 resolved/resolving arc updates affected character+world summaries fro
 
 GATE: npm run check green; PRD FR-F005 -> doc-1. Use the ART-66 pattern: implement -> check -> finalize task Done BEFORE push -> one PR carries code+task metadata.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+IMPLEMENTED: convex/story/consequenceSummary.ts (pure): ConsequenceSummary type (per-subject character/world summary with arcId+sourceEventId+sourceEventIds+consequenceId provenance), ConsequenceSummaryError, consequenceSummaryId (deterministic), deriveConsequenceSummaries (expands each consequence to world scope when affectsWorldSummary + one character scope per affectedCharacterId; validates terminal decision + outcome + resolution-event provenance), validateConsequenceSummaries (AC#2 provenance check — every sourceEventId/sourceEventIds resolves to an accepted event). consequenceSummaryFunctions.ts (wiring): applyArcResolutionConsequences internalMutation (loads persisted decision + accepted resolution event, derives summaries, idempotent upsert keyed by summaryId — patch if same/higher revision else insert; skip if newer revision already won), listArcConsequenceSummaries + getSubjectConsequenceSummaries internalQuery. schema.ts: arcConsequenceSummaries table (4 indexes).
+
+DESIGN: pure derivation is deterministic (same decision -> same summaries, idempotent), and the wiring upsert is keyed by summaryId so a refresh/retry is non-destructive and safe (AC#3). The wiring READS the accepted resolution event only to provenance-tag derived summaries — it never writes accepted Canon history. revision = decision.sourceEventSequenceNumber so a re-derived resolution supersedes correctly.
+
+VALIDATION: npm run check = exit 0. Architecture boundaries valid (policy v1, 11 modules). typecheck clean. lint clean. Tests: 456 passed on this branch (+15 from convex/story/consequenceSummary.test.ts). build OK.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added convex/story consequence-summary layer (FR-F005): deriveConsequenceSummaries (pure) maps a resolved arc's decision + accepted resolution event to per-subject character/world summaries carrying full arc+event provenance; consequenceSummaryFunctions wires an idempotent upsert (keyed by summaryId, retry-safe) plus arc/subject queries, reading accepted events only to provenance-tag and never writing Canon. Verified: npm run check exit 0; 456 tests pass (+15 consequenceSummary); architecture boundaries valid; typecheck/lint/build clean.
+<!-- SECTION:FINAL_SUMMARY:END -->
