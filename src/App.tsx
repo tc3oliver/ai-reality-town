@@ -1,5 +1,6 @@
 import Game from './components/Game.tsx';
 import EpisodeDetail from './components/public/EpisodeDetail.tsx';
+import EpisodeList from './components/public/EpisodeList.tsx';
 import Homepage from './components/public/Homepage.tsx';
 import LiveView from './components/public/LiveView.tsx';
 
@@ -22,9 +23,13 @@ import PoweredByConvex from './components/PoweredByConvex.tsx';
 
 export default function Home() {
   const [helpModalOpen, setHelpModalOpen] = useState(false);
-  // Public newcomer-facing pages live behind a hash route (#episode/…, #home,
-  // #live/…), separate from the PixiJS game. Public reads use the failure-
-  // isolated public read model and trigger no generation (FR-I002/I003 AC#5).
+  // Public newcomer-facing pages live behind a hash route (#episode/…,
+  // #episodes/…, #home, #live/…), separate from the PixiJS game. Public reads
+  // use the failure-isolated public read model and trigger no generation
+  // (FR-I002/I003/I004 AC#5).
+  if (typeof window !== 'undefined' && window.location.hash.startsWith('#episodes/')) {
+    return <EpisodeList />;
+  }
   if (typeof window !== 'undefined' && window.location.hash.startsWith('#episode/')) {
     return <EpisodeDetail />;
   }
