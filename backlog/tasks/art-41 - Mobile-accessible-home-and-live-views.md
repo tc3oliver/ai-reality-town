@@ -1,11 +1,11 @@
 ---
 id: ART-41
 title: Story-first public homepage
-status: Done
+status: In Progress
 assignee:
   - '@tc3oliver'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-03 23:25'
+updated_date: '2026-08-03 23:42'
 labels:
   - prd-1.0
   - epic-k
@@ -92,6 +92,29 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+ART-41 public Homepage (FR-I001, UX-001..006).
+
+APPROACH: New src/components/public/Home.tsx following the established EpisodeDetail.tsx pattern (hash routing #home[/<worldId>], reads ONLY published models via getPublishedReadModel, no generation). Extract a pure composeHomepageView() helper tested as a pure module (jest has no jsdom, matching codebase style).
+
+DATA (3 published models, default worldId=mistwood):
+- world / world:<id>  -> WorldProjection (name, currentWorldDay, currentTimeSlot, description, publicFacts)
+- world / onboarding:<id> -> OnboardingSummary (majorEvent, <=4 chars, <=3 facts, question, recommendedEpisode, scene, summaryText=Current Situation)
+- liveState / live:<id> -> LiveProjection (worldTime, locations, activeScenes, publishedEpisodeStatus)
+
+SECTIONS (FR-I001 + UX-001..006): Latest Major Event FIRST (UX-001), Current Situation (30s), Core Characters (<=4, UX-002), Essential Backstory (<=3 facts, UX-002), Recommended Episode link (#episode/<id>/<day>), Live Entry (from LiveProjection, graceful when unpublished), Current Vote in UNAVAILABLE state (ART-45 not built -> AC#5 graceful, non-blocking). NOT shown: full relationship graph (AC#2), token/agent/model info (UX-006/AC#3).
+
+GRACEFUL STATES: every section renders an unavailable/empty state when its model is null so the P0 homepage never breaks (AC#5).
+
+CSS: add .public-page + section styles to src/index.css (shared with EpisodeDetail).
+
+TESTS: pure composeHomepageView test covering happy path + null-model graceful states + vote-unavailable.
+
+VALIDATE: npm run check; smoke test = npx jest --testPathPattern=publicRead/newcomerAcceptance.
+<!-- SECTION:PLAN:END -->
 
 ## Implementation Notes
 
