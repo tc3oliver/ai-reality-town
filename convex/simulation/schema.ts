@@ -123,4 +123,15 @@ export const simulationTables = {
     .index('by_world_and_run', ['worldId', 'simulationRunId'])
     .index('by_grouping_run', ['worldId', 'groupingRunId'])
     .index('by_scene', ['worldId', 'sceneId']),
+
+  // FR-A004 private warmup markers (PRD §10.3). The full marker object
+  // (actual start day, public broadcast start day, recommended newcomer entry,
+  // phase, …) is stored as one blob; warmup content is unpublished until the
+  // warmup completes AND an admin confirms the public start day.
+  warmupMarkers: defineTable({
+    schemaVersion: v.literal(1), worldId: v.string(),
+    markers: v.any(),
+    updatedAt: v.number(),
+  })
+    .index('by_world_id', ['worldId']),
 };

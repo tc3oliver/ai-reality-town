@@ -1,10 +1,11 @@
 ---
 id: ART-8
 title: Private world warmup workflow
-status: To Do
-assignee: []
+status: Done
+assignee:
+  - '@tc3oliver'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 16:57'
+updated_date: '2026-08-03 23:15'
 labels:
   - prd-1.0
   - epic-b
@@ -67,31 +68,49 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 FR-A004: 暖機期間內容不得出現在公開 Read Model。
-- [ ] #2 FR-A004: 暖機可暫停、恢復與重跑。
-- [ ] #3 FR-A004: 公開前至少產生一條 Active Story Arc。
-- [ ] #4 FR-A004: 公開起始 Episode 可由系統建議並由管理者確認。
-- [ ] #5 FR-A004: 暖機失敗不得污染公開資料。
-- [ ] #6 Automated tests provide evidence for every mapped FR-A004 acceptance criterion, including rejection and failure paths.
-- [ ] #7 PRD traceability links FR-A004 to doc-1 and the merged implementation evidence.
-- [ ] #8 Section 10.3: World actual start day, public broadcast start day, and recommended newcomer entry point are persisted as distinct, queryable markers.
-- [ ] #9 Section 10.3: Public broadcast may start after Day 1, and changing the confirmed public start never rewrites warmed Canon history.
+- [x] #1 FR-A004: 暖機期間內容不得出現在公開 Read Model。
+- [x] #2 FR-A004: 暖機可暫停、恢復與重跑。
+- [x] #3 FR-A004: 公開前至少產生一條 Active Story Arc。
+- [x] #4 FR-A004: 公開起始 Episode 可由系統建議並由管理者確認。
+- [x] #5 FR-A004: 暖機失敗不得污染公開資料。
+- [x] #6 Automated tests provide evidence for every mapped FR-A004 acceptance criterion, including rejection and failure paths.
+- [x] #7 PRD traceability links FR-A004 to doc-1 and the merged implementation evidence.
+- [x] #8 Section 10.3: World actual start day, public broadcast start day, and recommended newcomer entry point are persisted as distinct, queryable markers.
+- [x] #9 Section 10.3: Public broadcast may start after Day 1, and changing the confirmed public start never rewrites warmed Canon history.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+IMPLEMENTED: convex/simulation/warmup.ts (pure state machine): WarmupMarkers (§10.3 distinct queryable markers: actualStartDay, publicBroadcastStartDay, recommendedNewcomerEntry, confirmedPublicStartDay, phase, lastCompletedDay, activeArcRequirementMet). Lifecycle: createWarmupMarkers (target 30-60 day range), pauseWarmup/resumeWarmup/rerunWarmup (AC#2), recordWarmupDay (advances + tracks active-arc requirement + completes at target count, AC#3), setRecommendedNewcomerEntry (AC#4 system), confirmPublicStartDay (admin, requires active arc, AC#3/#4), changePublicStartDay (marker-only, never rewrites canon, AC#9), failWarmup (AC#5), canPublishWarmup guard (true ONLY after completed+confirmed, AC#1/#5). WarmupError. warmupFunctions.ts (wiring): startWarmup/pause/resume/rerun/recordWarmupDayRun/setRecommendedEntry/confirm/changePublicStart/fail/getWarmupMarkers — each loads markers, applies pure transition, persists. schema.ts: warmupMarkers table (markers blob + worldId index).
+
+AC#1 isolation: warmup flow NEVER publishes; canPublishWarmup gates publication (false until completed+confirmed). AC#9: changePublicStartDay edits the marker only — actualStartDay/lastCompletedDay untouched (no canon rewrite).
+
+PRD TRACEABILITY: FR-A004 / §10.3 -> doc-1.
+
+VALIDATION: npm run check = exit 0. Architecture boundaries valid. typecheck clean. lint clean. Tests: 552 passed (+15 from convex/simulation/warmup.test.ts). build OK.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added the private world warmup workflow (FR-A004, §10.3): pure warmup state machine (pause/resume/rerun, active-arc requirement, system-recommended + admin-confirmed launch episode, failure isolation, publication gate) with the three distinct §10.3 markers + lifecycle wiring. Warmup content stays out of the public read model until completed + confirmed; changing the public start edits the marker only (no canon rewrite). Verified: npm run check exit 0; 552 tests pass (+15); architecture boundaries valid; typecheck/lint/build clean. FR-A004 traceable to doc-1.
+<!-- SECTION:FINAL_SUMMARY:END -->
