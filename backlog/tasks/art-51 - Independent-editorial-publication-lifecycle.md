@@ -1,10 +1,11 @@
 ---
 id: ART-51
 title: Independent editorial publication lifecycle
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@tc3oliver'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-02 16:24'
+updated_date: '2026-08-03 16:05'
 labels:
   - prd-1.0
   - epic-m
@@ -88,3 +89,15 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+ART-51 — Independent editorial publication lifecycle (FR-K004). Publication status is a layer SEPARATE from canon: accepted events are never deleted/edited by publication changes; publication only governs visibility of derived public content.
+
+1. Pure module convex/editorial/publicationLifecycle.ts: PublicationStatus = generated|validated|safety_review|ready|published|withheld|superseded; legal-transition graph + assertLegalTransition; PublicationRecord {publicationId,worldId,contentKind,contentRef,status,version,currentSummary,audit[]}; PublicationAuditEvent {action,fromStatus,toStatus,actor,reason,at}; pure fns advance/publish/withhold/resume/regenerate (regenerate supersedes current -> new Generated version, never mutates canon); assertAuthorized(actor,action). No canon imports.
+2. Schema editorial/schema.ts: add publicationRecords table (status,version,contentKind,contentRef,summary,audit) indexed by world/content + status. dailyEpisodes stays as the generation feed; publicationRecords is the independent lifecycle.
+3. Wiring publicationLifecycleFunctions.ts: authenticated admin internal mutations (publish/withhold/resume/regenerate) each server-authorized + audit-appended + idempotent on (contentRef,version); ops queries. Zero canon writes.
+4. Tests publicationLifecycle.test.ts: legal+illegal transitions; withhold keeps canon intact; regenerate supersedes+bumps version+audits; non-admin rejected; fail-closed.
+5. Gate npm run check green; PRD traceability FR-K004->doc-1.
+<!-- SECTION:PLAN:END -->
