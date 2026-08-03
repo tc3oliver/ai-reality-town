@@ -1,5 +1,6 @@
 import Game from './components/Game.tsx';
 import EpisodeDetail from './components/public/EpisodeDetail.tsx';
+import Homepage from './components/public/Homepage.tsx';
 
 import { ToastContainer } from 'react-toastify';
 import a16zImg from '../assets/a16z.png';
@@ -25,6 +26,9 @@ export default function Home() {
   // read model and trigger no generation (FR-I003 AC#5).
   if (typeof window !== 'undefined' && window.location.hash.startsWith('#episode/')) {
     return <EpisodeDetail />;
+  }
+  if (typeof window !== 'undefined' && window.location.hash.startsWith('#home')) {
+    return <Homepage />;
   }
   return (
     <main className="relative flex min-h-screen flex-col items-center justify-between font-body game-background">
