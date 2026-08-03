@@ -1,11 +1,11 @@
 ---
 id: ART-68
 title: Public live world view
-status: In Progress
+status: Done
 assignee:
   - '@tc3oliver'
 created_date: '2026-08-02 15:43'
-updated_date: '2026-08-03 23:49'
+updated_date: '2026-08-03 23:52'
 labels:
   - prd-1.0
   - epic-k
@@ -86,9 +86,9 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [ ] #9 Documentation is updated
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan

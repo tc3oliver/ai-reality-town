@@ -1,10 +1,11 @@
 ---
 id: ART-86
 title: Episode list and discovery experience
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@tc3oliver'
 created_date: '2026-08-02 16:20'
-updated_date: '2026-08-02 16:24'
+updated_date: '2026-08-03 23:53'
 labels:
   - prd-1.0
   - epic-k
@@ -88,3 +89,23 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+ART-86 public Episode list (FR-I004).
+
+BACKEND (new projection, mirrors episodeTimelineProjection pattern):
+- convex/publicRead/episodeIndexProjection.ts (pure): buildEpisodeIndex() -> list of eligible episodes with {worldDay, episodeNumber, title, headline, arcIds, characterIds, isRecommendedEntry, isTurningPoint}, sorted by worldDay. isRecommendedEntry from storyArcRecommendedEntries (ART-67); isTurningPoint from arc latestTurningPointEventId membership in episode sourceEventIds.
+- episodeIndexProjection.test.ts (pure tests).
+- episodeIndexProjectionFunctions.ts: rebuildEpisodeIndexProjection internalMutation -> publishes via commitReadModelVersion as modelKind 'episode', modelRef 'episodes:<worldId>'. (Unreferenced internal mutation like siblings — no codegen risk.)
+
+FRONTEND (mirrors homepage/live pattern):
+- episodeListRoute.ts (pure): parseEpisodeListRoute (#episodes/<worldId>) + composeEpisodeListViewModel (date ordering, arc/character filter sets, marking). 
+- episodeListRoute.test.ts (pure tests: filter logic, marking, mobile/data-only).
+- EpisodeList.tsx: reads episode/episodes:<worldId> via getPublishedReadModel; client-side date browse + arc/character filters; marks Turning Point/Recommended Entry (AC#3); mobile-accessible (AC#4); published data only (AC#3 pub). Links to #episode/<worldId>/<day>.
+- App.tsx: mount #episodes/<worldId>.
+
+AC: #1 browse by date (ordered list), #2 filter arc+character, #3 mark TP/RecEntry + published-data-only, #4 mobile-accessible, #5 automated tests, #6 PRD traceability FR-I004->doc-1.
+VALIDATE: npm run check (proves codegen-safe); smoke test newcomerAcceptance.
+<!-- SECTION:PLAN:END -->
