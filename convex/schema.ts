@@ -11,6 +11,7 @@ import { storyTables } from './story/schema';
 import { safetyTables } from './safety/schema';
 import { editorialTables } from './editorial/schema';
 import { recapTables } from './recaps/schema';
+import { publicReadTables } from './publicRead/schema';
 
 export default defineSchema({
   music: defineTable({
@@ -40,4 +41,5 @@ export default defineSchema({
   ...safetyTables,
   ...editorialTables,
   ...recapTables,
+  ...publicReadTables,
 });
