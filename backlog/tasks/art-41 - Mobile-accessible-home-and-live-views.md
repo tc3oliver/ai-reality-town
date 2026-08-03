@@ -1,7 +1,7 @@
 ---
 id: ART-41
 title: Story-first public homepage
-status: In Progress
+status: In Review
 assignee:
   - '@tc3oliver'
 created_date: '2026-08-02 15:32'
