@@ -1,11 +1,11 @@
 ---
 id: ART-51
 title: Independent editorial publication lifecycle
-status: In Progress
+status: Done
 assignee:
   - '@tc3oliver'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-03 16:05'
+updated_date: '2026-08-03 16:18'
 labels:
   - prd-1.0
   - epic-m
@@ -65,29 +65,29 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 FR-K004: Canon Event 與公開內容發布狀態分離。
-- [ ] #2 FR-K004: 不適當 Episode 可被暫停公開，但 Canon 不因此刪除。
-- [ ] #3 FR-K004: 管理者可重新生成公開摘要。
-- [ ] #4 Automated tests provide evidence for every mapped FR-K004 acceptance criterion, including rejection and failure paths.
-- [ ] #5 PRD traceability links FR-K004 to doc-1 and the merged implementation evidence.
+- [x] #1 FR-K004: Canon Event 與公開內容發布狀態分離。
+- [x] #2 FR-K004: 不適當 Episode 可被暫停公開，但 Canon 不因此刪除。
+- [x] #3 FR-K004: 管理者可重新生成公開摘要。
+- [x] #4 Automated tests provide evidence for every mapped FR-K004 acceptance criterion, including rejection and failure paths.
+- [x] #5 PRD traceability links FR-K004 to doc-1 and the merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -101,3 +101,15 @@ ART-51 — Independent editorial publication lifecycle (FR-K004). Publication st
 4. Tests publicationLifecycle.test.ts: legal+illegal transitions; withhold keeps canon intact; regenerate supersedes+bumps version+audits; non-admin rejected; fail-closed.
 5. Gate npm run check green; PRD traceability FR-K004->doc-1.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented the independent editorial publication lifecycle (FR-K004) as a layer strictly separate from canon.
+
+- Pure 7-state machine generated -> validated -> safety_review -> ready -> published / withheld / superseded, with a legal-transition graph, append-only audit trail, and admin-authorized regenerate/withhold/resume (convex/editorial/publicationLifecycle.ts). Zero canon imports — no function can read or write accepted events.
+- New publicationRecords table independent of canon tables (convex/editorial/schema.ts).
+- Server-authorized admin mutations (create/advance/regenerate) + ops queries, each audited and idempotent on (contentRef, version); zero canon writes (publicationLifecycleFunctions.ts).
+
+Verified: npm run check green (architecture + typecheck + lint + test 16/16 publicationLifecycle + build). withhold keeps canon intact (status-only change, nothing deleted); regenerate supersedes the prior version and bumps version with a new summary. PR #85 (feat/ART-51-editorial-publication-lifecycle), auto-merge enabled.
+<!-- SECTION:FINAL_SUMMARY:END -->
