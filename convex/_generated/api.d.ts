@@ -77,6 +77,9 @@ import type * as operations_postCommitLive from "../operations/postCommitLive.js
 import type * as operations_postCommitLiveFunctions from "../operations/postCommitLiveFunctions.js";
 import type * as operations_postCommitOrchestration from "../operations/postCommitOrchestration.js";
 import type * as operations_postCommitOrchestrationFunctions from "../operations/postCommitOrchestrationFunctions.js";
+import type * as operations_proposalReview from "../operations/proposalReview.js";
+import type * as operations_proposalReviewFunctions from "../operations/proposalReviewFunctions.js";
+import type * as operations_proposalReviewStore from "../operations/proposalReviewStore.js";
 import type * as publicRead_arcPrimer from "../publicRead/arcPrimer.js";
 import type * as publicRead_arcPrimerFunctions from "../publicRead/arcPrimerFunctions.js";
 import type * as publicRead_episodeIndexProjection from "../publicRead/episodeIndexProjection.js";
@@ -241,6 +244,9 @@ declare const fullApi: ApiFromModules<{
   "operations/postCommitLiveFunctions": typeof operations_postCommitLiveFunctions;
   "operations/postCommitOrchestration": typeof operations_postCommitOrchestration;
   "operations/postCommitOrchestrationFunctions": typeof operations_postCommitOrchestrationFunctions;
+  "operations/proposalReview": typeof operations_proposalReview;
+  "operations/proposalReviewFunctions": typeof operations_proposalReviewFunctions;
+  "operations/proposalReviewStore": typeof operations_proposalReviewStore;
   "publicRead/arcPrimer": typeof publicRead_arcPrimer;
   "publicRead/arcPrimerFunctions": typeof publicRead_arcPrimerFunctions;
   "publicRead/episodeIndexProjection": typeof publicRead_episodeIndexProjection;
