@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
+import { PublicPageFrame } from './PublicPageFrame';
 
 /**
  * Public Episode detail page (FR-I003). Reads ONLY the published episode
@@ -9,9 +10,17 @@ import { api } from '../../../convex/_generated/api';
  * the published content (AC#1), key scenes + related characters + arcs (AC#2),
  * and previous/next navigation (AC#3). Recommended reading links only to
  * published arcs (AC#4). Mobile-accessible markup.
+ *
+ * Accessibility (ART-93 / NFR-009): the recap selector is a labelled button
+ * group with `aria-pressed` and a real visible selected state — it previously
+ * relied on a bare `.active` class that no stylesheet defined, so the current
+ * recap depth was neither visible nor announced. Heading levels now run
+ * h1 → h2 → h3 (the deep recap used to jump straight from h1 to h3), and the
+ * related-character / related-arc / back links carry the worldId their target
+ * routes require. Covered by `publicPages.a11y.test.tsx`.
  */
 
-type EpisodeProjection = {
+export type EpisodeProjection = {
   episodeNumber: number;
   worldDay: number;
   title: string;
@@ -28,6 +37,12 @@ type EpisodeProjection = {
 
 type RecapView = 'quick' | 'standard' | 'deep';
 
+const RECAP_LABELS: Record<RecapView, string> = {
+  quick: '快速',
+  standard: '標準',
+  deep: '深度',
+};
+
 function parseRoute(): { worldId: string; worldDay: number } | null {
   const hash = window.location.hash.replace(/^#/, '');
   const match = hash.match(/^episode\/([^/]+)\/(\d+)$/);
@@ -41,87 +56,182 @@ function navigate(worldId: string, worldDay: number): void {
 
 export default function EpisodeDetail() {
   const route = parseRoute();
-  const [view, setView] = useState<RecapView>('quick');
 
   const result = useQuery(
     api.publicRead.readModelFunctions.getPublishedReadModel,
-    route ? { worldId: route.worldId, modelKind: 'episode', modelRef: `episode:${route.worldDay}` } : 'skip',
+    route
+      ? { worldId: route.worldId, modelKind: 'episode', modelRef: `episode:${route.worldDay}` }
+      : 'skip',
   );
 
-  if (!route) return <PublicFrame><p>網址格式應為 <code>#episode/&lt;worldId&gt;/&lt;worldDay&gt;</code></p></PublicFrame>;
-  if (result === undefined) return <PublicFrame><p>載入中…</p></PublicFrame>;
-  if (result === null) return <PublicFrame><p>找不到此故事(可能尚未發布)。</p></PublicFrame>;
-
-  const episode = result.payload as EpisodeProjection;
-  const prevDay = route.worldDay - 1;
-  const nextDay = route.worldDay + 1;
+  if (!route) {
+    return (
+      <PublicPageFrame worldId={null}>
+        <h1 className="text-3xl font-bold">故事</h1>
+        <p className="mt-2">
+          網址格式應為 <code>#episode/&lt;worldId&gt;/&lt;worldDay&gt;</code>
+        </p>
+      </PublicPageFrame>
+    );
+  }
+  if (result === undefined) {
+    return (
+      <PublicPageFrame worldId={route.worldId}>
+        <h1 className="text-3xl font-bold">故事</h1>
+        <p className="mt-2">載入中…</p>
+      </PublicPageFrame>
+    );
+  }
+  if (result === null) {
+    return (
+      <PublicPageFrame worldId={route.worldId}>
+        <h1 className="text-3xl font-bold">故事</h1>
+        <p className="mt-2">找不到此故事(可能尚未發布)。</p>
+      </PublicPageFrame>
+    );
+  }
 
   return (
-    <PublicFrame>
+    <EpisodeDetailView
+      worldId={route.worldId}
+      worldDay={route.worldDay}
+      episode={result.payload as EpisodeProjection}
+      onNavigate={navigate}
+    />
+  );
+}
+
+/**
+ * Presentational episode detail, including the recap-depth state. Split out
+ * from the data-fetching default export so the accessibility suite can render
+ * the real markup — in every recap depth — without a Convex client.
+ */
+export function EpisodeDetailView({
+  worldId,
+  worldDay,
+  episode,
+  initialRecapView = 'quick',
+  onNavigate = navigate,
+}: {
+  worldId: string;
+  worldDay: number;
+  episode: EpisodeProjection;
+  initialRecapView?: RecapView;
+  onNavigate?: (worldId: string, worldDay: number) => void;
+}) {
+  const [view, setView] = useState<RecapView>(initialRecapView);
+  const prevDay = worldDay - 1;
+  const nextDay = worldDay + 1;
+
+  return (
+    <PublicPageFrame worldId={worldId}>
       <header>
-        <p className="text-sm opacity-70">第 {episode.episodeNumber} 集 · 世界日 {episode.worldDay}</p>
+        <p className="text-sm public-muted">
+          第 {episode.episodeNumber} 集 · 世界日 {episode.worldDay}
+        </p>
         <h1 className="text-3xl font-bold mt-1">{episode.title}</h1>
         <p className="mt-2 text-lg">{episode.headline}</p>
       </header>
 
-      <nav className="recap-tabs" aria-label="Recap view">
-        {(['quick', 'standard', 'deep'] as const).map((tab) => (
-          <button key={tab} className={view === tab ? 'active' : ''} onClick={() => setView(tab)}>
-            {tab === 'quick' ? '快速' : tab === 'standard' ? '標準' : '深度'}
-          </button>
-        ))}
-      </nav>
+      <section className="recap" aria-labelledby="episode-recap">
+        <h2 id="episode-recap" className="text-xl font-semibold mt-4">
+          回顧
+        </h2>
 
-      <section className="recap-body">
-        {view === 'quick' && <p>{episode.oneLineSummary}</p>}
-        {view === 'standard' && (
-          <div>
-            <p>{episode.oneLineSummary}</p>
-            {episode.resolvedQuestions.length > 0 && (
-              <ul><li className="mt-2">已揭曉:{episode.resolvedQuestions.join('、')}</li></ul>
-            )}
-          </div>
-        )}
-        {view === 'deep' && (
-          <div>
-            {episode.keyScenes.map((scene, index) => (
-              <article key={index} className="mt-3">
-                <h3 className="font-semibold">{scene.title}</h3>
-                <p>{scene.summary}</p>
-              </article>
-            ))}
-            {episode.relationshipChanges.length > 0 && (
-              <p className="mt-3 text-sm opacity-80">關係變化:{episode.relationshipChanges.map((c) => c.summary).join(' ')}</p>
-            )}
-            {episode.newQuestions.length > 0 && (
-              <p className="mt-1 text-sm opacity-80">新懸念:{episode.newQuestions.join('、')}</p>
-            )}
-          </div>
-        )}
+        {/* Not a <nav>: these controls change the recap depth in place, they do
+            not navigate. `aria-pressed` announces the current depth. */}
+        <div className="recap-tabs flex flex-wrap gap-2" role="group" aria-label="回顧深度">
+          {(['quick', 'standard', 'deep'] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              aria-pressed={view === tab}
+              className={`public-tap border ${view === tab ? 'font-bold underline' : ''}`}
+              onClick={() => setView(tab)}
+            >
+              {RECAP_LABELS[tab]}
+            </button>
+          ))}
+        </div>
+
+        <div className="recap-body mt-2">
+          {view === 'quick' && <p>{episode.oneLineSummary}</p>}
+          {view === 'standard' && (
+            <div>
+              <p>{episode.oneLineSummary}</p>
+              {episode.resolvedQuestions.length > 0 && (
+                <ul>
+                  <li className="mt-2">已揭曉:{episode.resolvedQuestions.join('、')}</li>
+                </ul>
+              )}
+            </div>
+          )}
+          {view === 'deep' && (
+            <div>
+              {episode.keyScenes.map((scene, index) => (
+                <article key={index} className="mt-3">
+                  <h3 className="font-semibold">{scene.title}</h3>
+                  <p>{scene.summary}</p>
+                </article>
+              ))}
+              {episode.relationshipChanges.length > 0 && (
+                <p className="mt-3 text-sm public-muted">
+                  關係變化:{episode.relationshipChanges.map((c) => c.summary).join(' ')}
+                </p>
+              )}
+              {episode.newQuestions.length > 0 && (
+                <p className="mt-1 text-sm public-muted">新懸念:{episode.newQuestions.join('、')}</p>
+              )}
+            </div>
+          )}
+        </div>
       </section>
 
-      <section className="related" aria-label="Related">
-        <h2 className="text-xl font-semibold mt-4">關連角色</h2>
-        <ul>{episode.characterIds.map((id) => <li key={id}><a href={`#character/${id}`}>{id}</a></li>)}</ul>
-        <h2 className="text-xl font-semibold mt-3">關連故事線</h2>
-        <ul>{episode.arcIds.map((id) => <li key={id}><a href={`#arc/${id}`}>{id}</a></li>)}</ul>
+      <section className="related" aria-labelledby="episode-related-characters">
+        <h2 id="episode-related-characters" className="text-xl font-semibold mt-4">
+          關連角色
+        </h2>
+        <ul>
+          {episode.characterIds.map((id) => (
+            <li key={id}>
+              <a href={`#character/${worldId}/${id}`}>{id}</a>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="related-arcs" aria-labelledby="episode-related-arcs">
+        <h2 id="episode-related-arcs" className="text-xl font-semibold mt-3">
+          關連故事線
+        </h2>
+        <ul>
+          {episode.arcIds.map((id) => (
+            <li key={id}>
+              <a href={`#arc/${worldId}/${id}`}>{id}</a>
+            </li>
+          ))}
+        </ul>
       </section>
 
       {episode.nextEpisodeTease && <p className="mt-4 italic">{episode.nextEpisodeTease}</p>}
 
-      <nav className="episode-nav" aria-label="Episode navigation">
-        <button disabled={prevDay < 1} onClick={() => navigate(route.worldId, prevDay)}>← 上一集</button>
-        <button onClick={() => navigate(route.worldId, nextDay)}>下一集 →</button>
+      <nav className="episode-nav mt-4 flex flex-wrap gap-2" aria-label="集數導覽">
+        <button
+          type="button"
+          className="public-tap border"
+          disabled={prevDay < 1}
+          onClick={() => onNavigate(worldId, prevDay)}
+        >
+          上一集(第 {prevDay} 日)
+        </button>
+        <button
+          type="button"
+          className="public-tap border"
+          onClick={() => onNavigate(worldId, nextDay)}
+        >
+          下一集(第 {nextDay} 日)
+        </button>
       </nav>
-    </PublicFrame>
-  );
-}
-
-function PublicFrame({ children }: { children: React.ReactNode }) {
-  return (
-    <main className="public-page mx-auto max-w-2xl p-4 font-body">
-      <a href="#home" className="text-sm opacity-70">← 返回首頁</a>
-      <div className="mt-3">{children}</div>
-    </main>
+    </PublicPageFrame>
   );
 }
