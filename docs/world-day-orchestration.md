@@ -2,6 +2,8 @@
 
 ART-23 implements PRD Section 12 stages 1–10 as one ordered, recoverable pre-commit workflow. It stops at Accepted Event commit; projection updates, cognition, Story Arc classification, editorial generation, publication, snapshots, and metrics belong to later tasks.
 
+This document describes the stage sequencer itself. The live handlers that bind it to a deployment — and the entry point that executes a queued world time slot — are documented in `docs/world-day-execution.md` (ART-97).
+
 ## Ordered stages
 
 `WORLD_DAY_STAGES` is the canonical order:
