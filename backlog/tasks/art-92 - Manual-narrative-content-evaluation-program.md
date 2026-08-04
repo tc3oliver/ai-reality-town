@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@agent-art92'
 created_date: '2026-08-02 16:20'
-updated_date: '2026-08-04 08:46'
+updated_date: '2026-08-04 08:48'
 labels:
   - prd-1.0
   - epic-p
@@ -150,6 +150,8 @@ Six findings recorded, none of which touched Canon:
 ## AC#3 scope disclosure
 
 AC#3 has two halves. The FAILED-THRESHOLD half is both defined (rubric section 7) and demonstrated: the executed review scored six dimensions below threshold and recorded six findings, and no Canon was altered - the review has no mechanism to alter it, since accepted events are append-only and the packet is generated read-only from an in-memory replay of the seed. The DISAGREEMENT half is defined (rubric section 6: differences of >=2 are recorded as disagreements with both scores and both evidence references, never averaged; an unresolved disagreement on a hard gate is a FAIL) but was NOT exercised, because this baseline evaluation had a single evaluator. Rubric section 6 requires two independent evaluators only for a release-gate evaluation, which is the ART-72 re-run, not this one. Recorded here rather than implied.
+
+Post-merge revalidation after merging origin/main (ART-50/62/99 siblings): npm run check -> architecture boundaries valid, test:architecture 6/6, typecheck clean, lint clean, jest 85 suites / 1085 passed / 5 skipped, vite build OK in 2.22 s. No conflicts beyond a clean auto-merge of docs/DEVELOPMENT.md.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
