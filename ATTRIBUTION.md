@@ -22,10 +22,17 @@ AI Reality Town is based on **AI Town** by `a16z-infra` and its contributors.
 ## What comes from upstream
 
 The AI Town game engine (`convex/engine`), game logic (`convex/aiTown`), the agent/LLM
-layer (`convex/agent`), the PixiJS client (`src/`), the level editor (`src/editor/`), all
-assets (`assets/`, `public/`, `data/`), the hand-rolled LLM adapter
-(`convex/util/llm.ts`), and the original documentation are retained from upstream under
-the MIT License. AI Town's authorship and copyright are preserved unchanged.
+layer (`convex/agent`), the PixiJS client (`src/`), the level editor (`src/editor/`), the
+hand-rolled LLM adapter (`convex/util/llm.ts`), and the original documentation are
+retained from upstream **source code** under the MIT License. AI Town's authorship and
+copyright are preserved unchanged.
+
+**Art, audio, and font assets are not covered by that MIT grant.** The bundled assets
+under `assets/`, `public/`, and `data/` were third-party works in upstream AI Town;
+a16z-infra did not hold copyright in them and therefore could not license them under MIT.
+They are redistributed under their own terms, several of which require attribution as a
+condition of the grant. See [`ASSETS-LICENSE.md`](./ASSETS-LICENSE.md) for the credits and
+the open provenance questions.
 
 ## What is new in this project
 
@@ -43,4 +50,8 @@ to):
 
 Third-party assets and dependencies retain their upstream provenance and licenses.
 PixiJS, React, Convex, Vite, Jest, Tailwind, and others remain under their respective
-licenses as declared in `package.json`.
+licenses as declared in `package.json`. Note that `convex` is Apache-2.0, not MIT.
+
+Bundled art, audio, and font assets are credited individually in
+[`ASSETS-LICENSE.md`](./ASSETS-LICENSE.md), which also records the provenance questions
+that remain unresolved.

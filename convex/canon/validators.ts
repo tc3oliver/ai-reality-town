@@ -24,7 +24,9 @@ import {
   isKnowledgeTruthStatus,
   isKnowledgeShareability,
   isProposedByType,
+  isRemediationEventType,
   isStateChangeType,
+  isSupersedingEventType,
   isTimeSlot,
 } from './eventTypes';
 import type { CanonRuleContext, ProposedEvent, WorldProjection } from './model';
@@ -346,8 +348,7 @@ export function validateEventStructure(event: unknown): CanonValidationError | n
   if (!isEventType(event.eventType))
     return canonError('INVALID_EVENT_SHAPE', 'eventType is not supported', { eventType: event.eventType }, 'eventType');
 
-  const remediationTypes = new Set(['correction', 'compensation', 'retcon']);
-  if (remediationTypes.has(event.eventType as string) && event.proposedBy.type !== 'admin')
+  if (isRemediationEventType(event.eventType) && event.proposedBy.type !== 'admin')
     return canonError('INVALID_EVENT_SHAPE', 'remediation events must be proposed by an administrator', undefined, 'proposedBy.type');
 
   if (event.locationId !== undefined && !isReference(event.locationId))
@@ -376,7 +377,7 @@ export function validateEventStructure(event: unknown): CanonValidationError | n
     if (c === event.idempotencyKey)
       return canonError('INVALID_EVENT_SHAPE', 'causedByEventIds must not reference the event itself', { idempotencyKey: c }, 'causedByEventIds');
   }
-  if (remediationTypes.has(event.eventType as string) && event.causedByEventIds.length === 0)
+  if (isRemediationEventType(event.eventType) && event.causedByEventIds.length === 0)
     return canonError('INVALID_EVENT_SHAPE', 'remediation events must reference corrected events', undefined, 'causedByEventIds');
 
   if (event.publicSummary !== undefined) {
@@ -432,6 +433,15 @@ export function validateCanon(
     projection.characterAlive[characterId]
       ?? ruleContext?.initialCharacterAlive?.[characterId]
       ?? true;
+  /**
+   * FR-K003. A `correction`/`retcon` restates what accepted history should have
+   * said, so the two rules that only describe the world moving FORWARD do not
+   * apply to it: it may involve a character the record wrongly killed, and it may
+   * restore that character's life state. Every other canon rule — references,
+   * preconditions, per-event uniqueness, immutable world rules — still applies,
+   * and the remediation is still an APPENDED event: nothing is edited or deleted.
+   */
+  const supersedesHistory = isSupersedingEventType(event.eventType);
 
   if (event.locationId !== undefined && knownLocations && !knownLocations.has(event.locationId)) {
     return canonError('UNKNOWN_LOCATION_REFERENCE', 'event location does not exist', { locationId: event.locationId }, 'locationId');
@@ -440,7 +450,7 @@ export function validateCanon(
     if (knownCharacters && !knownCharacters.has(characterId)) {
       return canonError('UNKNOWN_CHARACTER_REFERENCE', 'event participant does not exist', { characterId }, 'participantIds');
     }
-    if (!alive(characterId)) {
+    if (!alive(characterId) && !supersedesHistory) {
       return canonError('DEAD_CHARACTER_ACTION', 'dead characters cannot participate in normal events', { characterId }, 'participantIds');
     }
   }
@@ -644,7 +654,7 @@ export function validateCanon(
       if (alive(change.characterId) === change.alive) {
         return canonError('INVALID_LIFE_STATE_CHANGE', 'life-state change must alter the current state', { characterId: change.characterId }, path);
       }
-      if (change.alive) {
+      if (change.alive && !supersedesHistory) {
         return canonError('INVALID_LIFE_STATE_CHANGE', 'resurrection is not a normal Canon transition', { characterId: change.characterId }, path);
       }
       if (!participants.has(change.characterId)) {
