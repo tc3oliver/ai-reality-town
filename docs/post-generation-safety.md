@@ -16,6 +16,9 @@ A sanitized public summary may remove excessive detail only when it retains the 
 ordered Accepted Event/core Fact ID list. This proves fidelity without requiring unsafe
 wording to remain public.
 
+Untrusted viewer-submitted text is classified by its own layer before it can influence any
+generation input; see `docs/viewer-input-safety.md`.
+
 Focused verification:
 
 ```bash
