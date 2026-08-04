@@ -1,11 +1,11 @@
 ---
 id: ART-104
 title: Configure Convex identity provider and retire the shared ops-token path
-status: In Progress
+status: Done
 assignee:
   - '@oliver'
 created_date: '2026-08-04 10:36'
-updated_date: '2026-08-04 12:38'
+updated_date: '2026-08-04 13:18'
 labels: []
 dependencies: []
 ordinal: 104000

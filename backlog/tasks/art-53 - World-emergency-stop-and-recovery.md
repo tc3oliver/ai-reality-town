@@ -1,11 +1,11 @@
 ---
 id: ART-53
 title: World emergency stop and recovery
-status: In Review
+status: Done
 assignee:
   - '@tc3oliver'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-04 07:49'
+updated_date: '2026-08-04 13:18'
 labels:
   - prd-1.0
   - epic-m

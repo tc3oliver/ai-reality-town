@@ -1,9 +1,10 @@
 ---
 id: ART-103
 title: Wire pre-generation safety into the provider call path
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-04 10:36'
+updated_date: '2026-08-04 13:18'
 labels: []
 dependencies: []
 ordinal: 103000

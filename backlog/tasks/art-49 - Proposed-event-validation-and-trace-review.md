@@ -1,11 +1,11 @@
 ---
 id: ART-49
 title: Proposed-event validation and trace review
-status: In Review
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-04 07:44'
+updated_date: '2026-08-04 13:18'
 labels:
   - prd-1.0
   - epic-m
