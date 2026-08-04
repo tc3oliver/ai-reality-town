@@ -111,7 +111,14 @@ diverged into an independent platform. See [`ATTRIBUTION.md`](./ATTRIBUTION.md).
 
 ## License
 
-MIT — unchanged from upstream. See [`LICENSE`](./LICENSE).
+Source code is MIT — unchanged from upstream. See [`LICENSE`](./LICENSE).
+
+Bundled art, audio, and font assets are **not** covered by that MIT grant. They are
+third-party works redistributed under their own terms, several of which require
+attribution. See [`ASSETS-LICENSE.md`](./ASSETS-LICENSE.md) for credits — including
+OpenGameArt tilesets by George Bailey and hilau, environment art by
+[ansimuz](https://opengameart.org/content/tiny-rpg-forest), and UI art by
+[Mounir Tohami](https://mounirtohami.itch.io/pixel-art-gui-elements).
 
 ## Security
 

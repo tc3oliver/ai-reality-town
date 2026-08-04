@@ -84,6 +84,11 @@ export const stop = mutation({
 
 export const resume = mutation({
   handler: async (ctx) => {
+    // ART-62 (NFR-005): `stop` above is gated on STOP_NOT_ALLOWED but `resume` was not,
+    // so a deployment that disabled the developer freeze control could still be
+    // restarted by any anonymous caller. Both halves of the control now honour the
+    // same switch; the FreezeButton UI is already hidden when it is set.
+    if (process.env.STOP_NOT_ALLOWED) throw new Error('Resume not allowed');
     const { worldStatus, engine } = await getDefaultWorld(ctx.db);
     if (worldStatus.status === 'running') {
       if (!engine.running) {
