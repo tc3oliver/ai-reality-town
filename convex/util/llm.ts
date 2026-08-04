@@ -1,4 +1,11 @@
-// That's right! No imports and no dependencies 🤯
+// The one deliberate dependency is the pre-generation safety gate (audit H-4 / NFR-005):
+// every provider-bound chat completion must pass it before any network call, so this
+// module cannot stay dependency-free without re-implementing the policy inline.
+import {
+  PRE_GENERATION_PROVIDER_CONSTRAINT,
+  assertPreGenerationSafe,
+  chatMessagesToSafetyInput,
+} from '../safety/preGeneration';
 
 const OPENAI_EMBEDDING_DIMENSION = 1536;
 const TOGETHER_EMBEDDING_DIMENSION = 768;
@@ -141,6 +148,11 @@ export async function chatCompletion(
   body.model = body.model ?? config.chatModel;
   const stopWords = body.stop ? (typeof body.stop === 'string' ? [body.stop] : body.stop) : [];
   if (config.stopWords) stopWords.push(...config.stopWords);
+  // ART-62 / H-4: screen every provider-bound message against the pre-generation safety
+  // policy and prepend the non-user-editable constraint. Blocked input throws before any
+  // network call, so the provider is provably never invoked for prohibited content.
+  assertPreGenerationSafe(chatMessagesToSafetyInput(body.messages ?? []));
+  body.messages = [{ role: 'system', content: PRE_GENERATION_PROVIDER_CONSTRAINT }, ...(body.messages ?? [])];
   // ART-62 (NFR-005): never log the request body. `body.messages` carries raw prompt
   // text — character memories, private knowledge, and world context — straight into the
   // Convex function log, which is a far weaker boundary than the ART-57 trace pipeline

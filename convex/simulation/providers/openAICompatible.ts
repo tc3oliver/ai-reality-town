@@ -1,5 +1,6 @@
 import type { SimulationInput } from '../model';
 import { SimulationProviderError, type EmbeddingResult, type LanguageModelProvider, type ProviderTraceMetadata, type SimulationProvider, type StructuredChatRequest, type StructuredChatResult } from '../provider';
+import { PRE_GENERATION_PROVIDER_CONSTRAINT, assertPreGenerationSafe, chatMessagesToSafetyInput } from '../../safety/preGeneration';
 import type { OpenAICompatibleConfig } from './config';
 
 type Fetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -55,7 +56,12 @@ export class OpenAICompatibleProvider implements LanguageModelProvider, Simulati
   }
 
   async structuredChat(request: StructuredChatRequest): Promise<StructuredChatResult> {
-    const response = await this.request(this.config.chatUrl, { model: this.config.chatModel, messages: request.messages,
+    // ART-62 / H-4: screen every provider-bound message against the pre-generation policy
+    // and prepend the non-user-editable constraint. Blocked input throws before any network
+    // request, so the provider is provably never invoked for prohibited content.
+    assertPreGenerationSafe(chatMessagesToSafetyInput(request.messages));
+    const response = await this.request(this.config.chatUrl, { model: this.config.chatModel,
+      messages: [{ role: 'system', content: PRE_GENERATION_PROVIDER_CONSTRAINT }, ...request.messages],
       temperature: request.temperature, max_tokens: request.maxTokens,
       response_format: { type: 'json_schema', json_schema: { name: request.schemaName, strict: true, schema: request.jsonSchema } } });
     const root = record(response.body, 'LLM_CHAT_INCOMPATIBLE');

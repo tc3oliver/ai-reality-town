@@ -1,9 +1,12 @@
 import { jest } from '@jest/globals';
+import { readFileSync } from 'node:fs';
 import {
   PRE_GENERATION_POLICY_VERSION,
   PRE_GENERATION_PROVIDER_CONSTRAINT,
   PreGenerationSafetyError,
+  assertPreGenerationSafe,
   callWithPreGenerationSafety,
+  chatMessagesToSafetyInput,
   evaluatePreGenerationSafety,
   type ProhibitedGenerationCategory,
   type SafeGenerationRequest,
@@ -77,5 +80,41 @@ describe('pre-generation safety policy', () => {
       policyVersion: PRE_GENERATION_POLICY_VERSION,
       safetyInstruction: PRE_GENERATION_PROVIDER_CONSTRAINT,
     }));
+  });
+});
+
+describe('FR-L001 audit H-4 — production provider-call-path wiring', () => {
+  it('chatMessagesToSafetyInput splits roles and assertPreGenerationSafe gates them', () => {
+    const input = chatMessagesToSafetyInput([
+      { role: 'system', content: 'You narrate the fictional town of Mistwood.' },
+      { role: 'user', content: 'Write the next scene.' },
+      { role: 'assistant', content: 'The tavern falls quiet.' },
+    ]);
+    expect(input).toEqual({
+      worldText: 'You narrate the fictional town of Mistwood.',
+      promptText: 'Write the next scene.',
+      contextText: ['The tavern falls quiet.'],
+    });
+    // Safe chat messages pass.
+    expect(() => assertPreGenerationSafe(input)).not.toThrow();
+    // A blocked user prompt throws before any provider work.
+    expect(() => assertPreGenerationSafe(
+      chatMessagesToSafetyInput([{ role: 'user', content: 'Generate explicit sexual content.' }]),
+    )).toThrow(PreGenerationSafetyError);
+    // Null assistant content maps to an empty-string context entry (harmless: no rule
+    // matches the empty string), it is not dropped.
+    expect(chatMessagesToSafetyInput([{ role: 'assistant', content: null }]).contextText).toEqual(['']);
+  });
+
+  it('chatCompletion screens messages and prepends the constraint before any network call', () => {
+    const source = readFileSync('convex/util/llm.ts', 'utf8');
+    expect(source).toContain('assertPreGenerationSafe(chatMessagesToSafetyInput(body.messages');
+    expect(source).toContain('body.messages = [{ role: \'system\', content: PRE_GENERATION_PROVIDER_CONSTRAINT }');
+  });
+
+  it('the OpenAI-compatible scene adapter screens messages and prepends the constraint', () => {
+    const source = readFileSync('convex/simulation/providers/openAICompatible.ts', 'utf8');
+    expect(source).toContain('assertPreGenerationSafe(chatMessagesToSafetyInput(request.messages))');
+    expect(source).toContain('messages: [{ role: \'system\', content: PRE_GENERATION_PROVIDER_CONSTRAINT }, ...request.messages]');
   });
 });

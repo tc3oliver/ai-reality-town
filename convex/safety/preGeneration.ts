@@ -144,3 +144,36 @@ export async function callWithPreGenerationSafety<T>(
     safetyInstruction: PRE_GENERATION_PROVIDER_CONSTRAINT,
   });
 }
+
+/** A chat-style message the pre-generation gate can screen. */
+export type SafetyChatMessage = { role: string; content: string | null };
+
+/**
+ * Map a provider-bound chat message list to the pre-generation screening input.
+ *
+ * System messages are world context, user messages are the prompt, and every other turn
+ * (prior assistant output, tool results) is additional context. Every field is screened
+ * by the same rule set, so the split only labels a rejection's `inputKind`; it does not
+ * narrow what is checked.
+ */
+export function chatMessagesToSafetyInput(messages: readonly SafetyChatMessage[]): PreGenerationInput {
+  const worldText = messages.filter((message) => message.role === 'system').map((message) => message.content ?? '').join('\n');
+  const promptText = messages.filter((message) => message.role === 'user').map((message) => message.content ?? '').join('\n');
+  const contextText = messages
+    .filter((message) => message.role !== 'system' && message.role !== 'user')
+    .map((message) => message.content ?? '');
+  return { worldText, promptText, contextText: contextText.length ? contextText : undefined };
+}
+
+/**
+ * Screen pre-generation input and throw {@link PreGenerationSafetyError} if any field is
+ * blocked. The provider call that follows is provably never made for blocked input.
+ *
+ * This is the production-callable entry point the provider call paths use (audit H-4):
+ * `chatCompletion` and the OpenAI-compatible scene adapter both call it before any network
+ * request, then prepend {@link PRE_GENERATION_PROVIDER_CONSTRAINT} to the messages.
+ */
+export function assertPreGenerationSafe(input: PreGenerationInput): void {
+  const decision = evaluatePreGenerationSafety(input);
+  if (decision.decision === 'block') throw new PreGenerationSafetyError(decision);
+}
