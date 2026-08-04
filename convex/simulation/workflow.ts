@@ -18,7 +18,7 @@
  * version; see `docs/upstream.md`). That is intentionally out of scope for Phase 0.
  */
 
-import { mutation } from '../_generated/server';
+import { internalMutation } from '../_generated/server';
 import { v } from 'convex/values';
 import { isCanonError } from '../shared/errors';
 import {
@@ -123,7 +123,13 @@ export const simulationInputArgs = v.object({
 
 // --- Convex mutation -------------------------------------------------------
 
-export const runFoundationSimulation = mutation({
+/**
+ * SECURITY (ART-62, NFR-005): server-only. This mutation inserts `simulationRuns` rows
+ * and commits canon events, so a client-reachable version would let any anonymous
+ * caller append canonical history and grow storage without limit. It authenticates
+ * nothing, so it must stay an `internalMutation`.
+ */
+export const runFoundationSimulation = internalMutation({
   args: { input: simulationInputArgs },
   handler: async (ctx, { input }): Promise<{ runId: string } & FoundationRunOutcome> => {
     // Convex validators use `v.string()` for literal-union fields; cast to the strict

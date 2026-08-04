@@ -124,6 +124,9 @@ the offline checks (`npm run check:offline`) before merging a PR.
 
 ## Asset attribution
 
-- All original AI Town source, assets (`assets/`, `public/`, `src/editor/`), and the
-  level editor remain under their upstream MIT license.
-- Third-party assets retain their upstream provenance; see `ATTRIBUTION.md`.
+- All original AI Town **source code** (including `src/editor/` and the level editor)
+  remains under its upstream MIT license.
+- Art, audio, and font assets under `assets/`, `public/`, and `data/` are **not** MIT.
+  They were third-party works in upstream AI Town and are redistributed under their own
+  terms, several of which require attribution as a condition of the grant. Credits and
+  unresolved provenance questions are recorded in `ASSETS-LICENSE.md`.
