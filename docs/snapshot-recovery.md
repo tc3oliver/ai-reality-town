@@ -31,6 +31,12 @@ The pointer is deliberately separate from Canon commit: accepted history remains
 source of truth and continues to be fully auditable. Admin UI and kill-switch tasks will
 authorize and present these internal operations; they are not public APIs.
 
+FR-K006 now provides that authorized entry point: `activateWorldRollback` and
+`clearWorldRollback` in `convex/operations/emergencyStopFunctions.ts` wrap
+`activateRecoveryHead`/`clearRecoveryHead` behind the operations-console `admin` gate
+and the `operatorAuditLog` trail, and `inspectEmergencyStop` lists the snapshots that
+are valid rollback targets. See `docs/world-emergency-stop.md`.
+
 ## Verification
 
 `snapshotManager.test.ts` executes 30 world days and proves daily idempotency,

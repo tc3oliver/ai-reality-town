@@ -69,6 +69,7 @@ import type * as observability_llmTrace from "../observability/llmTrace.js";
 import type * as observability_model from "../observability/model.js";
 import type * as observability_trace from "../observability/trace.js";
 import type * as observability_traces from "../observability/traces.js";
+import type * as operations_emergencyStopFunctions from "../operations/emergencyStopFunctions.js";
 import type * as operations_operatorAuthorization from "../operations/operatorAuthorization.js";
 import type * as operations_opsConsole from "../operations/opsConsole.js";
 import type * as operations_opsConsoleFunctions from "../operations/opsConsoleFunctions.js";
@@ -107,6 +108,8 @@ import type * as simulation_characterIntent from "../simulation/characterIntent.
 import type * as simulation_characterIntentFunctions from "../simulation/characterIntentFunctions.js";
 import type * as simulation_director from "../simulation/director.js";
 import type * as simulation_directorFunctions from "../simulation/directorFunctions.js";
+import type * as simulation_emergencyStop from "../simulation/emergencyStop.js";
+import type * as simulation_emergencyStopOperations from "../simulation/emergencyStopOperations.js";
 import type * as simulation_fakeProvider from "../simulation/fakeProvider.js";
 import type * as simulation_fakeSceneNarrator from "../simulation/fakeSceneNarrator.js";
 import type * as simulation_model from "../simulation/model.js";
@@ -229,6 +232,7 @@ declare const fullApi: ApiFromModules<{
   "observability/model": typeof observability_model;
   "observability/trace": typeof observability_trace;
   "observability/traces": typeof observability_traces;
+  "operations/emergencyStopFunctions": typeof operations_emergencyStopFunctions;
   "operations/operatorAuthorization": typeof operations_operatorAuthorization;
   "operations/opsConsole": typeof operations_opsConsole;
   "operations/opsConsoleFunctions": typeof operations_opsConsoleFunctions;
@@ -267,6 +271,8 @@ declare const fullApi: ApiFromModules<{
   "simulation/characterIntentFunctions": typeof simulation_characterIntentFunctions;
   "simulation/director": typeof simulation_director;
   "simulation/directorFunctions": typeof simulation_directorFunctions;
+  "simulation/emergencyStop": typeof simulation_emergencyStop;
+  "simulation/emergencyStopOperations": typeof simulation_emergencyStopOperations;
   "simulation/fakeProvider": typeof simulation_fakeProvider;
   "simulation/fakeSceneNarrator": typeof simulation_fakeSceneNarrator;
   "simulation/model": typeof simulation_model;

@@ -33,6 +33,7 @@ import type { DataModel, Doc, Id } from '../_generated/dataModel';
 import type { GenericMutationCtx, GenericQueryCtx } from 'convex/server';
 import { v } from 'convex/values';
 import { TIME_SLOTS } from '../canon/eventTypes';
+import { assertWorldAdmitsSimulation } from '../simulation/emergencyStopOperations';
 import { createSnapshotRecoveryStore, readOperationalWorldProjection } from '../canon/snapshotOperations';
 import { createDailySnapshot } from '../canon/snapshotManager';
 import {
@@ -62,13 +63,13 @@ type QueryCtx = GenericQueryCtx<DataModel>;
  * bootstrap path used until the deployment has an identity provider; when a
  * verified `ctx.auth` identity is present it is preferred and the token is ignored.
  */
-const credentialArgs = {
+export const credentialArgs = {
   operatorId: v.optional(v.string()),
   operatorToken: v.optional(v.string()),
 } as const;
 
 /** Every mutation must state WHY (NFR-005: privileged mutations are reasoned). */
-const commandArgs = { ...credentialArgs, worldId: v.string(), reason: v.string() } as const;
+export const commandArgs = { ...credentialArgs, worldId: v.string(), reason: v.string() } as const;
 
 /**
  * THE gate. Reads the verified Convex identity and the server-only operator
@@ -77,8 +78,12 @@ const commandArgs = { ...credentialArgs, worldId: v.string(), reason: v.string()
  * The registry lives in the `SIMULATION_OPS_OPERATORS` deployment environment
  * variable and is never returned to a caller. An unset variable yields an empty
  * registry, which denies everyone — the console fails closed.
+ *
+ * Exported so every additional authorized console surface (for example the FR-K006
+ * emergency-stop controls in `./emergencyStopFunctions.ts`) passes through THIS gate
+ * instead of standing up a second authorization mechanism.
  */
-async function requireOperator(
+export async function requireOperator(
   ctx: QueryCtx | MutationCtx,
   capability: OpsCapability,
   args: { worldId: string; operatorId?: string; operatorToken?: string },
@@ -102,7 +107,7 @@ async function requireOperator(
  * path to a throw would be rolled back. Denied attempts are observable in the
  * Convex function logs instead; see `docs/simulation-operations-console.md`.
  */
-async function recordAudit(
+export async function recordAudit(
   ctx: MutationCtx,
   input: {
     principal: OperatorPrincipal; worldId: string; capability: OpsCapability;
@@ -113,7 +118,7 @@ async function recordAudit(
 }
 
 /** Reject a non-finite caller clock before it can be written anywhere. */
-function operatorNow(now: number | undefined): number {
+export function operatorNow(now: number | undefined): number {
   const value = now ?? Date.now();
   if (!Number.isFinite(value)) throw unauthorized();
   return value;
@@ -164,6 +169,9 @@ export const advanceSlot = mutation({
   handler: async (ctx, args) => {
     const principal = await requireOperator(ctx, 'slot.advance', args);
     const at = operatorNow(args.now);
+    // FR-K006: reserving a slot queues NEW simulation work, so it is refused while
+    // the world's kill switch is engaged. Releasing the stop restores this control.
+    await assertWorldAdmitsSimulation(ctx.db, args.worldId);
     const wholeDay = args.wholeWorldDay === true;
     // Reservation is keyed by slotKey, so a repeated advance for an already
     // reserved slot reserves nothing rather than double-booking it.

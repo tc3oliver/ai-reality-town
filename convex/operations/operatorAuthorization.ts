@@ -48,6 +48,11 @@ export type OperatorRole = (typeof OPERATOR_ROLES)[number];
  * The eight FR-K001 console capabilities, one per PRD bullet:
  * pause / resume / advance a slot / retry a failed run / cancel an uncommitted
  * scene / inspect world state / create a snapshot / inspect schedules and queues.
+ *
+ * Plus the three FR-K006 emergency capabilities. They are deliberately SEPARATE
+ * from `world.pause`/`world.resume`: the kill switch halts the executor itself
+ * rather than only the clock, and rollback repoints operational reads, so both
+ * are reserved for `admin` even though an ordinary pause is not.
  */
 export const OPS_CAPABILITIES = [
   'world.pause',
@@ -58,6 +63,9 @@ export const OPS_CAPABILITIES = [
   'world.inspect',
   'snapshot.create',
   'schedule.inspect',
+  'world.emergency_stop',
+  'world.emergency_resume',
+  'world.rollback',
 ] as const;
 export type OpsCapability = (typeof OPS_CAPABILITIES)[number];
 
@@ -77,6 +85,12 @@ const CAPABILITY_MINIMUM_ROLE: Readonly<Record<OpsCapability, OperatorRole>> = {
   'run.retry': 'operator',
   'scene.cancel': 'operator',
   'snapshot.create': 'admin',
+  // FR-K006. Engaging the kill switch halts a whole world's simulation; releasing it
+  // restarts one; rollback repoints every operational read at an earlier snapshot.
+  // All three are world-wide and are therefore reserved for `admin`.
+  'world.emergency_stop': 'admin',
+  'world.emergency_resume': 'admin',
+  'world.rollback': 'admin',
 };
 
 /** Capabilities that only ever read; used to keep read entry points side-effect free. */
