@@ -29,6 +29,41 @@ single movement event and cannot author a scene. `createWorldDayStageHandlers` t
 without changing this wiring, and provider construction stays inside the adapter root the
 architecture boundary reserves for it.
 
+## Who gets cast, and how a stranded character gets back in
+
+Scene selection is neglect-first, then rotating. Locations that can hold a multi-character
+scene rotate by slot ordinal so consecutive slots do not repeat the same cast, but **any**
+location — including one holding a single character — jumps that rotation once its most
+neglected occupant has gone longer than `MAX_SLOTS_WITHOUT_APPEARANCE` (one full world day)
+without appearing in a committed scene.
+
+That reservation exists because preferring multi-character locations is otherwise a stable
+preference: on a seed where some location always holds two people, the solo path never runs
+and a character the seed places alone starves forever. ART-60's 30-day harness measured
+exactly that — five of Mistwood's twelve residents never appeared in any of 450 committed
+scenes. ART-101 fixed it.
+
+A neglected solo character who can reach a location someone else is standing in is planned
+as a **travel scene**. FR-C002 requires every planned participant to already be at the scene
+location, so the travel scene is planned at the character's **origin** and declares its
+intent through `expectedStateChangeTypes: [… 'character_location_changed']` — the plan
+schema is closed, so nothing is added to it. The intent stage re-derives the same
+destination from the same stage-1 snapshot (`travelDestinationFor`: the connected location
+holding the most other characters, ties by location ID) and issues an Intent whose
+`desiredLocationId` is that destination, which `validateCharacterIntent` accepts because it
+is reachable. FR-C004 grouping then places the Scene at the destination and may merge the
+traveller into the residents' Scene there. At most `MAX_TRAVEL_SCENES_PER_SLOT` (one) scene
+per slot travels, so a merged cast stays at `MAX_PLANNED_SCENE_PARTICIPANTS` + 1 = 5, inside
+the FR-C004 limit of six.
+
+The author never sees the world projection, so it cannot state the movement precondition
+Canon requires (`fromLocationId` must equal the character's current location). The
+orchestrator states it: `withArrivalStateChanges` prepends the
+`character_location_changed` for any participant not yet standing where the Scene happens,
+reading the same stage-1 snapshot the Director planned against. It stays a **proposal** —
+it passes through `validateEventStructure`, `validateCanon` (connectivity, capacity, one
+move per slot, participant membership) and `commitProposedEvent` like any other (ADR-0001).
+
 Retries are safe because identity is derived, not allocated: the world-day Run ID, the
 Director/Intent/Grouping/Simulation Run IDs, and every Proposed Event idempotency key come
 from `(worldId, worldDay, timeSlot)`. A completed run short-circuits, an interrupted run
