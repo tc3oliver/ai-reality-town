@@ -4,7 +4,7 @@ title: Whole-scene simulation fails to parse real provider output
 status: To Do
 assignee: []
 created_date: '2026-08-04 16:16'
-updated_date: '2026-08-04 16:51'
+updated_date: '2026-08-04 16:59'
 labels:
   - prd-2.0
   - release-blocker
@@ -30,7 +30,9 @@ Suspected root cause is a broken contract between the request schema and the par
 - The schema therefore cannot make the provider produce what the parser demands.
 - `schemaVersion` is declared `{ const: 1 }` but checked with `root.schemaVersion !== 1` (`:110`), so a string `"1"` or a missing field surfaces as the misleading "unsupported schema version" error regardless of the real defect.
 
-**Why this blocks PRD 2.0:** No accepted event is produced, so `withArrivalStateChanges` (`convex/simulation/worldDayLive.ts:539`) never appends `character_location_changed`. With no canon movement there is nothing for the dynamic layer to render.
+**Why this blocks PRD 2.0 (scope of the block, precisely):** No accepted event is produced by the real provider, so `withArrivalStateChanges` (`convex/simulation/worldDayLive.ts:539`) never appends `character_location_changed` from a live run. This blocks only the **production acceptance** of Canon-driven movement — proving cross-location movement from real-provider accepted events (FR-O002 production acceptance, §22.6, §22.29).
+
+It does **not** block the rest of the dynamic layer. The Mistwood seed (`convex/canon/mistwoodSeed.ts`, twelve characters with `initialLocationId`), `liveState.ts`, and deterministic fixtures already provide enough data to implement and unit-test the map, visual bindings, ambient movement, replay and the rest of the dynamic layer while this task is in progress. Do not use this section to justify blocking unrelated V2 tasks.
 
 ## Evidence
 
