@@ -1,10 +1,10 @@
 ---
 id: ART-98
 title: Wire live post-commit cognition and editorial pipeline
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-08-04 05:07'
-updated_date: '2026-08-04 06:37'
+updated_date: '2026-08-04 10:32'
 labels:
   - prd-1.0
   - epic-g
@@ -101,6 +101,8 @@ Also added: `createConvexPostCommitRunStore` in postCommitOrchestrationFunctions
 - ART-100 (created): every publicRead rebuild replays the whole accepted-event log, so one post-commit run costs several MB of reads at ~65 accepted events; `maxPostCommitEvents` defaults to 1 to stay under the Convex 16 MiB per-transaction read limit.
 - `commitReadModelVersion` read a target's ENTIRE version history on every commit just to clear stale last-known-good rows. Replaced with a `loadLastKnownGood` store method over the existing `by_lkg` index. This was the single largest read cost once rebuilds started running automatically.
 - Episodes for world days 0-1 carry empty `arcIds` because those days' episodes were assembled before backfill classified their events, and ART-33 episode assembly is first-wins per world day. Days 2-3 (assembled after classification) carry real arcIds.
+
+Reconciled to Done: implementation merged via PR #112 (verified on origin/main). Status hygiene sync.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

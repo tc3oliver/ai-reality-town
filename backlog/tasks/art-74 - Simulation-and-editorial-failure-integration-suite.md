@@ -1,11 +1,11 @@
 ---
 id: ART-74
 title: Simulation and editorial failure integration suite
-status: In Progress
+status: Done
 assignee:
   - '@oliver'
 created_date: '2026-08-02 15:43'
-updated_date: '2026-08-04 10:04'
+updated_date: '2026-08-04 10:35'
 labels:
   - prd-1.0
   - epic-p
@@ -98,3 +98,11 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 <!-- SECTION:PLAN:BEGIN -->
 PRD 19.2 cases 6-10. Reuse the real in-memory pipeline (longRunHarness) with failure injection. (1) Export reusable doubles (MemoryReadStore/WorldDayRunStore/PostCommitRunStore) + seededCanonStore + createWorldDayPort + createPostCommitHarness + add createLongRunFixture(provider?) factory; refactor runLongRunSimulation to use it (pure visibility extraction, digest unchanged). (2) New convex/operations/failureIntegration.test.ts with a FlakyWholeSceneProvider (transient/permanent SimulationProviderError) and 5 describe blocks: AC1 simulateWholeScene retries transient failure, records normalized trace (retryCount>0, finite tokens), does NOT retry permanent; AC2 fail-then-resume a slot commits the event exactly once + completed-run short-circuit + commitProposedEvent idempotency dedup; AC3 every episode.sourceEventIds subset of committed-event IDs (accepted-only), day-scoped; AC4 submitRemediation(retcon) refresh runs post-commit pipeline -> timeline/liveState/episode-index projections republished (new versions); AC5 failed run commits nothing (current projection still served) + invalidateReadModel falls back to last-known-good via serveReadModel. Gate: npm run check + the focused jest project.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented convex/operations/failureIntegration.test.ts (9 tests, one describe per AC) + exported reusable longRunHarness doubles with a new createLongRunFixture(provider?) factory (runLongRunSimulation refactored to use it; 7-day digest unchanged). Fault injection via FlakyWholeSceneProvider (transient/permanent/on-demand broken). Focused test command: NODE_OPTIONS=--experimental-vm-modules npx jest --runTestsByPath convex/operations/failureIntegration.test.ts -> 9 passed. Gate: typecheck clean, lint clean, check:architecture valid. PR #137 (auto-merge enabled). AC evidence: #1 retry attemptCount=2 trace.retryCount>=1, permanent not retried; #2 fail-then-resume commits each event once + completed-run short-circuit + commitProposedEvent dedup; #3 episode.sourceEventId subset of accepted same-day events; #4 retcon refresh status=completed, live projection republished (new version, retcon in sourceEventIds); #5 failed slot commits nothing (live still served) + invalidateReadModel falls back to last-known-good.
+
+PR #137 merged 2026-08-04T10:33:02Z (auto-merge). All 5 AC verified; 7-day digest invariant confirms refactor is behavior-preserving.
+<!-- SECTION:NOTES:END -->
