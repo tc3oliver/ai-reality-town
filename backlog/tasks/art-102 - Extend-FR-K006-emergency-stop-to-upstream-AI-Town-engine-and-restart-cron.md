@@ -1,11 +1,11 @@
 ---
 id: ART-102
 title: Extend FR-K006 emergency stop to upstream AI Town engine and restart cron
-status: In Review
+status: Done
 assignee:
   - '@oliver'
 created_date: '2026-08-04 10:36'
-updated_date: '2026-08-04 10:46'
+updated_date: '2026-08-04 13:18'
 labels: []
 dependencies: []
 ordinal: 102000

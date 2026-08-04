@@ -1,11 +1,11 @@
 ---
 id: ART-50
 title: Audited canon correction workflows
-status: In Review
+status: Done
 assignee:
   - '@agent-art50'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-04 08:41'
+updated_date: '2026-08-04 13:18'
 labels:
   - prd-1.0
   - epic-m

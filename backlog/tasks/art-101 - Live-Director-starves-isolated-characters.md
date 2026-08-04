@@ -1,11 +1,11 @@
 ---
 id: ART-101
 title: Live Director starves isolated characters
-status: In Review
+status: Done
 assignee:
   - '@agent-art101'
 created_date: '2026-08-04 08:31'
-updated_date: '2026-08-04 09:29'
+updated_date: '2026-08-04 13:18'
 labels:
   - prd-1.0
   - epic-c
