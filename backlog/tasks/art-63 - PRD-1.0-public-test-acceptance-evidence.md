@@ -5,7 +5,7 @@ status: Done
 assignee:
   - '@oliver'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-04 13:32'
+updated_date: '2026-08-04 13:36'
 labels:
   - prd-1.0
   - epic-q
@@ -113,8 +113,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
