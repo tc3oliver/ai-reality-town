@@ -4,7 +4,7 @@ title: Build the lightweight Visual Runtime and movement trajectory planner
 status: To Do
 assignee: []
 created_date: '2026-08-04 15:58'
-updated_date: '2026-08-04 16:01'
+updated_date: '2026-08-04 16:13'
 labels:
   - prd-2.0
   - v2-d
@@ -58,6 +58,7 @@ ordinal: 114000
 - [ ] #4 Character coordinates are never written back to the backend per frame
 - [ ] #5 Ambient anchor selection is deterministic given characterId, locationId, worldDay and timeBucket
 - [ ] #6 The runtime is testable with deterministic fixtures and no external API
+- [ ] #7 New Convex modules are registered in architecture/module-boundaries.json with dependency rules that forbid the visual runtime from importing any Canon write path, and npm run check:architecture passes
 <!-- AC:END -->
 
 ## Definition of Done

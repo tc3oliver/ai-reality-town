@@ -4,7 +4,7 @@ title: Retire the a16z AI Town server-side simulation engine
 status: To Do
 assignee: []
 created_date: '2026-08-04 15:58'
-updated_date: '2026-08-04 16:01'
+updated_date: '2026-08-04 16:13'
 labels:
   - prd-2.0
   - v2-c
@@ -57,6 +57,8 @@ ordinal: 112000
 - [ ] #5 No LLM call originates from the retired engine
 - [ ] #6 All preserved visual modules listed in PRD 2.0 section 10.3 remain intact and importable
 - [ ] #7 The ART pipeline (Canon, simulation, story, publicRead) shows no regression
+- [ ] #8 Every client-side caller of a retired mutation is removed or neutralized in the same change, so typecheck, lint and build stay green
+- [ ] #9 The interactive game route and its player controls (Interact, Freeze, join/move/chat UI and the join-the-town help copy) are removed or gated off the public surface
 <!-- AC:END -->
 
 ## Definition of Done

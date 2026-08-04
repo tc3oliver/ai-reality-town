@@ -4,7 +4,7 @@ title: Visualize active scenes on the map with focus and public summary
 status: To Do
 assignee: []
 created_date: '2026-08-04 15:58'
-updated_date: '2026-08-04 16:01'
+updated_date: '2026-08-04 16:13'
 labels:
   - prd-2.0
   - v2-f
@@ -58,6 +58,9 @@ ordinal: 122000
 - [ ] #3 Clicking a scene focuses the camera on the relevant location
 - [ ] #4 Private or unpublished scenes are never shown
 - [ ] #5 Ended scenes become a recent event or an Episode entry point
+- [ ] #6 Active scene presentation resolves locationId, participant characterIds and arcIds by tracing sourceEventIds back to accepted events, because the existing liveState LiveScene shape carries none of them
+- [ ] #7 A scene is presentable during the current world day before the daily episode reaches ready status, so the map is not sceneless for most of the day
+- [ ] #8 When no scene qualifies as current, the map degrades to the most recent completed scene rather than showing nothing
 <!-- AC:END -->
 
 ## Definition of Done

@@ -4,7 +4,7 @@ title: 'Render the live 2D map with viewport pan, zoom and camera navigation'
 status: To Do
 assignee: []
 created_date: '2026-08-04 15:58'
-updated_date: '2026-08-04 16:01'
+updated_date: '2026-08-04 16:13'
 labels:
   - prd-2.0
   - v2-f
@@ -61,6 +61,7 @@ ordinal: 118000
 - [ ] #5 Auto-follow of the primary scene can be turned off
 - [ ] #6 Camera transitions respect Reduced Motion and never cause runaway zoom
 - [ ] #7 A Canvas or informational fallback is provided when WebGL is unavailable
+- [ ] #8 The public live route is reachable at the PRD 2.0 path and any legacy hash route redirects to it without losing the world identifier
 <!-- AC:END -->
 
 ## Definition of Done

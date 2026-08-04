@@ -4,7 +4,7 @@ title: Run the Dynamic Viewing MVP public release gate
 status: To Do
 assignee: []
 created_date: '2026-08-04 16:00'
-updated_date: '2026-08-04 16:03'
+updated_date: '2026-08-04 16:13'
 labels:
   - prd-2.0
   - v2-k
@@ -72,6 +72,7 @@ ordinal: 138000
 - [ ] #7 Affected PRD 1.0 P0 capability shows no regression
 - [ ] #8 Typecheck, lint, tests, build and CI all pass
 - [ ] #9 The requirement matrix and closure record are updated and no longer claim product completion from backend completion alone
+- [ ] #10 The public acceptance environment has the Mistwood world seeded and its slot scheduler producing accepted events, so the twelve-character requirement is verified against real canon rather than fixtures only
 <!-- AC:END -->
 
 ## Definition of Done
