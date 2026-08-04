@@ -102,7 +102,7 @@ FR-O010（動態畫面降級）Disposition 為 **New**，擁有專屬 Task **ART
 | FR-P001 動態首頁入口 | New | ART-129 | To Do | P0 | ART-118, ART-111 |
 | FR-P002 Live 與 Episode 連續性 | New | ART-130 | To Do | P0 | ART-122, ART-124 |
 | FR-P003 統一視覺系統 | New | ART-131 | To Do | P0 | ART-125 |
-| FR-P004 Publication 與 Safety 整合 | New | ART-132 | To Do | P0 | ART-115, ART-122 |
+| FR-P004 Publication 與 Safety 整合 | New | ART-132 | To Do | P0 | ART-115, ART-121, ART-122 |
 
 ### 3.4 Epic Q — Dynamic Viewing Operations
 
@@ -256,7 +256,7 @@ Requirement Matrix 不應只放未附證據的診斷結論。ART-139 的既有�
 | `assets/gentle-obj.png` tileset | 保留，用於重排 Mistwood 地圖（ART-109） |
 | `data/gentle.js` 通用地圖 | **不用於公開頁面**，由 `data/mistwood.ts` 取代 |
 | 碰撞資料格式、pathfinding 工具 | 抽取至 Visual Runtime（ART-114） |
-| `src/components/public/*.tsx` 純文字頁面 | 由動態版取代（ART-118／129）；Episode 類頁面保留 |
+| `src/components/public/*.tsx` 純文字頁面 | 動態版成為預設（ART-118／129）；既有文字 LiveView 保留為非地圖 Accessibility Fallback（ART-113），由 ART-135 完成正式無障礙整合；Episode 類頁面保留 |
 
 ## 8. 停用的 a16z 引擎能力（ART-112）
 
@@ -280,7 +280,7 @@ ART-112 同時負責移除公開面的 Human Player／Interact 語意與相關�
 
 | 資料模型 | 性質 | 擁有 Task |
 |---|---|---|
-| `CharacterVisualBinding` | 新增（`paletteVariant`／`nameplate`／`portraitFrame`） | ART-111 |
+| `CharacterVisualBinding` | 新增（`paletteVariant`／`nameplate`／`portraitFrame`／`displayName`／`locale`） | ART-111 |
 | `LocationVisualBinding` | 新增（`zonePolygon`／`entryAnchors`／`ambientAnchors`／`sceneFocusPoint`） | ART-110 |
 | `PublicCharacterMotion` | 新增（`motionType`／`motionSequence`／插值時間戳） | ART-115 |
 | `PublicRuntimeSnapshot` | 新增 | ART-116 |
@@ -301,7 +301,7 @@ ART-112 同時負責移除公開面的 Human Player／Interact 語意與相關�
 | 角色是否存活／參與事件 | **Canon** |
 | Accepted Event、Arc、Episode | **Canon** |
 | `locationId → zonePolygon／anchors／mapId` | **Visual Binding** |
-| `characterId → spriteKey／paletteVariant／nameplate` | **Visual Binding** |
+| `characterId → spriteKey／paletteVariant／nameplate／displayName／locale` | **Visual Binding** |
 | 角色 x／y、路徑、速度、插值 | **Visual Runtime** |
 | 動畫狀態與方向 | **Visual Runtime** |
 | Zone 內的 Ambient 位置 | **Visual Runtime** |
@@ -340,7 +340,7 @@ ART-112 同時負責移除公開面的 Human Player／Interact 語意與相關�
 | 規則 | 擁有 Task |
 |---|---|
 | Replay 不保存自由文字副本，只引用識別碼＋版本 | ART-121 |
-| 來源被 Withhold／Supersede 時 Replay 同步失效或重新建構 | ART-121, ART-132 |
+| 來源被 Withhold／Supersede 時 Replay 同步失效或重新建構 | ART-132（ART-121 只負責引用式 Schema 與播放，不負責偵測與失效） |
 
 ---
 
@@ -442,4 +442,12 @@ ART-112 同時負責移除公開面的 Human Player／Interact 語意與相關�
 
 **額外採納（P1，非缺口修正）：** ART-113 Scope 增加「保留既有文字版 Live View 作為 NFR2-006 非地圖 Fallback，直到 ART-135 完成正式替代」，使 ART-135 有現成基線可擴充，而非從零開始。
 
-**未採納：** review 建議的 Task 對照表全部依實作，無需另建 Task；未發現需要調整 Requirement Matrix 整體結構（Disposition／Delivery State／Release Criticality 三軸模型、Canon／Visual Binding／Visual Runtime 三方責任、§22 覆蓋表）的理由，故 §1～§14 維持不動。
+**未採納：** review 建議的 Task 對照表全部依實作，無需另建 Task；未發現需要調整 Requirement Matrix 整體結構（Disposition／Delivery State／Release Criticality 三軸模型、Canon／Visual Binding／Visual Runtime 三方責任、§22 覆蓋表）的理由。
+
+**整體結構不變，但下列主表欄位已同步修正以符合上述 Task 變更**（第四輪 review 發現本節初版遺漏了這一步）：
+
+- §3.3 FR-P004／ART-132 的 Dependencies 補上 ART-121。
+- §9 `CharacterVisualBinding` 資料模型補上 `displayName`／`locale`。
+- §10 Visual Binding 責任表的 `characterId →` 列補上 `displayName`／`locale`。
+- §11.1 Replay Invalidation 的 Owner 由 `ART-121, ART-132` 更正為 `ART-132`（ART-121 只負責 Schema 與播放，不負責偵測與失效）；§22 #31 維持 `ART-121, ART-132` 不變，因為該條驗收同時涵蓋「引用式資料結構」與「發布狀態失效」兩件事。
+- §7 前端元件重用表更正「純文字頁面由動態版取代」為「動態版成為預設，既有文字 LiveView 保留為 ART-135 的非地圖 Accessibility Fallback」，以符合 ART-113 的決定。
