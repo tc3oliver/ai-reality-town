@@ -1,11 +1,11 @@
 ---
 id: ART-92
 title: Manual narrative content evaluation program
-status: In Progress
+status: In Review
 assignee:
   - '@agent-art92'
 created_date: '2026-08-02 16:20'
-updated_date: '2026-08-04 08:48'
+updated_date: '2026-08-04 08:49'
 labels:
   - prd-1.0
   - epic-p
@@ -84,8 +84,8 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [x] #9 Documentation is updated
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
