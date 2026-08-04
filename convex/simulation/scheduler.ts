@@ -6,7 +6,12 @@ export const PUBLIC_SLOT_START_MS = [0, 6, 11, 15, 19].map((hour) => hour * 3_60
 export type SchedulerMode = 'public' | 'development' | 'test' | 'warmup';
 export type SchedulerStatus = 'running' | 'paused';
 export type SlotTrigger = 'clock' | 'manual-slot' | 'manual-day' | 'accelerated' | 'retry';
-export type SlotRunStatus = 'queued' | 'running' | 'completed' | 'failed';
+/**
+ * `cancelled` is an operations-console terminal state (FR-K001): an authorized
+ * operator dropped a not-yet-committed slot from the queue. It is never reached
+ * by the scheduler itself and never applies to a slot that produced Canon.
+ */
+export type SlotRunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
 
 export type WorldScheduleState = {
   worldId: string;

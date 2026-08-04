@@ -51,7 +51,9 @@ export const simulationTables = {
     worldDay: v.number(),
     timeSlot: v.union(v.literal('morning'), v.literal('noon'), v.literal('afternoon'), v.literal('evening'), v.literal('night')),
     trigger: v.union(v.literal('clock'), v.literal('manual-slot'), v.literal('manual-day'), v.literal('accelerated'), v.literal('retry')),
-    status: v.union(v.literal('queued'), v.literal('running'), v.literal('completed'), v.literal('failed')),
+    // `cancelled` is set only by the authorized operations console (FR-K001) and
+    // only for a slot that has not committed anything to Canon.
+    status: v.union(v.literal('queued'), v.literal('running'), v.literal('completed'), v.literal('failed'), v.literal('cancelled')),
     seed: v.number(),
     publishEnabled: v.boolean(),
     idempotencyKey: v.string(),

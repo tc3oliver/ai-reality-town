@@ -1,6 +1,6 @@
 import { internalMutation, internalQuery } from '../_generated/server';
 import type { DataModel, Id } from '../_generated/dataModel';
-import type { GenericMutationCtx } from 'convex/server';
+import type { GenericMutationCtx, GenericQueryCtx } from 'convex/server';
 import { v } from 'convex/values';
 import { emptyProjection, type WorldProjection } from './model';
 import { replayWorldEvents } from './replay';
@@ -43,7 +43,14 @@ function rowToSnapshot(row: SnapshotRow): StoredCanonSnapshot {
   };
 }
 
-function createStore(db: GenericMutationCtx<DataModel>['db']): SnapshotRecoveryStore {
+/**
+ * Adapt Convex `db` to the snapshot/recovery store.
+ *
+ * Exported so the authorized operations console (FR-K001) creates snapshots through
+ * the SAME store as the internal mutations below rather than reimplementing the
+ * snapshot rules. Callers reachable by an unauthenticated client MUST authorize first.
+ */
+export function createSnapshotRecoveryStore(db: GenericMutationCtx<DataModel>['db']): SnapshotRecoveryStore {
   return {
     async loadAcceptedEvents(worldId) {
       const rows = await db.query('canonEvents')
@@ -98,6 +105,30 @@ function createStore(db: GenericMutationCtx<DataModel>['db']): SnapshotRecoveryS
   };
 }
 
+const createStore = createSnapshotRecoveryStore;
+
+/**
+ * Replay a world to its current operational projection, honouring an active
+ * recovery head. Exported for the authorized operations console's "inspect world
+ * state" control (FR-K001); authorize before calling.
+ */
+export async function readOperationalWorldProjection(
+  db: GenericQueryCtx<DataModel>['db'],
+  worldId: string,
+): Promise<WorldProjection> {
+  const [eventRows, head] = await Promise.all([
+    db.query('canonEvents').withIndex('by_world_and_sequence', (q) => q.eq('worldId', worldId)).collect(),
+    db.query('canonRecoveryHeads').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).unique(),
+  ]);
+  const events = eventRows.map(rowToAcceptedEvent);
+  if (!head) return replayWorldEvents(emptyProjection(worldId), events);
+  const snapshotRow = await db.get(head.targetSnapshotId);
+  if (!snapshotRow || snapshotRow.worldId !== worldId) throw new Error('RECOVERY_HEAD_CONFLICT');
+  const snapshot = rowToSnapshot(snapshotRow);
+  assertSnapshotMatchesHistory(snapshot, events);
+  return cloneProjection(snapshot.projection);
+}
+
 export const persistDailySnapshot = internalMutation({
   args: { worldId: v.string(), worldDay: v.number(), createdAt: v.number() },
   handler: (ctx, args) => createDailySnapshot(createStore(ctx.db), args.worldId, args.worldDay, args.createdAt),
@@ -136,17 +167,5 @@ export const getRecoveryState = internalQuery({
 
 export const getOperationalWorldProjection = internalQuery({
   args: { worldId: v.string() },
-  handler: async (ctx, { worldId }): Promise<WorldProjection> => {
-    const [eventRows, head] = await Promise.all([
-      ctx.db.query('canonEvents').withIndex('by_world_and_sequence', (q) => q.eq('worldId', worldId)).collect(),
-      ctx.db.query('canonRecoveryHeads').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).unique(),
-    ]);
-    const events = eventRows.map(rowToAcceptedEvent);
-    if (!head) return replayWorldEvents(emptyProjection(worldId), events);
-    const snapshotRow = await ctx.db.get(head.targetSnapshotId);
-    if (!snapshotRow || snapshotRow.worldId !== worldId) throw new Error('RECOVERY_HEAD_CONFLICT');
-    const snapshot = rowToSnapshot(snapshotRow);
-    assertSnapshotMatchesHistory(snapshot, events);
-    return cloneProjection(snapshot.projection);
-  },
+  handler: (ctx, { worldId }): Promise<WorldProjection> => readOperationalWorldProjection(ctx.db, worldId),
 });

@@ -1,6 +1,6 @@
 import { internalMutation, internalQuery } from '../_generated/server';
 import type { Doc, Id } from '../_generated/dataModel';
-import type { GenericMutationCtx } from 'convex/server';
+import type { GenericMutationCtx, GenericQueryCtx } from 'convex/server';
 import { v } from 'convex/values';
 import { TIME_SLOTS, type TimeSlot } from '../canon/eventTypes';
 import {
@@ -31,10 +31,74 @@ function rowState(row: Doc<'worldSchedules'>): WorldScheduleState {
   };
 }
 
-async function scheduleRow(db: MutationDb, worldId: string): Promise<Doc<'worldSchedules'>> {
+/**
+ * Load the schedule row for a world, or throw `SCHEDULE_NOT_FOUND`.
+ *
+ * Exported so the authorized operations console (FR-K001) drives the SAME control
+ * logic as the internal mutations below instead of reimplementing it. Callers that
+ * are reachable by an unauthenticated client MUST authorize before calling this.
+ */
+export async function loadScheduleRow(db: MutationDb, worldId: string): Promise<Doc<'worldSchedules'>> {
   const row = await db.query('worldSchedules').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).unique();
   if (!row) throw new SchedulerError('SCHEDULE_NOT_FOUND', 'world schedule does not exist');
   return row;
+}
+
+const scheduleRow = loadScheduleRow;
+
+/** Pause a running world. Idempotent: pausing a paused world changes nothing. */
+export async function pauseWorldSchedule(db: MutationDb, worldId: string, now: number): Promise<Doc<'worldSchedules'>['status']> {
+  assertNow(now);
+  const row = await loadScheduleRow(db, worldId);
+  if (row.status === 'running') await db.patch(row._id, { status: 'paused', pausedAt: now, updatedAt: now });
+  return 'paused';
+}
+
+/**
+ * Resume a paused world, shifting the real-time anchor by the paused duration so
+ * the public clock does not jump. Idempotent: resuming a running world is a no-op.
+ */
+export async function resumeWorldSchedule(db: MutationDb, worldId: string, now: number): Promise<Doc<'worldSchedules'>['status']> {
+  assertNow(now);
+  const row = await loadScheduleRow(db, worldId);
+  if (row.status === 'paused' && row.pausedAt !== undefined) {
+    if (now < row.pausedAt) throw new SchedulerError('INVALID_CLOCK', 'resume time precedes pause time');
+    await db.patch(row._id, {
+      status: 'running', anchorRealTimeMs: row.anchorRealTimeMs + (now - row.pausedAt),
+      pausedAt: undefined, updatedAt: now,
+    });
+  }
+  return 'running';
+}
+
+/** Reserve `count` slots from the world's cursor. Shared by the cron, the internal mutations, and the console. */
+export async function reserveSlots(
+  db: MutationDb, worldId: string, count: number, trigger: SlotTrigger, now: number,
+): Promise<Id<'scheduledSlots'>[]> {
+  return reserve(db, await loadScheduleRow(db, worldId), count, trigger, now);
+}
+
+/** Requeue a failed slot for another attempt. Never touches Canon; the slot keeps its idempotency key. */
+export async function retrySlotRun(db: MutationDb, slotId: Id<'scheduledSlots'>, now: number): Promise<void> {
+  assertNow(now);
+  const row = await db.get(slotId);
+  if (!row || row.status !== 'failed') throw new SchedulerError('INVALID_SLOT_TRANSITION', 'only failed slots may retry');
+  await db.patch(slotId, { status: 'queued', trigger: 'retry', completedAt: undefined, errorCode: undefined, updatedAt: now });
+}
+
+/** Read a world's schedule plus its full slot queue, ordered by world day then time slot. */
+export async function readScheduleInspection(
+  db: GenericQueryCtx<import('../_generated/dataModel').DataModel>['db'],
+  worldId: string,
+): Promise<{ schedule: Doc<'worldSchedules'> | null; runs: Doc<'scheduledSlots'>[] }> {
+  const [schedule, runs] = await Promise.all([
+    db.query('worldSchedules').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).unique(),
+    db.query('scheduledSlots').withIndex('by_world_and_status', (q) => q.eq('worldId', worldId)).collect(),
+  ]);
+  return {
+    schedule,
+    runs: runs.sort((a, b) => a.worldDay - b.worldDay || TIME_SLOTS.indexOf(a.timeSlot) - TIME_SLOTS.indexOf(b.timeSlot)),
+  };
 }
 
 async function reserve(
@@ -85,24 +149,14 @@ export const configureSchedule = internalMutation({
 export const pauseSchedule = internalMutation({
   args: { worldId: v.string(), now: v.number() },
   handler: async (ctx, { worldId, now }) => {
-    assertNow(now);
-    const row = await scheduleRow(ctx.db, worldId);
-    if (row.status === 'running') await ctx.db.patch(row._id, { status: 'paused', pausedAt: now, updatedAt: now });
+    await pauseWorldSchedule(ctx.db, worldId, now);
   },
 });
 
 export const resumeSchedule = internalMutation({
   args: { worldId: v.string(), now: v.number() },
   handler: async (ctx, { worldId, now }) => {
-    assertNow(now);
-    const row = await scheduleRow(ctx.db, worldId);
-    if (row.status === 'paused' && row.pausedAt !== undefined) {
-      if (now < row.pausedAt) throw new SchedulerError('INVALID_CLOCK', 'resume time precedes pause time');
-      await ctx.db.patch(row._id, {
-        status: 'running', anchorRealTimeMs: row.anchorRealTimeMs + (now - row.pausedAt),
-        pausedAt: undefined, updatedAt: now,
-      });
-    }
+    await resumeWorldSchedule(ctx.db, worldId, now);
   },
 });
 
@@ -189,22 +243,10 @@ export const failScheduledSlot = internalMutation({
 
 export const retryScheduledSlot = internalMutation({
   args: { slotId: v.id('scheduledSlots'), now: v.number() },
-  handler: async (ctx, { slotId, now }) => {
-    assertNow(now);
-    const row = await ctx.db.get(slotId);
-    if (!row || row.status !== 'failed') throw new SchedulerError('INVALID_SLOT_TRANSITION', 'only failed slots may retry');
-    await ctx.db.patch(slotId, { status: 'queued', trigger: 'retry', completedAt: undefined, errorCode: undefined, updatedAt: now });
-  },
+  handler: (ctx, { slotId, now }) => retrySlotRun(ctx.db, slotId, now),
 });
 
 export const inspectSchedule = internalQuery({
   args: { worldId: v.string() },
-  handler: async (ctx, { worldId }) => {
-    const [schedule, runs] = await Promise.all([
-      ctx.db.query('worldSchedules').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).unique(),
-      ctx.db.query('scheduledSlots').withIndex('by_world_and_status', (q) => q.eq('worldId', worldId)).collect(),
-    ]);
-    return { schedule, runs: runs.sort((a, b) =>
-      a.worldDay - b.worldDay || TIME_SLOTS.indexOf(a.timeSlot) - TIME_SLOTS.indexOf(b.timeSlot)) };
-  },
+  handler: (ctx, { worldId }) => readScheduleInspection(ctx.db, worldId),
 });
