@@ -4,11 +4,12 @@ title: Daily canon snapshots fail on seeded worlds
 status: To Do
 assignee: []
 created_date: '2026-08-04 06:14'
+updated_date: '2026-08-04 16:00'
 labels:
   - prd-1.0
   - epic-b
 dependencies: []
-priority: medium
+priority: critical
 ordinal: 99000
 ---
 
