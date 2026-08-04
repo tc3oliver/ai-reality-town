@@ -181,7 +181,7 @@ export async function simulateWholeScene(provider: LanguageModelProvider, simula
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       const response = await provider.structuredChat({
-        messages: [{ role: 'system', content: 'Simulate the entire grouped scene once. Return structured JSON only. You may propose events but never commit or mutate Canon.' },
+        messages: [{ role: 'system', content: 'Simulate the entire grouped scene once. Return structured JSON only. You may propose events but never commit or mutate Canon. Write every narrative text field (sceneSummary, keyActions, dialogueHighlights, relationshipChanges, knowledgeChanges, memories, rumors, continuityWarnings, and each proposedEvents publicSummary) in Traditional Chinese (zh-TW). Field names and JSON structure stay in English.' },
           { role: 'user', content: JSON.stringify(scene) }],
         schemaName: 'whole_scene_output', jsonSchema: WHOLE_SCENE_JSON_SCHEMA, temperature: 0.4, maxTokens: 4_000,
       });

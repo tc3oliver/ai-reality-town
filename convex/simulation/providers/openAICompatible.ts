@@ -93,7 +93,7 @@ export class OpenAICompatibleProvider implements LanguageModelProvider, Simulati
   }
 
   async proposeEvent(input: SimulationInput): Promise<unknown> {
-    const result = await this.structuredChat({ messages: [{ role: 'system', content: 'Return only a ProposedEvent JSON object. You may propose but never commit Canon changes.' },
+    const result = await this.structuredChat({ messages: [{ role: 'system', content: 'Return only a ProposedEvent JSON object. You may propose but never commit Canon changes. Write every narrative text field in Traditional Chinese (zh-TW). Field names and JSON structure stay in English.' },
       { role: 'user', content: JSON.stringify(input) }], schemaName: 'proposed_event', jsonSchema: { type: 'object' }, temperature: 0.2, maxTokens: 2_000 });
     return result.output;
   }
