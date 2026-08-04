@@ -17,3 +17,6 @@ can classify every paraphrase. Provider policies and post-generation classificat
 remain mandatory defense layers. Additions must preserve stable codes, avoid logging
 matched source text, test both prohibited and allowed boundaries, and keep the provider
 callback behind `callWithPreGenerationSafety`.
+
+Untrusted viewer-submitted text is classified separately before it may become part of any
+of these fields; see `docs/viewer-input-safety.md`.

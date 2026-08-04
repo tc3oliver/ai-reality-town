@@ -120,6 +120,7 @@ in [`docs/testing/fixtures.md`](testing/fixtures.md).
 - **Initial tension warmup gate:** `docs/tension-readiness.md`.
 - **Pre-generation safety gate:** `docs/pre-generation-safety.md`.
 - **Post-generation safety classification:** `docs/post-generation-safety.md`.
+- **Untrusted viewer-input classification:** `docs/viewer-input-safety.md`.
 - **Secret-safe LLM tracing:** `docs/llm-tracing.md`.
 - **OpenAI-compatible provider adapter:** `docs/openai-compatible-provider.md`.
 - **Accepted-event daily Episodes:** `docs/accepted-event-episodes.md`.
