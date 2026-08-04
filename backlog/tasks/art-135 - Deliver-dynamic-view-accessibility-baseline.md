@@ -4,7 +4,7 @@ title: Deliver dynamic view accessibility baseline
 status: To Do
 assignee: []
 created_date: '2026-08-04 15:59'
-updated_date: '2026-08-04 16:03'
+updated_date: '2026-08-04 16:51'
 labels:
   - prd-2.0
   - v2-j
@@ -20,22 +20,22 @@ ordinal: 135000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-**Requirement ID:** NFR2-006 (PRD 2.0 §16)
+**Requirement ID:** FR-Q004 (PRD 2.0 §12 Epic Q) — realizes NFR2-006 (PRD 2.0 §16)
 
-**Problem / Context:** A canvas-rendered animated map is inherently hostile to keyboard and assistive technology users, and continuous ambient motion is a vestibular risk. PRD 2.0 §22 makes Reduced Motion and a non-map alternative view release gates.
+**Problem / Context:** A canvas-rendered animated map is inherently hostile to keyboard and assistive technology users, and continuous ambient motion is a vestibular risk. PRD 2.0 §22 makes Reduced Motion and a non-map alternative view release gates. FR-Q004 exists so this non-functional requirement has a traceable requirement id and a named owner rather than being implied across other tasks.
 
 **Goal:** The dynamic world is comprehensible and navigable without using the map canvas.
 
 **Scope:**
 - Equivalent non-map list of characters, locations and scenes.
 - Keyboard focus for primary characters and scenes.
-- Reduced Motion support, including disabling ambient and environmental animation and replay auto-play.
-- Animation state never conveyed by colour alone.
+- Reduced Motion support, including disabling ambient movement, environmental animation and replay auto-play.
+- Animation and status state never conveyed by colour alone.
 - Readable text alternatives for important information.
 
-**Out of Scope:** Graph and timeline accessibility (ART-94, kept separate per PRD 2.0 §13).
+**Out of Scope:** Graph and timeline accessibility (ART-94, carried forward per PRD 2.0 §13).
 
-**Dependencies:** FR-O008 responsive experience; ambient/environmental animation.
+**Dependencies:** ART-126 (responsive experience), ART-120 (ambient and environmental animation).
 
 **Schema Impact:** None.
 

@@ -4,7 +4,7 @@ title: Build Visual Replay playback with honest time-state labelling
 status: To Do
 assignee: []
 created_date: '2026-08-04 15:58'
-updated_date: '2026-08-04 16:01'
+updated_date: '2026-08-04 16:50'
 labels:
   - prd-2.0
   - v2-g
@@ -61,6 +61,8 @@ ordinal: 121000
 - [ ] #7 Replay never loops or repeats automatically
 - [ ] #8 Replay can be skipped at any time to reach the current state
 - [ ] #9 The screen always distinguishes replay, earlier and now, and not by colour alone
+- [ ] #10 Replay dialogue and eventCard steps reference publicExcerptId or publicSummaryId plus publicationVersion and never store a free-text copy
+- [ ] #11 When a referenced public excerpt or summary is withheld or superseded, the replay is invalidated or rebuilt and never replays the stale text
 <!-- AC:END -->
 
 ## Definition of Done

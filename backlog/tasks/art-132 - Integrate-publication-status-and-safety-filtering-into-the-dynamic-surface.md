@@ -4,7 +4,7 @@ title: Integrate publication status and safety filtering into the dynamic surfac
 status: To Do
 assignee: []
 created_date: '2026-08-04 15:59'
-updated_date: '2026-08-04 16:02'
+updated_date: '2026-08-04 16:50'
 labels:
   - prd-2.0
   - v2-h
@@ -58,6 +58,7 @@ ordinal: 132000
 - [ ] #3 A safety status update removes the affected content from the public projection
 - [ ] #4 Removing public text does not affect Canon or character positions
 - [ ] #5 Every public text is traceable to an accepted event or a published summary
+- [ ] #6 A withhold or supersede of published content invalidates or rebuilds every Visual Replay referencing it, verified by test
 <!-- AC:END -->
 
 ## Definition of Done

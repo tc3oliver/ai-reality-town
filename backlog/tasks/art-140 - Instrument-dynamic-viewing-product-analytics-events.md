@@ -4,7 +4,7 @@ title: Instrument dynamic viewing product analytics events
 status: To Do
 assignee: []
 created_date: '2026-08-04 16:16'
-updated_date: '2026-08-04 16:17'
+updated_date: '2026-08-04 16:51'
 labels:
   - prd-2.0
   - v2-i
@@ -20,17 +20,17 @@ ordinal: 140000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-**Requirement ID:** PRD 2.0 §17 (dynamic analytics events), enabling §18.1 measurement
+**Requirement ID:** FR-Q007 (PRD 2.0 §12 Epic Q) — realizes §17 — P1
 
-**Problem / Context:** PRD 2.0 §17 defines seventeen new `live_*` analytics events. FR-Q001 (ART-133) covers operational metrics only — projection latency, drift, mutation attempts — not product analytics. Without these events the PRD 2.0 §18.1 MVP targets "Live View to Character click rate >= 20%", "Live View to Episode/Arc click rate >= 15%" and "Replay completion rate >= 50%" cannot be measured at all.
+**Problem / Context:** PRD 2.0 §17 defines seventeen new `live_*` analytics events. FR-Q001 (ART-133) covers operational metrics only, not product analytics. Without these events the PRD 2.0 §18.1 targets for live-to-character click rate, live-to-episode click rate and replay completion rate cannot be measured.
 
-Note the internal PRD tension: §18.1 states these as MVP targets, while §19 places analytics in P1. This task delivers the instrumentation so the targets are measurable; whether the targets gate release is a product call recorded on ART-138.
+PRD 2.0 records the resolution of the internal tension between §18.1 (which states these as MVP targets) and §19 (which places analytics at P1): instrumentation is **P1 and does not block release**, but until FR-Q007 ships the affected §18.1 metrics must be reported as "not measured" and must never be claimed met from estimates.
 
 **Goal:** Emit the seventeen PRD 2.0 §17 events through the existing compliant collection path, with no expansion of personal tracking.
 
 **Scope:**
 - Emit: `live_view_opened`, `live_map_ready`, `live_map_failed`, `live_fallback_used`, `live_character_selected`, `live_scene_selected`, `live_arc_opened`, `live_episode_opened`, `live_camera_follow_enabled`, `live_camera_follow_disabled`, `live_zoom_used`, `live_runtime_stale_seen`, `live_return_to_town`, `live_replay_started`, `live_replay_completed`, `live_replay_skipped`, `live_replay_manual_triggered`.
-- Use only the existing compliant collection mechanism until ART-47 lands; do not widen personal tracking.
+- Use only the existing compliant collection mechanism until ART-47 lands.
 - Exclude private character data, full dialogue, secrets, prompts and precise personal identifiers from every payload.
 
 **Out of Scope:** The privacy-preserving analytics platform itself (ART-47, carried forward); operational metrics (ART-133); dashboards.

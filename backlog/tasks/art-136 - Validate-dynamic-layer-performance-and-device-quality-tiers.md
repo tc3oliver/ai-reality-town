@@ -4,7 +4,7 @@ title: Validate dynamic layer performance and device quality tiers
 status: To Do
 assignee: []
 created_date: '2026-08-04 16:00'
-updated_date: '2026-08-04 16:03'
+updated_date: '2026-08-04 16:51'
 labels:
   - prd-2.0
   - v2-j
@@ -20,24 +20,26 @@ ordinal: 136000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-**Requirement ID:** NFR2-002 (PRD 2.0 §16)
+**Requirement ID:** FR-Q005 (PRD 2.0 §12 Epic Q) — realizes NFR2-002 (PRD 2.0 §16)
 
-**Problem / Context:** Twelve or more animated sprites plus ambient motion plus environmental animation on mid-tier mobile is the most likely place the dynamic layer fails. PRD 2.0 sets explicit interactive-time, query latency and frame-rate targets.
+**Problem / Context:** Twelve or more animated sprites plus ambient motion plus environmental animation on mid-tier mobile is the most likely place the dynamic layer fails. PRD 2.0 makes performance a P0 and §22 requires objective evidence for every P0, so "measure it after launch" is not an acceptable disposition — it would allow declaring MVP completion without ever meeting the performance requirement.
 
-**Goal:** Measured evidence that the dynamic layer meets its performance targets, with a quality-tier strategy for weaker devices that never corrupts semantic state.
+**Goal:** A fixed, repeatable pre-launch benchmark that the dynamic layer actually passes, plus a device quality-tier strategy that never corrupts semantic state.
 
-**Scope:**
-- Measure live shell time-to-interactive on desktop and mobile.
-- Measure public dynamic query P95.
-- Measure runtime-to-screen update latency.
-- Measure frame rate at 12, 20 and 40 visible characters, desktop and mid-tier mobile.
-- Exercise normal stream, delayed stream, snapshot and degraded modes.
-- Long-run stability of at least eight hours without sustained memory growth.
-- Device quality tiers reducing update rate without changing semantic position.
+**Scope — the benchmark must fix all of the following before measuring:**
+- A named mid-tier mobile device model or an equivalent throttling profile.
+- A named browser and version.
+- Three visible-character scenarios: 12, 20 and 40.
+- A fixed map zoom level and visible-character count per scenario.
+- Four stream modes: normal stream, delayed stream, snapshot, degraded.
+- An eight-hour continuous run measuring memory growth.
+- Pass thresholds for FPS, time to interactive, public dynamic query P95 and runtime-to-screen projection delay.
+
+**Scope — quality tiers:** weaker devices may reduce update rate, but semantic position must never change.
 
 **Out of Scope:** Generation pipeline performance; incremental projection (ART-100).
 
-**Dependencies:** FR-O002 movement rendering; ambient and environmental animation.
+**Dependencies:** ART-119 (movement rendering), ART-120 (ambient and environmental animation).
 
 **Schema Impact:** None.
 
@@ -45,13 +47,13 @@ ordinal: 136000
 
 **Security Impact:** None.
 
-**Test Requirements:** Performance test suite covering the character counts, device tiers and stream modes above, plus an eight-hour stability run.
+**Test Requirements:** The benchmark harness itself is a deliverable and must be repeatable. Production field data may supplement the results after launch but must not substitute for the pre-launch gate.
 
 **Validation Commands:**
 - `npm run check`
-- Performance suite producing recorded figures against the PRD 2.0 targets.
+- The benchmark suite, producing recorded figures against every PRD 2.0 NFR2-002 threshold.
 
-**Documentation Impact:** Performance results and quality-tier documentation.
+**Documentation Impact:** Benchmark specification and recorded results.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
@@ -63,6 +65,11 @@ ordinal: 136000
 - [ ] #5 Reduced frame rate never changes a character semantic position
 - [ ] #6 Performance is measured at twelve, twenty and forty visible characters
 - [ ] #7 An eight hour run shows no sustained memory growth
+- [ ] #8 The benchmark fixes a named mid-tier device or equivalent throttling profile and a named browser version
+- [ ] #9 The benchmark covers twelve, twenty and forty visible characters at a fixed map zoom level
+- [ ] #10 The benchmark covers normal stream, delayed stream, snapshot and degraded modes
+- [ ] #11 The benchmark is repeatable and its recorded results are committed as evidence
+- [ ] #12 The benchmark is executed and passed before public release; production field data may supplement but never substitute for it
 <!-- AC:END -->
 
 ## Definition of Done

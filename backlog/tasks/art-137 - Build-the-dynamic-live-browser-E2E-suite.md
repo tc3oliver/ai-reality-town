@@ -4,7 +4,7 @@ title: Build the dynamic live browser E2E suite
 status: To Do
 assignee: []
 created_date: '2026-08-04 16:00'
-updated_date: '2026-08-04 16:03'
+updated_date: '2026-08-04 16:51'
 labels:
   - prd-2.0
   - v2-k
@@ -20,9 +20,9 @@ ordinal: 137000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-**Requirement ID:** PRD 2.0 §21.3
+**Requirement ID:** FR-Q006 (PRD 2.0 §12 Epic Q) — realizes §21.3
 
-**Problem / Context:** PRD 2.0 §22 requires browser E2E evidence on desktop and mobile as a release gate. The dynamic surface has many interacting parts whose regressions are invisible to unit tests.
+**Problem / Context:** PRD 2.0 §22 requires browser E2E evidence on desktop and mobile as a release gate. The dynamic surface has many interacting parts whose regressions are invisible to unit tests, and the zero-mutation and zero-LLM guarantees need runtime evidence, not only static reasoning.
 
 **Goal:** An automated browser E2E suite that exercises the full dynamic viewing experience and proves the zero-mutation and zero-LLM guarantees at runtime.
 
@@ -38,9 +38,9 @@ ordinal: 137000
 - No network request contains an unauthorized mutation.
 - LLM call count does not increase during the run.
 
-**Out of Scope:** Performance measurement (NFR2-002); security probing (FR-O009).
+**Out of Scope:** Performance measurement (ART-136); security probing (ART-128).
 
-**Dependencies:** Responsive experience; replay and time-state labelling.
+**Dependencies:** ART-126 (responsive experience), ART-121 (replay and time-state labelling).
 
 **Schema Impact:** None.
 

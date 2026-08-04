@@ -4,7 +4,7 @@ title: Run the Dynamic Viewing MVP public release gate
 status: To Do
 assignee: []
 created_date: '2026-08-04 16:00'
-updated_date: '2026-08-04 16:17'
+updated_date: '2026-08-04 16:51'
 labels:
   - prd-2.0
   - v2-k
@@ -12,7 +12,6 @@ labels:
 dependencies:
   - ART-99
   - ART-139
-  - ART-141
   - ART-137
   - ART-128
   - ART-136
@@ -28,25 +27,29 @@ ordinal: 138000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-**Requirement ID:** PRD 2.0 §22 (all twenty-eight acceptance criteria)
+**Requirement ID:** FR-Q008 (PRD 2.0 §12 Epic Q) — realizes §22 (all thirty-one acceptance criteria)
 
-**Problem / Context:** PRD 2.0 §26 forbids claiming MVP completion until every §22 criterion has objective evidence, and §22.28 explicitly forbids declaring product completion on the basis of backend completion alone. PRD 1.0 closure was declared this way, which is the failure this gate exists to prevent.
+**Problem / Context:** PRD 2.0 §26 forbids claiming MVP completion until every §22 criterion has objective evidence, and §22.28 explicitly forbids declaring product completion on the basis of backend completion alone. PRD 1.0 closure was declared that way, which is the failure this gate exists to prevent.
 
-**Goal:** A single auditable gate producing evidence for all twenty-eight PRD 2.0 §22 acceptance criteria, and updating the closure record.
+**Goal:** A single auditable gate producing evidence for all thirty-one PRD 2.0 §22 acceptance criteria, and updating the closure record.
 
 **Scope:**
-- Verify each of the twenty-eight §22 criteria with cited evidence.
-- Confirm ART-99 is fixed with a fixed-seed regression test.
+- Verify each of the thirty-one §22 criteria with cited evidence.
+- Confirm ART-99 fixed with a fixed-seed regression test.
+- Confirm ART-139 fixed, with the real provider producing accepted events and a permanent regression test in place.
 - Confirm twelve character bindings and eight location bindings.
 - Confirm zero successful public mutations and zero viewer-triggered LLM calls.
+- Confirm the ART-136 performance benchmark was executed and passed before release.
+- Confirm Visual Replay references only published content identifiers and versions, and invalidates on withhold or supersede.
 - Confirm desktop and mobile E2E pass.
 - Confirm asset licence and attribution completeness.
 - Update the requirement matrix and produce a PRD 2.0 closure record.
 - Confirm regression on affected PRD 1.0 P0 capability.
+- Report every §18.1 metric that FR-Q007 has not yet made measurable as "not measured" rather than estimated.
 
 **Out of Scope:** Any new feature work. This task only verifies and records.
 
-**Dependencies:** ART-99 and every PRD 2.0 P0 task.
+**Dependencies:** ART-99, ART-139 and every PRD 2.0 P0 task.
 
 **Schema Impact:** None.
 
@@ -75,6 +78,9 @@ ordinal: 138000
 - [ ] #8 Typecheck, lint, tests, build and CI all pass
 - [ ] #9 The requirement matrix and closure record are updated and no longer claim product completion from backend completion alone
 - [ ] #10 The public acceptance environment has the Mistwood world seeded and its slot scheduler producing accepted events, so the twelve-character requirement is verified against real canon rather than fixtures only
+- [ ] #11 The ART-136 performance benchmark is confirmed executed and passed before release, not deferred to post-launch
+- [ ] #12 Visual Replay is confirmed to reference only published content identifiers and versions and to invalidate on withhold or supersede
+- [ ] #13 Every section 18.1 metric not yet made measurable by FR-Q007 is reported as not measured rather than estimated
 <!-- AC:END -->
 
 ## Definition of Done

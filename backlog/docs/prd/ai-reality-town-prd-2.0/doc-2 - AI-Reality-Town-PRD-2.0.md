@@ -3,7 +3,7 @@ id: doc-2
 title: AI Reality Town PRD 2.0
 type: specification
 created_date: '2026-08-04 16:06'
-updated_date: '2026-08-04 16:06'
+updated_date: '2026-08-04 16:51'
 ---
 # AI Reality Town 產品需求文件
 
@@ -416,9 +416,11 @@ Replay **不得**：呼叫 LLM、重新執行模擬、重新建立 Event、修�
 
 ### 10.2 Visual Runtime
 
-**負責：** Tilemap 與視覺圖層、Sprite／方向與動畫狀態、x／y 座標、路徑／速度與移動插值、Speaking／Thinking／Activity 的視覺提示、Ambient Movement 的決定性產生。
+**負責：** Tilemap 與視覺圖層、Sprite／方向與動畫狀態、x／y 座標、路徑／速度與移動插值、Speaking／Thinking／Activity 的視覺提示、Ambient Movement 的決定性產生、依 Visual Binding 幾何判定是否抵達 Zone。
 
 **不得**自行建立 Canon 事實。
+
+**不擁有 Binding。** `locationId → 幾何` 與 `characterId → 外觀` 屬於獨立的 Visual Binding 層（§14.1／§14.2），Visual Runtime 只是消費者。三方責任見 §10.6。
 
 ### 10.3 a16z AI Town 引擎處置（PRD 2.0 決策）
 
@@ -515,11 +517,24 @@ type VisualReplay = {
   steps: Array<
     | { type: "move"; characterId: string; to: { x: number; y: number }; durationMs: number }
     | { type: "wait"; durationMs: number }
-    | { type: "dialogue"; characterId: string; text: string }
-    | { type: "eventCard"; title: string; summary: string }
+    | {
+        type: "dialogue";
+        characterId: string;
+        publicExcerptId: string;
+        publicationVersion: number;
+      }
+    | {
+        type: "eventCard";
+        publicSummaryId: string;
+        publicationVersion: number;
+      }
   >;
 };
 ```
+
+**Replay 不得保存自由文字。** `dialogue` 與 `eventCard` 只能以識別碼引用既有的已發布、已通過 Safety 的公開內容，並記錄該內容的 `publicationVersion`。理由：僅有 `sourceEventIds` 不足以證明畫面上顯示的是安全版本——同一個 Accepted Event 的公開摘要可能被 Withhold 或 Supersede，若 Replay 內嵌文字副本，撤下的內容仍會透過重播外洩。
+
+當被引用的公開內容遭 Withhold 或 Supersede 時，Replay 必須同步失效或重新建構，不得繼續播放舊版本文字。
 
 ### 10.5 一致性規則
 
@@ -528,7 +543,26 @@ type VisualReplay = {
 - Canon 顯示角色在某地點前，Runtime 必須已到達該地點區域，或 UI 明確顯示「前往中」。
 - 發生不可恢復漂移時，角色應暫停公開、回到最後有效 Snapshot 或進入同步中狀態。
 - 不得為修正畫面而直接修改 Canon。
-- Ambient Movement 永遠受限於角色目前的 Canon 地點 Zone；Zone 邊界由 Canon 決定，Zone 內位置由 Runtime 決定。
+- Ambient Movement 永遠受限於角色目前 `locationId` 所對應的視覺 Zone。**該 `locationId` 由 Canon 決定；該 Zone 的幾何邊界由 Visual Binding 決定；Zone 內的實際位置由 Visual Runtime 決定。**
+
+### 10.6 Canon／Visual Binding／Visual Runtime 三方責任
+
+Canon **不得**持有地圖幾何。`zonePolygon`、`anchors`、`mapId` 屬於 Visual Binding，不屬於 Canon Domain——否則語意與視覺的分離就被破壞，Canon 會開始依賴地圖版本。
+
+| 資料 | Owner |
+|---|---|
+| 角色目前的 `locationId` | **Canon** |
+| 角色是否存活／參與事件 | **Canon** |
+| Accepted Event、Arc、Episode | **Canon** |
+| `locationId → zonePolygon／anchors／mapId` | **Visual Binding** |
+| `characterId → spriteKey／paletteVariant／nameplate` | **Visual Binding** |
+| 角色 x／y、路徑、速度、插值 | **Visual Runtime** |
+| 動畫狀態與方向 | **Visual Runtime** |
+| Zone 內的 Ambient 位置 | **Visual Runtime** |
+| 是否抵達 Polygon | **Visual Runtime** 依 Visual Binding 的幾何判定 |
+| 相機位置 | **客戶端** View State |
+
+**抵達判定不產生 Canon 事實。** Canon Event 不因抵達動畫而新增或修改；抵達只推進 Runtime 的 Movement Phase 與公開投影的顯示狀態。
 
 ---
 
@@ -810,6 +844,8 @@ Live Town 必須提供不遮蔽地圖的故事資訊區，至少包含：世界�
 6. 使用者可手動選擇「重播今日事件」。
 7. 系統不得自動反覆播放或無限循環。
 8. 可隨時跳過並直接進入目前狀態。
+9. `dialogue` 與 `eventCard` 步驟只以 `publicExcerptId`／`publicSummaryId` 加 `publicationVersion` 引用已發布內容，不得保存自由文字副本。
+10. 被引用的公開內容遭 Withhold 或 Supersede 時，Replay 同步失效或重新建構，不再播放舊版本文字。
 
 #### FR-O014 時間狀態標示 — P0（新增）
 
@@ -842,6 +878,8 @@ Live Town 必須提供不遮蔽地圖的故事資訊區，至少包含：世界�
 
 **驗收條件：** Live Overlay 只顯示 Published／允許公開的內容；Withheld 場景只顯示安全的一般狀態或完全隱藏；Safety 更新後可從公開 Projection 移除內容；移除公開文字不影響 Canon 與角色位置；所有公開文字可追蹤至 Accepted Event 或已發布摘要。
 
+**Replay 一致性：** 公開內容遭 Withhold 或 Supersede 時，引用該內容的 Visual Replay 必須同步失效或重新建構。Replay 不得保存文字副本繞過此機制（見 §10.4）。
+
 ### Epic Q：Dynamic Viewing Operations
 
 #### FR-Q001 Dynamic View 可觀測性 — P0
@@ -861,6 +899,28 @@ Live Town 必須提供不遮蔽地圖的故事資訊區，至少包含：世界�
 此需求由現有 **ART-100** 承接，不重建新 Task。
 
 目標：公開 Read Model 與 Dynamic Projection 可增量更新；避免每次狀態變化重建整個世界投影；保持 Idempotency 與 Sequence 一致性。
+
+#### FR-Q004 Dynamic View 無障礙交付 — P0
+
+實現 **NFR2-006** 於動態觀看層。詳細驗收條件見 §16 NFR2-006。此需求存在的目的，是讓非功能需求也有可追蹤的 Requirement ID 與明確擁有者，避免「所有 P0 都有 Task」的宣告出現追蹤缺口。
+
+#### FR-Q005 動態層效能基準與品質分級 — P0
+
+實現 **NFR2-002**。必須在公開前建立**固定 Benchmark**（裝置與瀏覽器規格、角色數、地圖縮放、量測門檻），並實際通過。詳細見 §16 NFR2-002。
+
+#### FR-Q006 Dynamic Live 驗證套件 — P0
+
+實現 **§21.3** 的瀏覽器 E2E 驗證，並在執行期提供零 Mutation 與零 Viewer-triggered LLM 的運行證據。
+
+#### FR-Q007 動態觀看產品分析事件 — P1
+
+實現 **§17** 的 17 個 `live_*` 事件，使 §18.1 的點擊率與 Replay 完成率指標可量測。
+
+> **已知張力：** §18.1 將這些數字列為 MVP 目標，§19 將分析歸為 P1。本 PRD 的處置是：**儀器化屬 P1，不阻斷發布**；但在 FR-Q007 完成前，§18.1 相關指標一律標示為「未量測」，不得以推估值宣稱達標。
+
+#### FR-Q008 Dynamic Viewing MVP Release Gate — P0
+
+實現 **§22** 全部驗收標準的證據彙整與封閉紀錄，並更新 Requirement Matrix 與 Closure 紀錄。
 
 ---
 
@@ -904,6 +964,28 @@ ART-99 必須在 Dynamic Viewing MVP 公開前完成：
 4. 修復後完整 Replay 與 Snapshot Replay 結果一致。
 5. 建立固定 Seed 回歸測試。
 6. 管理者可查看最近成功與失敗 Snapshot。
+
+### 13.2 Pre-existing Regression Exception（唯一獲准例外）
+
+PRD 2.0 的 Task 建立規則是「只為 FR-N／FR-O／FR-P／FR-Q 新需求建立 Task」。**ART-139 是唯一獲准的例外**，因為它不是新需求，而是 PRD 1.0 基線上的既有 Regression Defect：
+
+- **歸屬需求：** PRD 1.0 FR-C002 Whole-scene Simulation（原已宣告交付）
+- **性質：** Existing Baseline Defect，非 New Requirement
+- **阻斷關係：** 未修復則不產生 Accepted Event，`withArrivalStateChanges` 不附加 `character_location_changed`，PRD 2.0 §22.6 無法達成
+- **不得**因此重新開啟 PRD 1.0 Epic C，或以此為由重建任何已 Done 的 Task
+
+除 ART-139 外，不得再以「既有缺陷」為由在 FR-N／O／P／Q 之外建立新 Task；新發現的基線缺陷必須另行提報並更新本節。
+
+### 13.3 目前基線狀態
+
+PRD 1.0 的**歷史封閉**（96 條 P0，ART-63）維持有效，但**目前基線存在兩個未關閉的發布阻斷缺陷**：
+
+| Task | 缺陷 | 影響 |
+|---|---|---|
+| **ART-99** | 種子世界每日 Canon Snapshot 失敗 | FR-N007 公開快照建立其上 |
+| **ART-139** | 真實 provider 場景解析失敗 | 無 Accepted Event，動態層無資料可呈現 |
+
+因此對外敘述必須使用 §26 規定的用語，不得單以「PRD 1.0 已完成」描述目前基線健康狀態。
 
 ---
 
@@ -992,7 +1074,21 @@ publicTitle, publicSummary, arcIds, publicationStatus, startedAt, endedAt
 
 **NFR2-001 公開零副作用** — Public Live View 不得執行 mutation；Viewer 數量增加不得增加 LLM 呼叫；Viewer 不得啟動／恢復／加速模擬；Viewer 不得建立 Human Player。
 
-**NFR2-002 效能** — Live View Shell P95 可互動時間：桌面 <4 秒、行動 <6 秒；Public Dynamic Query P95 <500ms；Runtime 至公開畫面更新延遲一般 <5 秒；桌面平均 ≥45 FPS、中階行動裝置 ≥30 FPS；降低 FPS 不得改變角色語意位置。
+**NFR2-002 效能（FR-Q005）** — Live View Shell P95 可互動時間：桌面 <4 秒、行動 <6 秒；Public Dynamic Query P95 <500ms；Runtime 至公開畫面更新延遲一般 <5 秒；桌面平均 ≥45 FPS、中階行動裝置 ≥30 FPS；降低 FPS 不得改變角色語意位置。
+
+效能是 P0，且 §22 要求所有 P0 具有客觀證據，因此**必須在公開前建立並通過固定 Benchmark**，內容至少包含：
+
+```text
+指定中階行動裝置型號或等價模擬規格
+指定瀏覽器與版本
+12 / 20 / 40 位可視角色三組場景
+指定地圖縮放層級與可視角色數
+正常 Stream / 延遲 Stream / Snapshot / 降級 四種模式
+8 小時長時間執行的記憶體成長量測
+FPS、TTI、Query P95、Projection Delay 的通過門檻
+```
+
+**正式環境實測數據可於上線後補充，但不得取代公開前的 Benchmark Gate。** 在 Benchmark 通過前，不得宣稱 Dynamic Viewing MVP 完成。
 
 **NFR2-003 可用性** — 模擬引擎中斷不影響 Episode／Character／Arc 與歷史內容；Runtime Stream 中斷時自動使用最後有效 Snapshot；公開動態層故障不得拖垮 Canon Write Path。
 
@@ -1000,7 +1096,7 @@ publicTitle, publicSummary, arcIds, publicationStatus, startedAt, endedAt
 
 **NFR2-005 安全** — Public Projection 使用欄位白名單；Server-side Authorization 不能依賴 UI 隱藏按鈕；私人對話／記憶／Secret／Prompt／Trace 不得返回公開客戶端；所有公開文字經 Publication Status 與 Safety Filter。
 
-**NFR2-006 Accessibility（P0 基本要求）** — 地圖外提供等價角色／地點／場景清單；鍵盤可聚焦主要角色與場景；支援 Reduced Motion（包含關閉 Ambient 與 Environmental Animation）；動畫狀態不只依賴顏色；重要資訊具備可讀文字替代。完整圖表與時間軸無障礙由既有 ART-94 承接。
+**NFR2-006 Accessibility（P0 基本要求，FR-Q004）** — 地圖外提供等價角色／地點／場景清單；鍵盤可聚焦主要角色與場景；支援 Reduced Motion（包含關閉 Ambient 與 Environmental Animation、以及 Replay 自動播放）；動畫狀態不只依賴顏色；重要資訊具備可讀文字替代。完整圖表與時間軸無障礙由既有 ART-94 承接。
 
 **NFR2-007 可測試性** — 提供 Deterministic Runtime Fixture；可在無 LLM／無外部 API 下測試 Renderer；可固定角色位置／路徑／場景與動畫狀態；Ambient Seed 可固定；Public Read-only 測試可攔截任何 mutation。
 
@@ -1080,17 +1176,22 @@ PRD 1.0 的首次進站、停留、回訪、投票、追蹤、前情與推薦 Ep
 **P0：Dynamic Viewing MVP 公開前必須完成**
 
 - ART-99 Snapshot Bug
+- **ART-139 真實 provider 場景解析缺陷**（§13.2 Regression Exception）
 - FR-N001～FR-N010
 - FR-O001～FR-O014
 - FR-P001～FR-P004
 - FR-Q001
-- Dynamic Viewing 相關安全、E2E、效能與降級測試
+- FR-Q004（NFR2-006 無障礙）
+- FR-Q005（NFR2-002 效能 Benchmark，公開前必須通過）
+- FR-Q006（§21.3 E2E 驗證套件）
+- FR-Q008（§22 Release Gate）
 - 受影響 PRD 1.0 P0 回歸測試
 
 **P1：公開測試期間需要**
 
 - FR-Q002
 - FR-Q003／ART-100
+- FR-Q007（§17 分析事件；未完成前 §18.1 相關指標標示為「未量測」）
 - ART-11、27、28、32、36、39、44、45、46、47、52、58、59、73、76、88、89、90、91、94
 - Dynamic Live 的品質優化、自動鏡頭與營運工具
 
@@ -1193,6 +1294,9 @@ Canon 角色位置變更後 Runtime 角色移動至正確 Zone；移動途中顯
 26. Typecheck、Lint、Tests、Build 與 CI 全部通過。
 27. 所有 V2 P0 Requirement 具有 Task 與客觀驗證證據。
 28. Closure Matrix 不得再以「核心後端完成」宣稱整體產品 MVP 完成。
+29. **ART-139 已修復**，真實 provider 可產生 Accepted Event，並具回歸測試（§13.2）。
+30. **動態層效能固定 Benchmark 已建立並實際通過**（FR-Q005 / NFR2-002）；未通過前不得宣稱 MVP 完成。
+31. **Visual Replay 只引用已發布內容識別碼與 `publicationVersion`**，且來源被 Withhold 或 Supersede 時同步失效（FR-O013 / FR-P004）。
 
 ---
 
@@ -1335,8 +1439,14 @@ Task 只有在以下全部成立時才可 Done：
 
 在 Dynamic Viewing MVP 完成前，只能使用：
 
-> PRD 1.0 Core Simulation and Backend Baseline Complete；PRD 2.0 Dynamic Viewing MVP In Progress.
+> PRD 1.0 historical closure complete; current baseline has open release-blocking regressions ART-99 and ART-139. PRD 2.0 Dynamic Viewing MVP In Progress.
 
-Dynamic Viewing MVP 全部 P0 通過後，才可使用：
+**不得**只寫「PRD 1.0 Core Simulation and Backend Baseline Complete」——那描述的是歷史封閉，不是目前基線的健康狀態，會掩蓋兩個未關閉的發布阻斷缺陷（§13.3）。
+
+ART-99 與 ART-139 關閉後、Dynamic Viewing MVP 尚未全部通過前：
+
+> PRD 1.0 baseline healthy; PRD 2.0 Dynamic Viewing MVP In Progress.
+
+Dynamic Viewing MVP 全部 P0 通過後（含 §22 全部 31 條），才可使用：
 
 > AI Reality Town PRD 2.0 MVP Complete and Ready for Public Test.
