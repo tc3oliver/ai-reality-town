@@ -142,6 +142,7 @@ Run a single project with `npx jest --selectProjects a11y` (or `unit`).
 - **Recap coverage and spoiler validation:** `docs/recap-coverage-validation.md`.
 - **Mistwood production seed and public-world registry:** `docs/mistwood-seed.md`.
 - **World emergency stop and recovery:** `docs/world-emergency-stop.md`.
+- **Public experience accessibility (NFR-009):** `docs/accessibility.md`.
 
 ## Conduct & security
 
