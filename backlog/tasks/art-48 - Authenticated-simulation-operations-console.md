@@ -1,11 +1,11 @@
 ---
 id: ART-48
 title: Authenticated simulation operations console
-status: In Review
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-04 07:17'
+updated_date: '2026-08-04 07:24'
 labels:
   - prd-1.0
   - epic-m

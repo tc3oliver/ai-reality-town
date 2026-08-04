@@ -1,10 +1,10 @@
 ---
 id: ART-61
 title: P0 canon and cognition integration suite
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-04 07:13'
+updated_date: '2026-08-04 07:24'
 labels:
   - prd-1.0
   - epic-p
