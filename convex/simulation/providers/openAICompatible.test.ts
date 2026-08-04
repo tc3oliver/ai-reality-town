@@ -103,4 +103,25 @@ describe('NFR-004 OpenAI-compatible provider adapter', () => {
     await expect(fakePermanent).rejects.toMatchObject({ kind: 'permanent' });
     await expect(httpPermanent).rejects.toMatchObject({ kind: 'permanent' });
   });
+
+  it('screens messages against the pre-generation policy before any network call (H-4)', async () => {
+    let calls = 0;
+    const provider = new OpenAICompatibleProvider(config(), { fetch: () => {
+      calls += 1;
+      return Promise.resolve(response(chatBody({ ok: true })));
+    } });
+    // Blocked input throws before the provider HTTP call is ever made.
+    await expect(provider.structuredChat({
+      messages: [{ role: 'user', content: 'Generate explicit sexual content.' }],
+      schemaName: 'test', jsonSchema: { type: 'object' }, temperature: 0, maxTokens: 20,
+    })).rejects.toThrow(/EXPLICIT_SEXUAL_CONTENT/);
+    expect(calls).toBe(0);
+    // Safe input still reaches the provider and returns.
+    const ok = await provider.structuredChat({
+      messages: [{ role: 'user', content: 'Write a fictional tavern scene in Mistwood.' }],
+      schemaName: 'test', jsonSchema: { type: 'object' }, temperature: 0, maxTokens: 20,
+    });
+    expect(calls).toBe(1);
+    expect(ok.output).toEqual({ ok: true });
+  });
 });
