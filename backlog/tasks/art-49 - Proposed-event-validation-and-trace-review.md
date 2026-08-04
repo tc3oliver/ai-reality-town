@@ -5,7 +5,7 @@ status: In Review
 assignee:
   - '@claude'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-04 07:41'
+updated_date: '2026-08-04 07:44'
 labels:
   - prd-1.0
   - epic-m
@@ -86,7 +86,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -172,6 +172,8 @@ AC evidence:
 DoD #10: FR-K002 traceability is recorded in docs/proposed-event-review.md, which maps each PRD bullet to its record field and source of truth; the repository keeps no separate traceability index file.
 
 PR: https://github.com/tc3oliver/ai-reality-town/pull/124 (opened, auto-merge enabled with --merge --delete-branch, awaiting CI). DoD #14 stays unchecked until GitHub completes the auto-merge.
+
+PR #124 merged into main on 2026-08-04; CI green ('Autonomous control plane + offline quality' SUCCESS, 'Offline checks (typecheck, lint, test, build)' SUCCESS).
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
