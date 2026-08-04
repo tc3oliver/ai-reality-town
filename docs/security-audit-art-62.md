@@ -12,23 +12,24 @@
 **Release is NOT clear for public test.**
 
 Two Critical and six High findings were identified. Six were remediated inside this task;
-the remainder are recorded as explicit unresolved findings with recommended follow-up
-work. Acceptance criterion #3 ("No unresolved Critical or High security finding remains
-before public test") is therefore **not satisfied** and is left unchecked deliberately.
+D-1 was resolved 2026-08-04 by direct maintainer verification (see its entry in §6); the
+remainder are recorded as explicit unresolved findings with recommended follow-up work.
+Acceptance criterion #3 ("No unresolved Critical or High security finding remains before
+public test") is therefore **still not satisfied** and is left unchecked deliberately.
 
 | Severity | Found | Fixed in ART-62 | Unresolved |
 |---|---|---|---|
 | Critical | 2 | 2 | 0 |
-| High | 6 | 3 | 3 (H-1, H-4, H-5) + D-1 pending verification |
+| High | 7 (incl. D-1) | 4 (incl. D-1) | 3 (H-1, H-4, H-5) |
 | Medium | 7 | 0 | 7 |
 | Low / Info | 9 | 0 | 9 |
 
 Unresolved Critical/High: **H-1** (the operator identity path cannot function, leaving a
 shared bearer token in a mutation argument as the sole admin credential), **H-4**
-(pre-generation safety classifier has zero production callers), **H-5** (the FR-K006
-emergency stop does not halt the upstream AI Town engine), and **D-1** (an unguarded
-`vercel.json` whose project-link status cannot be determined from the repository and
-requires a maintainer answer).
+(pre-generation safety classifier has zero production callers), and **H-5** (the FR-K006
+emergency stop does not halt the upstream AI Town engine). **D-1 is resolved** - no Vercel
+project is linked to this repository (verified via the GitHub API: zero webhooks, zero
+deployments), so no auto-deploy risk exists today.
 
 Both Criticals were fixed because both turned out to be safe to fix: the unauthenticated
 canon-commit mutation had zero callers, and the license remediation is documentation-only.
@@ -719,24 +720,38 @@ It also fails open by design (`:12-14`, `:21-23`).
 Not exploitable on its own, since no pipeline exists - but it is the cheapest of the three
 gaps to close and it is the single stated deploy prohibition in the repository.
 
-### D-1 (High pending maintainer verification, UNRESOLVED) - `vercel.json` is present and unguarded; a push-to-main auto-deploy cannot be ruled out from the repository
+### D-1 (High, RESOLVED - no link exists) - `vercel.json` is present and unguarded; a push-to-main auto-deploy cannot be ruled out from the repository alone
 
 `vercel.json` is git-tracked, syntactically valid, and declares a real framework preset
 (`"framework": "vite"` at `:2`, with a rewrite at `:3-8`). `.vercelignore` is two lines
 and does not exclude the app.
 
-**Whether this repository is actually linked to a Vercel project is not determinable from
-the repository.** Vercel's Git integration is configured server-side in the Vercel
-dashboard and consults no repo-side allow/deny switch, and `.gitignore:43` ignores
-`.vercel`, so no link artifact would be committed. If a link exists, every merge to `main`
-auto-deploys a publicly reachable production site - directly contrary to `SECURITY.md:34`
-and `README.md:118-119` - for an application whose own SECURITY.md (`:32-33`) concedes
-server-side authorization is absent. If no link exists, this is Info.
+**Whether this repository is actually linked to a Vercel project was not determinable from
+the repository contents alone.** Vercel's Git integration is configured server-side in the
+Vercel dashboard and consults no repo-side allow/deny switch, and `.gitignore:43` ignores
+`.vercel`, so no link artifact would be committed either way. If a link existed, every
+merge to `main` would auto-deploy a publicly reachable production site - directly contrary
+to `SECURITY.md:34` and `README.md:118-119` - for an application whose own SECURITY.md
+(`:32-33`) concedes server-side authorization is absent.
 
-Recorded as **High pending maintainer verification** rather than resolved either way,
-because the repository cannot self-clear it and the downside is a public deploy of an app
-with the authorization gaps documented in §4. **This requires an out-of-band answer from
-the maintainer** and is the single highest-value question in this section.
+**Maintainer verification completed 2026-08-04.** Vercel's GitHub integration always
+registers a repository webhook and populates the GitHub Deployments API when a project is
+linked. Both were checked directly against GitHub, not inferred:
+
+```
+$ gh api repos/tc3oliver/ai-reality-town/hooks
+[]
+$ gh api repos/tc3oliver/ai-reality-town/deployments
+[]
+```
+
+Both empty. No Vercel project has ever been linked to this repository, and no deploy has
+ever occurred through it. **No live deploy risk exists today.** `vercel.json` is inert
+config with nothing consuming it. Downgraded to Info; no code or config change required.
+The stale `fly/README.md` deploy runbook (M-7) and the guard-hook gap (M-6) remain
+unresolved and still matter if a link is ever created in the future - this resolution
+covers only "is one linked right now," not "could one be created later without a
+technical block."
 
 ### M-7 (Medium, UNRESOLVED) - Shipped documentation contains a copy-pasteable production-deploy runbook
 
@@ -795,10 +810,9 @@ Unresolved Critical/High:
 - **H-4** - the pre-generation safety classifier has zero production callers.
 - **H-5** - the FR-K006 emergency stop does not halt the upstream AI Town engine, and a
   60-second cron restarts worlds regardless of it.
-- **D-1** - `vercel.json` is unguarded and its project-link status cannot be determined
-  from the repository; **this needs a maintainer answer before release.**
 
 H-2 retains residual risk whenever `STOP_NOT_ALLOWED` is unset, which is the default.
+D-1 is resolved (no Vercel link exists); it is not part of the release-blocking list above.
 
 Recommended follow-up tasks, all blocking public test:
 
