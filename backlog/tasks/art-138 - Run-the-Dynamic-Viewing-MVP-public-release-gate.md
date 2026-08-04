@@ -4,13 +4,15 @@ title: Run the Dynamic Viewing MVP public release gate
 status: To Do
 assignee: []
 created_date: '2026-08-04 16:00'
-updated_date: '2026-08-04 16:13'
+updated_date: '2026-08-04 16:17'
 labels:
   - prd-2.0
   - v2-k
   - release-gate
 dependencies:
   - ART-99
+  - ART-139
+  - ART-141
   - ART-137
   - ART-128
   - ART-136

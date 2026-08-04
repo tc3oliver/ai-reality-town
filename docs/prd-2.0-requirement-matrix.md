@@ -12,13 +12,13 @@
 
 | 項目 | 數量 |
 |---|---:|
-| PRD 2.0 新需求（FR-N／FR-O／FR-P／FR-Q／NFR2） | 32 |
-| 標記為 **New**（需建立新 Task） | 30 |
+| PRD 2.0 新需求（FR-N／FR-O／FR-P／FR-Q／NFR2／§17／§21.3／§22） | 35 |
+| 標記為 **New**（需建立新 Task） | 33 |
 | 標記為 **Carry Forward**（沿用既有 Task ID） | 2（FR-Q003→ART-100、FR-O010 相關降級→與 ART-91 分離但並存） |
 | 標記為 **Existing**（PRD 1.0 已交付，直接重用） | 見 §4 |
 | 標記為 **Superseded** | 0 |
-| 標記為 **Blocked** | 1（ART-99 為 Release Blocker，非需求阻斷） |
-| 新建立 Task | 32（ART-107 ~ ART-138） |
+| 標記為 **Blocked** | 2 Release Blocker（ART-99 快照、ART-139 場景解析） |
+| 新建立 Task | 35（ART-107 ~ ART-141） |
 | 沿用既有 To Do Task | 23（未建立任何重複項） |
 | 重複建立的 Task | **0** |
 
@@ -86,9 +86,12 @@
 |---|---|---|---|---|---|
 | NFR2-006 Dynamic View 無障礙 | New | **ART-135** | 重用 ART-93（Done）；圖表／時間軸 a11y 仍由 ART-94 承接 | 前端、a11y | ART-126, ART-120 |
 | NFR2-002 動態層效能 | New | **ART-136** | — | 效能 | ART-119, ART-120 |
+| §17 動態分析事件（17 個 `live_*`） | New | **ART-140** | 收集機制沿用既有合規路徑；平台由 ART-47 承接 | 分析、隱私 | ART-118, ART-121 |
 | §21.3 Browser E2E 套件 | New | **ART-137** | — | 測試 | ART-126, ART-121 |
-| §22 Release Gate | New | **ART-138** | 方法沿用 ART-63 closure matrix | 交付閘門 | ART-99 + 全部 P0 |
+| §22 Release Gate | New | **ART-138** | 方法沿用 ART-63 closure matrix | 交付閘門 | ART-99, ART-139, ART-141 + 全部 P0 |
 | §13.1 ART-99 Snapshot 修復 | **Blocked → P0** | — | **ART-99**（既有，優先級由 Medium 提升為 Critical） | Canon、快照 | — |
+| FR-C002 真實 provider 場景解析（PRD 1.0 缺陷，阻斷 FR-O002） | **Blocked → P0** | **ART-139** | — | 模擬、Canon 產出 | — |
+| §10.3 公開登入介面語意調整 | New | **ART-141** | 保留 ART-105 的 Clerk 登入路徑 | 前端、安全 | ART-112 |
 
 ---
 
@@ -249,9 +252,46 @@ cron: stop inactive worlds
 5. **擴充而非重建** — FR-N003 明確定義為擴充既有 `convex/publicRead/liveState.ts`，該檔案已具備 `LiveCharacter{characterId, locationId, alive}`、locations、activeScenes、activeArcs。
 6. **重用而非新建授權** — FR-Q002 明文重用 `operatorAuthorization.ts`，不建立第二套授權機制。
 7. **23 個既有 Task ID 全數保留** — 無任何一個被關閉、取代或以新 ID 重建。
-8. **新 Task 全部標註 Requirement ID** — ART-107 ~ ART-138 每個描述首行即為對應的 PRD 2.0 Requirement ID，可反向查重。
+8. **新 Task 全部標註 Requirement ID** — ART-107 ~ ART-141 每個描述首行即為對應的 PRD 2.0 Requirement ID，可反向查重。
+9. **分析事件不重建平台** — ART-140 只負責發出 §17 的 17 個 `live_*` 事件，明文沿用既有合規收集機制，隱私分析平台仍由既有 **ART-47** 承接。
+10. **登入介面不重建授權** — ART-141 只調整公開文案與 Interact 入口，保留 ART-105 已啟用的 Clerk 登入與 operator 授權路徑；認證觀眾功能仍由既有 **ART-71** 承接。
 
-**驗證：** 新建 32 個 Task，既有 23 個 Task 全部維持原 ID 與原優先級（ART-99 除外，依 PRD 2.0 §13 提升為 Critical）。重複建立數 = **0**。
+**驗證：** 新建 35 個 Task（ART-107 ~ ART-141），既有 23 個 Task 全部維持原 ID 與原優先級（ART-99 除外，依 PRD 2.0 §13 提升為 Critical）。重複建立數 = **0**。
+
+### 11.1 §22 驗收標準覆蓋檢查
+
+PRD 2.0 §22 共 28 條，全部有擁有者：
+
+| §22 條目 | 擁有 Task |
+|---|---|
+| 1 PRD 1.0 P0 無回歸 | ART-138 |
+| 2 ART-99 修復 | ART-99 |
+| 3 /live 可操作地圖 | ART-118 |
+| 4 12 位角色綁定 | ART-111 |
+| 5 8 個地點綁定且語意相符 | ART-110, ART-109 |
+| 6 平滑跨地點移動 | ART-119 ← **資料前提為 ART-139** |
+| 7 Idle／Walking／Speaking／Thinking | ART-119 |
+| 8 Ambient 零 Canon 副作用 | ART-120 |
+| 9 Replay 自動一次可手動、不呼叫 LLM | ART-121 |
+| 10 重播／稍早／現在 | ART-121 |
+| 11 Active Scene 地圖與 Overlay 同步 | ART-122, ART-125 |
+| 12 公開角色卡 | ART-124 |
+| 13 場景公開摘要 | ART-122 |
+| 14 不送 Heartbeat | ART-112, ART-128 |
+| 15 不建 Human Player | ART-112, ART-128 |
+| 16 零成功 Mutation | ART-128 |
+| 17 零 Viewer-triggered LLM | ART-128 |
+| 18 投影不含私人資料 | ART-115 |
+| 19 漂移可偵測 | ART-117, ART-133 |
+| 20 中斷時用最後有效快照 | ART-116 |
+| 21 降級且歷史可讀 | ART-127 |
+| 22 桌面與行動 E2E | ART-137, ART-126 |
+| 23 Reduced Motion 與非地圖檢視 | ART-135 |
+| 24 素材授權完整 | ART-108 |
+| 25 公開授權稽核通過 | ART-128 |
+| 26 Typecheck／Lint／Tests／Build／CI | 全 Task DoD |
+| 27 全部 V2 P0 有 Task 與證據 | ART-138 |
+| 28 Closure Matrix 不再以後端完成宣稱產品完成 | ART-138 |
 
 ---
 
@@ -260,7 +300,7 @@ cron: stop inactive worlds
 | 項目 | 類型 | 說明 | 處置 |
 |---|---|---|---|
 | **ART-99** | **Release Blocker** | 種子世界每日 Canon Snapshot 失敗。`importWorld` 寫入的 `initial` 快照（`lastSequenceNumber: -1`）無法由 accepted events 推導，`assertSnapshotMatchesHistory` 以 `SNAPSHOT_CORRUPT` 拒絕。FR-N007 公開快照建立在此基礎上 | 已提升為 Critical；ART-138 Release Gate 依賴它 |
-| **SCENE_OUTPUT_INVALID** | **未歸屬缺陷** | 真實 LLM provider 的 `simulateWholeScene()` 以「unsupported schema version」失敗；ART-106 期間發現，已知 `relationshipChanges` 欄位名與 parser 預期不符。**目前沒有任何 Task 擁有此缺陷** | 需建立 Task；不在 PRD 2.0 範圍內但影響真實內容產出 |
+| **ART-139 場景解析** | **Release Blocker** | 真實 provider 下 `simulateWholeScene()` 失敗。根因為契約斷裂：`WHOLE_SCENE_JSON_SCHEMA` 將巢狀集合宣告為 `items: { type: 'object' }`（不約束欄位名），但 `parseEventLinked` 以 `record(item, path, allowed)` 嚴格拒絕未知欄位；且 `schemaVersion` 檢查會遮蔽下游真正錯誤。**不修則不產生 accepted event → `withArrivalStateChanges` 不附加 `character_location_changed` → §22.6 無法達成** | 已建立 ART-139（Critical）；ART-138 Release Gate 依賴它 |
 | **RISK2-008 / RISK2-009** | 產品風險 | Ambient 被誤認為劇情、Replay 被誤認為即時 | 由 ART-120／ART-121 的驗收條件緩解，需上線後觀察 |
 | **RISK2-004** | 技術風險 | 12+ 角色動畫 + ambient + 環境動畫在中階行動裝置的效能 | ART-136 量測；若不達標需品質分級策略 |
 | **地圖工作量未知** | 排程風險 | `data/mistwood.ts` 需以既有 tileset 手工重排八個地點，工作量取決於 tileset 表現力，ART-107 稽核後才能確認 | ART-107 完成後重估 ART-109 |
