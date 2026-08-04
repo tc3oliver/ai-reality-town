@@ -10,11 +10,11 @@ import {
   validateCharacterIntent,
   type CharacterIntentContext,
 } from './characterIntent';
-import { MAX_MAJOR_SCENES_PER_SLOT, type DirectorPlan, type DirectorPlanContext } from './director';
+import { MAX_MAJOR_SCENES_PER_SLOT, parseAndValidateDirectorPlan, type DirectorPlan, type DirectorPlanContext } from './director';
 import { narrateGroupedScene } from './fakeSceneNarrator';
 import type { LanguageModelProvider, StructuredChatRequest } from './provider';
 import { MAX_MAJOR_SCENE_PARTICIPANTS, type GroupedScene, type SceneGroupingInput, type SceneGroupingResult } from './sceneGrouping';
-import { parseWholeSceneOutput, type SceneSimulationResult } from './sceneSimulation';
+import { finalizeWholeSceneOutput, parseWholeSceneOutput, type SceneSimulationResult } from './sceneSimulation';
 import {
   executeWorldDay,
   type RunFailure,
@@ -31,7 +31,11 @@ import {
   createWorldDayStageHandlers,
   directorRunId,
   generateCharacterIntent,
+  isTravelScene,
+  withArrivalStateChanges,
   worldDayRunId,
+  MAX_SLOTS_WITHOUT_APPEARANCE,
+  MAX_TRAVEL_SCENES_PER_SLOT,
   type CommitArtifact,
   type DirectorPlanArtifact,
   type GroupingArtifact,
@@ -204,6 +208,17 @@ async function runWholeDay(store: InMemoryCanonStore, runStore: MemoryRunStore, 
   return runs;
 }
 
+async function runWorldDays(runStore: MemoryRunStore, port: WorldDayLivePort, worldDays: number): Promise<WorldDayRun[]> {
+  const handlers = createWorldDayStageHandlers(port);
+  const runs: WorldDayRun[] = [];
+  for (let worldDay = 0; worldDay < worldDays; worldDay += 1) {
+    for (const timeSlot of TIME_SLOTS) {
+      runs.push(await executeWorldDay(runInput(slotOf(timeSlot, worldDay)), runStore, handlers));
+    }
+  }
+  return runs;
+}
+
 describe('FR-C001…FR-C005 live world-day execution', () => {
   it('runs every time slot of one world day end to end and appends Canon events', async () => {
     const store = seededStore();
@@ -359,7 +374,12 @@ describe('FR-C001…FR-C005 live world-day execution', () => {
     };
     const artifact = await handlers.simulate_scenes({
       runId: worldDayRunId(slotOf('morning')), worldId: WORLD_ID, worldDay: 0, timeSlot: 'morning',
-      artifacts: { group_intents_into_scenes: { groupingRunId: scene.groupingRunId, result: { scenes: [scene], decisions: [] } } },
+      artifacts: {
+        // Stage 8 reads the stage-1 snapshot to state the movement precondition of any
+        // participant who is not yet standing where the Scene happens.
+        load_world_state: { snapshot: await port.loadWorldSnapshot(slotOf('morning')) },
+        group_intents_into_scenes: { groupingRunId: scene.groupingRunId, result: { scenes: [scene], decisions: [] } },
+      },
     }) as SimulationArtifact;
 
     expect(artifact.withheldSceneIds).toEqual([scene.sceneId]);
@@ -426,5 +446,110 @@ describe('FR-C001…FR-C005 live world-day execution', () => {
     const source = readFileSync('convex/simulation/worldDayLiveFunctions.ts', 'utf8');
     expect(source).toContain('internalMutation({');
     expect(source).not.toMatch(/\bmutation\(\{|\bquery\(\{/);
+  });
+});
+
+/**
+ * ART-101. The Mistwood seed places five residents alone (lin-yingxue at the paper,
+ * su-meizhen at the clinic, luo-shan at the inn, tang-ruoxi at the orchard, wu-zhen at the
+ * station) and three locations holding two or more — exactly {@link MAX_MAJOR_SCENES_PER_SLOT}
+ * of them. The ART-60 harness proved that under the old "prefer multi-character locations"
+ * rule those five were never cast in 30 world days and never moved. These cases assert the
+ * live Director now reaches them, and that the way it reaches them stays inside FR-C002.
+ */
+describe('FR-C002 neglected-character reachability (ART-101)', () => {
+  const ISOLATED_CHARACTER_IDS = ['lin-yingxue', 'su-meizhen', 'luo-shan', 'tang-ruoxi', 'wu-zhen'];
+  const WORLD_DAYS = 4;
+
+  let store: InMemoryCanonStore;
+  let runStore: MemoryRunStore;
+  let port: ReturnType<typeof createSeedPort>;
+
+  beforeAll(async () => {
+    store = seededStore();
+    runStore = new MemoryRunStore();
+    port = createSeedPort(store);
+    const runs = await runWorldDays(runStore, port, WORLD_DAYS);
+    expect(runs.every(({ status }) => status === 'completed')).toBe(true);
+  });
+
+  it('casts every seeded character, including the ones the seed places alone', () => {
+    const cast = new Set(store.committedEvents().flatMap(({ participantIds }) => participantIds));
+    expect(mistwoodCharacterSeed.characters.filter(({ id }) => !cast.has(id))).toEqual([]);
+    // The regression this task exists for: none of the five is missing.
+    expect(ISOLATED_CHARACTER_IDS.filter((characterId) => !cast.has(characterId))).toEqual([]);
+  });
+
+  it('keeps every character inside the one-world-day neglect ceiling the Director plans against', () => {
+    const plans = port.persisted.directorPlans;
+    expect(plans).toHaveLength(WORLD_DAYS * TIME_SLOTS.length);
+    const neglected = plans.flatMap(({ context }) =>
+      context.characters.filter(({ slotsSinceMajorAppearance }) => slotsSinceMajorAppearance > MAX_SLOTS_WITHOUT_APPEARANCE));
+    // A character may cross the ceiling only in the slot that then reserves a scene for
+    // them, so nobody is left above it once the run has warmed up.
+    const late = plans.slice(TIME_SLOTS.length * 2).flatMap(({ context }) =>
+      context.characters.filter(({ slotsSinceMajorAppearance }) => slotsSinceMajorAppearance > MAX_SLOTS_WITHOUT_APPEARANCE * 2));
+    expect(late).toEqual([]);
+    expect(neglected.every(({ slotsSinceMajorAppearance }) => slotsSinceMajorAppearance <= WORLD_DAYS * TIME_SLOTS.length)).toBe(true);
+  });
+
+  it('moves an isolated character to an occupied location through Canon, not by fiat', () => {
+    const moves = store.committedEvents().flatMap(({ eventId, stateChanges }) =>
+      stateChanges.filter((change) => change.type === 'character_location_changed').map((change) => ({ eventId, change })));
+    expect(moves.length).toBeGreaterThan(0);
+
+    const projection = replayWorldEvents(emptyProjection(WORLD_ID), store.committedEvents());
+    for (const { change } of moves) {
+      if (change.type !== 'character_location_changed') throw new Error('unreachable');
+      // The move went somewhere the world says is connected, and the character is a
+      // participant of the event that moved them.
+      const connections = mistwoodWorldConfiguration.locations.find(({ id }) => id === change.fromLocationId)?.connectedLocationIds ?? [];
+      expect(connections).toContain(change.toLocationId);
+    }
+    const moved = [...new Set(moves.map(({ change }) => (change.type === 'character_location_changed' ? change.characterId : '')))];
+    expect(moved.some((characterId) => ISOLATED_CHARACTER_IDS.includes(characterId))).toBe(true);
+    // The projection actually carries the relocation; it is not narration only.
+    for (const characterId of moved) {
+      const seatedAt = projection.characterLocations[characterId];
+      const last = moves.filter(({ change }) => change.type === 'character_location_changed' && change.characterId === characterId).at(-1);
+      expect(last && last.change.type === 'character_location_changed' ? last.change.toLocationId : null).toBe(seatedAt);
+    }
+    // A relocated character becomes castable with others: at least one committed scene now
+    // seats a formerly isolated character alongside somebody else.
+    expect(store.committedEvents().some(({ participantIds }) =>
+      participantIds.length > 1 && participantIds.some((characterId) => ISOLATED_CHARACTER_IDS.includes(characterId)))).toBe(true);
+  });
+
+  it('never breaks the FR-C002 plan contract while doing it', () => {
+    for (const { context, plan } of port.persisted.directorPlans) {
+      // parseAndValidateDirectorPlan already ran inside the stage; re-running it here proves
+      // the neglect-first selection produces plans the pure validator still accepts.
+      expect(parseAndValidateDirectorPlan(plan, context)).toEqual(plan);
+      const located = new Map(context.characters.map(({ characterId, currentLocationId }) => [characterId, currentLocationId]));
+      // Every planned participant is already standing at the planned location: a travel
+      // scene is planned at the character's ORIGIN, never at their destination.
+      expect(plan.scenes.every(({ locationId, participantIds }) =>
+        participantIds.every((characterId) => located.get(characterId) === locationId))).toBe(true);
+      expect(plan.scenes.length).toBeLessThanOrEqual(MAX_MAJOR_SCENES_PER_SLOT);
+      const cast = plan.scenes.flatMap(({ participantIds }) => participantIds);
+      expect(new Set(cast).size).toBe(cast.length);
+      // At most one scene per slot may relocate its character, so a merged Scene cannot
+      // overflow the FR-C004 participant limit.
+      expect(plan.scenes.filter(isTravelScene).length).toBeLessThanOrEqual(MAX_TRAVEL_SCENES_PER_SLOT);
+    }
+    const scenes = port.persisted.groupings.flatMap(({ result }) => result.scenes);
+    expect(scenes.every(({ participantIds }) => participantIds.length <= MAX_MAJOR_SCENE_PARTICIPANTS)).toBe(true);
+  });
+
+  it('leaves a scene alone when every participant is already standing in it', () => {
+    const scene: GroupedScene = {
+      schemaVersion: 1, sceneId: 'grouping:mistwood:0:morning:scene:1', groupingRunId: 'grouping:mistwood:0:morning',
+      directorRunId: directorRunId(slotOf('morning')), worldId: WORLD_ID, worldDay: 0, timeSlot: 'morning',
+      locationId: 'mistwood-mill', participantIds: ['he-jun', 'zhao-ming'], sourceIntentIds: ['i1', 'i2'],
+      arcIds: [], trigger: 'The refinancing deadline lands', dramaticPressure: 'The audit is not finished',
+    };
+    const result = finalizeWholeSceneOutput('sim', scene, parseWholeSceneOutput(narrateGroupedScene(scene), scene), 1,
+      { provider: 'fake', model: 'fake-whole-scene-v1', inputTokens: 1, outputTokens: 1, latencyMs: 0, retryCount: 0 });
+    expect(withArrivalStateChanges(result, port.lastSnapshot())).toBe(result);
   });
 });

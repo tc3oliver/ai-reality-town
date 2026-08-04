@@ -27,12 +27,20 @@ const SEVEN_DAY_SLOTS = 7 * TIME_SLOTS.length;
 const THIRTY_DAY_SLOTS = 30 * TIME_SLOTS.length;
 
 /**
- * Characters the fixed seed places alone at a location. The live Director only plans scenes
- * at locations holding two or more characters and no committed scene ever moves anyone, so
- * these five are never cast. Recorded here as the harness's finding, not as desired
- * behaviour — see the implementation notes on ART-60.
+ * Characters the fixed seed places alone at a location.
+ *
+ * ART-60 found that the live Director only planned scenes at locations holding two or more
+ * characters and that no committed scene ever moved anyone, so these five were never cast in
+ * 30 world days. ART-101 fixed the live candidate generator; they are kept named here
+ * because they are the exact population the regression would reappear in.
  */
-const STARVED_CHARACTER_IDS = ['lin-yingxue', 'su-meizhen', 'luo-shan', 'tang-ruoxi', 'wu-zhen'];
+const FORMERLY_STARVED_CHARACTER_IDS = ['lin-yingxue', 'su-meizhen', 'luo-shan', 'tang-ruoxi', 'wu-zhen'];
+
+/**
+ * Distinct scene texts the fake author can produce over this seed's cast and locations.
+ * Measured, not chosen: both the 7-day and the 30-day run land on exactly this many.
+ */
+const DISTINCT_SCENE_TEXTS = 32;
 
 /** Asserts every NFR-007 property that the fixed seed satisfies cleanly. */
 function expectCleanRun(findings: LongRunFindings, worldDays: number): void {
@@ -80,6 +88,18 @@ function expectCleanRun(findings: LongRunFindings, worldDays: number): void {
   expect(findings.tokens.retries).toBe(0);
   expect(findings.tokens.realProviderSpendChecked).toBe(false);
 
+  // FR-C002 character appearance (ART-101). Nobody is missing from the whole run and nobody
+  // crosses the neglect ceiling, and the reason is visible: the run actually relocates the
+  // characters the seed strands, so an isolated resident becomes castable with others.
+  expect(findings.appearance.characterIds).toHaveLength(12);
+  expect(findings.appearance.neverAppeared).toEqual([]);
+  expect(findings.appearance.threshold).toBe(MAX_SLOTS_WITHOUT_APPEARANCE);
+  expect(findings.appearance.maxSlotsSinceMajorAppearance).toBeLessThanOrEqual(MAX_SLOTS_WITHOUT_APPEARANCE);
+  expect(findings.appearance.violations).toEqual([]);
+  expect(findings.appearance.relocations).toBeGreaterThan(0);
+  expect(findings.appearance.relocatedCharacterIds)
+    .toEqual([...FORMERLY_STARVED_CHARACTER_IDS].sort((left, right) => left.localeCompare(right)));
+
   // Safety (ART-54/55): classification ran for every scene and every episode, and no
   // committed event came from an unclassified or withheld scene.
   expect(findings.safety.scenesSimulated).toBe(findings.repetition.scenes);
@@ -91,22 +111,15 @@ function expectCleanRun(findings: LongRunFindings, worldDays: number): void {
 }
 
 /**
- * Asserts the gaps the fixed seed exposes. These are findings the harness must keep
+ * Asserts the gaps the fixed seed still exposes. These are findings the harness must keep
  * reporting: if one of them changes, the live pipeline's behaviour changed and the finding
  * has to be re-triaged rather than silently absorbed.
+ *
+ * ART-60's third finding — character starvation — was fixed by ART-101 and moved into
+ * {@link expectCleanRun}, where it is now asserted as a property instead of a defect.
  */
 function expectKnownFindings(findings: LongRunFindings, worldDays: number): void {
-  // FINDING 1 — character starvation. Five seeded characters never take part in a scene,
-  // so `slotsSinceMajorAppearance` grows for the whole run instead of being bounded.
-  expect(findings.appearance.neverAppeared.sort()).toEqual([...STARVED_CHARACTER_IDS].sort());
-  expect(findings.appearance.threshold).toBe(MAX_SLOTS_WITHOUT_APPEARANCE);
-  expect(findings.appearance.maxSlotsSinceMajorAppearance).toBe(worldDays * TIME_SLOTS.length);
-  expect(findings.appearance.violations.length).toBeGreaterThan(0);
-  // Every violation belongs to a starved character; no cast character is ever starved.
-  expect([...new Set(findings.appearance.violations.map(({ characterId }) => characterId))].sort())
-    .toEqual([...STARVED_CHARACTER_IDS].sort());
-
-  // FINDING 2 — arc lockstep. Every event carries the same importance under the fake
+  // FINDING 1 — arc lockstep. Every event carries the same importance under the fake
   // author, so all three major arcs are opened and advanced together and the active-family
   // count dips to zero on the changeover day, one world day in five. The portfolio itself
   // never leaves the FR-F003 1–3 band.
@@ -115,14 +128,17 @@ function expectKnownFindings(findings: LongRunFindings, worldDays: number): void
     .toEqual(Array.from({ length: Math.ceil(worldDays / 5) }, (_, index) => index * 5));
   expect(findings.arcs.activeMajorByWorldDay.filter((count) => count > 0).every((count) => count === MAX_MAJOR_ACTIVE_ARCS)).toBe(true);
 
-  // FINDING 3 — content repetition. The frozen cast/location set plus the fake author's
-  // template collapse the run onto twelve distinct scene texts.
-  expect(findings.repetition.distinctContentDigests).toBe(12);
-  expect(findings.repetition.duplicateScenes).toBe(findings.repetition.scenes - 12);
+  // FINDING 2 — content repetition. The fake author's template output space still collapses
+  // the run onto a small set of distinct scene texts. ART-101's un-stranded cast widened it
+  // from twelve to thirty-two (30-day duplicate rate 97.3% → 92.9%), which is an improvement
+  // but not a fix: the remaining duplication is the no-cost author, not the Director, and is
+  // deferred to the ART-72 provider.
+  expect(findings.repetition.distinctContentDigests).toBe(DISTINCT_SCENE_TEXTS);
+  expect(findings.repetition.duplicateScenes).toBe(findings.repetition.scenes - DISTINCT_SCENE_TEXTS);
   expect(findings.repetition.duplicateGroups.length).toBeGreaterThan(0);
-  // Every duplicate group is a repeat of one of the twelve texts; nothing is unaccounted for.
+  // Every duplicate group is a repeat of one of those texts; nothing is unaccounted for.
   expect(findings.repetition.duplicateGroups.reduce((total, { sceneIds }) => total + sceneIds.length, 0))
-    .toBe(findings.repetition.scenes - (12 - findings.repetition.duplicateGroups.length));
+    .toBe(findings.repetition.scenes - (DISTINCT_SCENE_TEXTS - findings.repetition.duplicateGroups.length));
 }
 
 describe('NFR-007 fixed-seed 7-day simulation (AC#1/#3)', () => {
@@ -164,7 +180,9 @@ describe('NFR-007 fixed-seed 7-day simulation (AC#1/#3)', () => {
 
   it('passes every clean Section 19.3 check', () => {
     expectCleanRun(findings, 7);
-    expect(findings.acceptedEvents).toBe(105);
+    // 104, not 3 × 35: in one slot a relocated character's Intent merges into the residents'
+    // Scene at their destination, so that slot commits two events instead of three.
+    expect(findings.acceptedEvents).toBe(104);
   });
 
   it('reports the gaps the fixed seed exposes instead of hiding them', () => {
@@ -190,7 +208,7 @@ describeThirtyDay('NFR-007 fixed-seed 30-day simulation (AC#2/#5/#6/#7)', () => 
     expect(findings.completionRate).toBe(1);
     expect(findings.replay.equal).toBe(true);
     expect(findings.replay.deterministic).toBe(true);
-    expect(findings.acceptedEvents).toBe(450);
+    expect(findings.acceptedEvents).toBe(449);
   });
 
   it('machine-checks every Section 19.3 dimension over 30 world days (AC#2)', () => {

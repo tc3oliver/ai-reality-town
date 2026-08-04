@@ -19,6 +19,16 @@ Scored against **`docs/narrative-quality-rubric.md` version 1.0** (ART-92, PRD S
 Regenerate the exact scored text with `npm run narrative:review-packet`; the packet is
 byte-reproducible from the seed, so this record can be re-verified.
 
+> **Superseded run (ART-101, 2026-08-04).** This review scored run digest
+> `26a787b48038b1c986759b66b639539d`, which no longer reproduces: ART-101 fixed the FR-C002
+> defect that left five of the twelve residents out of every scene, so the same seed now
+> yields 449 accepted events over 32 distinct scene texts (92.9% exact duplication) instead
+> of 450 over 12 (97.3%). The scores and the FAIL verdict below are kept verbatim as the
+> record of what was reviewed on this date. They remain a valid **lower bound** for the
+> no-cost tier — duplication improved but is still dominated by the fake author's template
+> space — and re-scoring against a real provider is ART-72's job, not a re-run of this
+> baseline.
+
 **Why the verdict is expected, and why it is still recorded.** No real language model is
 connected yet: every scene in this run is authored by ART-4's deterministic fake
 whole-scene provider, whose template space is twelve texts (ART-60 already measured 97.3%

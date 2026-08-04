@@ -41,6 +41,7 @@ import {
   buildEpisodeProjection,
   buildTimelineProjection,
   EPISODE_MODEL_KIND,
+  TIMELINE_MAJOR_IMPORTANCE,
   TIMELINE_MODEL_KIND,
   type TimelineEntryInput,
 } from '../publicRead/episodeTimelineProjection';
@@ -943,7 +944,13 @@ describe('live post-commit pipeline over real world-day commits (AC#1/#2/#3/#4)'
     const arcId = [...harness.arcs.keys()][0];
     const arc = await serveReadModel(readStore, WORLD_ID, ARC_MODEL_KIND, `arc:${arcId}`);
     expect((index?.payload as { episodes: unknown[] }).episodes.length).toBeGreaterThan(0);
-    expect((timeline?.payload as { entries: unknown[] }).entries.length).toBe(events.length);
+    // The world timeline is the MAJOR-event timeline: it carries exactly the accepted events
+    // whose own weight reaches TIMELINE_MAJOR_IMPORTANCE. Since ART-101 a slot may also
+    // commit a one-character errand or travel scene, which is a real accepted event but not
+    // a major beat, so this is a filter — not a shortfall.
+    const major = events.filter((event) => arcEventImportance(event) >= TIMELINE_MAJOR_IMPORTANCE);
+    expect(major.length).toBeGreaterThan(0);
+    expect((timeline?.payload as { entries: unknown[] }).entries.length).toBe(major.length);
     expect((arc?.payload as { arcId: string }).arcId).toBe(arcId);
 
     // Every timeline entry traces to an accepted event; nothing is fabricated.

@@ -217,6 +217,14 @@ export type AppearanceFindings = {
   violations: Array<{ characterId: string; slotsSinceMajorAppearance: number; worldDay: number; timeSlot: TimeSlot }>;
   /** Characters that never took part in a committed scene. */
   neverAppeared: string[];
+  /**
+   * Committed `character_location_changed` state changes. A world where this stays zero is a
+   * world where a character the seed places alone can never reach anyone (ART-101), so it is
+   * measured next to the appearance numbers it explains.
+   */
+  relocations: number;
+  /** Characters a committed scene relocated at least once. */
+  relocatedCharacterIds: string[];
 };
 
 export type RepetitionFindings = {
@@ -1236,6 +1244,9 @@ export async function runLongRunSimulation(input: LongRunInput): Promise<LongRun
   // --- character appearance -------------------------------------------------
   const appeared = new Set(acceptedEvents.flatMap(({ participantIds }) => participantIds));
   const characterIds = mistwoodCharacterSeed.characters.map(({ id }) => id);
+  const relocated = acceptedEvents.flatMap(({ stateChanges }) => stateChanges
+    .filter((change) => change.type === 'character_location_changed')
+    .map((change) => (change.type === 'character_location_changed' ? change.characterId : '')));
   const appearance: AppearanceFindings = {
     characterIds,
     maxSlotsSinceMajorAppearance: observations.plannedAppearance
@@ -1244,6 +1255,8 @@ export async function runLongRunSimulation(input: LongRunInput): Promise<LongRun
     violations: observations.plannedAppearance
       .filter(({ slotsSinceMajorAppearance }) => slotsSinceMajorAppearance > MAX_SLOTS_WITHOUT_APPEARANCE),
     neverAppeared: characterIds.filter((characterId) => !appeared.has(characterId)),
+    relocations: relocated.length,
+    relocatedCharacterIds: [...new Set(relocated)].sort((left, right) => left.localeCompare(right)),
   };
 
   // --- repetition -----------------------------------------------------------

@@ -29,6 +29,7 @@ import {
   type AcceptedEvent,
   type CanonRuleContext,
   type ProposedEvent,
+  type StateChange,
   type WorldProjection,
 } from '../canon/model';
 import { commitProposedEvent, type CanonCommitStore, type CommitResult } from '../canon/commit';
@@ -72,6 +73,29 @@ import {
 export const MAX_PLANNED_SCENE_PARTICIPANTS = 4;
 /** Bounded cognition slices handed to one character (FR-C003 inputs stay traceable). */
 export const MAX_INTENT_CONTEXT_ITEMS = 5;
+
+/**
+ * Slots a character may go unseen before the Director must give them a scene.
+ *
+ * FR-C002 already ranks characters by `slotsSinceMajorAppearance`; past this point that
+ * ranking stops being a preference and becomes a reservation. One full world day is the
+ * natural unit: a resident nobody has seen since yesterday is neglected, whether or not
+ * anyone happens to be standing next to them.
+ */
+export const MAX_SLOTS_WITHOUT_APPEARANCE = TIME_SLOTS.length;
+
+/**
+ * Planned scenes per slot that may relocate their character.
+ *
+ * Kept at one so a relocated character merging into the residents' scene at their
+ * destination can never push that scene past {@link MAX_MAJOR_SCENE_PARTICIPANTS}
+ * ({@link MAX_PLANNED_SCENE_PARTICIPANTS} + 1 = 5 ≤ 6) and lose it to the FR-C004
+ * participant limit.
+ */
+export const MAX_TRAVEL_SCENES_PER_SLOT = 1;
+
+/** State change type a travel scene declares, and the arrival it commits. */
+const TRAVEL_STATE_CHANGE = 'character_location_changed';
 
 export type WorldDaySlotIdentity = { worldId: string; worldDay: number; timeSlot: TimeSlot };
 
@@ -279,6 +303,57 @@ export function buildDirectorPlanContext(
   };
 }
 
+/** A location and the characters standing in it, most neglected first. */
+type LocationGroup = { locationId: string; members: DirectorPlanContext['characters'] };
+
+/** Group the slot's characters by where they currently are, neglect-first within a location. */
+function groupByLocation(context: DirectorPlanContext): LocationGroup[] {
+  const byLocation = new Map<string, DirectorPlanContext['characters']>();
+  for (const character of context.characters) {
+    byLocation.set(character.currentLocationId, [...(byLocation.get(character.currentLocationId) ?? []), character]);
+  }
+  return [...byLocation.entries()]
+    .map(([locationId, members]) => ({
+      locationId,
+      members: [...members].sort((left, right) =>
+        right.slotsSinceMajorAppearance - left.slotsSinceMajorAppearance
+        || left.characterId.localeCompare(right.characterId)),
+    }))
+    .sort((left, right) => left.locationId.localeCompare(right.locationId));
+}
+
+/**
+ * Where a character standing alone should go this slot, or `null` when travelling would
+ * not help. The destination is the connected location currently holding the most other
+ * characters (ties by location ID), which is exactly the move that makes an isolated
+ * character castable in a multi-character scene from the next slot onwards.
+ *
+ * Derived only from the stage-1 snapshot, so the Director stage and the intent stage
+ * independently agree on it without widening the closed FR-C002 plan schema.
+ */
+export function travelDestinationFor(characterId: string, snapshot: LiveWorldSnapshot): string | null {
+  const character = snapshot.characters.find((candidate) => candidate.characterId === characterId);
+  if (!character) return null;
+  const occupancy = new Map<string, number>();
+  for (const other of snapshot.characters) {
+    if (other.characterId === characterId) continue;
+    occupancy.set(other.currentLocationId, (occupancy.get(other.currentLocationId) ?? 0) + 1);
+  }
+  const reachable = [...new Set(character.reachableLocationIds)]
+    .filter((locationId) => locationId !== character.currentLocationId && (occupancy.get(locationId) ?? 0) > 0)
+    .sort((left, right) =>
+      (occupancy.get(right) ?? 0) - (occupancy.get(left) ?? 0) || left.localeCompare(right));
+  return reachable[0] ?? null;
+}
+
+/**
+ * A scene the Director planned for a single character who is expected to travel out of it.
+ * The plan schema is closed, so the travel is declared through the one field that can carry
+ * it — `expectedStateChangeTypes` — rather than by adding a field FR-C002 would reject.
+ */
+export const isTravelScene = (scene: DirectorSceneCandidate): boolean =>
+  scene.participantIds.length === 1 && scene.expectedStateChangeTypes.includes(TRAVEL_STATE_CHANGE);
+
 /**
  * Deterministic Director Plan candidate.
  *
@@ -287,39 +362,56 @@ export function buildDirectorPlanContext(
  * characters are grouped so no scene can create a location conflict, each character is
  * used at most once so no time conflict is possible (AC#2), every scene carries the
  * Director Run ID (AC#3), and the slot is capped at {@link MAX_MAJOR_SCENES_PER_SLOT} (AC#4).
- * Characters unseen for longest are favoured, and the starting location rotates by slot so
- * consecutive slots do not repeat the same cast.
+ *
+ * Selection is neglect-first, then rotating. Multi-character locations rotate by slot so
+ * consecutive slots do not repeat the same cast, but ANY location — including one holding a
+ * single character — jumps that queue once its most neglected member has gone longer than
+ * {@link MAX_SLOTS_WITHOUT_APPEARANCE} unseen. Without that reservation a character the seed
+ * places alone is never castable: preferring multi-character locations is a stable
+ * preference, so on a seed where some location always holds two people the solo fallback
+ * never fires and the isolated character starves for the whole run (ART-60 / ART-101).
+ *
+ * A neglected solo character who can reach an occupied location is planned as a TRAVEL
+ * scene: the scene still sits at the character's own location, because FR-C002 requires
+ * every participant to already be there, and it declares {@link TRAVEL_STATE_CHANGE} so the
+ * intent stage knows to send them on. At most {@link MAX_TRAVEL_SCENES_PER_SLOT} of them.
  */
 export function generateDirectorPlanCandidate(
   slot: WorldDaySlotIdentity,
   snapshot: LiveWorldSnapshot,
   context: DirectorPlanContext,
 ): DirectorPlan {
-  const byLocation = new Map<string, DirectorPlanContext['characters']>();
-  for (const character of context.characters) {
-    byLocation.set(character.currentLocationId, [...(byLocation.get(character.currentLocationId) ?? []), character]);
+  const ranked = groupByLocation(context);
+  // Rotate over the locations that can hold a multi-character scene, as before.
+  const rotationPool = ranked.filter(({ members }) => members.length > 1);
+  const pool = rotationPool.length > 0 ? rotationPool : ranked;
+  const offset = pool.length === 0 ? 0 : slotOrdinal(slot) % pool.length;
+  const rotated = pool.map((_, step) => pool[(offset + step) % pool.length]);
+  // Neglected locations jump the rotation, most neglected first.
+  const neglected = ranked
+    .filter(({ members }) => members[0].slotsSinceMajorAppearance > MAX_SLOTS_WITHOUT_APPEARANCE)
+    .sort((left, right) =>
+      right.members[0].slotsSinceMajorAppearance - left.members[0].slotsSinceMajorAppearance
+      || left.locationId.localeCompare(right.locationId));
+  const candidates: LocationGroup[] = [];
+  for (const group of [...neglected, ...rotated]) {
+    if (candidates.length >= MAX_MAJOR_SCENES_PER_SLOT) break;
+    if (!candidates.some(({ locationId }) => locationId === group.locationId)) candidates.push(group);
   }
-  const ranked = [...byLocation.entries()]
-    .map(([locationId, members]) => ({
-      locationId,
-      members: [...members].sort((left, right) =>
-        right.slotsSinceMajorAppearance - left.slotsSinceMajorAppearance
-        || left.characterId.localeCompare(right.characterId)),
-    }))
-    .sort((left, right) => left.locationId.localeCompare(right.locationId));
-  // Prefer locations that can hold a multi-character scene; fall back to solo scenes.
-  const groups = ranked.filter(({ members }) => members.length > 1);
-  const candidates = groups.length > 0 ? groups : ranked;
+
   const arcIds = snapshot.activeArcs.map(({ arcId }) => arcId).slice(0, MAX_MAJOR_SCENES_PER_SLOT);
   const protectedFactIds = [...new Set(snapshot.protectedFactIds)].slice(0, MAX_MAJOR_SCENES_PER_SLOT);
-  const offset = candidates.length === 0 ? 0 : slotOrdinal(slot) % candidates.length;
 
   const scenes: DirectorSceneCandidate[] = [];
-  for (let step = 0; step < candidates.length && scenes.length < MAX_MAJOR_SCENES_PER_SLOT; step += 1) {
-    const group = candidates[(offset + step) % candidates.length];
+  let travelScenes = 0;
+  for (const group of candidates) {
     const participants = group.members.slice(0, Math.min(MAX_PLANNED_SCENE_PARTICIPANTS, MAX_MAJOR_SCENE_PARTICIPANTS));
     const lead = participants[0];
     const question = snapshot.activeArcs[0]?.currentQuestion ?? 'What does this town owe its own record?';
+    const travels = participants.length === 1
+      && travelScenes < MAX_TRAVEL_SCENES_PER_SLOT
+      && travelDestinationFor(lead.characterId, snapshot) !== null;
+    if (travels) travelScenes += 1;
     scenes.push({
       sceneId: `${context.directorRunId}:scene:${scenes.length + 1}`,
       directorRunId: context.directorRunId,
@@ -331,7 +423,13 @@ export function generateDirectorPlanCandidate(
       dramaticPressure: `${question} Waiting longer costs ${lead.characterId} standing (${context.pacingStage}).`,
       arcIds,
       protectedFactIds,
-      expectedStateChangeTypes: ['relationship_changed', 'character_memory_formed', 'fact_created'],
+      // Declared honestly: a one-character scene has no relationship to change, and a
+      // travel scene is expected to move its character.
+      expectedStateChangeTypes: participants.length > 1
+        ? ['relationship_changed', 'character_memory_formed', 'fact_created']
+        : travels
+          ? ['character_memory_formed', 'fact_created', TRAVEL_STATE_CHANGE]
+          : ['character_memory_formed', 'fact_created'],
     });
   }
   return {
@@ -420,6 +518,49 @@ export function generateCharacterIntent(
     rationale: `${context.characterId} is ${context.emotionalState.value} and cannot let "${context.currentGoal.value}" wait.`,
     urgency: ((seed % 5) + 5) / 10,
     downgradeReason: null,
+  };
+}
+
+// --- arrivals ---------------------------------------------------------------
+
+/**
+ * Record the arrival a Scene implies when one of its participants is not yet standing where
+ * the Scene takes place.
+ *
+ * The author never sees the world projection, so it cannot state the movement precondition
+ * FR-C002/Canon require (`fromLocationId` must equal the character's current location). The
+ * orchestrator can, from the same stage-1 snapshot the Director planned against, so it
+ * states it here. This is not authored content and not a Canon write: the arrival is
+ * appended to a PROPOSED event that still passes through {@link validateEventStructure},
+ * {@link validateCanon} (connectivity, capacity, one move per slot, participant membership)
+ * and {@link commitProposedEvent} exactly like every other proposal (ADR-0001).
+ */
+export function withArrivalStateChanges(
+  result: SceneSimulationResult,
+  snapshot: LiveWorldSnapshot,
+): SceneSimulationResult {
+  const origins = new Map(snapshot.characters.map(({ characterId, currentLocationId }) => [characterId, currentLocationId]));
+  const [first, ...rest] = result.output.proposedEvents;
+  if (!first) return result;
+  const arrivals: StateChange[] = result.scene.participantIds
+    .filter((characterId) => {
+      const from = origins.get(characterId);
+      return from !== undefined && from !== result.scene.locationId;
+    })
+    .map((characterId) => ({
+      type: 'character_location_changed' as const,
+      characterId,
+      fromLocationId: origins.get(characterId) as string,
+      toLocationId: result.scene.locationId,
+    }));
+  if (arrivals.length === 0) return result;
+  return {
+    ...result,
+    output: {
+      ...result.output,
+      // The arrival precedes what happens once everyone is in the room.
+      proposedEvents: [{ ...first, stateChanges: [...arrivals, ...first.stateChanges] }, ...rest],
+    },
   };
 }
 
@@ -522,10 +663,14 @@ export function createWorldDayStageHandlers(
       const { plan } = artifact<DirectorPlanArtifact>(context, 'generate_daily_director_plan');
       const placements = new Map<string, { locationId: string; targetCharacterId: string | null }>();
       for (const scene of plan.scenes) {
+        // A travel scene sends its character on; the destination is re-derived from the same
+        // snapshot the Director planned against, so both stages agree without the plan
+        // carrying a field FR-C002 does not define.
+        const destination = isTravelScene(scene) ? travelDestinationFor(scene.participantIds[0], snapshot) : null;
         scene.participantIds.forEach((characterId, index) => {
           const next = scene.participantIds[(index + 1) % scene.participantIds.length];
           placements.set(characterId, {
-            locationId: scene.locationId,
+            locationId: destination ?? scene.locationId,
             targetCharacterId: next === characterId ? null : next,
           });
         });
@@ -569,6 +714,7 @@ export function createWorldDayStageHandlers(
 
     simulate_scenes: async (context): Promise<SimulationArtifact> => {
       const grouping = artifact<GroupingArtifact>(context, 'group_intents_into_scenes');
+      const { snapshot } = artifact<WorldStateArtifact>(context, 'load_world_state');
       const results: SceneSimulationResult[] = [];
       const withheldSceneIds: string[] = [];
       for (const scene of grouping.result.scenes) {
@@ -576,7 +722,7 @@ export function createWorldDayStageHandlers(
         await port.persistSceneSimulation(grouping.groupingRunId, result);
         // FR-C005 AC#5: high-risk output goes to safety review instead of Canon.
         if (result.reviewStatus === 'required') withheldSceneIds.push(scene.sceneId);
-        else results.push(result);
+        else results.push(withArrivalStateChanges(result, snapshot));
       }
       return { results, withheldSceneIds };
     },
