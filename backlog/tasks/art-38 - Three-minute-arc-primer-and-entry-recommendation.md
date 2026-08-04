@@ -1,10 +1,10 @@
 ---
 id: ART-38
 title: Three-minute active-arc primer
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-04 01:53'
+updated_date: '2026-08-04 01:56'
 labels:
   - prd-1.0
   - epic-j
@@ -86,7 +86,7 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Notes
