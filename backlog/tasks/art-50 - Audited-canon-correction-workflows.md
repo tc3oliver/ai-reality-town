@@ -1,11 +1,11 @@
 ---
 id: ART-50
 title: Audited canon correction workflows
-status: In Progress
+status: In Review
 assignee:
   - '@agent-art50'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-04 08:40'
+updated_date: '2026-08-04 08:41'
 labels:
   - prd-1.0
   - epic-m
@@ -93,7 +93,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
