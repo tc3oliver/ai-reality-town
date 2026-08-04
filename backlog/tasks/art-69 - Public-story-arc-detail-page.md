@@ -1,10 +1,10 @@
 ---
 id: ART-69
 title: Public story arc detail page
-status: In Review
+status: Done
 assignee: []
 created_date: '2026-08-02 15:43'
-updated_date: '2026-08-04 07:03'
+updated_date: '2026-08-04 07:24'
 labels:
   - prd-1.0
   - epic-k
