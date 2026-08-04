@@ -1,10 +1,10 @@
 ---
 id: ART-69
 title: Public story arc detail page
-status: To Do
+status: In Review
 assignee: []
 created_date: '2026-08-02 15:43'
-updated_date: '2026-08-04 07:02'
+updated_date: '2026-08-04 07:03'
 labels:
   - prd-1.0
   - epic-k
@@ -68,26 +68,26 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 FR-I006: Arc page displays Title, Premise, Current Question, Status, Core Characters, Essential Backstory, Inciting Event, Latest Turning Point, Recommended Entry, Related Episodes, Known Clues, Unresolved Questions, and resolved Outcome when present.
-- [ ] #2 All displayed fields come from publication-safe arc/read projections.
-- [ ] #3 Archived and resolved arcs remain queryable without appearing as active context.
+- [x] #1 FR-I006: Arc page displays Title, Premise, Current Question, Status, Core Characters, Essential Backstory, Inciting Event, Latest Turning Point, Recommended Entry, Related Episodes, Known Clues, Unresolved Questions, and resolved Outcome when present.
+- [x] #2 All displayed fields come from publication-safe arc/read projections.
+- [x] #3 Archived and resolved arcs remain queryable without appearing as active context.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -127,3 +127,19 @@ The projection DOES carry a real 'outcome' field (populated by rebuildArcProject
 
 Validation: npm run check -> exit 0 (check:architecture, test:architecture, typecheck, lint, jest 71 suites / 696 tests, vite build). Focused command: NODE_OPTIONS=--experimental-vm-modules npx jest src/components/public/arcRoute.test.ts -> 15/15 passed.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Delivered the complete public Story Arc detail page (FR-I006) as src/components/public/arcRoute.ts (pure, DOM-free route parsing + view-model composition + publication-boundary guard), arcRoute.test.ts (15 pure jest tests, no jsdom), ArcDetailPage.tsx (thin render layer, zero business logic), and a '#arc/<worldId>/<arcId>' branch in src/App.tsx — the sixth page in the public-page series, following the same split as the five shipped siblings.
+
+The page renders every FR-I006 field (title, premise, current question, status, core people, essential backstory, inciting event, latest turning point, recommended entry, related episodes, known clues, unresolved questions, outcome) from the published 'arc:<arcId>' projection (ART-65/ART-95) plus the bounded 'primer:<arcId>' primer (ART-38), both read through the failure-isolated getPublishedReadModel with no generation on read (AC#2). The primer is load-bearing: it supplies the core-character display names and the turning-point summary that the arc projection only carries as bare ids, and its summary is attached only when its eventId matches the projection's latestTurningPointEventId. Resolved and archived arcs compose fully so they stay queryable but report isActiveContext:false and are badged inactive, so they never present as active mainline (AC#3).
+
+Verified: npm run check -> exit 0 (check:architecture, test:architecture, typecheck, lint, jest 71 suites / 696 tests, vite build). Focused command: NODE_OPTIONS=--experimental-vm-modules npx jest src/components/public/arcRoute.test.ts -> 15/15 passed.
+
+Verified against LIVE data, not fixtures alone: the real published mistwood arc (modelRef 'arc:arc:mistwood:50', version 23, contentHash rmhash:512ae46b, servedFrom 'current') was fed through parseArcRoute + composeArcViewModel + forbiddenKeysInArcViewModel and produced status resolving -> 收束中/active, core characters resolved to 'He Jun' and 'Zhao Ming' with #character/mistwood/... hrefs, incitingEventId mistwood#event#50, turning point mistwood#event#74 with its primer summary attached, recommendedEntry ep3/day2 -> #episode/mistwood/2, 2 related episodes, 5 backstory facts, 36 known clues, and zero forbidden keys. That run exercised two behaviours a fixture would have missed: the live arc's own unresolvedQuestions array is empty and the page correctly fell back to the primer question, and live arc ids contain colons ('arc:mistwood:50') so colon-bearing and percent-encoded route ids are explicitly tested.
+
+AC#1 is checked with one documented caveat: the projection does carry a real 'outcome' field (populated by rebuildArcProjection from arcConsequenceSummaries where scope==='world'), so no field is missing and no data was fabricated, but every live arc is still at status 'resolving' or earlier, so the resolved-outcome render path is proven by unit test only rather than by live data. Primer character 'role' is likewise null in live data today.
+
+PR https://github.com/tc3oliver/ai-reality-town/pull/114 opened with auto-merge enabled (DoD #14 left unchecked until GitHub completes the merge).
+<!-- SECTION:FINAL_SUMMARY:END -->
