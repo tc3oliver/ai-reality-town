@@ -1,8 +1,11 @@
 import { v } from 'convex/values';
 import { internalMutation, internalQuery } from '../_generated/server';
+import { isTimeSlot } from '../canon/eventTypes';
 import { deriveEventId } from '../shared/ids';
+import type { ArcProjectionEvent } from './model';
 import type { ArcOverflowRemediation, ArcPortfolioDecision, ArcPortfolioEntry } from './portfolio';
 import { applyArcPortfolioControl, ArcPortfolioError } from './portfolio';
+import { parseArcProjectionFields, replayArcProjection } from './projection';
 
 function parseRemediation(value: unknown): ArcOverflowRemediation {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ArcPortfolioError('ARC_PORTFOLIO_INVALID', 'remediation must be an object');
@@ -52,6 +55,56 @@ export const admitArcToPortfolio = internalMutation({
       worldId: args.worldId, decisionId, decision: result.decision, createdAt: args.decidedAt,
     });
     return result.decision;
+  },
+});
+
+/**
+ * Re-derive a portfolio entry's projection snapshot from the authoritative arc lifecycle
+ * and the append-only arc projection stream, and record the accepted event that caused
+ * the refresh.
+ *
+ * Admission ({@link admitArcToPortfolio}) captures the arc as it was at inciting time.
+ * Everything that reads portfolio tiers afterwards — FR-F003 count control, FR-H003 entry
+ * recommendation, the homepage arc selector — needs the CURRENT status, so the live
+ * post-commit pipeline calls this after each classification. It re-derives, never invents:
+ * the projection comes from {@link replayArcProjection} and the status from the lifecycle
+ * row. Tier, priority and published flags are the admission decision and are left alone.
+ */
+export const syncArcPortfolioEntry = internalMutation({
+  args: { worldId: v.string(), arcId: v.string(), sourceEventId: v.string(), updatedAt: v.number() },
+  handler: async (ctx, args) => {
+    if (!Number.isFinite(args.updatedAt)) throw new ArcPortfolioError('ARC_PORTFOLIO_INVALID', 'finite update time required');
+    const row = await ctx.db.query('storyArcPortfolioEntries')
+      .withIndex('by_world_and_arc', (q) => q.eq('worldId', args.worldId).eq('arcId', args.arcId)).unique();
+    if (!row) return { synced: false };
+    const [lifecycle, projectionRows] = await Promise.all([
+      ctx.db.query('storyArcLifecycles')
+        .withIndex('by_world_and_arc', (q) => q.eq('worldId', args.worldId).eq('arcId', args.arcId)).unique(),
+      ctx.db.query('storyArcProjectionEvents')
+        .withIndex('by_world_arc_and_revision', (q) => q.eq('worldId', args.worldId).eq('arcId', args.arcId)).collect(),
+    ]);
+    if (!lifecycle || projectionRows.length === 0) return { synced: false };
+    const events: ArcProjectionEvent[] = [...projectionRows]
+      .sort((left, right) => left.revision - right.revision)
+      .map((projectionRow) => {
+        if (!isTimeSlot(projectionRow.timeSlot)) throw new ArcPortfolioError('ARC_PORTFOLIO_INVALID', 'stored time slot is invalid');
+        return {
+          schemaVersion: 1, worldId: projectionRow.worldId, arcId: projectionRow.arcId,
+          revision: projectionRow.revision, kind: projectionRow.kind,
+          fields: parseArcProjectionFields(projectionRow.fields),
+          sourceEventId: projectionRow.sourceEventId,
+          sourceEventSequenceNumber: projectionRow.sourceEventSequenceNumber,
+          worldDay: projectionRow.worldDay, timeSlot: projectionRow.timeSlot,
+        };
+      });
+    const entry = structuredClone(row.entry) as ArcPortfolioEntry;
+    const next: ArcPortfolioEntry = {
+      ...entry,
+      projection: replayArcProjection(events, lifecycle.status),
+      sourceEventIds: [...new Set([...entry.sourceEventIds, args.sourceEventId])].sort(),
+    };
+    await ctx.db.patch(row._id, { entry: next, updatedAt: args.updatedAt });
+    return { synced: true, status: next.projection.status, revision: next.projection.revision };
   },
 });
 
