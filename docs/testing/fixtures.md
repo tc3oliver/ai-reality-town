@@ -24,6 +24,9 @@ npm test -- --runInBand --runTestsByPath \
   convex/canon/mistwoodFixture.test.ts
 ```
 
+The P0 Canon/cognition integration suite (`docs/testing/canon-cognition-integration.md`)
+reuses this fixture alongside its own scripted world for replay-equality evidence.
+
 Seven-, thirty-, and ninety-world-day harnesses are deliberately not implemented here:
 ART-60 owns deterministic 7/30/90 execution, and ART-73 owns the extended 90-day
 resilience and quality gate.
