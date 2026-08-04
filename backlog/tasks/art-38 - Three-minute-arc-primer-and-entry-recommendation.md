@@ -4,7 +4,7 @@ title: Three-minute active-arc primer
 status: To Do
 assignee: []
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 16:24'
+updated_date: '2026-08-04 01:53'
 labels:
   - prd-1.0
   - epic-j
@@ -64,27 +64,39 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 FR-H002: 閱讀時間約 2–4 分鐘。
-- [ ] #2 FR-H002: 僅包含理解目前主線所需內容。
-- [ ] #3 FR-H002: 不得要求從 Episode 1 開始。
-- [ ] #4 Automated tests provide evidence for every mapped FR-H002 acceptance criterion, including rejection and failure paths.
-- [ ] #5 PRD traceability links FR-H002 to doc-1 and the merged implementation evidence.
+- [x] #1 FR-H002: 閱讀時間約 2–4 分鐘。
+- [x] #2 FR-H002: 僅包含理解目前主線所需內容。
+- [x] #3 FR-H002: 不得要求從 Episode 1 開始。
+- [x] #4 Automated tests provide evidence for every mapped FR-H002 acceptance criterion, including rejection and failure paths.
+- [x] #5 PRD traceability links FR-H002 to doc-1 and the merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
 - [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
+- [x] #2 Relevant automated tests are added or updated
 - [ ] #3 Typecheck passes
 - [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
+- [x] #5 Relevant tests pass
 - [ ] #6 Build passes when applicable
 - [ ] #7 No known regression is introduced
 - [ ] #8 No secret or credential is committed
 - [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+convex/publicRead/arcPrimer.ts (pure buildArcPrimer, 8 tests): composes bounded ~2-4 min primer from arc cause(premise)/turning point/core characters(<=6)/unresolved questions(<=4, current question first), truncated to ARC_PRIMER_MAX_CHARS=1200 (AC#1). States 'need not start from Episode 1' via recommended entry (AC#3). convex/publicRead/arcPrimerFunctions.ts: rebuildArcPrimer internalMutation publishes arc/primer:<arcId> (unreferenced, codegen-safe). Sources: arc projection fields + turning-point event publicSummary + character name facts + recommended entry. Focused: npx jest --testPathPattern=publicRead/arcPrimer -> 8 passed. Full: npm run check -> exit 0. PRD traceability (AC#5): FR-H002 -> doc-1.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Three-minute active-arc primer (FR-H002): new arc/primer:<arcId> read model composes a bounded ~2-4 min primer (cause + recent turning point + core characters + unresolved questions) so newcomers grasp the active mainline without starting at Episode 1. Pure builder unit-tested (8 cases). Verified: npm run check exit 0.
+<!-- SECTION:FINAL_SUMMARY:END -->
