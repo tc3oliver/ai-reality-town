@@ -153,8 +153,9 @@ describe('resolveOperatorPrincipal', () => {
 });
 
 describe('capability matrix', () => {
-  it('covers every FR-K001 control exactly once, plus the FR-K006 emergency controls', () => {
+  it('covers every FR-K001 control exactly once, plus the FR-K006 emergency and FR-K003 remediation controls', () => {
     expect([...OPS_CAPABILITIES].sort()).toEqual([
+      'canon.compensate', 'canon.correct', 'canon.retcon',
       'run.retry', 'scene.cancel', 'schedule.inspect', 'slot.advance',
       'snapshot.create', 'world.emergency_resume', 'world.emergency_stop',
       'world.inspect', 'world.pause', 'world.resume', 'world.rollback',
