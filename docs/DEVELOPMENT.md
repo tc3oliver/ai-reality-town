@@ -127,6 +127,7 @@ in [`docs/testing/fixtures.md`](testing/fixtures.md).
 - **Incremental recap pyramid:** `docs/incremental-recap-pyramid.md`.
 - **Recap coverage and spoiler validation:** `docs/recap-coverage-validation.md`.
 - **Mistwood production seed and public-world registry:** `docs/mistwood-seed.md`.
+- **World emergency stop and recovery:** `docs/world-emergency-stop.md`.
 
 ## Conduct & security
 

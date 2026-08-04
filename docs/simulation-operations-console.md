@@ -134,3 +134,12 @@ registry variable.
 (event review, Canon correction). Adding a control means adding a capability to
 `OPS_CAPABILITIES`, a minimum role to `OPS_CAPABILITY_MINIMUM_ROLE`, and a
 `mutation`/`query` that authorizes first and audits its effect.
+
+The FR-K006 kill switch (`docs/world-emergency-stop.md`) is the first user of that
+seam: `emergencyStop`, `resumeFromEmergencyStop`, `activateWorldRollback`, and
+`clearWorldRollback` live in `convex/operations/emergencyStopFunctions.ts` and pass
+through this same gate and audit trail. Note the difference in strength — `pauseWorld`
+stops the clock from reserving new slots but leaves the executor free to drain the
+existing queue, whereas the emergency stop closes the world's admission gate so no
+slot is claimed and no world-day stage starts. `advanceSlot` is refused while a world
+is under an emergency stop, because reserving a slot queues new simulation work.
