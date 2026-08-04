@@ -1,10 +1,10 @@
 ---
 id: ART-97
 title: Wire live world-day simulation execution loop
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-04 05:06'
-updated_date: '2026-08-04 05:36'
+updated_date: '2026-08-04 10:32'
 labels:
   - prd-1.0
   - epic-c
@@ -136,6 +136,8 @@ The AC names FakeSimulationProvider. That class implements the SimulationProvide
   -> executed 5, all five day-1 slots completed; canonEvents 30 -> 45.
 
 Final npm run check after the seam change: architecture boundaries valid, 69 suites / 655 tests passed, build succeeded.
+
+Reconciled to Done: implementation merged via PR #111 (verified on origin/main). Status hygiene sync.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

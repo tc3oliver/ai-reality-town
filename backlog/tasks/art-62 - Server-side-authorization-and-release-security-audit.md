@@ -1,11 +1,11 @@
 ---
 id: ART-62
 title: Server-side authorization and release security audit
-status: In Progress
+status: Done
 assignee:
   - '@agent-art62'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-04 08:37'
+updated_date: '2026-08-04 10:32'
 labels:
   - prd-1.0
   - epic-q
@@ -155,4 +155,6 @@ UNRESOLVED CRITICAL/HIGH - RELEASE IS NOT CLEAR:
 
 ### Limitations (stated so evidence is not over-read)
 No live deployment exercised - all findings are source review. The H-1 'token reaches the log' claim follows from Convex's documented argument-logging behaviour and was NOT observed in a real log. No network access, so asset license versions were inferred from source URLs. node_modules not installed, so dependency scan was lockfile-only (~88% of entries declare no license). The authorize->act->audit wrapper bodies remain typecheck-only with no end-to-end unauthorized-caller test.
+
+Reconciled to Done: implementation merged via PR #131/#134 (verified on origin/main). Status hygiene sync.
 <!-- SECTION:NOTES:END -->

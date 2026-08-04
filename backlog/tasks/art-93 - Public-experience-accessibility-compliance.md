@@ -1,11 +1,11 @@
 ---
 id: ART-93
 title: Public experience accessibility compliance
-status: In Review
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-02 16:20'
-updated_date: '2026-08-04 07:53'
+updated_date: '2026-08-04 10:32'
 labels:
   - prd-1.0
   - epic-k
@@ -161,6 +161,8 @@ AC#1, AC#3, AC#4 checked. AC#2 left UNCHECKED on purpose. Contrast, reduced moti
 PRD traceability: NFR-009 -> backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 (AI Reality Town PRD 1.0, section 14 NFR-009).
 
 PR #127 merged into main (both CI checks green: 'Autonomous control plane + offline quality' and 'Offline checks (typecheck, lint, test, build)'). The green CI lint run from the repo root confirms the local 'ESLint couldn't determine the plugin @typescript-eslint uniquely' failure was purely an artefact of the nested agent worktree, not a code defect. Added the docs/accessibility.md entry to the DEVELOPMENT.md 'Where things live' index.
+
+Reconciled to Done: implementation merged via PR #127 (verified on origin/main). Status hygiene sync.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

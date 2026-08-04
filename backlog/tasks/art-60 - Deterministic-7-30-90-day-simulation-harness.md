@@ -1,11 +1,11 @@
 ---
 id: ART-60
 title: Deterministic 7-day and 30-day simulation harness
-status: In Progress
+status: Done
 assignee:
   - '@agent-art60'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-04 07:57'
+updated_date: '2026-08-04 10:32'
 labels:
   - prd-1.0
   - epic-p
@@ -208,6 +208,8 @@ The 7-day and 30-day runs are clean on completion rate, Canon conflicts, replay 
 3. CONTENT REPETITION. 450 scenes collapse onto 12 distinct scene texts (97.3% exact duplicates). Largely the fake author's template output space (which ART-60's scope anticipates), amplified by finding 1's frozen cast and location set.
 
 No production code was changed: fixing finding 1 means changing FR-C002 Director planning (ART-97 scope) and would alter that task's verified behaviour, which is outside ART-60's acceptance criteria. Per the Backlog task-finalization guide, follow-up tasks are NOT created without approval - recommending three: (a) let the Director cast characters who are alone at a location, or make scenes move characters; (b) re-measure arc-portfolio continuity against a real provider once ART-72 lands; (c) revisit repetition once (a) and (b) are in.
+
+Reconciled to Done: implementation merged via PR #130 (verified on origin/main). Status hygiene sync.
 <!-- SECTION:NOTES:END -->
 
 ## Comments

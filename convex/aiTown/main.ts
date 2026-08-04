@@ -6,6 +6,7 @@ import { internal } from '../_generated/api';
 import { sleep } from '../util/sleep';
 import { Id } from '../_generated/dataModel';
 import { ENGINE_ACTION_DURATION } from '../constants';
+import { assertPublicWorldAdmitsSimulation } from '../simulation/emergencyStopOperations';
 
 export async function createEngine(ctx: MutationCtx) {
   const now = Date.now();
@@ -136,6 +137,8 @@ export const sendInput = mutation({
     args: v.any(),
   },
   handler: async (ctx, args) => {
+    // FR-K006 / audit H-5: refuse engine input while the kill switch is engaged.
+    await assertPublicWorldAdmitsSimulation(ctx.db);
     return await insertInput(ctx, args.worldId, args.name as any, args.args);
   },
 });
