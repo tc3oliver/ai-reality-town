@@ -67,7 +67,13 @@ function isPlainObject(value: unknown): value is PlainObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function isSensitiveKey(key: string): boolean {
+/**
+ * The single definition of "this field name looks like raw model input/output or
+ * credential material". Exported so every surface that projects untrusted
+ * key/value data to an operator (FR-K002 event review) scrubs by the same rule
+ * instead of growing a second, drifting list.
+ */
+export function isSensitiveTraceKey(key: string): boolean {
   const normalized = key.toLocaleLowerCase('en-US').replace(/[^a-z0-9]/gu, '');
   return (normalized.includes('prompt') && normalized !== 'promptversion')
     || normalized.includes('secret')
@@ -105,7 +111,7 @@ function enumValue<T extends string>(value: unknown, values: readonly T[], path:
 export function normalizeLlmTraceDraft(value: unknown): LlmTraceDraft {
   if (!isPlainObject(value)) throw new LlmTraceError('INVALID_LLM_TRACE', 'trace must be a plain object', '$');
   const unknownKeys = Object.keys(value).filter((key) => !ALLOWED_KEYS.includes(key as typeof ALLOWED_KEYS[number]));
-  const sensitive = unknownKeys.find(isSensitiveKey);
+  const sensitive = unknownKeys.find(isSensitiveTraceKey);
   if (sensitive) throw new LlmTraceError('SENSITIVE_LLM_TRACE_FIELD', 'raw content is forbidden in trace records', sensitive);
   if (unknownKeys.length) throw new LlmTraceError('INVALID_LLM_TRACE', 'trace contains unknown fields', '$');
   if (value.schemaVersion !== LLM_TRACE_SCHEMA_VERSION) {
