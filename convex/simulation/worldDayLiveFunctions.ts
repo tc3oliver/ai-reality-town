@@ -33,6 +33,8 @@ import { emptyProjection, type ProposedEvent } from '../canon/model';
 import { replayWorldEvents } from '../canon/replay';
 import { rowToAcceptedEvent } from '../canon/serialize';
 import { isActiveArcStatus } from '../story/lifecycle';
+import { guardWorldDayStageHandlers } from './emergencyStop';
+import { assertWorldAdmitsSimulation, isWorldEmergencyStopped } from './emergencyStopOperations';
 import { executeWorldDay, type WorldDayRun } from './worldDayOrchestration';
 import { createConvexWorldDayRunStore } from './worldDayOrchestrationFunctions';
 import {
@@ -180,7 +182,14 @@ async function executeSlot(ctx: MutationCtx, row: Doc<'scheduledSlots'>, now: nu
   const run = await executeWorldDay(
     { runId: worldDayRunId(slot), ...slot },
     createConvexWorldDayRunStore(ctx.db, now),
-    createWorldDayStageHandlers(createConvexWorldDayLivePort(ctx, now)),
+    // FR-K006: the kill switch is re-checked at every stage boundary, so a stop that
+    // engages mid-run halts before the next stage starts. Completed checkpoints keep
+    // their artifacts and nothing reaches Canon, so a later resume restarts at exactly
+    // the halted stage and cannot commit the same events twice.
+    guardWorldDayStageHandlers(
+      createWorldDayStageHandlers(createConvexWorldDayLivePort(ctx, now)),
+      () => isWorldEmergencyStopped(ctx.db, row.worldId),
+    ),
   );
   const committedEventIds = run.committedEventIds ?? [];
   if (run.status === 'completed') {
@@ -220,6 +229,12 @@ export const runQueuedWorldDaySlot = internalMutation({
     if (!Number.isSafeInteger(maxSlots) || maxSlots < 1 || maxSlots > TIME_SLOTS.length) {
       throw new Error('INVALID_SLOT_BATCH_SIZE');
     }
+    // FR-K006: refuse to CLAIM any slot while the world is under an emergency stop.
+    // An ordinary FR-K001 pause only stops the clock from reserving new slots; the
+    // kill switch additionally stops the executor from draining the existing queue.
+    // Queued and running rows are left exactly as they are — the stop halts new work,
+    // it does not discard work in progress.
+    await assertWorldAdmitsSimulation(ctx.db, args.worldId);
     const slots: WorldDaySlotOutcome[] = [];
     let explicit: Id<'scheduledSlots'> | undefined = args.slotId;
     for (let index = 0; index < maxSlots; index += 1) {

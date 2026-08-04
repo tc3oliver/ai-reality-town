@@ -1,10 +1,12 @@
 import { useQuery } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
+import { PublicPageFrame } from './PublicPageFrame';
 import {
   composeHomepageViewModel,
   parseHomeRoute,
   type HomeLiveProjection,
   type HomeOnboardingSummary,
+  type HomepageViewModel,
   type HomeWorldProjection,
 } from './homeRoute';
 
@@ -17,7 +19,10 @@ import {
  * unavailable states without blocking (AC#5). Mobile-accessible markup.
  *
  * Thin render layer: all route + view-model logic lives in {@link ./homeRoute}
- * (pure, unit-tested).
+ * (pure, unit-tested). Accessibility (ART-93 / NFR-009): every section is named
+ * by its own visible heading via `aria-labelledby`, headings run h1 → h2 → h3
+ * with no skipped level, and muted text uses the measured `.public-muted`
+ * token rather than opacity. Covered by `publicPages.a11y.test.tsx`.
  */
 
 export default function Homepage() {
@@ -41,7 +46,14 @@ export default function Homepage() {
   );
 
   if (!enabled) {
-    return <Frame><p>網址格式應為 <code>#home/&lt;worldId&gt;</code></p></Frame>;
+    return (
+      <PublicPageFrame worldId={null} showBackLink={false}>
+        <h1 className="text-3xl font-bold">首頁</h1>
+        <p className="mt-2">
+          網址格式應為 <code>#home/&lt;worldId&gt;</code>
+        </p>
+      </PublicPageFrame>
+    );
   }
 
   const vm = composeHomepageViewModel({
@@ -51,56 +63,87 @@ export default function Homepage() {
     live: (live?.payload ?? null) as HomeLiveProjection | null,
   });
 
+  return <HomepageView worldId={worldId} vm={vm} />;
+}
+
+/**
+ * Presentational homepage. Split out from the data-fetching default export so
+ * the accessibility suite can render the real markup without a Convex client.
+ */
+export function HomepageView({ worldId, vm }: { worldId: string; vm: HomepageViewModel }) {
   return (
-    <Frame>
+    <PublicPageFrame worldId={worldId} showBackLink={false}>
       <header>
         <h1 className="text-3xl font-bold">{vm.worldName}</h1>
-        <p className="text-sm opacity-70">世界日 {vm.worldDay} · {vm.timeSlot}</p>
+        <p className="text-sm public-muted">
+          世界日 {vm.worldDay} · {vm.timeSlot}
+        </p>
       </header>
 
       {/* AC#2: first viewport prioritises the current major event. */}
-      <section className="major-event mt-4" aria-label="Latest major event">
-        <h2 className="text-xl font-semibold">最新大事</h2>
-        {vm.majorEvent ? <p>{vm.majorEvent}</p> : <p className="opacity-60">尚無重大發展。</p>}
+      <section className="major-event mt-4" aria-labelledby="home-major-event">
+        <h2 id="home-major-event" className="text-xl font-semibold">
+          最新大事
+        </h2>
+        {vm.majorEvent ? <p>{vm.majorEvent}</p> : <p className="public-muted">尚無重大發展。</p>}
       </section>
 
-      <section className="current-situation mt-4" aria-label="Current situation">
-        <h2 className="text-xl font-semibold">目前局勢</h2>
+      <section className="current-situation mt-4" aria-labelledby="home-current-situation">
+        <h2 id="home-current-situation" className="text-xl font-semibold">
+          目前局勢
+        </h2>
         <p>{vm.currentSituation}</p>
       </section>
 
-      <section className="disclosure mt-4" aria-label="Newcomer disclosure">
-        <h2 className="text-xl font-semibold">認識這個世界</h2>
+      <section className="disclosure mt-4" aria-labelledby="home-disclosure">
+        <h2 id="home-disclosure" className="text-xl font-semibold">
+          認識這個世界
+        </h2>
         {/* AC#4: ≤4 core characters, three essential facts, one entry point. */}
         <h3 className="font-medium mt-2">核心角色</h3>
-        <ul>{vm.characters.map((c) => <li key={c.characterId}>{c.name}</li>)}</ul>
+        <ul>
+          {vm.characters.map((c) => (
+            <li key={c.characterId}>{c.name}</li>
+          ))}
+        </ul>
         <h3 className="font-medium mt-2">必知事實</h3>
-        <ul>{vm.facts.map((f) => <li key={f.factId}>{f.label}</li>)}</ul>
+        <ul>
+          {vm.facts.map((f) => (
+            <li key={f.factId}>{f.label}</li>
+          ))}
+        </ul>
         <h3 className="font-medium mt-2">推薦入坑點</h3>
-        {vm.recommendedEpisode
-          ? <a href={vm.recommendedEpisode.href}>從第 {vm.recommendedEpisode.episodeNumber} 集開始 →</a>
-          : <p className="opacity-60">尚未推薦。</p>}
+        {vm.recommendedEpisode ? (
+          <a href={vm.recommendedEpisode.href}>從第 {vm.recommendedEpisode.episodeNumber} 集開始</a>
+        ) : (
+          <p className="public-muted">尚未推薦。</p>
+        )}
       </section>
 
       {/* AC#5: live + voting render unavailable states without blocking. */}
-      <section className="live mt-4" aria-label="Live">
-        <h2 className="text-xl font-semibold">實況</h2>
-        {vm.live
-          ? <p>世界日 {vm.live.worldDay} · {vm.live.timeSlot}</p>
-          : <p className="opacity-60">實況尚未開始。</p>}
+      <section className="live mt-4" aria-labelledby="home-live">
+        <h2 id="home-live" className="text-xl font-semibold">
+          實況
+        </h2>
+        {vm.live ? (
+          <p>
+            世界日 {vm.live.worldDay} · {vm.live.timeSlot}
+          </p>
+        ) : (
+          <p className="public-muted">實況尚未開始。</p>
+        )}
+        {/* NFR-009 AC#3: the text live view is the non-map equivalent of the
+            world's live state, and the homepage is its entry point. */}
+        <p className="mt-1">
+          <a href={`#live/${worldId}`}>開啟文字實況(不需地圖)</a>
+        </p>
       </section>
-      <section className="vote mt-4" aria-label="Vote">
-        <h2 className="text-xl font-semibold">投票</h2>
-        <p className="opacity-60">{vm.voteAvailable ? '' : '投票尚未開放。'}</p>
+      <section className="vote mt-4" aria-labelledby="home-vote">
+        <h2 id="home-vote" className="text-xl font-semibold">
+          投票
+        </h2>
+        <p className="public-muted">{vm.voteAvailable ? '投票已開放。' : '投票尚未開放。'}</p>
       </section>
-    </Frame>
-  );
-}
-
-function Frame({ children }: { children: React.ReactNode }) {
-  return (
-    <main className="public-page mx-auto max-w-2xl p-4 font-body">
-      <div>{children}</div>
-    </main>
+    </PublicPageFrame>
   );
 }

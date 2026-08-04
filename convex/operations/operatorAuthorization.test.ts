@@ -153,10 +153,11 @@ describe('resolveOperatorPrincipal', () => {
 });
 
 describe('capability matrix', () => {
-  it('covers every FR-K001 control exactly once', () => {
+  it('covers every FR-K001 control exactly once, plus the FR-K006 emergency controls', () => {
     expect([...OPS_CAPABILITIES].sort()).toEqual([
       'run.retry', 'scene.cancel', 'schedule.inspect', 'slot.advance',
-      'snapshot.create', 'world.inspect', 'world.pause', 'world.resume',
+      'snapshot.create', 'world.emergency_resume', 'world.emergency_stop',
+      'world.inspect', 'world.pause', 'world.resume', 'world.rollback',
     ]);
     expect(Object.keys(OPS_CAPABILITY_MINIMUM_ROLE).sort()).toEqual([...OPS_CAPABILITIES].sort());
   });

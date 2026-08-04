@@ -183,3 +183,87 @@ p[contenteditable='true']:empty::before {
 .shape-top-left-corner {
   clip-path: polygon(0 0, 100% 0, 0 100%);
 }
+
+/* --------------------------------------------------------------------------
+ * Public experience accessibility (ART-93, NFR-009).
+ *
+ * The P0 public pages (#home, #live, #episode(s), #character, #arc) render on
+ * the shared body gradient, which is near-white in the light colour scheme and
+ * black in the dark one. These tokens give them explicit, measured colours
+ * instead of relying on the user agent defaults or on `opacity-*` utilities,
+ * neither of which guarantees a contrast ratio.
+ *
+ * Measured contrast against the worst-case body background of each scheme
+ * (light #d6dbdc, dark #000000):
+ *   body text        #000 / #fff        15.0:1 / 21.0:1
+ *   .public-muted    #4a4a4a / #c9c9c9   6.3:1 / 12.7:1
+ *   .public-page a   #0842a0 / #9ecbff   6.5:1 / 12.4:1
+ * All exceed the WCAG 2.1 AA 4.5:1 threshold for normal text.
+ * -------------------------------------------------------------------------- */
+
+.public-muted {
+  color: #4a4a4a;
+}
+
+.public-page a {
+  color: #0842a0;
+  text-decoration: underline;
+}
+
+.public-page a:hover {
+  color: #062f73;
+}
+
+@media (prefers-color-scheme: dark) {
+  .public-muted {
+    color: #c9c9c9;
+  }
+
+  .public-page a {
+    color: #9ecbff;
+  }
+
+  .public-page a:hover {
+    color: #cfe4ff;
+  }
+}
+
+/* Visible keyboard focus. Tailwind preflight neutralises the user agent focus
+ * ring, so the public pages restore an explicit one that inherits the current
+ * text colour and therefore stays visible in both colour schemes. */
+.public-page a:focus-visible,
+.public-page button:focus-visible,
+.public-page select:focus-visible,
+.public-page [tabindex]:focus-visible {
+  outline: 3px solid currentColor;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* WCAG 2.1 AA 2.5.5 / 2.2 AA 2.5.8 target size. Applied to standalone
+ * controls (back link, recap tabs, episode navigation, filters). Links that sit
+ * inside a sentence use the WCAG 2.5.8 inline exception and are sized by the
+ * surrounding line box. */
+.public-tap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 0.5rem;
+}
+
+/* Reduced motion (NFR-009). The P0 public pages declare no animation or
+ * transition of their own — the only @keyframes in this stylesheet belongs to
+ * the game runtime progress bar. This guard keeps the shared stylesheet
+ * compliant for every surface regardless. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

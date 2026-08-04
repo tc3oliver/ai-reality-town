@@ -1,11 +1,11 @@
 ---
 id: ART-35
 title: Recap coverage and spoiler validation
-status: In Review
+status: Done
 assignee:
   - '@agent-art35'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-04 07:14'
+updated_date: '2026-08-04 07:24'
 labels:
   - prd-1.0
   - epic-i

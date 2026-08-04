@@ -126,6 +126,39 @@ export const simulationTables = {
     .index('by_grouping_run', ['worldId', 'groupingRunId'])
     .index('by_scene', ['worldId', 'sceneId']),
 
+  /**
+   * FR-K006 world emergency stop (Kill Switch). Exactly one row per world,
+   * toggled between `engaged` and `released`; the row is the world's admission
+   * gate for NEW simulation work and its own activation history head.
+   *
+   * NON-DESTRUCTIVE BY CONSTRUCTION: this table records the switch only. It never
+   * mirrors, supersedes, or rewrites `canonEvents`, `scheduledSlots`,
+   * `worldDayRuns`, `worldDayCheckpoints`, or `publishedReadModels`, so engaging
+   * the stop cannot lose an accepted event, discard an incomplete run, or change
+   * what the public read path serves.
+   */
+  worldEmergencyStops: defineTable({
+    schemaVersion: v.literal(1),
+    worldId: v.string(),
+    state: v.union(v.literal('engaged'), v.literal('released')),
+    /** Operator, reason, and instant of the most recent activation. */
+    engagedAt: v.number(),
+    engagedBy: v.string(),
+    reason: v.string(),
+    /** Schedule status captured before the stop paused it; restored on release. */
+    scheduleStatusBefore: v.union(v.literal('running'), v.literal('paused')),
+    /** Slot keys queued or running at activation. Evidence only; never mutated. */
+    preservedSlotKeys: v.array(v.string()),
+    activationCount: v.number(),
+    releasedAt: v.optional(v.number()),
+    releasedBy: v.optional(v.string()),
+    releaseReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_world_id', ['worldId'])
+    .index('by_world_and_state', ['worldId', 'state']),
+
   // FR-A004 private warmup markers (PRD §10.3). The full marker object
   // (actual start day, public broadcast start day, recommended newcomer entry,
   // phase, …) is stored as one blob; warmup content is unpublished until the

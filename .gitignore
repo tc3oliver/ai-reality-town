@@ -37,6 +37,7 @@ secrets*
 
 # local tooling state (oh-my-claudecode)
 .omc/
+.claude/worktrees/
 
 # vercel
 .vercel

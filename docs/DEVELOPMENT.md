@@ -38,6 +38,20 @@ directory and no second framework. The Mistwood fixture lives at
 Its fixed seed, isolation guarantees, focused command, and long-run ownership are recorded
 in [`docs/testing/fixtures.md`](testing/fixtures.md).
 
+Tests are **pure logic and run without a DOM**; components are not rendered. The pages
+under `src/components/public/` are thin render layers over pure, unit-tested route and
+view-model modules, and it is those modules that `*.test.ts` covers.
+
+There is exactly one deliberate exception. `jest.config.ts` declares two projects:
+`unit` (the convention above, and it explicitly ignores the exception) and `a11y`, which
+gives `**/*.a11y.test.tsx` — and only those files — `jsdom` plus `jest-axe`. Accessibility
+is a property of rendered markup and cannot be asserted otherwise. Put accessibility specs
+in `*.a11y.test.tsx`; do not widen that project's `testMatch` or hoist `testEnvironment` to
+the top level. The reasoning is recorded in
+[`docs/accessibility.md`](accessibility.md) §1.
+
+Run a single project with `npx jest --selectProjects a11y` (or `unit`).
+
 ## Branch naming
 
 - `foundation/phase-0` — the Phase 0 foundation branch.
@@ -127,6 +141,8 @@ in [`docs/testing/fixtures.md`](testing/fixtures.md).
 - **Incremental recap pyramid:** `docs/incremental-recap-pyramid.md`.
 - **Recap coverage and spoiler validation:** `docs/recap-coverage-validation.md`.
 - **Mistwood production seed and public-world registry:** `docs/mistwood-seed.md`.
+- **World emergency stop and recovery:** `docs/world-emergency-stop.md`.
+- **Public experience accessibility (NFR-009):** `docs/accessibility.md`.
 - **Live world-day execution (stages 1–10):** `docs/world-day-execution.md`.
 - **Live post-commit pipeline (stages 11–21):** `docs/post-commit-pipeline.md`.
 - **Deterministic long-run simulation harness:** `docs/long-run-simulation-harness.md`.

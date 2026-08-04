@@ -1,10 +1,12 @@
 import { useQuery } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
+import { PublicPageFrame } from './PublicPageFrame';
 import {
   composeCharacterViewModel,
   parseCharacterRoute,
   type CharacterProjection,
   type CharacterRecentEvent,
+  type CharacterViewModel,
 } from './characterRoute';
 
 /**
@@ -17,7 +19,10 @@ import {
  * (ART-84) and re-sanitised on read; the view model is built from named fields
  * only ({@link ./characterRoute}) so forbidden keys can never reach the render.
  *
- * Thin render layer over pure, unit-tested logic. Mobile-accessible markup.
+ * Thin render layer over pure, unit-tested logic. Accessibility (ART-93 /
+ * NFR-009): each section is named by its own visible heading, and the repeated
+ * per-event "本日故事" link gets a per-item accessible name so it still makes
+ * sense when a screen reader lists the page's links out of context.
  */
 
 type TimelinePayload = {
@@ -44,10 +49,22 @@ export default function CharacterPage() {
   );
 
   if (!enabled) {
-    return <Frame worldId={null}><p>網址格式應為 <code>#character/&lt;worldId&gt;/&lt;characterId&gt;</code></p></Frame>;
+    return (
+      <PublicPageFrame worldId={null}>
+        <h1 className="text-3xl font-bold">角色</h1>
+        <p className="mt-2">
+          網址格式應為 <code>#character/&lt;worldId&gt;/&lt;characterId&gt;</code>
+        </p>
+      </PublicPageFrame>
+    );
   }
   if (characterResult === undefined) {
-    return <Frame worldId={worldId}><p>載入中…</p></Frame>;
+    return (
+      <PublicPageFrame worldId={worldId}>
+        <h1 className="text-3xl font-bold">角色</h1>
+        <p className="mt-2">載入中…</p>
+      </PublicPageFrame>
+    );
   }
 
   const timeline = (timelineResult?.payload ?? null) as TimelinePayload | null;
@@ -66,22 +83,31 @@ export default function CharacterPage() {
     recentEvents,
   });
 
+  return <CharacterPageView worldId={worldId as string} vm={vm} />;
+}
+
+/**
+ * Presentational character page. Split out from the data-fetching default
+ * export so the accessibility suite can render the real markup without a
+ * Convex client.
+ */
+export function CharacterPageView({ worldId, vm }: { worldId: string; vm: CharacterViewModel }) {
   return (
-    <Frame worldId={worldId}>
+    <PublicPageFrame worldId={worldId}>
       <header>
         <h1 className="text-3xl font-bold">{vm.name}</h1>
-        <p className="text-sm opacity-70">{vm.occupation} · {vm.age}歲{vm.alive ? '' : ' · 已歿'}{vm.active ? '' : ' · 暫離'}</p>
+        <p className="text-sm public-muted">{vm.occupation} · {vm.age}歲{vm.alive ? '' : ' · 已歿'}{vm.active ? '' : ' · 暫離'}</p>
       </header>
 
       {vm.publicProfile && (
-        <section className="character-profile mt-4" aria-label="Public background">
-          <h2 className="text-xl font-semibold">背景</h2>
+        <section className="character-profile mt-4" aria-labelledby="character-profile">
+          <h2 id="character-profile" className="text-xl font-semibold">背景</h2>
           <p>{vm.publicProfile}</p>
         </section>
       )}
 
-      <section className="character-state mt-4" aria-label="Current state">
-        <h2 className="text-xl font-semibold">目前狀態</h2>
+      <section className="character-state mt-4" aria-labelledby="character-state">
+        <h2 id="character-state" className="text-xl font-semibold">目前狀態</h2>
         <ul className="text-sm">
           <li>健康:{vm.healthState}</li>
           <li>情緒:{vm.emotionalState}</li>
@@ -90,41 +116,42 @@ export default function CharacterPage() {
       </section>
 
       {vm.publicGoal && (
-        <section className="character-goal mt-4" aria-label="Public goal">
-          <h2 className="text-xl font-semibold">公開目標</h2>
+        <section className="character-goal mt-4" aria-labelledby="character-goal">
+          <h2 id="character-goal" className="text-xl font-semibold">公開目標</h2>
           <p>{vm.publicGoal}</p>
         </section>
       )}
 
       {(vm.personality || vm.values) && (
-        <section className="character-traits mt-4" aria-label="Traits">
-          <h2 className="text-xl font-semibold">特質</h2>
+        <section className="character-traits mt-4" aria-labelledby="character-traits">
+          <h2 id="character-traits" className="text-xl font-semibold">特質</h2>
           <p className="text-sm">{[vm.personality, vm.values].filter(Boolean).join(' · ')}</p>
         </section>
       )}
 
-      <section className="character-recent mt-4" aria-label="Recent major events">
-        <h2 className="text-xl font-semibold">近期大事</h2>
+      <section className="character-recent mt-4" aria-labelledby="character-recent">
+        <h2 id="character-recent" className="text-xl font-semibold">近期大事</h2>
         {vm.recentEvents.length > 0 ? (
           <ul>
             {vm.recentEvents.map((event) => (
               <li key={event.eventId} className="text-sm">
                 {event.label}
-                {event.episodeHref && <a href={event.episodeHref} className="ml-2 underline">本日故事 →</a>}
+                {event.episodeHref && (
+                  // Every row renders the same visible text, so the accessible
+                  // name carries the event it belongs to (WCAG 2.4.4).
+                  <a
+                    href={event.episodeHref}
+                    className="ml-2"
+                    aria-label={`本日故事:${event.label}`}
+                  >
+                    本日故事
+                  </a>
+                )}
               </li>
             ))}
           </ul>
-        ) : <p className="opacity-60">尚無與此角色相關的近期大事。</p>}
+        ) : <p className="public-muted">尚無與此角色相關的近期大事。</p>}
       </section>
-    </Frame>
-  );
-}
-
-function Frame({ worldId, children }: { worldId: string | null; children: React.ReactNode }) {
-  return (
-    <main className="public-page mx-auto max-w-2xl p-4 font-body">
-      <a href={worldId ? `#home/${worldId}` : '#home'} className="text-sm opacity-70">← 返回首頁</a>
-      <div className="mt-3">{children}</div>
-    </main>
+    </PublicPageFrame>
   );
 }
