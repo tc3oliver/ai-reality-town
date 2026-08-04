@@ -1,10 +1,11 @@
 ---
 id: ART-87
 title: Major-event world timeline experience
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@tc3oliver'
 created_date: '2026-08-02 16:20'
-updated_date: '2026-08-02 16:24'
+updated_date: '2026-08-04 00:01'
 labels:
   - prd-1.0
   - epic-k
@@ -64,25 +65,52 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Timeline defaults to major events only.
-- [ ] #2 Arc, character, and Event Type filters work independently and together.
-- [ ] #3 Displayed events navigate to related Episodes when available.
+- [x] #1 Timeline defaults to major events only.
+- [x] #2 Arc, character, and Event Type filters work independently and together.
+- [x] #3 Displayed events navigate to related Episodes when available.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
 - [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
+- [x] #2 Relevant automated tests are added or updated
 - [ ] #3 Typecheck passes
 - [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
+- [x] #5 Relevant tests pass
 - [ ] #6 Build passes when applicable
 - [ ] #7 No known regression is introduced
 - [ ] #8 No secret or credential is committed
 - [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+ART-87 public Timeline page (FR-I008). Frontend-only — reuses the existing timeline projection (timeline / timeline:<worldId>, already filters to major events >= 0.7 importance, satisfying AC#1 'defaults to major events only').
+
+Mirror episode-list pattern: pure timelineRoute.ts (parseTimelineRoute + filter + composeTimelineViewModel) + test + TimelineView.tsx + App.tsx mount at #timeline/<worldId>.
+
+AC mapping:
+- AC#1 defaults to major events: the projection is major-only by construction; the page renders its entries.
+- AC#2 arc + character + eventType filters (independent and combined AND).
+- AC#3 entries with episodeNumber link to #episode/<worldId>/<worldDay>.
+
+Reads via getPublishedReadModel (no generation). VALIDATE: npm run check; smoke test newcomerAcceptance.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Frontend-only: reuses existing timeline projection (timeline / timeline:<worldId>) which is major-events-only by construction (importance >= 0.7), satisfying AC#1 'defaults to major events only' — the page renders the projection verbatim and never widens it (asserted in test). src/components/public/timelineRoute.ts (pure parseTimelineRoute + timelineEntryMatchesFilters + composeTimelineViewModel, 14 tests) + TimelineView.tsx (arc/character/event-type filter selects, episode links) mounted at #timeline/<worldId>. Reads via getPublishedReadModel (no generation). Focused test: npx jest --testPathPattern=timelineRoute -> 14 passed. Full: npm run check -> exit 0 (architecture + typecheck + lint + full jest + vite build). PRD traceability: FR-I008 -> doc-1.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Public major-event world timeline (FR-I008): TimelineView.tsx reads the published timeline projection (major-events-only by construction, AC#1) via the failure-isolated public read model (no generation), with independent + combined Arc/Character/Event-Type filters (AC#2) and episode deep-links when an event's day has a published episode (AC#3). Pure route/filter logic unit-tested (14 cases). Mounted at #timeline/<worldId>. Verified: npm run check exit 0 incl. vite build.
+<!-- SECTION:FINAL_SUMMARY:END -->
