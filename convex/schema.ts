@@ -12,6 +12,7 @@ import { safetyTables } from './safety/schema';
 import { editorialTables } from './editorial/schema';
 import { recapTables } from './recaps/schema';
 import { publicReadTables } from './publicRead/schema';
+import { viewerTables } from './viewer/schema';
 import { operationsTables } from './operations/schema';
 
 export default defineSchema({
@@ -43,5 +44,6 @@ export default defineSchema({
   ...editorialTables,
   ...recapTables,
   ...publicReadTables,
+  ...viewerTables,
   ...operationsTables,
 });
