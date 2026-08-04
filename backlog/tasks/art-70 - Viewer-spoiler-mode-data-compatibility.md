@@ -1,11 +1,11 @@
 ---
 id: ART-70
 title: Viewer spoiler-mode data compatibility
-status: In Review
+status: Done
 assignee:
   - '@tc3oliver'
 created_date: '2026-08-02 15:43'
-updated_date: '2026-08-04 01:50'
+updated_date: '2026-08-04 05:08'
 labels:
   - prd-1.0
   - epic-j

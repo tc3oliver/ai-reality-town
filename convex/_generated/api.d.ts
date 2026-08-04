@@ -71,6 +71,10 @@ import type * as observability_trace from "../observability/trace.js";
 import type * as observability_traces from "../observability/traces.js";
 import type * as operations_postCommitOrchestration from "../operations/postCommitOrchestration.js";
 import type * as operations_postCommitOrchestrationFunctions from "../operations/postCommitOrchestrationFunctions.js";
+import type * as publicRead_arcPrimer from "../publicRead/arcPrimer.js";
+import type * as publicRead_arcPrimerFunctions from "../publicRead/arcPrimerFunctions.js";
+import type * as publicRead_episodeIndexProjection from "../publicRead/episodeIndexProjection.js";
+import type * as publicRead_episodeIndexProjectionFunctions from "../publicRead/episodeIndexProjectionFunctions.js";
 import type * as publicRead_episodeTimelineProjection from "../publicRead/episodeTimelineProjection.js";
 import type * as publicRead_episodeTimelineProjectionFunctions from "../publicRead/episodeTimelineProjectionFunctions.js";
 import type * as publicRead_liveState from "../publicRead/liveState.js";
@@ -111,6 +115,8 @@ import type * as simulation_sceneSimulation from "../simulation/sceneSimulation.
 import type * as simulation_sceneSimulationFunctions from "../simulation/sceneSimulationFunctions.js";
 import type * as simulation_scheduler from "../simulation/scheduler.js";
 import type * as simulation_schedulerOperations from "../simulation/schedulerOperations.js";
+import type * as simulation_warmup from "../simulation/warmup.js";
+import type * as simulation_warmupFunctions from "../simulation/warmupFunctions.js";
 import type * as simulation_workflow from "../simulation/workflow.js";
 import type * as simulation_worldDayOrchestration from "../simulation/worldDayOrchestration.js";
 import type * as simulation_worldDayOrchestrationFunctions from "../simulation/worldDayOrchestrationFunctions.js";
@@ -142,6 +148,7 @@ import type * as util_object from "../util/object.js";
 import type * as util_sleep from "../util/sleep.js";
 import type * as util_types from "../util/types.js";
 import type * as util_xxhash from "../util/xxhash.js";
+import type * as viewer_spoilerMode from "../viewer/spoilerMode.js";
 import type * as world from "../world.js";
 
 import type {
@@ -214,6 +221,10 @@ declare const fullApi: ApiFromModules<{
   "observability/traces": typeof observability_traces;
   "operations/postCommitOrchestration": typeof operations_postCommitOrchestration;
   "operations/postCommitOrchestrationFunctions": typeof operations_postCommitOrchestrationFunctions;
+  "publicRead/arcPrimer": typeof publicRead_arcPrimer;
+  "publicRead/arcPrimerFunctions": typeof publicRead_arcPrimerFunctions;
+  "publicRead/episodeIndexProjection": typeof publicRead_episodeIndexProjection;
+  "publicRead/episodeIndexProjectionFunctions": typeof publicRead_episodeIndexProjectionFunctions;
   "publicRead/episodeTimelineProjection": typeof publicRead_episodeTimelineProjection;
   "publicRead/episodeTimelineProjectionFunctions": typeof publicRead_episodeTimelineProjectionFunctions;
   "publicRead/liveState": typeof publicRead_liveState;
@@ -254,6 +265,8 @@ declare const fullApi: ApiFromModules<{
   "simulation/sceneSimulationFunctions": typeof simulation_sceneSimulationFunctions;
   "simulation/scheduler": typeof simulation_scheduler;
   "simulation/schedulerOperations": typeof simulation_schedulerOperations;
+  "simulation/warmup": typeof simulation_warmup;
+  "simulation/warmupFunctions": typeof simulation_warmupFunctions;
   "simulation/workflow": typeof simulation_workflow;
   "simulation/worldDayOrchestration": typeof simulation_worldDayOrchestration;
   "simulation/worldDayOrchestrationFunctions": typeof simulation_worldDayOrchestrationFunctions;
@@ -285,6 +298,7 @@ declare const fullApi: ApiFromModules<{
   "util/sleep": typeof util_sleep;
   "util/types": typeof util_types;
   "util/xxhash": typeof util_xxhash;
+  "viewer/spoilerMode": typeof viewer_spoilerMode;
   world: typeof world;
 }>;
 
