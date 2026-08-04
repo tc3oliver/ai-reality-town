@@ -1,11 +1,11 @@
 ---
 id: ART-101
 title: Live Director starves isolated characters
-status: In Progress
+status: In Review
 assignee:
   - '@agent-art101'
 created_date: '2026-08-04 08:31'
-updated_date: '2026-08-04 09:24'
+updated_date: '2026-08-04 09:29'
 labels:
   - prd-1.0
   - epic-c
@@ -51,7 +51,7 @@ ART-60 30-day fixed-seed harness proved 5 of 12 seeded Mistwood characters (lin-
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -133,6 +133,8 @@ Re-ran after the merge:
 - `npm run check` -> exit 0, 85 suites / 1090 passed / 5 skipped, build ok
 
 ART-92 artefacts: `docs/narrative-quality-reviews/2026-08-04-mistwood-30-day-{packet,review}.md` scored run digest `26a787b48038b1c986759b66b639539d`, which this fix supersedes. Their recorded scores and FAIL verdict are left VERBATIM - rewriting another reviewer dated record would destroy the evidence - and each gained a dated superseded-run note pointing at ART-101 with the new figures (449 events, 32 distinct texts, 92.9%). The review already framed itself as the lower bound a real provider (ART-72) must beat, and it still is.
+
+PR #135 merged into main at 2026-08-04T09:27:37Z via auto-merge; both required CI checks (Autonomous control plane + offline quality; Offline checks typecheck/lint/test/build) passed. Branch deleted.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
