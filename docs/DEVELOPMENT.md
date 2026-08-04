@@ -127,6 +127,9 @@ in [`docs/testing/fixtures.md`](testing/fixtures.md).
 - **Incremental recap pyramid:** `docs/incremental-recap-pyramid.md`.
 - **Recap coverage and spoiler validation:** `docs/recap-coverage-validation.md`.
 - **Mistwood production seed and public-world registry:** `docs/mistwood-seed.md`.
+- **Live world-day execution (stages 1–10):** `docs/world-day-execution.md`.
+- **Live post-commit pipeline (stages 11–21):** `docs/post-commit-pipeline.md`.
+- **Deterministic long-run simulation harness:** `docs/long-run-simulation-harness.md`.
 
 ## Conduct & security
 

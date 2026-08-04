@@ -23,6 +23,7 @@
     "test": "NODE_OPTIONS=--experimental-vm-modules jest --verbose",
     "typecheck": "tsc --noEmit",
     "test:foundation": "NODE_OPTIONS=--experimental-vm-modules jest --testPathPattern='canon|simulation'",
+    "test:longrun": "ART60_LONG_RUN=1 NODE_OPTIONS=--experimental-vm-modules jest --runTestsByPath convex/operations/longRunHarness.test.ts",
     "test:architecture": "node --test scripts/architecture/check-boundaries.test.mjs",
     "check:architecture": "node scripts/architecture/check-boundaries.mjs",
     "check:offline": "run-s check:architecture test:architecture typecheck lint test:foundation build",
