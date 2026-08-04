@@ -1,11 +1,11 @@
 ---
 id: ART-49
 title: Proposed-event validation and trace review
-status: In Progress
+status: In Review
 assignee:
   - '@claude'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-04 07:40'
+updated_date: '2026-08-04 07:41'
 labels:
   - prd-1.0
   - epic-m
@@ -85,7 +85,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -170,6 +170,8 @@ AC evidence:
 - AC#3 proven by the parameterised 'collapses %s to the placeholder rather than inventing a category' cases (free-text message, lowercase word, empty string, missing code) plus an assertion that the free-text message never appears in the serialized record.
 
 DoD #10: FR-K002 traceability is recorded in docs/proposed-event-review.md, which maps each PRD bullet to its record field and source of truth; the repository keeps no separate traceability index file.
+
+PR: https://github.com/tc3oliver/ai-reality-town/pull/124 (opened, auto-merge enabled with --merge --delete-branch, awaiting CI). DoD #14 stays unchecked until GitHub completes the auto-merge.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
