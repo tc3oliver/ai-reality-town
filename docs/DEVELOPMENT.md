@@ -147,6 +147,7 @@ Run a single project with `npx jest --selectProjects a11y` (or `unit`).
 - **Live world-day execution (stages 1–10):** `docs/world-day-execution.md`.
 - **Live post-commit pipeline (stages 11–21):** `docs/post-commit-pipeline.md`.
 - **Deterministic long-run simulation harness:** `docs/long-run-simulation-harness.md`.
+- **Manual narrative quality and safety-interception review (PRD 19.5):** `docs/narrative-quality-rubric.md`; executed evaluations in `docs/narrative-quality-reviews/`.
 
 ## Conduct & security
 
