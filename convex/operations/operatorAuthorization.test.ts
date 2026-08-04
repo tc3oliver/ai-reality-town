@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import {
   authorizeOperator,
   buildOperatorAuditEntry,
@@ -318,5 +319,41 @@ describe('buildOperatorAuditEntry', () => {
       reason: 'r', outcome: 'no_op', resultCode: 'OPS_NO_OP', at: 1,
     });
     expect(entry.target).toBeUndefined();
+  });
+});
+
+describe('audit H-1 — retiring the shared ops-token once identity is configured', () => {
+  it('resolveOperatorPrincipal ignores the token when allowTokenFallback is false', () => {
+    const tokenOnly = { operatorId: 'ops-admin', token: 'admin-token-value' };
+    // Bootstrap era default: the token still admits.
+    expect(resolveOperatorPrincipal(tokenOnly, registry())).toMatchObject({ source: 'token' });
+    // Token branch closed: the same credentials are refused...
+    expect(resolveOperatorPrincipal(tokenOnly, registry(), false)).toBeNull();
+    // ...while verified identity still works.
+    expect(resolveOperatorPrincipal({ identity: { subject: 'clerk|admin-1' } }, registry(), false))
+      .toMatchObject({ operatorId: 'ops-admin', source: 'identity' });
+  });
+
+  it('authorizeOperator denies token-only credentials once the token branch is closed', () => {
+    const tokenOnly = { operatorId: 'ops-runner', token: 'runner-token-value' };
+    expect(authorizeOperator({
+      credentials: tokenOnly, registry: registry(), capability: 'world.pause', worldId: 'mistwood',
+    }).operatorId).toBe('ops-runner');
+    expectDenied(() => authorizeOperator({
+      credentials: tokenOnly, registry: registry(), capability: 'world.pause',
+      worldId: 'mistwood', allowTokenFallback: false,
+    }));
+    const byIdentity = authorizeOperator({
+      credentials: { identity: { subject: 'clerk|admin-1' } }, registry: registry(),
+      capability: 'world.emergency_stop', worldId: 'mistwood', allowTokenFallback: false,
+    });
+    expect(byIdentity.operatorId).toBe('ops-admin');
+  });
+
+  it('requireOperator closes the token branch once CLERK_JWT_ISSUER_DOMAIN is set', () => {
+    const source = readFileSync('convex/operations/opsConsoleFunctions.ts', 'utf8');
+    expect(source).toContain("process.env.SIMULATION_OPS_ALLOW_TOKEN_FALLBACK === '1'");
+    expect(source).toContain('!process.env.CLERK_JWT_ISSUER_DOMAIN');
+    expect(source).toContain('allowTokenFallback,');
   });
 });
