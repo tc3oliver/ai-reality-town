@@ -1,11 +1,11 @@
 ---
 id: ART-43
 title: Privacy-safe public character pages
-status: In Progress
+status: Done
 assignee:
   - '@tc3oliver'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-04 02:00'
+updated_date: '2026-08-04 05:08'
 labels:
   - prd-1.0
   - epic-k
