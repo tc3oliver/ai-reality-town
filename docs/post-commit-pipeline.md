@@ -131,3 +131,7 @@ The test drives real world days through ART-97's `executeWorldDay` over an in-me
 store, runs stages 11–21 for every accepted event against the real story, editorial, recap,
 publication and read-model builders, and asserts a public reader sees non-empty episode,
 timeline and arc read models whose every entry traces to an accepted event.
+
+ART-60 drives the same two halves for 7 and 30 consecutive world days and machine-checks the
+result against PRD Section 19.3 — see
+[`long-run-simulation-harness.md`](./long-run-simulation-harness.md).
