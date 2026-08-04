@@ -1,11 +1,11 @@
 ---
 id: ART-93
 title: Public experience accessibility compliance
-status: In Progress
+status: In Review
 assignee:
   - '@claude'
 created_date: '2026-08-02 16:20'
-updated_date: '2026-08-04 07:47'
+updated_date: '2026-08-04 07:53'
 labels:
   - prd-1.0
   - epic-k
@@ -89,8 +89,8 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -159,6 +159,8 @@ Known limitation recorded (not fixed, out of scope): the PixiJS map keys off the
 AC#1, AC#3, AC#4 checked. AC#2 left UNCHECKED on purpose. Contrast, reduced motion and image-alt are fully evidenced, and the 44px target and reflow-safety are structurally asserted, but a RENDERED touch-target measurement and a real 320px/400%-zoom reflow observation were not performed -- jsdom applies no layout and no browser was available. Those two, plus a real-browser focus-visibility walkthrough and a screen-reader pass, are written up as open items in docs/accessibility.md section 4.1-4.4 rather than being claimed as done. DoD#1 is therefore also left unchecked.
 
 PRD traceability: NFR-009 -> backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 (AI Reality Town PRD 1.0, section 14 NFR-009).
+
+PR #127 merged into main (both CI checks green: 'Autonomous control plane + offline quality' and 'Offline checks (typecheck, lint, test, build)'). The green CI lint run from the repo root confirms the local 'ESLint couldn't determine the plugin @typescript-eslint uniquely' failure was purely an artefact of the nested agent worktree, not a code defect. Added the docs/accessibility.md entry to the DEVELOPMENT.md 'Where things live' index.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
