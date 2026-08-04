@@ -30,6 +30,7 @@ import {
   type EmergencyStopView,
 } from './emergencyStop';
 import { loadScheduleRow, pauseWorldSchedule, resumeWorldSchedule } from './schedulerOperations';
+import { MISTWOOD_PUBLIC_WORLD_ID } from '../canon/mistwoodSeed';
 
 type MutationDb = GenericMutationCtx<DataModel>['db'];
 type QueryDb = GenericQueryCtx<DataModel>['db'];
@@ -77,6 +78,34 @@ export async function isWorldEmergencyStopped(db: MutationDb | QueryDb, worldId:
  */
 export async function assertWorldAdmitsSimulation(db: MutationDb | QueryDb, worldId: string): Promise<void> {
   assertSimulationAdmitted(worldId, await loadEmergencyStop(db, worldId));
+}
+
+/**
+ * The single public Reality Town world whose FR-K006 kill switch governs generation across
+ * the WHOLE deployment.
+ *
+ * The inherited AI Town engine (convex/world.ts, convex/aiTown/, convex/messages.ts)
+ * predates the ART world model: its worlds are Convex `Id<'worlds'>` documents with no
+ * link to an ART string worldId, and it carries no emergency-stop state of its own. The
+ * deployment runs one public world, so until that engine is retired or carries its own
+ * world link, EVERY upstream generation path checks THIS world's kill switch. Centralizing
+ * the constant here keeps the single-public-world assumption in one audited place instead
+ * of scattering it across the inherited engine (audit finding H-5).
+ */
+export const PUBLIC_EMERGENCY_STOP_WORLD_ID = MISTWOOD_PUBLIC_WORLD_ID;
+
+/** True when the public world's kill switch currently forbids new generation work. */
+export async function isPublicWorldEmergencyStopped(db: MutationDb | QueryDb): Promise<boolean> {
+  return isWorldEmergencyStopped(db, PUBLIC_EMERGENCY_STOP_WORLD_ID);
+}
+
+/**
+ * THE admission gate for upstream generation paths. Inherited engine entry points
+ * (cron restarts, heartbeats, client input) call this before doing anything that would
+ * start or keep generation running, so an emergency stop halts them too (audit H-5).
+ */
+export async function assertPublicWorldAdmitsSimulation(db: MutationDb | QueryDb): Promise<void> {
+  await assertWorldAdmitsSimulation(db, PUBLIC_EMERGENCY_STOP_WORLD_ID);
 }
 
 /** Slot keys for work that is queued or already running, i.e. the state a stop must preserve. */

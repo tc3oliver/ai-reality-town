@@ -2,6 +2,7 @@ import { v } from 'convex/values';
 import { mutation, query } from './_generated/server';
 import { insertInput } from './aiTown/insertInput';
 import { conversationId, playerId } from './aiTown/ids';
+import { assertPublicWorldAdmitsSimulation } from './simulation/emergencyStopOperations';
 
 export const listMessages = query({
   args: {
@@ -37,6 +38,8 @@ export const writeMessage = mutation({
     text: v.string(),
   },
   handler: async (ctx, args) => {
+    // FR-K006 / audit H-5: refuse to write agent-bound messages while the kill switch is engaged.
+    await assertPublicWorldAdmitsSimulation(ctx.db);
     await ctx.db.insert('messages', {
       conversationId: args.conversationId,
       author: args.playerId,

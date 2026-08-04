@@ -11,6 +11,10 @@ import {
 import { playerId } from './aiTown/ids';
 import { kickEngine, startEngine, stopEngine } from './aiTown/main';
 import { engineInsertInput } from './engine/abstractGame';
+import {
+  assertPublicWorldAdmitsSimulation,
+  isPublicWorldEmergencyStopped,
+} from './simulation/emergencyStopOperations';
 
 export const defaultWorldStatus = query({
   handler: async (ctx) => {
@@ -49,6 +53,12 @@ export const heartbeatWorld = mutation({
       console.debug(`World ${worldStatus._id} is stopped by developer, not restarting.`);
     }
     if (worldStatus.status === 'inactive') {
+      // FR-K006 / audit H-5: a heartbeat must not revive an engine while the kill switch
+      // is engaged. Leave it inactive for a later, authorized resume.
+      if (await isPublicWorldEmergencyStopped(ctx.db)) {
+        console.debug('FR-K006 emergency stop active; not restarting inactive world.');
+        return;
+      }
       console.log(`Restarting inactive world ${worldStatus._id}...`);
       await ctx.db.patch(worldStatus._id, { status: 'running' });
       await startEngine(ctx, worldStatus.worldId);
@@ -73,6 +83,13 @@ export const stopInactiveWorlds = internalMutation({
 
 export const restartDeadWorlds = internalMutation({
   handler: async (ctx) => {
+    // FR-K006 / audit H-5: an engaged kill switch must stop the cron from restarting
+    // engines the operator believed were halted. The inherited engine has no world link
+    // of its own, so the public world's switch governs it.
+    if (await isPublicWorldEmergencyStopped(ctx.db)) {
+      console.warn('FR-K006 emergency stop active on the public world; skipping dead-engine restarts.');
+      return;
+    }
     const now = Date.now();
 
     // Restart an engine if it hasn't run for 2x its action duration.
@@ -119,6 +136,8 @@ export const joinWorld = mutation({
     // }
     // const name =
     //   identity.givenName || identity.nickname || (identity.email && identity.email.split('@')[0]);
+    // FR-K006 / audit H-5: refuse to start generation while the kill switch is engaged.
+    await assertPublicWorldAdmitsSimulation(ctx.db);
     const name = DEFAULT_NAME;
 
     // if (!name) {
@@ -175,6 +194,8 @@ export const sendWorldInput = mutation({
     // if (!identity) {
     //   throw new Error(`Not logged in`);
     // }
+    // FR-K006 / audit H-5: refuse engine input while the kill switch is engaged.
+    await assertPublicWorldAdmitsSimulation(ctx.db);
     return await engineInsertInput(ctx, args.engineId, args.name as any, args.args);
   },
 });

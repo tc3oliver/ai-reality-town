@@ -29,9 +29,12 @@ import {
 } from '../publicRead/readModel';
 import { EMERGENCY_STOP_ERROR_CODE } from '../simulation/emergencyStop';
 import {
+  assertPublicWorldAdmitsSimulation,
   assertWorldAdmitsSimulation,
   engageWorldEmergencyStop,
+  isPublicWorldEmergencyStopped,
   isWorldEmergencyStopped,
+  PUBLIC_EMERGENCY_STOP_WORLD_ID,
   readEmergencyStopState,
   releaseWorldEmergencyStop,
 } from '../simulation/emergencyStopOperations';
@@ -409,5 +412,38 @@ describe('authorization and wiring (FR-K006, NFR-005)', () => {
     const source = readFileSync('convex/simulation/emergencyStopOperations.ts', 'utf8');
     expect(source).toContain('internalQuery({');
     expect(source).not.toContain('internalMutation({');
+  });
+});
+
+describe('FR-K006 audit H-5 — the kill switch halts the upstream AI Town engine', () => {
+  it('the public-world admission helpers track the public world switch end to end', async () => {
+    const db = createFakeDb();
+    await seedSchedule(db);
+    expect(PUBLIC_EMERGENCY_STOP_WORLD_ID).toBe(WORLD);
+    // Before engagement the public world admits simulation.
+    expect(await isPublicWorldEmergencyStopped(asDb(db))).toBe(false);
+    await expect(assertPublicWorldAdmitsSimulation(asDb(db))).resolves.toBeUndefined();
+
+    await engageWorldEmergencyStop(asDb(db), PUBLIC_EMERGENCY_STOP_WORLD_ID, { ...OPERATOR, now: T0 + 100 });
+
+    // The public-world helpers now refuse generation, exactly like the parameterized gate.
+    expect(await isPublicWorldEmergencyStopped(asDb(db))).toBe(true);
+    await expect(assertPublicWorldAdmitsSimulation(asDb(db)))
+      .rejects.toThrow(new RegExp(EMERGENCY_STOP_ERROR_CODE));
+  });
+
+  it('the restart cron and heartbeat do not revive engines while the switch is engaged', () => {
+    const source = readFileSync('convex/world.ts', 'utf8');
+    // restartDeadWorlds short-circuits and heartbeatWorld gates its inactive-restart branch.
+    expect(source.match(/isPublicWorldEmergencyStopped\(ctx\.db\)/g)).toHaveLength(2);
+    expect(source).toContain('skipping dead-engine restarts.');
+    expect(source).toContain('not restarting inactive world.');
+  });
+
+  it('upstream client input routes refuse generation work while the switch is engaged', () => {
+    // joinWorld + sendWorldInput (world.ts), writeMessage (messages.ts), sendInput (aiTown/main.ts).
+    expect(readFileSync('convex/world.ts', 'utf8').match(/await assertPublicWorldAdmitsSimulation\(ctx\.db\)/g)).toHaveLength(2);
+    expect(readFileSync('convex/messages.ts', 'utf8').match(/await assertPublicWorldAdmitsSimulation\(ctx\.db\)/g)).toHaveLength(1);
+    expect(readFileSync('convex/aiTown/main.ts', 'utf8').match(/await assertPublicWorldAdmitsSimulation\(ctx\.db\)/g)).toHaveLength(1);
   });
 });
