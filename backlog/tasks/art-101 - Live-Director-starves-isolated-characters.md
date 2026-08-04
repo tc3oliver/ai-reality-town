@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@agent-art101'
 created_date: '2026-08-04 08:31'
-updated_date: '2026-08-04 09:11'
+updated_date: '2026-08-04 09:24'
 labels:
   - prd-1.0
   - epic-c
@@ -123,6 +123,16 @@ It improved but is not fixed, exactly as ART-60 predicted. Distinct scene texts 
     npm run check -> exit 0: architecture boundaries valid, 6/6 architecture tests, tsc clean,
                      eslint 0 problems over the full lint scope, 83 suites / 1059 passed / 4 skipped
                      (the gated 30-day cases), vite build ok
+
+## Post-merge revalidation (origin/main 7e2a3d7: ART-50, ART-62, ART-92)
+
+Merged origin/main cleanly (no conflicts). ART-92 added an `onContentSample` seam to `longRunHarness.ts` and a dated narrative review packet/review generated from the PRE-fix 30-day run.
+
+Re-ran after the merge:
+- `ART60_LONG_RUN=1 npm run test:longrun` -> 9/9 pass (570 s), 30-day included
+- `npm run check` -> exit 0, 85 suites / 1090 passed / 5 skipped, build ok
+
+ART-92 artefacts: `docs/narrative-quality-reviews/2026-08-04-mistwood-30-day-{packet,review}.md` scored run digest `26a787b48038b1c986759b66b639539d`, which this fix supersedes. Their recorded scores and FAIL verdict are left VERBATIM - rewriting another reviewer dated record would destroy the evidence - and each gained a dated superseded-run note pointing at ART-101 with the new figures (449 events, 32 distinct texts, 92.9%). The review already framed itself as the lower bound a real provider (ART-72) must beat, and it still is.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
