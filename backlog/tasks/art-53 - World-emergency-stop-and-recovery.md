@@ -1,11 +1,11 @@
 ---
 id: ART-53
 title: World emergency stop and recovery
-status: In Progress
+status: In Review
 assignee:
   - '@tc3oliver'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-04 07:44'
+updated_date: '2026-08-04 07:49'
 labels:
   - prd-1.0
   - epic-m
@@ -86,7 +86,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -123,6 +123,8 @@ ALSO CLOSED: `advanceSlot` (FR-K001) now refuses while a world is stopped, becau
 VALIDATION. Focused: NODE_OPTIONS=--experimental-vm-modules npx jest convex/simulation/emergencyStop.test.ts convex/operations/emergencyStopControls.test.ts -> 2 suites / 46 tests passed. Full: npm run check -> architecture boundaries valid (policy v1, 11 modules), 6/6 boundary tests, tsc --noEmit clean, eslint clean, jest 79 suites / 961 tests passed, vite build succeeded. Re-run green after merging origin/main (23b7136).
 
 DEFERRED (no AC requires it): no admin web UI for the switch; denied attempts still are not persisted to `operatorAuditLog` (Convex mutations are transactional — the pre-existing ART-48 gap, documented in docs/simulation-operations-console.md §4); no identity provider wired, so the ops-token path remains the interim (needs a human-supplied issuer credential).
+
+PR #126 merged into main (merge commit 162e844) with both required checks green: CI 'Offline checks (typecheck, lint, test, build)' SUCCESS and Bootstrap 'Autonomous control plane + offline quality' SUCCESS. DoD #14 satisfied.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
