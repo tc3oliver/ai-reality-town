@@ -14,7 +14,8 @@ The target architecture for AI Reality Town. Items are tagged:
 | AI Town visual & realtime runtime | 🔵 | Map, tick state, PixiJS client, engine. |
 | Public read models (UI) | 🟡 | Future read projections for the audience. |
 | Simulation workflow | ✅ 🆕 | `runFoundationSimulation` (fake provider). |
-| Simulation provider | ✅ 🆕 | `FakeSimulationProvider`; LLM provider 🟡. |
+| World-day execution loop | ✅ 🆕 | `runQueuedWorldDaySlot` drives PRD §12 stages 1–10 (see `docs/world-day-execution.md`). |
+| Simulation provider | ✅ 🆕 | `FakeSimulationProvider`, `FakeWholeSceneProvider`; LLM provider 🟡. |
 | Proposed events | ✅ 🆕 | `ProposedEvent` + runtime validators. |
 | Structural validation | ✅ 🆕 | `validateEventStructure`. |
 | Canon validation | ✅ 🆕 | `validateCanon` (preconditions, participants, …). |

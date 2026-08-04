@@ -101,6 +101,7 @@ import type * as simulation_characterIntentFunctions from "../simulation/charact
 import type * as simulation_director from "../simulation/director.js";
 import type * as simulation_directorFunctions from "../simulation/directorFunctions.js";
 import type * as simulation_fakeProvider from "../simulation/fakeProvider.js";
+import type * as simulation_fakeSceneNarrator from "../simulation/fakeSceneNarrator.js";
 import type * as simulation_model from "../simulation/model.js";
 import type * as simulation_provider from "../simulation/provider.js";
 import type * as simulation_providers_actions from "../simulation/providers/actions.js";
@@ -118,6 +119,8 @@ import type * as simulation_schedulerOperations from "../simulation/schedulerOpe
 import type * as simulation_warmup from "../simulation/warmup.js";
 import type * as simulation_warmupFunctions from "../simulation/warmupFunctions.js";
 import type * as simulation_workflow from "../simulation/workflow.js";
+import type * as simulation_worldDayLive from "../simulation/worldDayLive.js";
+import type * as simulation_worldDayLiveFunctions from "../simulation/worldDayLiveFunctions.js";
 import type * as simulation_worldDayOrchestration from "../simulation/worldDayOrchestration.js";
 import type * as simulation_worldDayOrchestrationFunctions from "../simulation/worldDayOrchestrationFunctions.js";
 import type * as story_classification from "../story/classification.js";
@@ -251,6 +254,7 @@ declare const fullApi: ApiFromModules<{
   "simulation/director": typeof simulation_director;
   "simulation/directorFunctions": typeof simulation_directorFunctions;
   "simulation/fakeProvider": typeof simulation_fakeProvider;
+  "simulation/fakeSceneNarrator": typeof simulation_fakeSceneNarrator;
   "simulation/model": typeof simulation_model;
   "simulation/provider": typeof simulation_provider;
   "simulation/providers/actions": typeof simulation_providers_actions;
@@ -268,6 +272,8 @@ declare const fullApi: ApiFromModules<{
   "simulation/warmup": typeof simulation_warmup;
   "simulation/warmupFunctions": typeof simulation_warmupFunctions;
   "simulation/workflow": typeof simulation_workflow;
+  "simulation/worldDayLive": typeof simulation_worldDayLive;
+  "simulation/worldDayLiveFunctions": typeof simulation_worldDayLiveFunctions;
   "simulation/worldDayOrchestration": typeof simulation_worldDayOrchestration;
   "simulation/worldDayOrchestrationFunctions": typeof simulation_worldDayOrchestrationFunctions;
   "story/classification": typeof story_classification;
