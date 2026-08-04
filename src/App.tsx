@@ -3,6 +3,7 @@ import EpisodeDetail from './components/public/EpisodeDetail.tsx';
 import EpisodeList from './components/public/EpisodeList.tsx';
 import Homepage from './components/public/Homepage.tsx';
 import LiveView from './components/public/LiveView.tsx';
+import TimelineView from './components/public/TimelineView.tsx';
 
 import { ToastContainer } from 'react-toastify';
 import a16zImg from '../assets/a16z.png';
@@ -35,6 +36,9 @@ export default function Home() {
   }
   if (typeof window !== 'undefined' && window.location.hash.startsWith('#live/')) {
     return <LiveView />;
+  }
+  if (typeof window !== 'undefined' && window.location.hash.startsWith('#timeline/')) {
+    return <TimelineView />;
   }
   if (typeof window !== 'undefined' && window.location.hash.startsWith('#home')) {
     return <Homepage />;
