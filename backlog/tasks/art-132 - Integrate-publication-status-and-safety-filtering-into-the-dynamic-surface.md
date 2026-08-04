@@ -4,13 +4,14 @@ title: Integrate publication status and safety filtering into the dynamic surfac
 status: To Do
 assignee: []
 created_date: '2026-08-04 15:59'
-updated_date: '2026-08-04 16:50'
+updated_date: '2026-08-04 17:14'
 labels:
   - prd-2.0
   - v2-h
   - epic-p
 dependencies:
   - ART-115
+  - ART-121
   - ART-122
 priority: critical
 type: feature

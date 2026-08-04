@@ -425,3 +425,21 @@ ART-112 同時負責移除公開面的 Human Player／Interact 語意與相關�
 | **地圖工作量未知** | 排程風險 | `data/mistwood.ts` 需以既有 tileset 手工重排八個地點 | ART-107 完成後重估 ART-109 |
 | **Palette Variant 可行性** | 技術風險 | 需確認 f1–f8 調色盤是否支援只替換服裝／髮色範圍 | ART-107 稽核項目；不可行需回頭確認 PRD §24.23 |
 | **§18.1 指標未量測** | 量測缺口 | FR-Q007（ART-140）完成前，點擊率與 Replay 完成率無法量測 | 相關指標一律標示「未量測」，不得以推估值宣稱達標 |
+
+---
+
+## 15. 第三輪 Review 修正紀錄
+
+依據對 `main@9e84d08` 的 source-level review，修正以下五項實作缺口。**不新增 Task，不重寫整體架構**，僅調整以下既有 Task 的 Scope／AC／Dependencies。
+
+| # | 問題 | 驗證方式 | 修正 Task |
+|---|---|---|---|
+| 1 | `liveState.ts` 只從 `character_location_changed`／`character_died`／`character_deactivated` 三種事件推導角色，Mistwood 12 位角色僅寫入 `worldCharacters`（含 `initialLocationId`），初始化時不產生位置事件 → 零事件世界無法保證 12 位角色出現於投影 | 讀 `convex/publicRead/liveState.ts:82-104` 與 `convex/canon/schema.ts:59-65` 確認 | **ART-114**（+1 AC：由 `worldCharacters` seed 產生初始靜態位置）／**ART-115**（+3 AC：投影含全部 seed 角色、Event 覆蓋 seed、零事件世界測試） |
+| 2 | `convex/canon/mistwoodFixture.ts` 是另一套不相容的舊測試世界（Cassia／Rowan，`mistwood-market`／`mistwood-grove`），與正式 `mistwoodSeed.ts`（12 角色／8 地點）並存但無區分標記 | 讀 `mistwoodFixture.ts:6,50-51` 確認角色與地點 ID 確實不同 | **ART-107**（+3 AC：分類 Production Seed／Legacy Fixture／V2 Fixture；重新命名或重建 `mistwoodFixture.ts`；明文禁止 Production Acceptance 使用 Cassia／Rowan） |
+| 3 | ART-121 與 ART-132 的 Replay 失效／重建驗收重疊，且 ART-132 原依賴不含 ART-121 | 讀兩個 Task 的 `dependencies` 欄位確認 | **ART-121**（移除失效／重建 AC，Scope 限定在 Schema／引用／播放）／**ART-132**（+ `ART-121` 依賴，統一擁有 Withhold／Supersede Invalidation） |
+| 4 | `mistwoodSeed.ts` 的 `name` 欄位是羅馬拼音（`Lin Yingxue`），非繁體中文，ART-111 未定義公開顯示名稱來源 | 讀 `mistwoodSeed.ts:71` 確認 `name: 'Lin Yingxue'` | **ART-111**（+3 AC：新增 `displayName`／`locale` 欄位；地圖／角色卡／Episode／Arc 顯示名稱一致；內部 ID 與 seed name 維持穩定但不作為公開顯示） |
+| 5 | `README.md` 仍將 `convex/aiTown/`、`convex/engine/` 標記為「(retained)」，與 §10.3 停用決策矛盾 | 讀 `README.md:55-70` 確認字面矛盾 | **ART-112**（+4 AC：明確列出 README／架構文件／部署文件／環境變數範例／cron 清單為 Documentation Impact 並須更新） |
+
+**額外採納（P1，非缺口修正）：** ART-113 Scope 增加「保留既有文字版 Live View 作為 NFR2-006 非地圖 Fallback，直到 ART-135 完成正式替代」，使 ART-135 有現成基線可擴充，而非從零開始。
+
+**未採納：** review 建議的 Task 對照表全部依實作，無需另建 Task；未發現需要調整 Requirement Matrix 整體結構（Disposition／Delivery State／Release Criticality 三軸模型、Canon／Visual Binding／Visual Runtime 三方責任、§22 覆蓋表）的理由，故 §1～§14 維持不動。
