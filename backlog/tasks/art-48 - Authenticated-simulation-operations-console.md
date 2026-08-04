@@ -1,11 +1,11 @@
 ---
 id: ART-48
 title: Authenticated simulation operations console
-status: In Progress
+status: In Review
 assignee:
   - '@claude'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-04 07:11'
+updated_date: '2026-08-04 07:13'
 labels:
   - prd-1.0
   - epic-m
@@ -223,3 +223,9 @@ SEAM FOR ART-49 / ART-53: requireOperator(ctx, capability, args) + recordAudit(c
 opsConsoleFunctions.ts. A new control = one entry in OPS_CAPABILITIES, one minimum role in
 OPS_CAPABILITY_MINIMUM_ROLE, and a mutation/query that authorizes first and audits its effect.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Delivered the FR-K001 simulation operations console as an authenticated, authorized, audited admin surface (PR #118). Added convex/operations/operatorAuthorization.ts (viewer<operator<admin roles, eight-capability matrix, server-only SIMULATION_OPS_OPERATORS registry, Convex-verified ctx.auth identity plus a constant-time-compared ops token, fail-closed, byte-identical denial raised before any row read), convex/operations/opsConsole.ts (Canon-safe cancellation decisions) and convex/operations/opsConsoleFunctions.ts (ten caller-facing mutation/query entry points that authorize first, reuse the existing control helpers, then audit). Extracted the previously inlined control logic into exported helpers in simulation/schedulerOperations.ts and canon/snapshotOperations.ts so the pre-existing internal mutations and the console share one code path. Added the operatorAuditLog table (who/what/why/outcome/when, written in the same transaction as the effect) and a 'cancelled' slot status the executor never claims and reservation never recreates. No console function writes canonEvents; cancellation refuses any slot that committed an event or whose world-day runs completed. VERIFIED: npm run check green end to end -- architecture boundaries valid (policy v1, 11 modules), 6/6 boundary tests, tsc --noEmit clean, eslint clean, jest 76 suites / 836 tests passed, vite build succeeded; 37 new cases in convex/operations/{operatorAuthorization,opsConsole,opsConsoleControls}.test.ts, the last driving the real control helpers against an in-memory Convex db double (focused command: NODE_OPTIONS=--experimental-vm-modules npx jest convex/operations). Documented in docs/simulation-operations-console.md. DoD #14 left unchecked pending auto-merge; deferred and documented: no admin web UI (no AC requires one), denied attempts not persisted (Convex mutations are transactional), and no identity provider wired (needs a human-supplied issuer credential, so the ops-token path covers the interim).
+<!-- SECTION:FINAL_SUMMARY:END -->
