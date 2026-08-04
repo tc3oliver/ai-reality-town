@@ -1,10 +1,10 @@
 ---
 id: ART-98
 title: Wire live post-commit cognition and editorial pipeline
-status: In Progress
+status: In Review
 assignee: []
 created_date: '2026-08-04 05:07'
-updated_date: '2026-08-04 06:31'
+updated_date: '2026-08-04 06:37'
 labels:
   - prd-1.0
   - epic-g
@@ -54,8 +54,8 @@ Second half of the live daily-cycle gap (first half: ART-97). After a canon even
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
