@@ -89,6 +89,8 @@ import type * as publicRead_relationshipArcProjection from "../publicRead/relati
 import type * as publicRead_relationshipArcProjectionFunctions from "../publicRead/relationshipArcProjectionFunctions.js";
 import type * as publicRead_worldCharacterProjection from "../publicRead/worldCharacterProjection.js";
 import type * as publicRead_worldCharacterProjectionFunctions from "../publicRead/worldCharacterProjectionFunctions.js";
+import type * as recaps_coverageValidation from "../recaps/coverageValidation.js";
+import type * as recaps_coverageValidationFunctions from "../recaps/coverageValidationFunctions.js";
 import type * as recaps_functions from "../recaps/functions.js";
 import type * as recaps_model from "../recaps/model.js";
 import type * as recaps_recapFormats from "../recaps/recapFormats.js";
@@ -244,6 +246,8 @@ declare const fullApi: ApiFromModules<{
   "publicRead/relationshipArcProjectionFunctions": typeof publicRead_relationshipArcProjectionFunctions;
   "publicRead/worldCharacterProjection": typeof publicRead_worldCharacterProjection;
   "publicRead/worldCharacterProjectionFunctions": typeof publicRead_worldCharacterProjectionFunctions;
+  "recaps/coverageValidation": typeof recaps_coverageValidation;
+  "recaps/coverageValidationFunctions": typeof recaps_coverageValidationFunctions;
   "recaps/functions": typeof recaps_functions;
   "recaps/model": typeof recaps_model;
   "recaps/recapFormats": typeof recaps_recapFormats;

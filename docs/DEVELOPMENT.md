@@ -124,6 +124,7 @@ in [`docs/testing/fixtures.md`](testing/fixtures.md).
 - **OpenAI-compatible provider adapter:** `docs/openai-compatible-provider.md`.
 - **Accepted-event daily Episodes:** `docs/accepted-event-episodes.md`.
 - **Incremental recap pyramid:** `docs/incremental-recap-pyramid.md`.
+- **Recap coverage and spoiler validation:** `docs/recap-coverage-validation.md`.
 - **Mistwood production seed and public-world registry:** `docs/mistwood-seed.md`.
 
 ## Conduct & security
