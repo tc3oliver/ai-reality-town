@@ -89,11 +89,20 @@ export async function requireOperator(
   args: { worldId: string; operatorId?: string; operatorToken?: string },
 ): Promise<OperatorPrincipal> {
   const identity = await ctx.auth.getUserIdentity();
+  // Audit H-1: the shared-token bootstrap path is the sole credential until a real
+  // identity provider is configured. Once Clerk is live (`CLERK_JWT_ISSUER_DOMAIN` set)
+  // the token branch closes automatically — verified identity becomes the only way in —
+  // unless an operator explicitly keeps the escape hatch via
+  // `SIMULATION_OPS_ALLOW_TOKEN_FALLBACK=1`. Before that, the token stays available so
+  // the move to verified identity cannot lock the deployment out.
+  const allowTokenFallback = process.env.SIMULATION_OPS_ALLOW_TOKEN_FALLBACK === '1'
+    || !process.env.CLERK_JWT_ISSUER_DOMAIN;
   return authorizeOperator({
     credentials: { identity, token: args.operatorToken, operatorId: args.operatorId },
     registry: parseOperatorRegistry(process.env.SIMULATION_OPS_OPERATORS),
     capability,
     worldId: args.worldId,
+    allowTokenFallback,
   });
 }
 

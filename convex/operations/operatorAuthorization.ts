@@ -261,10 +261,18 @@ export function constantTimeEquals(left: string, right: string): boolean {
  * Resolve the authenticated principal, or `null` when the caller cannot prove any
  * registered identity. Identity is tried first so a deployment with a configured
  * provider never falls back to the weaker token path for the same operator.
+ *
+ * `allowTokenFallback` (default `true` for back-compat with the bootstrap era) gates the
+ * shared-token branch. The Convex wiring ({@link ./opsConsoleFunctions.ts}) computes it
+ * from the deployment env: the token stays available only until an identity provider is
+ * configured (`CLERK_JWT_ISSUER_DOMAIN`), or when an operator explicitly sets
+ * `SIMULATION_OPS_ALLOW_TOKEN_FALLBACK=1` as an escape hatch — so retiring the token (audit
+ * H-1) cannot lock out a deployment that has not yet finished moving to verified identity.
  */
 export function resolveOperatorPrincipal(
   credentials: OperatorCredentials,
   registry: OperatorRegistry,
+  allowTokenFallback = true,
 ): OperatorPrincipal | null {
   const active = registry.filter((entry) => !entry.disabled);
 
@@ -274,6 +282,8 @@ export function resolveOperatorPrincipal(
     const entry = active.find((candidate) => candidate.subjects.includes(subject));
     if (entry) return { operatorId: entry.operatorId, role: entry.role, source: 'identity', subject };
   }
+
+  if (!allowTokenFallback) return null;
 
   const token = nonEmptyString(credentials.token);
   const operatorId = nonEmptyString(credentials.operatorId);
@@ -315,11 +325,17 @@ export function authorizeOperator(input: {
   registry: OperatorRegistry;
   capability: OpsCapability;
   worldId: string;
+  /**
+   * Whether the shared-token bootstrap path may authenticate. The wiring derives this
+   * from the deployment env (audit H-1); defaults to `true` so direct callers and tests
+   * keep the historical behaviour.
+   */
+  allowTokenFallback?: boolean;
 }): OperatorPrincipal {
   if (!isOpsCapability(input.capability)) throw unauthorized();
   const worldId = nonEmptyString(input.worldId);
   if (!worldId) throw unauthorized();
-  const principal = resolveOperatorPrincipal(input.credentials, input.registry);
+  const principal = resolveOperatorPrincipal(input.credentials, input.registry, input.allowTokenFallback ?? true);
   if (!principal) throw unauthorized();
   if (!hasCapability(principal.role, input.capability)) throw unauthorized();
   const entry = input.registry.find((candidate) => candidate.operatorId === principal.operatorId);
