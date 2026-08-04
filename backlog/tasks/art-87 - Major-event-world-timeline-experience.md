@@ -1,11 +1,11 @@
 ---
 id: ART-87
 title: Major-event world timeline experience
-status: In Progress
+status: Done
 assignee:
   - '@tc3oliver'
 created_date: '2026-08-02 16:20'
-updated_date: '2026-08-04 00:01'
+updated_date: '2026-08-04 01:33'
 labels:
   - prd-1.0
   - epic-k
@@ -85,7 +85,7 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
