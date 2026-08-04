@@ -1,4 +1,5 @@
 import Game from './components/Game.tsx';
+import CharacterPage from './components/public/CharacterPage.tsx';
 import EpisodeDetail from './components/public/EpisodeDetail.tsx';
 import EpisodeList from './components/public/EpisodeList.tsx';
 import Homepage from './components/public/Homepage.tsx';
@@ -36,6 +37,9 @@ export default function Home() {
   }
   if (typeof window !== 'undefined' && window.location.hash.startsWith('#live/')) {
     return <LiveView />;
+  }
+  if (typeof window !== 'undefined' && window.location.hash.startsWith('#character/')) {
+    return <CharacterPage />;
   }
   if (typeof window !== 'undefined' && window.location.hash.startsWith('#timeline/')) {
     return <TimelineView />;
