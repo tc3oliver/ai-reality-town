@@ -1,179 +1,264 @@
 # PRD 2.0 Requirement Matrix
 
-**版本：** 1.0（初次盤點）
+**版本：** 2.0（依 review 修正狀態模型、統計、NFR 映射與責任邊界）
 **來源文件：** `docs/prd-2.0.md`
 **前一版基線：** `docs/prd-1.0-closure-matrix.md`
-**盤點日期：** 2026-08-04
-**狀態：** PRD 1.0 Core Simulation and Backend Baseline Complete；PRD 2.0 Dynamic Viewing MVP In Progress
+**盤點日期：** 2026-08-05
+
+> **目前狀態：** PRD 1.0 historical closure complete; current baseline has open release-blocking regressions **ART-99** and **ART-139**. PRD 2.0 Dynamic Viewing MVP In Progress.
+>
+> 不得只寫「PRD 1.0 Core Simulation and Backend Baseline Complete」——那描述歷史封閉，不是目前基線健康狀態（PRD 2.0 §13.3／§26）。
 
 ---
 
-## 1. 盤點結論摘要
+## 1. 狀態模型
+
+先前版本把三個不同維度混在單一「狀態」欄，導致 `Blocked` 同時被用來表達來源分類與發布嚴重度。本版拆為三欄：
+
+| 欄位 | 值域 | 意義 |
+|---|---|---|
+| **Disposition** | `New` / `New (realized by V2 tasks)` / `Carry Forward` / `Existing Baseline Defect` / `Superseded` | 需求**來源**分類 |
+| **Delivery State** | `To Do` / `In Progress` / `Done` / `To Do; production validation blocked by X` | **工作**狀態 |
+| **Release Criticality** | `Release Blocker` / `P0` / `P1` / `P2` | **發布**嚴重度 |
+
+三者互不蘊含。ART-99 不是「被阻擋」，它本身是**阻擋上線的缺陷**：Disposition = Carry Forward、Delivery State = To Do、Release Criticality = Release Blocker。
+
+---
+
+## 2. 統計
 
 | 項目 | 數量 |
 |---|---:|
-| PRD 2.0 新需求（FR-N／FR-O／FR-P／FR-Q／NFR2／§17／§21.3／§22） | 35 |
-| 標記為 **New**（需建立新 Task） | 33 |
-| 標記為 **Carry Forward**（沿用既有 Task ID） | 2（FR-Q003→ART-100、FR-O010 相關降級→與 ART-91 分離但並存） |
-| 標記為 **Existing**（PRD 1.0 已交付，直接重用） | 見 §4 |
-| 標記為 **Superseded** | 0 |
-| 標記為 **Blocked** | 2 Release Blocker（ART-99 快照、ART-139 場景解析） |
-| 新建立 Task | 35（ART-107 ~ ART-141） |
-| 沿用既有 To Do Task | 23（未建立任何重複項） |
+| Matrix 需求列總數 | **47** |
+| ├ FR-N（含 §10.3 引擎停用） | 11 |
+| ├ FR-O | 14 |
+| ├ FR-P | 4 |
+| ├ FR-Q | 8 |
+| ├ NFR2-001 ~ NFR2-008 | 8 |
+| └ 基線缺陷（ART-99、ART-139） | 2 |
+| 具**專屬**新 Task 的需求列 | 37 |
+| 由其他 V2 Task 共同實現、無專屬 Task 的需求列 | 9（8 條 NFR + FR-Q003） |
+| 沿用既有 Task 的需求列 | 2（FR-Q003 → ART-100；ART-99） |
+| **唯一新 Task 數** | **34（ART-107 ~ ART-140）** |
+| Carry Forward Requirement | **1**：FR-Q003 → ART-100 |
+| 沿用既有缺陷 Task | **1**：ART-99 |
+| Existing Baseline Defect（唯一例外） | **1**：ART-139 |
+| Superseded | 0 |
 | 重複建立的 Task | **0** |
 
----
+**需求列數 ≠ 唯一 Task 數。** 37 個具專屬 Task 的需求列只對應 34 個 Task，因為三組需求共用同一個可審查 PR：
 
-## 2. 需求對應表
+| 共用 Task | 涵蓋需求 |
+|---|---|
+| **ART-118** | FR-O001 動態 2D 地圖 ＋ FR-O005 鏡頭與導航 |
+| **ART-120** | FR-O011 Ambient Movement ＋ FR-O012 Environmental Animation |
+| **ART-121** | FR-O013 Visual Replay ＋ FR-O014 時間狀態標示 |
 
-狀態值：`Existing`（PRD 1.0 已交付可直接重用）／`New`（需新 Task）／`Carry Forward`（沿用既有 Task）／`Blocked`／`Superseded`。
-
-### Epic N — Visual Foundation
-
-| Requirement | 狀態 | New Task | Existing Task／證據 | Impact Areas | Dependencies |
-|---|---|---|---|---|---|
-| FR-N001 上游視覺能力稽核 | New | **ART-107** | — | 文件、視覺層 | — |
-| FR-N002 Read-only Pixi World | New | **ART-113** | 重用 `src/components/` PixiJS 元件 | 前端、模組邊界 | ART-112, ART-109 |
-| FR-N003 Public Dynamic Projection | New | **ART-115** | 擴充 `convex/publicRead/liveState.ts`（已有 `LiveCharacter{characterId, locationId, alive}`） | Schema、公開 API、安全 | ART-114 |
-| FR-N004 Character Visual Binding（12 位） | New | **ART-111** | 重用 `data/spritesheets/f1–f8` | Schema、視覺層 | ART-107 |
-| FR-N005 Location Visual Binding（8 個） | New | **ART-110** | 重用 `convex/canon/mistwoodSeed.ts` 的 8 個 location 與 `connectedLocationIds` | Schema、視覺層 | ART-109 |
-| FR-N006 Canon／Runtime 同步 | New | **ART-117** | 重用 Accepted Event 與 `locationProjection` | Schema、Canon 邊界 | ART-115 |
-| FR-N007 Runtime Snapshot | New | **ART-116** | 概念沿用 `canon/snapshotManager` 但為獨立公開快照 | Schema、公開 API | ART-115 |
-| FR-N008 素材授權與 Attribution | New | **ART-108** | — | 合規、CI | ART-107 |
-| FR-N009 Mistwood 專屬地圖 | New | **ART-109** | 重用 `assets/gentle-obj.png` tileset | 靜態資料、視覺層 | ART-107 |
-| FR-N010 輕量 Visual Runtime | New | **ART-114** | 抽取 a16z pathfinding；取代其伺服器端引擎 | 新模組、Canon 邊界 | ART-110, ART-111 |
-| §10.3 a16z 引擎停用 | New | **ART-112** | — | 後端、cron、安全 | ART-107 |
-
-### Epic O — Dynamic Live Town
-
-| Requirement | 狀態 | New Task | Existing Task／證據 | Impact Areas | Dependencies |
-|---|---|---|---|---|---|
-| FR-O001 動態 2D 地圖 | New | **ART-118** | 取代現有純文字 `src/components/public/LiveView.tsx` | 前端 | ART-113, ART-115 |
-| FR-O002 Canon-driven 移動與動畫 | New | **ART-119** | 重用既有 Character sprite renderer | 前端 | ART-118, ART-117 |
-| FR-O003 活躍場景視覺化 | New | **ART-122** | 重用 `liveState.activeScenes` | Schema、前端 | ART-118 |
-| FR-O004 公開交談與活動提示 | New | **ART-123** | 重用 PRD 1.0 publication／safety 狀態 | 前端、安全 | ART-119 |
-| FR-O005 鏡頭與導航 | New | **ART-118**（與 FR-O001 同一 PR） | 重用 PixiViewport | 前端 | ART-113, ART-115 |
-| FR-O006 公開角色卡 | New | **ART-124** | 重用 `publicRead/worldCharacterProjection` | 前端、安全 | ART-118, ART-111 |
-| FR-O007 Live Story Overlay | New | **ART-125** | 重用 `liveState`、`onboardingSummary`、`arcPrimer` | 前端 | ART-118 |
-| FR-O008 響應式觀看體驗 | New | **ART-126** | — | 前端 | ART-125, ART-124 |
-| FR-O009 公開只讀保證 | New | **ART-128** | 延續 PRD 1.0 ART-62 安全稽核方法 | 安全（最高） | ART-113, ART-115 |
-| FR-O010 動態畫面降級 | New | **ART-127** | 與 ART-91（模型中斷降級）**並存不合併** | 前端、韌性 | ART-116, ART-118 |
-| FR-O011 Ambient Movement | New | **ART-120** | — | 視覺 Runtime、Canon 邊界 | ART-114, ART-110 |
-| FR-O012 Environmental Animation | New | **ART-120**（與 FR-O011 同一 PR） | — | 前端 | ART-114, ART-110 |
-| FR-O013 Visual Replay | New | **ART-121** | 只使用既有 Accepted Event 與已發布摘要 | Schema、前端 | ART-119 |
-| FR-O014 時間狀態標示 | New | **ART-121**（與 FR-O013 同一 PR） | — | 前端 | ART-119 |
-
-### Epic P — Editorial Viewing Integration
-
-| Requirement | 狀態 | New Task | Existing Task／證據 | Impact Areas | Dependencies |
-|---|---|---|---|---|---|
-| FR-P001 動態首頁入口 | New | **ART-129** | 取代現有純文字 `Homepage.tsx` | 前端 | ART-118, ART-111 |
-| FR-P002 Live 與 Episode 連續性 | New | **ART-130** | 重用既有 Episode／Arc／Character 路由 | 前端 | ART-122, ART-124 |
-| FR-P003 統一視覺系統 | New | **ART-131** | — | 前端、設計 | ART-125 |
-| FR-P004 Publication 與 Safety 整合 | New | **ART-132** | 重用 PRD 1.0 post-generation safety 與 publication status | 安全（最高） | ART-115, ART-122 |
-
-### Epic Q — Dynamic Viewing Operations
-
-| Requirement | 狀態 | New Task | Existing Task／證據 | Impact Areas | Dependencies |
-|---|---|---|---|---|---|
-| FR-Q001 Dynamic View 可觀測性 | New | **ART-133** | 重用 `convex/observability/` | 可觀測性 | ART-115, ART-116 |
-| FR-Q002 管理者動態觀看控制（P1） | New | **ART-134** | 重用 `convex/operations/operatorAuthorization.ts` | 管理、安全 | ART-133 |
-| FR-Q003 Incremental Public Projection（P1） | **Carry Forward** | — | **ART-100**（既有 To Do，不建立新 Task） | 效能 | ART-115 |
-
-### 非功能與交付閘門
-
-| Requirement | 狀態 | New Task | Existing Task／證據 | Impact Areas | Dependencies |
-|---|---|---|---|---|---|
-| NFR2-006 Dynamic View 無障礙 | New | **ART-135** | 重用 ART-93（Done）；圖表／時間軸 a11y 仍由 ART-94 承接 | 前端、a11y | ART-126, ART-120 |
-| NFR2-002 動態層效能 | New | **ART-136** | — | 效能 | ART-119, ART-120 |
-| §17 動態分析事件（17 個 `live_*`） | New | **ART-140** | 收集機制沿用既有合規路徑；平台由 ART-47 承接 | 分析、隱私 | ART-118, ART-121 |
-| §21.3 Browser E2E 套件 | New | **ART-137** | — | 測試 | ART-126, ART-121 |
-| §22 Release Gate | New | **ART-138** | 方法沿用 ART-63 closure matrix | 交付閘門 | ART-99, ART-139, ART-141 + 全部 P0 |
-| §13.1 ART-99 Snapshot 修復 | **Blocked → P0** | — | **ART-99**（既有，優先級由 Medium 提升為 Critical） | Canon、快照 | — |
-| FR-C002 真實 provider 場景解析（PRD 1.0 缺陷，阻斷 FR-O002） | **Blocked → P0** | **ART-139** | — | 模擬、Canon 產出 | — |
-| §10.3 公開登入介面語意調整 | New | **ART-141** | 保留 ART-105 的 Clerk 登入路徑 | 前端、安全 | ART-112 |
+FR-O010（動態畫面降級）Disposition 為 **New**，擁有專屬 Task **ART-127**；它與 ART-91 是不同故障域的並存關係，**不是** Carry Forward。
 
 ---
 
-## 3. Closure Matrix 24 條延後需求 ↔ 23 個 To Do Task 對應
+## 3. 需求對應表
 
-**兩者並非一對一。** 實際盤點如下。
+### 3.1 Epic N — Visual Foundation
 
-### 3.1 一個 Task 覆蓋多條需求
+| Requirement | Disposition | Task | Delivery State | Release Criticality | 重用證據 | Dependencies |
+|---|---|---|---|---|---|---|
+| FR-N001 上游視覺能力稽核 | New | ART-107 | To Do | P0 | — | — |
+| FR-N002 Read-only Pixi World | New | ART-113 | To Do | P0 | 重用 `src/components/` PixiJS 元件 | ART-112, ART-109 |
+| FR-N003 Public Dynamic Projection | New | ART-115 | To Do | P0 | 擴充 `convex/publicRead/liveState.ts` | ART-114 |
+| FR-N004 Character Visual Binding（12） | New | ART-111 | To Do | P0 | 重用 `data/spritesheets/f1–f8` | ART-107 |
+| FR-N005 Location Visual Binding（8） | New | ART-110 | To Do | P0 | 重用 `mistwoodSeed.ts` 8 locations ＋ `connectedLocationIds` | ART-109 |
+| FR-N006 Canon／Runtime 同步 | New | ART-117 | To Do | P0 | 重用 `character_location_changed`（含 `fromLocationId`／`toLocationId`） | ART-115 |
+| FR-N007 Runtime Snapshot | New | ART-116 | To Do | P0 | 概念沿用 `canon/snapshotManager`（獨立公開快照） | ART-115 |
+| FR-N008 素材授權與 Attribution | New | ART-108 | To Do | P0 | — | ART-107 |
+| FR-N009 Mistwood 專屬地圖 | New | ART-109 | To Do | P0 | 重用 `assets/gentle-obj.png` tileset | ART-107 |
+| FR-N010 輕量 Visual Runtime | New | ART-114 | To Do | P0 | 抽取 a16z pathfinding | ART-110, ART-111 |
+| §10.3 a16z 伺服器端引擎停用 | New | ART-112 | To Do | P0 | — | ART-107 |
+
+### 3.2 Epic O — Dynamic Live Town
+
+| Requirement | Disposition | Task | Delivery State | Release Criticality | Dependencies |
+|---|---|---|---|---|---|
+| FR-O001 動態 2D 地圖 | New | ART-118 | To Do | P0 | ART-113, ART-115 |
+| FR-O002 Canon-driven 移動與動畫 | New | ART-119 | **To Do；production validation blocked by ART-139** | P0 | ART-118, ART-117 |
+| FR-O003 活躍場景視覺化 | New | ART-122 | To Do | P0 | ART-118 |
+| FR-O004 公開交談與活動提示 | New | ART-123 | To Do | P0 | ART-119 |
+| FR-O005 鏡頭與導航 | New | ART-118（共用） | To Do | P0 | ART-113, ART-115 |
+| FR-O006 公開角色卡 | New | ART-124 | To Do | P0 | ART-118, ART-111 |
+| FR-O007 Live Story Overlay | New | ART-125 | To Do | P0 | ART-118 |
+| FR-O008 響應式觀看體驗 | New | ART-126 | To Do | P0 | ART-125, ART-124 |
+| FR-O009 公開只讀保證 | New | ART-128 | To Do | P0 | ART-113, ART-115 |
+| FR-O010 動態畫面降級 | New | ART-127 | To Do | P0 | ART-116, ART-118 |
+| FR-O011 Ambient Movement | New | ART-120 | To Do | P0 | ART-114, ART-110 |
+| FR-O012 Environmental Animation | New | ART-120（共用） | To Do | P0 | ART-114, ART-110 |
+| FR-O013 Visual Replay | New | ART-121 | To Do | P0 | ART-119 |
+| FR-O014 時間狀態標示 | New | ART-121（共用） | To Do | P0 | ART-119 |
+
+### 3.3 Epic P — Editorial Viewing Integration
+
+| Requirement | Disposition | Task | Delivery State | Release Criticality | Dependencies |
+|---|---|---|---|---|---|
+| FR-P001 動態首頁入口 | New | ART-129 | To Do | P0 | ART-118, ART-111 |
+| FR-P002 Live 與 Episode 連續性 | New | ART-130 | To Do | P0 | ART-122, ART-124 |
+| FR-P003 統一視覺系統 | New | ART-131 | To Do | P0 | ART-125 |
+| FR-P004 Publication 與 Safety 整合 | New | ART-132 | To Do | P0 | ART-115, ART-122 |
+
+### 3.4 Epic Q — Dynamic Viewing Operations
+
+| Requirement | Disposition | Task | Delivery State | Release Criticality | Dependencies |
+|---|---|---|---|---|---|
+| FR-Q001 Dynamic View 可觀測性 | New | ART-133 | To Do | P0 | ART-115, ART-116 |
+| FR-Q002 管理者動態觀看控制 | New | ART-134 | To Do | P1 | ART-133 |
+| FR-Q003 Incremental Public Projection | **Carry Forward** | **ART-100**（既有） | To Do | P1 | ART-115 |
+| FR-Q004 Dynamic View 無障礙交付（實現 NFR2-006） | New | ART-135 | To Do | P0 | ART-126, ART-120 |
+| FR-Q005 效能基準與品質分級（實現 NFR2-002） | New | ART-136 | To Do | P0 | ART-119, ART-120 |
+| FR-Q006 Dynamic Live 驗證套件（實現 §21.3） | New | ART-137 | To Do | P0 | ART-126, ART-121 |
+| FR-Q007 動態分析事件（實現 §17） | New | ART-140 | To Do | P1 | ART-118, ART-121 |
+| FR-Q008 Dynamic MVP Release Gate（實現 §22） | New | ART-138 | To Do | P0 | ART-99, ART-139 ＋ 全部 P0 |
+
+> **FR-Q004 ~ FR-Q008 的存在理由：** 先前版本讓 ART-135~138、140 直接掛在 NFR、§17、§21.3、§22 之下，違反「新工作納入 FR-N／O／P／Q Requirement Family」的規則，也讓非功能需求缺少可反向追蹤的 Requirement ID。新增這五條 Cross-cutting Delivery Requirement 後，每個新 Task 都有 FR 級擁有者。
+
+### 3.5 非功能需求（NFR2-001 ~ NFR2-008）
+
+先前版本只列 NFR2-002 與 NFR2-006，其餘六條僅散落於 Task 與 Release Gate，無法反向追蹤，使「所有 V2 P0 Requirement 都有 Task」的宣告不完整。本節補齊，**不建立新 Task**——這些需求由既有 V2 Task 共同實現。
+
+| Requirement | Disposition | 實現 Task | Delivery State | Release Criticality |
+|---|---|---|---|---|
+| NFR2-001 公開零副作用 | New (realized by V2 tasks) | ART-112, ART-113, ART-114, ART-128, ART-137 | To Do | P0 |
+| NFR2-002 效能 | New | **ART-136**（＝FR-Q005） | To Do | P0 |
+| NFR2-003 可用性 | New (realized by V2 tasks) | ART-116, ART-127, ART-137 | To Do | P0 |
+| NFR2-004 一致性 | New (realized by V2 tasks) | ART-115, ART-117, ART-133 | To Do | P0 |
+| NFR2-005 安全 | New (realized by V2 tasks) | ART-115, ART-128, ART-132 | To Do | P0 |
+| NFR2-006 Accessibility | New | **ART-135**（＝FR-Q004） | To Do | P0 |
+| NFR2-007 可測試性 | New (realized by V2 tasks) | ART-114, ART-115, ART-120, ART-121, ART-137 | To Do | P0 |
+| NFR2-008 可維護性 | New (realized by V2 tasks) | ART-112, ART-113, ART-114, ART-115 | To Do | P0 |
+
+> NFR2-008 的執行機制是 `architecture/module-boundaries.json` 註冊（ART-114 AC），`npm run check` 會執行 `check:architecture`。
+
+### 3.6 基線缺陷
+
+| 項目 | Disposition | Task | Delivery State | Release Criticality |
+|---|---|---|---|---|
+| 種子世界每日 Canon Snapshot 失敗 | **Carry Forward** | **ART-99**（既有，Medium → Critical） | To Do | **Release Blocker** |
+| PRD 1.0 FR-C002 真實 provider 場景解析失敗 | **Existing Baseline Defect**（§13.2 唯一獲准例外） | **ART-139** | To Do | **Release Blocker** |
+
+---
+
+## 4. ART-139 的依賴關係與證據
+
+### 4.1 依賴必須區分實作與驗收
+
+先前版本宣稱 ART-139 阻斷 FR-O002／§22.6，但 ART-119 的依賴只有 ART-118、ART-117，自相矛盾。正確處置是**區分兩種完成度**，而非加一條硬依賴（加硬依賴會讓 ART-119 無法用 fixture 平行開發）：
+
+```text
+ART-119 implementation
+  依賴：ART-118 ＋ ART-117
+  可用 Deterministic Fixture 開發與單元測試
+
+ART-119 production acceptance
+  依賴：ART-139 必須完成
+  必須以真實 Provider 產生的 Accepted Event 驗證跨地點移動
+```
+
+此區分已寫入 ART-119 的驗收條件，且 ART-138 Release Gate 直接依賴 ART-139。
+
+### 4.2 證據
+
+Requirement Matrix 不應只放未附證據的診斷結論。ART-139 的既有證據：
+
+| 項目 | 內容 |
+|---|---|
+| 發現時機 | ART-106 真實 provider 煙霧測試期間 |
+| 證據文件 | `backlog/tasks/art-106 - Generate-scene-narration-in-Traditional-Chinese.md` — Implementation Notes 與 Final Summary 均記錄此缺陷 |
+| 發現時的 commit | `972696f` feat(ART-106): generate scene narration in Traditional Chinese |
+| 缺陷引入的 commit | `35411d3` feat: add whole-scene simulation |
+| Provider | `LLM_API_URL=https://llm.shouri.app/v1`，`LLM_MODEL=auto` |
+| 觀察到的錯誤 | `SCENE_OUTPUT_INVALID` — `unsupported schema version` |
+| 相關程式位置 | `convex/simulation/sceneSimulation.ts:110`（schemaVersion 檢查）、`:93-105`（`parseEventLinked` 白名單）、`:145-156`（`WHOLE_SCENE_JSON_SCHEMA` 巢狀 items） |
+| 診斷 | Schema 將巢狀集合宣告為 `items: { type: 'object' }`，不約束欄位名；parser 以 `record(item, path, allowed)` 嚴格拒絕未知欄位。Schema 無法使 provider 產出 parser 要求的形狀；`schemaVersion` 檢查又遮蔽真正的欄位錯誤 |
+
+**證據缺口（誠實記錄）：** 目前**沒有永久可重現的測試 harness**。ART-106 的煙霧測試是臨時 `internalAction`，驗證後已刪除，因此本表無法提供可直接執行的 reproduction command。**建立可重現的回歸測試是 ART-139 的第一項交付**，其驗收條件已載明。在該測試存在前，上述診斷應視為**高信心假說**而非已證實的根因。
+
+---
+
+## 5. Closure Matrix 24 條延後需求 ↔ 23 個 To Do Task 對應
+
+**兩者並非一對一。**
+
+### 5.1 一個 Task 覆蓋多條需求
 
 | Task | 覆蓋的 Closure Matrix 條目 |
 |---|---|
-| **ART-45** | §5.1 G11（每日投票）、UX-005（觀眾影響環境）、FR-J001（投票機制）、§19.1（投票規則單元測試）、RISK-002（環境注入緩解） |
-| **ART-39** | §5.1 G10（回訪快速跟上）、FR-H004（裝置感知回訪摘要） |
-| **ART-73** | NFR-007（90 天模擬）、§19.3（長期模擬測試） |
-| **ART-59** | FR-M003（Token／速率控制）、§16.3（資源指標）、RISK-005（配額緩解） |
-| **ART-27** | FR-E004（長期記憶壓縮）、RISK-003（歷史壓縮緩解） |
-| **ART-32** | FR-F006（Arc 熱度評分）、RISK-002（無聊世界緩解） |
-| **ART-91** | FR-M004（降級模式）、RISK-005（配額緩解） |
+| **ART-45** | §5.1 G11、UX-005、FR-J001、§19.1、RISK-002 |
+| **ART-39** | §5.1 G10、FR-H004 |
+| **ART-73** | NFR-007、§19.3 |
+| **ART-59** | FR-M003、§16.3、RISK-005 |
+| **ART-27** | FR-E004、RISK-003 |
+| **ART-32** | FR-F006、RISK-002 |
+| **ART-91** | FR-M004、RISK-005 |
 
-### 3.2 一條需求由多個 Task 覆蓋
+### 5.2 一條需求由多個 Task 覆蓋
 
 | Closure Matrix 條目 | 覆蓋的 Task |
 |---|---|
-| **FR-M002 世界品質指標** | ART-58、ART-88、ART-89、ART-90（四個 Task 共同覆蓋一條需求） |
+| **FR-M002 世界品質指標** | ART-58、ART-88、ART-89、ART-90 |
 
-### 3.3 有 Task 但不對應任何 Closure Matrix 延後需求
+### 5.3 有 Task 但不對應任何延後需求
 
-| Task | 性質 | 說明 |
-|---|---|---|
-| **ART-76** | P1 測試套件 | 謠言與觀眾介入整合測試，隨 ART-28／ART-45／ART-46 落地，非獨立 PRD 需求 |
-| **ART-99** | **缺陷** | ART-98 期間發現的快照缺陷，非 PRD 1.0 延後需求。PRD 2.0 §13.1 提升為 P0 Release Blocker |
-| **ART-100** | 效能改善 | 收尾後提出的增量投影改善，PRD 2.0 指派承接 FR-Q003 |
-
-### 3.4 有需求但無 To Do Task（不需建立 Task）
-
-| Closure Matrix 條目 | 原因 |
+| Task | 性質 |
 |---|---|
-| §5.2 產品驗證假設 | 需真實流量與分析，非程式閘門；結構性前置條件已由 ART-47 承接 |
-| §16.1 產品成功指標 | 上線後量測項目，非程式閘門 |
-| FR-H005 劇透控制（P2） | ART-70 **已 Done**，交付 PRD 要求的資料相容性約束；功能性 UI 為 P2，PRD 1.0 明示「MVP 可不實作」 |
-| NFR-002 效能實測值 | 需部署後量測；結構性部分 ART-40／ART-41 已 Done |
+| **ART-76** | P1 測試套件，隨 ART-28／45／46 落地 |
+| **ART-99** | ART-98 期間發現的缺陷，非 PRD 1.0 延後需求 |
+| **ART-100** | 收尾後提出的效能改善，PRD 2.0 指派承接 FR-Q003 |
 
-### 3.5 結論
+### 5.4 有需求但不需要 Task
 
-- Closure Matrix 的 24 條延後需求 **不是** 23 個 Task 的一對一映射。
-- 7 個 Task 各覆蓋多條需求；1 條需求（FR-M002）由 4 個 Task 覆蓋。
-- 3 個 Task（ART-76／99／100）不源自 PRD 1.0 延後需求。
-- 4 條 Closure Matrix 條目不需要 Task（量測型或已 Done）。
-- **因此 PRD 2.0 不得假設「補完 23 個 Task 即等於清空 24 條延後需求」。**
+| 條目 | 原因 |
+|---|---|
+| §5.2 產品驗證假設 | 需真實流量，非程式閘門 |
+| §16.1 產品成功指標 | 上線後量測 |
+| FR-H005 劇透控制（P2） | ART-70 **已 Done**，功能性 UI 為 P2 |
+| NFR-002 效能實測值 | 需部署後量測；結構性部分 ART-40／41 已 Done |
+
+### 5.5 結論
+
+7 個 Task 各覆蓋多條需求；1 條需求由 4 個 Task 覆蓋；3 個 Task 不源自延後需求；4 條條目不需 Task。**不得假設「補完 23 個 Task 即等於清空 24 條延後需求」。**
 
 ---
 
-## 4. PRD 1.0 直接重用的能力（不得重做）
+## 6. PRD 1.0 直接重用的能力（不得重做）
 
 | 能力 | 位置 | PRD 2.0 用途 |
 |---|---|---|
-| Mistwood 世界種子（12 角色／8 地點／組織／歷史） | `convex/canon/mistwoodSeed.ts` | FR-N004／N005 綁定來源；地點連通圖供地圖佈局 |
-| Canon 事件存儲與驗證 | `convex/canon/commit.ts`, `validators.ts`, `continuity.ts` | 唯一語意權威；Visual Runtime 只讀 |
+| Mistwood 世界種子（12 角色／8 地點） | `convex/canon/mistwoodSeed.ts` | FR-N004／N005 綁定來源 |
+| Canon 事件存儲與驗證 | `convex/canon/commit.ts`, `validators.ts`, `continuity.ts` | 唯一語意權威 |
 | Deterministic Reducer／Replay／Snapshot | `convex/canon/reducer.ts`, `replay.ts`, `snapshotManager.ts` | FR-N007 概念基礎；ART-99 修復對象 |
 | 地點投影 | `convex/canon/locationProjection.ts` | FR-N006 語意位置來源 |
-| 世界排程（5 時段／日） | `convex/simulation/scheduler.ts` | §9.1 混合動態模型的節奏前提，**不得加速** |
-| Live 公開投影 | `convex/publicRead/liveState.ts`（已含 `LiveCharacter{characterId, locationId, alive}`、locations、activeScenes、activeArcs） | FR-N003 的**擴充基礎**，非重建 |
+| 位置變更事件 | `character_location_changed`（含 `fromLocationId`／`toLocationId`） | ART-114 軌跡規劃輸入 |
+| 決定性抵達產生器 | `convex/simulation/worldDayLive.ts` `withArrivalStateChanges` | ART-117 同步來源（非 LLM 產出） |
+| 世界排程（5 時段／日） | `convex/simulation/scheduler.ts` | §9.1 混合動態模型前提，**不得加速** |
+| Live 公開投影 | `convex/publicRead/liveState.ts` | FR-N003 的**擴充基礎** |
 | 公開讀模型基礎設施 | `convex/publicRead/readModel.ts` | 失敗隔離與零生成保證 |
-| Episode／Recap／Arc 投影 | `convex/publicRead/episode*`, `arcPrimer.ts`, `relationshipArcProjection.ts` | FR-O007 Overlay 與 FR-P002 導航內容 |
+| Episode／Recap／Arc 投影 | `convex/publicRead/episode*`, `arcPrimer.ts` | FR-O007／FR-P002 內容 |
 | 內容安全與發布狀態 | `convex/safety/` | FR-O004／FR-P004 公開文字閘門 |
-| Operator 授權與稽核 | `convex/operations/operatorAuthorization.ts` | FR-Q002 重用，不另建授權機制 |
+| Operator 授權與稽核 | `convex/operations/operatorAuthorization.ts` | FR-Q002 重用 |
 | 可觀測性 | `convex/observability/` | FR-Q001 重用 |
-| 無障礙基線 | ART-93（Done） | NFR2-006 延伸基礎 |
+| 無障礙基線 | ART-93（Done） | FR-Q004 延伸基礎 |
 
-## 5. 直接重用的前端元件
+## 7. 直接重用的前端元件
 
-| 元件／資產 | 用途 | 處置 |
-|---|---|---|
-| PixiJS Renderer、PixiViewport、Tilemap Renderer、Character Sprite Renderer | 地圖與角色渲染 | **保留並抽取為只讀版本**（ART-113） |
-| Idle／Walking／Speaking／Thinking 動畫定義 | 動畫狀態 | 保留（ART-119） |
-| `data/spritesheets/f1–f8`（8 款） | 角色外觀 | 保留 + Palette Variant 擴充至 12（ART-111） |
-| `assets/gentle-obj.png` tileset | 地圖磚組 | 保留，用於重排 Mistwood 地圖（ART-109） |
-| `data/gentle.js` 通用地圖 | a16z 通用小鎮 | **不用於公開頁面**，由 `data/mistwood.ts` 取代 |
-| 碰撞資料格式、pathfinding 工具 | 路徑規劃 | 抽取至 Visual Runtime（ART-114） |
-| `src/components/public/*.tsx` 純文字頁面 | 現有公開頁 | 由動態版取代（ART-118／129），Episode 類頁面保留 |
+| 元件／資產 | 處置 |
+|---|---|
+| PixiJS Renderer、PixiViewport、Tilemap Renderer、Character Sprite Renderer | **保留並抽取為只讀版本**（ART-113） |
+| Idle／Walking／Speaking／Thinking 動畫定義 | 保留（ART-119） |
+| `data/spritesheets/f1–f8`（8 款） | 保留 ＋ Palette Variant 擴充至 12（ART-111） |
+| `assets/gentle-obj.png` tileset | 保留，用於重排 Mistwood 地圖（ART-109） |
+| `data/gentle.js` 通用地圖 | **不用於公開頁面**，由 `data/mistwood.ts` 取代 |
+| 碰撞資料格式、pathfinding 工具 | 抽取至 Visual Runtime（ART-114） |
+| `src/components/public/*.tsx` 純文字頁面 | 由動態版取代（ART-118／129）；Episode 類頁面保留 |
 
-## 6. 停用的 a16z 引擎能力（ART-112）
+## 8. 停用的 a16z 引擎能力（ART-112）
 
 ```text
 convex/aiTown/ 世界執行生命週期
@@ -187,80 +272,109 @@ cron: restart dead worlds
 cron: stop inactive worlds
 ```
 
-停用理由：該引擎會自行產生對話與記憶，構成第二個敘事來源，違反 PRD 2.0 §10.5「Canon 是語意事實唯一權威」，且與觀看人數無關地持續消耗 LLM 成本。
+停用理由：該引擎自行產生對話與記憶，構成第二個敘事來源，違反 PRD 2.0 §10.5「Canon 是語意事實唯一權威」，且與觀看人數無關地持續消耗 LLM 成本。
 
-## 7. 需要擴充的資料模型
+ART-112 同時負責移除公開面的 Human Player／Interact 語意與相關文案——這本來就是引擎停用與只讀 Renderer 的一部分，不另立 Task。
+
+## 9. 需要擴充的資料模型
 
 | 資料模型 | 性質 | 擁有 Task |
 |---|---|---|
-| `CharacterVisualBinding` | 新增（含 `paletteVariant`、`nameplate`、`portraitFrame`） | ART-111 |
-| `LocationVisualBinding` | 新增（含 `zonePolygon`、`entryAnchors`、`ambientAnchors`、`sceneFocusPoint`） | ART-110 |
-| `PublicCharacterMotion` | 新增（公開投影單元，含 `motionType`／`motionSequence`／插值時間戳） | ART-115 |
+| `CharacterVisualBinding` | 新增（`paletteVariant`／`nameplate`／`portraitFrame`） | ART-111 |
+| `LocationVisualBinding` | 新增（`zonePolygon`／`entryAnchors`／`ambientAnchors`／`sceneFocusPoint`） | ART-110 |
+| `PublicCharacterMotion` | 新增（`motionType`／`motionSequence`／插值時間戳） | ART-115 |
 | `PublicRuntimeSnapshot` | 新增 | ART-116 |
 | `RuntimeSyncRecord` | 新增 | ART-117 |
 | `ActiveScenePresentation` | 新增 | ART-122 |
-| `VisualReplay` | 新增（衍生，不入 Canon） | ART-121 |
+| `VisualReplay` | 新增（衍生，**只引用**已發布內容識別碼） | ART-121 |
 | `liveState` 投影 | **擴充既有**，非重建 | ART-115 |
 
-## 8. Canon 與 Visual Runtime 責任邊界
+---
 
-| 面向 | Canon | Visual Runtime |
-|---|---|---|
-| 角色語意位置（「在診所」） | ✅ 唯一權威 | ❌ 只讀 |
-| 角色存活／參與事件 | ✅ | ❌ |
-| Accepted Event／Arc／Episode | ✅ | ❌ |
-| x／y 座標 | ❌ | ✅ |
-| 路徑、速度、插值 | ❌ | ✅ |
-| Sprite 動畫 Frame、方向 | ❌ | ✅ |
-| 相機位置 | ❌ | ✅（純客戶端） |
-| Zone 邊界 | ✅ 決定角色在哪個 Zone | ✅ 決定 Zone 內的位置 |
-| Ambient 活動 | ❌ 不知情 | ✅ 決定性產生 |
+## 10. Canon／Visual Binding／Visual Runtime 三方責任
 
-**不可違反：** Visual Runtime 不得建立 Canon 事實；不得為修正畫面而修改 Canon；不得每幀回寫座標。
+先前版本寫「Zone 邊界由 Canon 決定」是**錯的**——那會讓 Canon Domain 開始持有地圖 Polygon，破壞語意與視覺的分離，並使 Canon 依賴地圖版本。正確歸屬為三方：
 
-## 9. Replay 與即時狀態如何區分
+| 資料 | Owner |
+|---|---|
+| 角色目前的 `locationId` | **Canon** |
+| 角色是否存活／參與事件 | **Canon** |
+| Accepted Event、Arc、Episode | **Canon** |
+| `locationId → zonePolygon／anchors／mapId` | **Visual Binding** |
+| `characterId → spriteKey／paletteVariant／nameplate` | **Visual Binding** |
+| 角色 x／y、路徑、速度、插值 | **Visual Runtime** |
+| 動畫狀態與方向 | **Visual Runtime** |
+| Zone 內的 Ambient 位置 | **Visual Runtime** |
+| 是否抵達 Polygon | **Visual Runtime** 依 Visual Binding 幾何判定 |
+| 相機位置 | **客戶端** View State |
+
+**不可違反：**
+
+- Canon 不持有任何地圖幾何。
+- Visual Runtime 不建立 Canon 事實、不為修正畫面修改 Canon、不每幀回寫座標。
+- **抵達判定不新增或修改 Canon Event**，只推進 Runtime Movement Phase 與公開投影顯示狀態。
+
+---
+
+## 11. Replay 與即時狀態如何區分
 
 | 機制 | 實作 | 擁有 Task |
 |---|---|---|
-| 資料層 | `PublicCharacterMotion.motionType` 為 `canon` \| `ambient` \| `idle` \| `replay` | ART-115 |
-| 畫面層 | 持續顯示「重播｜今日 11:00」「稍早｜…」「現在｜…」三態標示，且不只依賴顏色 | ART-121 |
-| 行為層 | 每個觀看 Session 最多自動播放一次；可隨時跳過；不得循環；可手動觸發 | ART-121 |
-| 視覺層 | Ambient 與 Canon-driven 移動必須視覺可區分 | ART-120 |
-| 風險登錄 | RISK2-008（Ambient 被誤認為劇情）、RISK2-009（Replay 被誤認為即時） | PRD 2.0 §23 |
+| 資料層 | `PublicCharacterMotion.motionType` ∈ `canon` \| `ambient` \| `idle` \| `replay` | ART-115 |
+| 畫面層 | 持續顯示「重播｜今日 11:00」「稍早｜…」「現在｜…」，不只依賴顏色 | ART-121 |
+| 行為層 | 每 Session 最多自動播放一次；可跳過；不循環；可手動觸發 | ART-121 |
+| 視覺層 | Ambient 與 Canon-driven 移動視覺可區分 | ART-120 |
+| 風險登錄 | RISK2-008、RISK2-009 | PRD 2.0 §23 |
 
-## 10. 如何證明公開觀看不觸發 LLM 或 Canon 寫入
+### 11.1 Replay 公開內容追蹤（review 修正）
 
-四層獨立證據，任一層失效其他層仍成立：
+先前 `VisualReplay.steps` 直接保存自由文字（`text`、`title`、`summary`），僅以 `sourceEventIds` 佐證。這**不足以證明畫面上顯示的是安全版本**——同一 Accepted Event 的公開摘要可能被 Withhold 或 Supersede，內嵌副本會讓已撤下的內容透過重播外洩，違反 FR-P004。
+
+改為引用式：
+
+```ts
+{ type: "dialogue";  characterId: string; publicExcerptId: string; publicationVersion: number }
+{ type: "eventCard"; publicSummaryId: string; publicationVersion: number }
+```
+
+| 規則 | 擁有 Task |
+|---|---|
+| Replay 不保存自由文字副本，只引用識別碼＋版本 | ART-121 |
+| 來源被 Withhold／Supersede 時 Replay 同步失效或重新建構 | ART-121, ART-132 |
+
+---
+
+## 12. 如何證明公開觀看不觸發 LLM 或 Canon 寫入
+
+六層獨立證據，任一層失效其他層仍成立：
 
 | 層級 | 證據 | 擁有 Task |
 |---|---|---|
 | **結構層** | a16z 引擎停用，heartbeat／Human Player／world input 路徑不存在 | ART-112 |
-| **客戶端層** | 只讀元件樹不含任何 mutation；模組邊界測試禁止 import 寫入模組 | ART-113 |
-| **模組層** | Visual Runtime 模組圖不含 provider import、不含 Canon 寫入路徑（測試斷言） | ART-114 |
-| **伺服器層** | 公開 API 伺服器端拒絕所有角色控制 payload；偽造 characterId／worldId／runtimeSequence 被拒；UI 隱藏不是唯一防線 | ART-128 |
-| **運行層** | E2E 執行期間網路請求不含未授權 mutation，LLM call count 不增加 | ART-137 |
-| **營運層** | Viewer-triggered LLM Call Count 指標必須為 0；Public Mutation Attempt 被拒並記錄 | ART-133 |
+| **客戶端層** | 只讀元件樹不含 mutation；模組邊界測試禁止 import 寫入模組 | ART-113 |
+| **模組層** | Visual Runtime 模組圖不含 provider import、不含 Canon 寫入路徑 | ART-114 |
+| **伺服器層** | 公開 API 拒絕角色控制 payload；偽造識別碼被拒；UI 隱藏非唯一防線 | ART-128 |
+| **運行層** | E2E 期間網路請求不含未授權 mutation，LLM call count 不增加 | ART-137 |
+| **營運層** | Viewer-triggered LLM Call Count 必須為 0；Public Mutation Attempt 被拒並記錄 | ART-133 |
 
-## 11. 如何避免建立重複 Task
+---
 
-已採取的去重措施：
+## 13. 如何避免建立重複 Task
 
-1. **建立前完整盤點** — 讀取 `docs/prd-1.0-closure-matrix.md` 全文與全部 23 個 To Do Task，建立 §3 的非一對一對應表。
-2. **明確承接而非重建** — FR-Q003 指派給既有 **ART-100**，未建立新 Task。
-3. **明確並存而非合併** — FR-O010（Renderer 降級）與 **ART-91**（模型中斷降級）是不同故障域，PRD 2.0 §13 明文要求「整合但不得合併刪除」，兩者並存。
-4. **明確分離而非吸收** — NFR2-006 動態層無障礙（ART-135）不吸收 **ART-94**（圖表／時間軸 a11y），後者維持獨立。
-5. **擴充而非重建** — FR-N003 明確定義為擴充既有 `convex/publicRead/liveState.ts`，該檔案已具備 `LiveCharacter{characterId, locationId, alive}`、locations、activeScenes、activeArcs。
-6. **重用而非新建授權** — FR-Q002 明文重用 `operatorAuthorization.ts`，不建立第二套授權機制。
-7. **23 個既有 Task ID 全數保留** — 無任何一個被關閉、取代或以新 ID 重建。
-8. **新 Task 全部標註 Requirement ID** — ART-107 ~ ART-141 每個描述首行即為對應的 PRD 2.0 Requirement ID，可反向查重。
-9. **分析事件不重建平台** — ART-140 只負責發出 §17 的 17 個 `live_*` 事件，明文沿用既有合規收集機制，隱私分析平台仍由既有 **ART-47** 承接。
-10. **登入介面不重建授權** — ART-141 只調整公開文案與 Interact 入口，保留 ART-105 已啟用的 Clerk 登入與 operator 授權路徑；認證觀眾功能仍由既有 **ART-71** 承接。
+1. **建立前完整盤點** — 讀取 closure matrix 全文與 23 個 To Do Task，建立 §5 的非一對一對應表。
+2. **明確承接而非重建** — FR-Q003 指派給既有 **ART-100**。
+3. **明確並存而非合併** — FR-O010（Renderer 降級）與 **ART-91**（模型中斷降級）是不同故障域，PRD §13 明文要求並存。
+4. **明確分離而非吸收** — FR-Q004（動態層 a11y）不吸收 **ART-94**（圖表／時間軸 a11y）。
+5. **擴充而非重建** — FR-N003 明確定義為擴充 `liveState.ts`。
+6. **重用而非新建授權** — FR-Q002 重用 `operatorAuthorization.ts`。
+7. **合併重複範圍** — 原 ART-141（公開登入語意）與 ART-112 的引擎停用範圍重疊，**已合併入 ART-112／ART-113 並封存**，不留重複 PR。
+8. **分析事件不重建平台** — ART-140 只發出 §17 事件，平台仍由既有 **ART-47** 承接。
+9. **23 個既有 Task ID 全數保留** — 無任何一個被關閉、取代或以新 ID 重建。
+10. **新 Task 全部標註 Requirement ID** — ART-107 ~ ART-140 描述首行即為對應 Requirement ID，可反向查重。
 
-**驗證：** 新建 35 個 Task（ART-107 ~ ART-141），既有 23 個 Task 全部維持原 ID 與原優先級（ART-99 除外，依 PRD 2.0 §13 提升為 Critical）。重複建立數 = **0**。
+**驗證：** 唯一新 Task 34 個（ART-107 ~ ART-140），既有 23 個 Task 全部維持原 ID 與原優先級（ART-99 除外，提升為 Critical）。重複建立數 = **0**。
 
-### 11.1 §22 驗收標準覆蓋檢查
-
-PRD 2.0 §22 共 28 條，全部有擁有者：
+### 13.1 §22 驗收標準覆蓋檢查（31 條）
 
 | §22 條目 | 擁有 Task |
 |---|---|
@@ -269,7 +383,7 @@ PRD 2.0 §22 共 28 條，全部有擁有者：
 | 3 /live 可操作地圖 | ART-118 |
 | 4 12 位角色綁定 | ART-111 |
 | 5 8 個地點綁定且語意相符 | ART-110, ART-109 |
-| 6 平滑跨地點移動 | ART-119 ← **資料前提為 ART-139** |
+| 6 平滑跨地點移動 | ART-119（production acceptance 需 ART-139） |
 | 7 Idle／Walking／Speaking／Thinking | ART-119 |
 | 8 Ambient 零 Canon 副作用 | ART-120 |
 | 9 Replay 自動一次可手動、不呼叫 LLM | ART-121 |
@@ -292,17 +406,22 @@ PRD 2.0 §22 共 28 條，全部有擁有者：
 | 26 Typecheck／Lint／Tests／Build／CI | 全 Task DoD |
 | 27 全部 V2 P0 有 Task 與證據 | ART-138 |
 | 28 Closure Matrix 不再以後端完成宣稱產品完成 | ART-138 |
+| **29 ART-139 修復，真實 provider 產生 Accepted Event** | ART-139 |
+| **30 效能固定 Benchmark 公開前通過** | ART-136 |
+| **31 Replay 只引用已發布內容識別碼與版本** | ART-121, ART-132 |
+
+**31/31 全部有擁有者。**
 
 ---
 
-## 12. 尚未解決的風險與阻斷項目
+## 14. 尚未解決的風險與阻斷項目
 
 | 項目 | 類型 | 說明 | 處置 |
 |---|---|---|---|
-| **ART-99** | **Release Blocker** | 種子世界每日 Canon Snapshot 失敗。`importWorld` 寫入的 `initial` 快照（`lastSequenceNumber: -1`）無法由 accepted events 推導，`assertSnapshotMatchesHistory` 以 `SNAPSHOT_CORRUPT` 拒絕。FR-N007 公開快照建立在此基礎上 | 已提升為 Critical；ART-138 Release Gate 依賴它 |
-| **ART-139 場景解析** | **Release Blocker** | 真實 provider 下 `simulateWholeScene()` 失敗。根因為契約斷裂：`WHOLE_SCENE_JSON_SCHEMA` 將巢狀集合宣告為 `items: { type: 'object' }`（不約束欄位名），但 `parseEventLinked` 以 `record(item, path, allowed)` 嚴格拒絕未知欄位；且 `schemaVersion` 檢查會遮蔽下游真正錯誤。**不修則不產生 accepted event → `withArrivalStateChanges` 不附加 `character_location_changed` → §22.6 無法達成** | 已建立 ART-139（Critical）；ART-138 Release Gate 依賴它 |
-| **RISK2-008 / RISK2-009** | 產品風險 | Ambient 被誤認為劇情、Replay 被誤認為即時 | 由 ART-120／ART-121 的驗收條件緩解，需上線後觀察 |
-| **RISK2-004** | 技術風險 | 12+ 角色動畫 + ambient + 環境動畫在中階行動裝置的效能 | ART-136 量測；若不達標需品質分級策略 |
-| **地圖工作量未知** | 排程風險 | `data/mistwood.ts` 需以既有 tileset 手工重排八個地點，工作量取決於 tileset 表現力，ART-107 稽核後才能確認 | ART-107 完成後重估 ART-109 |
-| **Palette Variant 可行性** | 技術風險 | 需確認 f1–f8 sprite 的調色盤結構是否支援只替換服裝／髮色範圍 | ART-107 稽核項目；若不可行需回頭與 PRD §24.23 決策確認替代方案 |
-| **NFR2-002 實測值** | 量測 | 所有效能目標需真實部署後才能驗證 | ART-136 提供結構性證據，實測值上線後補 |
+| **ART-99** | **Release Blocker** | `importWorld` 寫入的 `initial` 快照（`lastSequenceNumber: -1`）無法由 accepted events 推導，`assertSnapshotMatchesHistory` 以 `SNAPSHOT_CORRUPT` 拒絕。FR-N007 公開快照建立其上 | Critical；ART-138 依賴 |
+| **ART-139** | **Release Blocker** | 真實 provider 下 `simulateWholeScene()` 失敗；不修則無 Accepted Event，`withArrivalStateChanges` 不附加 `character_location_changed`，§22.6 無法達成。**根因為高信心假說，永久回歸測試尚未存在**（§4.2） | Critical；ART-138 依賴；建立可重現測試為其第一項交付 |
+| **RISK2-008 / RISK2-009** | 產品風險 | Ambient 被誤認為劇情、Replay 被誤認為即時 | ART-120／ART-121 驗收條件緩解，上線後觀察 |
+| **RISK2-004** | 技術風險 | 12+ 角色動畫 ＋ ambient ＋ 環境動畫在中階行動裝置的效能 | **ART-136 固定 Benchmark 必須在公開前通過**，不得以「上線後補」規避 |
+| **地圖工作量未知** | 排程風險 | `data/mistwood.ts` 需以既有 tileset 手工重排八個地點 | ART-107 完成後重估 ART-109 |
+| **Palette Variant 可行性** | 技術風險 | 需確認 f1–f8 調色盤是否支援只替換服裝／髮色範圍 | ART-107 稽核項目；不可行需回頭確認 PRD §24.23 |
+| **§18.1 指標未量測** | 量測缺口 | FR-Q007（ART-140）完成前，點擊率與 Replay 完成率無法量測 | 相關指標一律標示「未量測」，不得以推估值宣稱達標 |

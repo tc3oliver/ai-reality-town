@@ -4,7 +4,7 @@ title: Build the read-only Pixi world shell
 status: To Do
 assignee: []
 created_date: '2026-08-04 15:58'
-updated_date: '2026-08-04 16:01'
+updated_date: '2026-08-04 16:50'
 labels:
   - prd-2.0
   - v2-c
@@ -61,6 +61,8 @@ ordinal: 113000
 - [ ] #5 Map clicks cannot change any character destination
 - [ ] #6 A clear enforced module boundary separates read-only components from interactive game components
 - [ ] #7 An automated test proves public viewing produces no database mutation
+- [ ] #8 Public copy no longer promises joining, controlling or chatting with characters, and the help content describes watching, navigating, character cards, scenes, episodes and replay
+- [ ] #9 The Clerk login entry point and operator authorization path continue to work, and an authenticated viewer gains no world-control capability
 <!-- AC:END -->
 
 ## Definition of Done

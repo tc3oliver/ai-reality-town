@@ -4,7 +4,7 @@ title: Render Canon-driven character movement and animation states
 status: To Do
 assignee: []
 created_date: '2026-08-04 15:58'
-updated_date: '2026-08-04 16:01'
+updated_date: '2026-08-04 16:50'
 labels:
   - prd-2.0
   - v2-f
@@ -62,6 +62,7 @@ ordinal: 119000
 - [ ] #5 Speaking, thinking and special activity have recognisable indicators
 - [ ] #6 Characters never teleport unless a Canon event explicitly permits special movement
 - [ ] #7 Low-performance devices may reduce update rate without corrupting semantic state
+- [ ] #8 Implementation may proceed against deterministic fixtures, but production acceptance requires ART-139 fixed and cross-location movement verified from accepted events produced by the real provider
 <!-- AC:END -->
 
 ## Definition of Done
