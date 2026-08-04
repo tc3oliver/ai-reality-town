@@ -174,6 +174,13 @@ export interface PublicReadReadStore {
  */
 export interface PublicReadStore extends PublicReadReadStore {
   findCurrent(worldId: string, modelKind: ReadModelKind, modelRef: string): Promise<StoredReadModel | null>;
+  /**
+   * Retained last-known-good versions for a target. Kept separate from
+   * {@link PublicReadReadStore.loadTargetVersions} so a commit does not have to read the
+   * target's whole version history: a projection rebuilt on every accepted event would
+   * otherwise re-read every prior payload it ever published.
+   */
+  loadLastKnownGood(worldId: string, modelKind: ReadModelKind, modelRef: string): Promise<readonly StoredReadModel[]>;
   insertVersion(row: PublishedReadModel): Promise<string>;
   /** Patch an existing row's mutable flags (isCurrent / isLastKnownGood / status / updatedAt). */
   markCurrent(rowId: string, patch: {
@@ -321,7 +328,7 @@ export async function commitReadModelVersion(
     return { version: current.version, contentHash: current.contentHash, status: current.status, deduplicated: true };
   }
 
-  const all = await store.loadTargetVersions(input.worldId, input.modelKind, input.modelRef);
+  const retainedFallbacks = await store.loadLastKnownGood(input.worldId, input.modelKind, input.modelRef);
   const nextVersion = current ? current.version + 1 : 1;
   const committed: PublishedReadModel = { ...next, version: nextVersion };
 
@@ -342,7 +349,7 @@ export async function commitReadModelVersion(
     });
   }
   // Clear any older fallback so exactly one last-known-good remains.
-  for (const row of all) {
+  for (const row of retainedFallbacks) {
     if (row.id === current?.id) continue;
     if (row.isLastKnownGood) {
       await store.markCurrent(row.id, {

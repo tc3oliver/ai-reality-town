@@ -69,6 +69,8 @@ import type * as observability_llmTrace from "../observability/llmTrace.js";
 import type * as observability_model from "../observability/model.js";
 import type * as observability_trace from "../observability/trace.js";
 import type * as observability_traces from "../observability/traces.js";
+import type * as operations_postCommitLive from "../operations/postCommitLive.js";
+import type * as operations_postCommitLiveFunctions from "../operations/postCommitLiveFunctions.js";
 import type * as operations_postCommitOrchestration from "../operations/postCommitOrchestration.js";
 import type * as operations_postCommitOrchestrationFunctions from "../operations/postCommitOrchestrationFunctions.js";
 import type * as publicRead_arcPrimer from "../publicRead/arcPrimer.js";
@@ -222,6 +224,8 @@ declare const fullApi: ApiFromModules<{
   "observability/model": typeof observability_model;
   "observability/trace": typeof observability_trace;
   "observability/traces": typeof observability_traces;
+  "operations/postCommitLive": typeof operations_postCommitLive;
+  "operations/postCommitLiveFunctions": typeof operations_postCommitLiveFunctions;
   "operations/postCommitOrchestration": typeof operations_postCommitOrchestration;
   "operations/postCommitOrchestrationFunctions": typeof operations_postCommitOrchestrationFunctions;
   "publicRead/arcPrimer": typeof publicRead_arcPrimer;

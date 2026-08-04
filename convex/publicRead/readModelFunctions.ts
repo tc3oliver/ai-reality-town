@@ -105,6 +105,13 @@ export function writeStore(db: GenericMutationCtx<DataModel>['db']): PublicReadS
         .unique();
       return row ? rowToStored(row) : null;
     },
+    async loadLastKnownGood(worldId, modelKind, modelRef) {
+      const rows = await db
+        .query('publishedReadModels')
+        .withIndex('by_lkg', (q) => q.eq('worldId', worldId).eq('modelKind', modelKind).eq('modelRef', modelRef).eq('isLastKnownGood', true))
+        .collect();
+      return rows.map(rowToStored);
+    },
     async insertVersion(record) {
       return db.insert('publishedReadModels', {
         schemaVersion: record.schemaVersion,

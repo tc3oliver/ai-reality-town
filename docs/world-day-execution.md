@@ -11,7 +11,10 @@ Arcs, generate the daily Director Plan, generate Character Intents, group intent
 scenes, simulate scenes, validate structured output, run Canon validation, and commit
 accepted events. The slot is then completed with its committed event, or failed with a
 stable error code. `maxSlots` runs consecutive slots so a whole world day executes in one
-call. Stages 11–21 are the separate post-commit pipeline in `convex/operations/`.
+call. Stages 11–21 are the separate post-commit pipeline in `convex/operations/`; ART-98
+chains both halves behind `operations/postCommitLiveFunctions:runLiveWorldDayCycle`, which
+is the entry point to use when you want a full daily cycle rather than only the commit —
+see [`post-commit-pipeline.md`](./post-commit-pipeline.md).
 
 Each stage is a thin adapter over an already-tested capability — `parseAndValidateDirectorPlan`,
 `validateCharacterIntent`, `groupCharacterIntents`, `simulateWholeScene`,

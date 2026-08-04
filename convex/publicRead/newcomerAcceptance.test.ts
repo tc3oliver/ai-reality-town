@@ -28,6 +28,9 @@ class AcceptanceReadStore implements PublicReadStore {
   async findCurrent(worldId: string, modelKind: string, modelRef: string): Promise<StoredReadModel | null> {
     return Promise.resolve(this.rows.find((row) => row.worldId === worldId && row.modelKind === modelKind && row.modelRef === modelRef && row.isCurrent) ?? null);
   }
+  async loadLastKnownGood(worldId: string, modelKind: string, modelRef: string): Promise<readonly StoredReadModel[]> {
+    return Promise.resolve(this.rows.filter((row) => row.worldId === worldId && row.modelKind === modelKind && row.modelRef === modelRef && row.isLastKnownGood));
+  }
   async insertVersion(record: PublishedReadModel): Promise<string> {
     this.counter += 1;
     const id = `acc-${this.counter}`;

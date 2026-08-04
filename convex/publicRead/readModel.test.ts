@@ -29,6 +29,9 @@ class MemoryReadStore implements PublicReadStore {
   findCurrent(worldId: string, modelKind: ReadModelKind, modelRef: string): Promise<StoredReadModel | null> {
     return Promise.resolve(this.rows.find((row) => row.worldId === worldId && row.modelKind === modelKind && row.modelRef === modelRef && row.isCurrent) ?? null);
   }
+  loadLastKnownGood(worldId: string, modelKind: ReadModelKind, modelRef: string): Promise<readonly StoredReadModel[]> {
+    return Promise.resolve(this.rows.filter((row) => row.worldId === worldId && row.modelKind === modelKind && row.modelRef === modelRef && row.isLastKnownGood));
+  }
   insertVersion(record: PublishedReadModel): Promise<string> {
     if (this.insertShouldThrow) throw new Error('PROJECTION_WRITE_UNAVAILABLE');
     this.counter += 1;
