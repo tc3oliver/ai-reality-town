@@ -5,7 +5,7 @@ status: In Review
 assignee:
   - '@agent-art35'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-04 07:07'
+updated_date: '2026-08-04 07:14'
 labels:
   - prd-1.0
   - epic-i
@@ -70,12 +70,12 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #3 FR-G004: Arc Turning Point 必須被提及。
 - [x] #4 FR-G004: Spoiler Violation 必須被偵測。
 - [x] #5 Automated tests provide evidence for every mapped FR-G004 acceptance criterion, including rejection and failure paths.
-- [ ] #6 PRD traceability links FR-G004 to doc-1 and the merged implementation evidence.
+- [x] #6 PRD traceability links FR-G004 to doc-1 and the merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -87,8 +87,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -147,6 +147,8 @@ Verification:
 - convex/_generated/api.d.ts updated by hand for the two new modules because npx convex codegen requires a CONVEX_DEPLOYMENT that is not available offline; typecheck and build confirm the generated surface is consistent.
 
 Post-merge verification: after merging origin/main (PR #114, ART-69), npm run check re-run green — architecture boundaries valid (policy v1, 11 modules), typecheck clean, lint clean, jest 72 suites / 731 tests passed, build succeeded.
+
+Merged implementation evidence: PR #115 (https://github.com/tc3oliver/ai-reality-town/pull/115) merged into main at 2026-08-04T07:10:26Z as f11e30fff9bde31f873ed507e9bd431bd62aba08. Both required CI checks passed on the merge candidate: 'Offline checks (typecheck, lint, test, build)' and 'Autonomous control plane + offline quality'. This links FR-G004 to PRD doc-1 and the accepted implementation, completing AC#6 and DoD #1, #13, and #14.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
