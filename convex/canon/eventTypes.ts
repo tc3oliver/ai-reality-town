@@ -23,6 +23,27 @@ export const EVENT_TYPES = [
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
+/**
+ * Administrative remediation event types (FR-K003). They are ordinary appended
+ * events — accepted history is never edited or deleted — but they must be proposed
+ * by an administrator and must cite the accepted events they remediate.
+ */
+export const REMEDIATION_EVENT_TYPES = ['correction', 'compensation', 'retcon'] as const;
+export type RemediationEventType = (typeof REMEDIATION_EVENT_TYPES)[number];
+
+/**
+ * The remediation types that SUPERSEDE the events they cite: they restate what the
+ * canonical record should have said. Because they overrule an earlier statement
+ * rather than continue from it, canon validation exempts them from the transition
+ * rules that only make sense for events narrating the world forward (a dead
+ * character may participate, and a life state may be restored).
+ *
+ * `compensation` is deliberately absent: it leaves the original event's account
+ * standing and only offsets forward-going state, so every normal rule still applies.
+ */
+export const SUPERSEDING_EVENT_TYPES = ['correction', 'retcon'] as const;
+export type SupersedingEventType = (typeof SUPERSEDING_EVENT_TYPES)[number];
+
 /** Source/authority that proposed an event. */
 export const PROPOSED_BY_TYPES = ['system', 'director', 'character', 'admin'] as const;
 export type ProposedByType = (typeof PROPOSED_BY_TYPES)[number];
@@ -68,6 +89,8 @@ export type CharacterStateField = (typeof CHARACTER_STATE_FIELDS)[number];
 
 const TIME_SLOT_SET = new Set<string>(TIME_SLOTS);
 const EVENT_TYPE_SET = new Set<string>(EVENT_TYPES);
+const REMEDIATION_EVENT_TYPE_SET = new Set<string>(REMEDIATION_EVENT_TYPES);
+const SUPERSEDING_EVENT_TYPE_SET = new Set<string>(SUPERSEDING_EVENT_TYPES);
 const PROPOSED_BY_TYPE_SET = new Set<string>(PROPOSED_BY_TYPES);
 const FACT_VISIBILITY_SET = new Set<string>(FACT_VISIBILITIES);
 const FACT_SUBJECT_TYPE_SET = new Set<string>(FACT_SUBJECT_TYPES);
@@ -81,6 +104,10 @@ export const isTimeSlot = (v: unknown): v is TimeSlot =>
   typeof v === 'string' && TIME_SLOT_SET.has(v);
 export const isEventType = (v: unknown): v is EventType =>
   typeof v === 'string' && EVENT_TYPE_SET.has(v);
+export const isRemediationEventType = (v: unknown): v is RemediationEventType =>
+  typeof v === 'string' && REMEDIATION_EVENT_TYPE_SET.has(v);
+export const isSupersedingEventType = (v: unknown): v is SupersedingEventType =>
+  typeof v === 'string' && SUPERSEDING_EVENT_TYPE_SET.has(v);
 export const isProposedByType = (v: unknown): v is ProposedByType =>
   typeof v === 'string' && PROPOSED_BY_TYPE_SET.has(v);
 export const isFactVisibility = (v: unknown): v is FactVisibility =>

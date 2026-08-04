@@ -135,6 +135,12 @@ registry variable.
 `OPS_CAPABILITIES`, a minimum role to `OPS_CAPABILITY_MINIMUM_ROLE`, and a
 `mutation`/`query` that authorizes first and audits its effect.
 
+The FR-K003 Canon correction workflows (`docs/canon-correction-workflows.md`) are the
+second user of that seam: `createCorrectionEvent`, `createCompensationEvent`, and
+`createRetconEvent` in `convex/operations/canonCorrectionFunctions.ts` authorize through
+`requireOperator` with `canon.correct` / `canon.compensate` / `canon.retcon` (all `admin`)
+and append their audit row in the same transaction as the Canon commit.
+
 The FR-K006 kill switch (`docs/world-emergency-stop.md`) is the first user of that
 seam: `emergencyStop`, `resumeFromEmergencyStop`, `activateWorldRollback`, and
 `clearWorldRollback` live in `convex/operations/emergencyStopFunctions.ts` and pass

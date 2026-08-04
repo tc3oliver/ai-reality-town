@@ -1083,9 +1083,34 @@ function coverageSources(
 
 // --- the run -----------------------------------------------------------------
 
+/**
+ * The authored prose a run produced, handed to ART-92's human-review sampler.
+ *
+ * {@link LongRunFindings} is deliberately machine-only — a reviewer cannot read a content
+ * digest — so this is the one channel that carries real text out of a run. It is emitted
+ * after the run has finished and is NOT an input to {@link LongRunFindings.digest}, so it
+ * cannot influence the run or its reproducibility.
+ */
+export type LongRunContentSample = {
+  scenes: readonly SceneSimulationResult[];
+  episodes: ReadonlyArray<{
+    worldDay: number;
+    episodeNumber: number;
+    status: string;
+    /** Absent when the episode was withheld by safety or never assembled. */
+    episode: DailyEpisode | undefined;
+    safetyClassificationId: string | null;
+  }>;
+};
+
 export type LongRunInput = {
   worldDays: number;
   startWorldDay?: number;
+  /**
+   * ART-92 review seam. Called exactly once, after the run completes, with the run's
+   * authored content. Read-only by contract: the harness ignores anything it returns.
+   */
+  onContentSample?: (sample: LongRunContentSample) => void;
 };
 
 /**
@@ -1382,5 +1407,19 @@ export async function runLongRunSimulation(input: LongRunInput): Promise<LongRun
     tokens,
     safety,
   };
+  // ART-92 review seam: content only, after the fact, outside the digest.
+  input.onContentSample?.({
+    scenes: observations.simulations,
+    episodes: [...harness.episodes.entries()]
+      .sort((left, right) => left[0] - right[0])
+      .map(([worldDay, row]) => ({
+        worldDay,
+        episodeNumber: row.episodeNumber,
+        status: row.status,
+        episode: row.episode,
+        safetyClassificationId: row.safetyClassificationId,
+      })),
+  });
+
   return { ...findings, digest: contentDigest(findings) };
 }

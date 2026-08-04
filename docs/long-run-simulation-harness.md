@@ -71,6 +71,17 @@ scenarios.
 
 A 90-day run is explicitly **out of scope** here and is owned by **ART-73**.
 
+## The content seam (ART-92)
+
+`LongRunFindings` is machine-only by design, so it cannot serve PRD Section 19.5's *human*
+sampling: a reviewer cannot read a content digest. `runLongRunSimulation` therefore accepts
+one optional callback, `onContentSample`, invoked exactly once after the run with the
+authored scenes and assembled episodes. It is emitted after the fact and is not an input to
+`LongRunFindings.digest`, so it cannot influence the run or its reproducibility.
+
+Its only consumer is `convex/operations/narrativeReviewSample.ts`; see
+[`narrative-quality-rubric.md`](./narrative-quality-rubric.md).
+
 ## Findings from the fixed seed
 
 The 7-day and 30-day runs are clean on completion rate (100%), Canon conflicts (zero),

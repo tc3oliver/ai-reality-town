@@ -3,7 +3,7 @@
  *
  * The commit pipeline is implemented as a pure-ish helper over a {@link CanonCommitStore}
  * repository interface, so the SAME logic runs:
- *   - inside the public Convex mutation {@link validateAndCommitProposedEvent}, and
+ *   - inside the server-only Convex mutation {@link validateAndCommitProposedEvent}, and
  *   - inside the foundation simulation workflow (sharing one transaction), and
  *   - inside unit tests, backed by an in-memory store.
  *
@@ -17,7 +17,7 @@
  * the reducer never reads it.
  */
 
-import { mutation } from '../_generated/server';
+import { internalMutation } from '../_generated/server';
 import { v } from 'convex/values';
 import { CANON_VALIDATION_VERSION } from '../shared/constants';
 import { CanonError } from '../shared/errors';
@@ -212,11 +212,19 @@ export function createConvexCanonStore(
 }
 
 /**
- * Public Convex mutation: the canonical commit entry point. Future callers (frontend,
- * director) commit proposals through this. The foundation workflow reuses the same
- * {@link commitProposedEvent} helper directly so it stays within one transaction.
+ * Server-only Convex mutation: the canonical commit entry point. Server callers (the
+ * director, the scheduler, post-commit orchestration) commit proposals through this.
+ * The foundation workflow reuses the same {@link commitProposedEvent} helper directly
+ * so it stays within one transaction.
+ *
+ * SECURITY (ART-62, NFR-005): this is an `internalMutation`, never a public one. Canon
+ * is the trusted, append-only record of the world; a client-reachable commit entry
+ * point would let any anonymous caller holding the deployment URL forge canonical
+ * history, since this pipeline authenticates nothing and validates only the SHAPE of a
+ * proposal. Keeping it internal means only server-side Convex functions can reach it.
+ * Do not widen this back to `mutation` — add an authorized server caller instead.
  */
-export const validateAndCommitProposedEvent = mutation({
+export const validateAndCommitProposedEvent = internalMutation({
   args: { proposed: proposedEventArgs, traceId: v.string() },
   handler: async (ctx, args): Promise<CommitResult> => {
     // Convex validators use `v.string()` for the literal-union fields, so args arrive

@@ -53,6 +53,10 @@ export type OperatorRole = (typeof OPERATOR_ROLES)[number];
  * from `world.pause`/`world.resume`: the kill switch halts the executor itself
  * rather than only the clock, and rollback repoints operational reads, so both
  * are reserved for `admin` even though an ordinary pause is not.
+ *
+ * Plus the three FR-K003 canon remediation capabilities. One capability per
+ * remediation type so the audit trail distinguishes a factual correction from an
+ * offsetting compensation from a narrative retcon without reading the event.
  */
 export const OPS_CAPABILITIES = [
   'world.pause',
@@ -66,6 +70,9 @@ export const OPS_CAPABILITIES = [
   'world.emergency_stop',
   'world.emergency_resume',
   'world.rollback',
+  'canon.correct',
+  'canon.compensate',
+  'canon.retcon',
 ] as const;
 export type OpsCapability = (typeof OPS_CAPABILITIES)[number];
 
@@ -91,6 +98,11 @@ const CAPABILITY_MINIMUM_ROLE: Readonly<Record<OpsCapability, OperatorRole>> = {
   'world.emergency_stop': 'admin',
   'world.emergency_resume': 'admin',
   'world.rollback': 'admin',
+  // FR-K003. A remediation appends to accepted Canon, the most consequential
+  // write the console can make, so all three are reserved for `admin`.
+  'canon.correct': 'admin',
+  'canon.compensate': 'admin',
+  'canon.retcon': 'admin',
 };
 
 /** Capabilities that only ever read; used to keep read entry points side-effect free. */

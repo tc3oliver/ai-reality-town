@@ -141,7 +141,12 @@ export async function chatCompletion(
   body.model = body.model ?? config.chatModel;
   const stopWords = body.stop ? (typeof body.stop === 'string' ? [body.stop] : body.stop) : [];
   if (config.stopWords) stopWords.push(...config.stopWords);
-  console.log(body);
+  // ART-62 (NFR-005): never log the request body. `body.messages` carries raw prompt
+  // text — character memories, private knowledge, and world context — straight into the
+  // Convex function log, which is a far weaker boundary than the ART-57 trace pipeline
+  // that deliberately accepts accounting metadata only. Log the same shape of metadata
+  // ART-57 records instead.
+  console.log({ model: body.model, messageCount: body.messages?.length ?? 0, stream: !!body.stream });
   const {
     result: content,
     retries,
@@ -175,7 +180,9 @@ export async function chatCompletion(
       if (content === undefined) {
         throw new Error('Unexpected result from OpenAI: ' + JSON.stringify(json));
       }
-      console.log(content);
+      // ART-62 (NFR-005): raw model output is unreviewed generated content and must not
+      // reach a log; record its length only.
+      console.log({ completionChars: content.length });
       return content;
     }
   });
