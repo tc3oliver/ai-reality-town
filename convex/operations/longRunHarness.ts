@@ -40,7 +40,8 @@ import { replayWorldEvents } from '../canon/replay';
 import { validateCanon, validateEventStructure } from '../canon/validators';
 import { authorizeKnowledgeRead } from '../knowledge/authorization';
 import { authorizeMemoryRead } from '../knowledge/memoryAuthorization';
-import { FAKE_SCENE_MODEL } from '../simulation/fakeSceneNarrator';
+import { FAKE_SCENE_MODEL, FakeWholeSceneProvider } from '../simulation/fakeSceneNarrator';
+import type { LanguageModelProvider } from '../simulation/provider';
 import type { SceneSimulationResult } from '../simulation/sceneSimulation';
 import {
   buildLiveWorldSnapshot,
@@ -361,7 +362,7 @@ function mistwoodRuleContext(): CanonRuleContext {
   };
 }
 
-function seededCanonStore(): InMemoryCanonStore {
+export function seededCanonStore(): InMemoryCanonStore {
   const store = new InMemoryCanonStore();
   store.setCanonRuleContext(mistwoodRuleContext());
   return store;
@@ -369,7 +370,7 @@ function seededCanonStore(): InMemoryCanonStore {
 
 // --- durable run stores ------------------------------------------------------
 
-class MemoryWorldDayRunStore implements WorldDayRunStore {
+export class MemoryWorldDayRunStore implements WorldDayRunStore {
   private readonly runs = new Map<string, WorldDayRun>();
   private readonly checkpoints: WorldDayCheckpoint[] = [];
   loadRun(runId: string): Promise<WorldDayRun | null> {
@@ -421,7 +422,7 @@ class MemoryWorldDayRunStore implements WorldDayRunStore {
   }
 }
 
-class MemoryPostCommitRunStore implements PostCommitRunStore {
+export class MemoryPostCommitRunStore implements PostCommitRunStore {
   private readonly runs = new Map<string, PostCommitRun>();
   readonly checkpoints: PostCommitCheckpoint[] = [];
   loadRun(runId: string): Promise<PostCommitRun | null> {
@@ -473,7 +474,7 @@ class MemoryPostCommitRunStore implements PostCommitRunStore {
   }
 }
 
-class MemoryReadStore implements PublicReadStore {
+export class MemoryReadStore implements PublicReadStore {
   readonly rows: StoredReadModel[] = [];
   private counter = 0;
   loadTargetVersions(worldId: string, modelKind: ReadModelKind, modelRef: string): Promise<readonly StoredReadModel[]> {
@@ -513,7 +514,7 @@ const OPERATOR = { type: 'operations' as const, operatorId: 'art-60-harness' };
 const ACTOR = { type: 'system' as const, id: 'art-60-harness' };
 
 /** Everything the harness observes while the live pipeline runs. */
-type Observations = {
+export type Observations = {
   simulations: SceneSimulationResult[];
   plannedAppearance: Array<{ characterId: string; slotsSinceMajorAppearance: number; worldDay: number; timeSlot: TimeSlot }>;
 };
@@ -526,7 +527,7 @@ type Observations = {
  * input, which is what makes the safety, repetition, token and appearance checks
  * observations of the live run rather than a re-derivation.
  */
-function createWorldDayPort(
+export function createWorldDayPort(
   store: InMemoryCanonStore,
   observations: Observations,
   activeArcsOf: () => LiveArc[],
@@ -580,7 +581,7 @@ function createWorldDayPort(
  * It mirrors the port ART-98's own integration test binds, so the long run exercises the
  * same downstream contracts that task verified for a single day.
  */
-function createPostCommitHarness(canon: InMemoryCanonStore, readStore: MemoryReadStore) {
+export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: MemoryReadStore) {
   const arcs = new Map<string, ArcRecord>();
   const classifications = new Map<number, ArcEventClassification>();
   const portfolio: ArcPortfolioEntry[] = [];
@@ -1081,6 +1082,48 @@ function coverageSources(
   }));
 }
 
+// --- reusable in-memory fixture --------------------------------------------
+
+/**
+ * A fully wired in-memory long-run fixture over the fixed Mistwood seed: the canon
+ * store, the public read store, the real downstream post-commit harness, the run
+ * stores, and the two stage-handler chains — bound to one scene-authoring provider.
+ *
+ * `runLongRunSimulation` uses this with the default deterministic provider; ART-74's
+ * failure-injection suite reuses it with a flaky provider so the same real pipeline is
+ * driven under injected faults instead of through a parallel re-implementation.
+ */
+export type LongRunFixture = {
+  canon: InMemoryCanonStore;
+  readStore: MemoryReadStore;
+  harness: ReturnType<typeof createPostCommitHarness>;
+  observations: Observations;
+  worldDayRunStore: MemoryWorldDayRunStore;
+  postCommitRunStore: MemoryPostCommitRunStore;
+  worldDayHandlers: ReturnType<typeof createWorldDayStageHandlers>;
+  postCommitHandlers: ReturnType<typeof createPostCommitStageHandlers>;
+};
+
+export function createLongRunFixture(
+  provider: LanguageModelProvider = new FakeWholeSceneProvider(),
+): LongRunFixture {
+  const canon = seededCanonStore();
+  const readStore = new MemoryReadStore();
+  const harness = createPostCommitHarness(canon, readStore);
+  const observations: Observations = { simulations: [], plannedAppearance: [] };
+  const worldDayRunStore = new MemoryWorldDayRunStore();
+  const postCommitRunStore = new MemoryPostCommitRunStore();
+  const worldDayHandlers = createWorldDayStageHandlers(
+    createWorldDayPort(canon, observations, harness.activeArcsForDirector),
+    provider,
+  );
+  const postCommitHandlers = createPostCommitStageHandlers(harness.port);
+  return {
+    canon, readStore, harness, observations, worldDayRunStore, postCommitRunStore,
+    worldDayHandlers, postCommitHandlers,
+  };
+}
+
 // --- the run -----------------------------------------------------------------
 
 /**
@@ -1125,16 +1168,8 @@ export async function runLongRunSimulation(input: LongRunInput): Promise<LongRun
   const startWorldDay = input.startWorldDay ?? 0;
   if (!Number.isSafeInteger(worldDays) || worldDays < 1) throw new Error('LONG_RUN_INVALID_WORLD_DAYS');
 
-  const canon = seededCanonStore();
-  const readStore = new MemoryReadStore();
-  const harness = createPostCommitHarness(canon, readStore);
-  const observations: Observations = { simulations: [], plannedAppearance: [] };
-  const worldDayRunStore = new MemoryWorldDayRunStore();
-  const postCommitRunStore = new MemoryPostCommitRunStore();
-  const worldDayHandlers = createWorldDayStageHandlers(
-    createWorldDayPort(canon, observations, harness.activeArcsForDirector),
-  );
-  const postCommitHandlers = createPostCommitStageHandlers(harness.port);
+  const { canon, harness, observations, worldDayRunStore, postCommitRunStore,
+    worldDayHandlers, postCommitHandlers } = createLongRunFixture();
 
   const slots: SlotOutcome[] = [];
   const canonConflicts: CanonConflictFinding[] = [];

@@ -1,10 +1,11 @@
 ---
 id: ART-74
 title: Simulation and editorial failure integration suite
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@oliver'
 created_date: '2026-08-02 15:43'
-updated_date: '2026-08-02 16:27'
+updated_date: '2026-08-04 10:04'
 labels:
   - prd-1.0
   - epic-p
@@ -91,3 +92,9 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+PRD 19.2 cases 6-10. Reuse the real in-memory pipeline (longRunHarness) with failure injection. (1) Export reusable doubles (MemoryReadStore/WorldDayRunStore/PostCommitRunStore) + seededCanonStore + createWorldDayPort + createPostCommitHarness + add createLongRunFixture(provider?) factory; refactor runLongRunSimulation to use it (pure visibility extraction, digest unchanged). (2) New convex/operations/failureIntegration.test.ts with a FlakyWholeSceneProvider (transient/permanent SimulationProviderError) and 5 describe blocks: AC1 simulateWholeScene retries transient failure, records normalized trace (retryCount>0, finite tokens), does NOT retry permanent; AC2 fail-then-resume a slot commits the event exactly once + completed-run short-circuit + commitProposedEvent idempotency dedup; AC3 every episode.sourceEventIds subset of committed-event IDs (accepted-only), day-scoped; AC4 submitRemediation(retcon) refresh runs post-commit pipeline -> timeline/liveState/episode-index projections republished (new versions); AC5 failed run commits nothing (current projection still served) + invalidateReadModel falls back to last-known-good via serveReadModel. Gate: npm run check + the focused jest project.
+<!-- SECTION:PLAN:END -->
