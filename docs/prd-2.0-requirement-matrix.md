@@ -5,7 +5,7 @@
 **前一版基線：** `docs/prd-1.0-closure-matrix.md`
 **盤點日期：** 2026-08-05
 
-> **目前狀態：** PRD 1.0 historical closure complete; current baseline has open release-blocking regressions **ART-99** and **ART-139**. PRD 2.0 Dynamic Viewing MVP In Progress.
+> **目前狀態：** PRD 1.0 historical closure complete; current baseline has open release-blocking regressions **ART-99** and **ART-141**（ART-139 已修復並經真實 provider 現場驗證，見 §4）。PRD 2.0 Dynamic Viewing MVP In Progress.
 >
 > 不得只寫「PRD 1.0 Core Simulation and Backend Baseline Complete」——那描述歷史封閉，不是目前基線健康狀態（PRD 2.0 §13.3／§26）。
 
@@ -81,7 +81,7 @@ FR-O010（動態畫面降級）Disposition 為 **New**，擁有專屬 Task **ART
 | Requirement | Disposition | Task | Delivery State | Release Criticality | Dependencies |
 |---|---|---|---|---|---|
 | FR-O001 動態 2D 地圖 | New | ART-118 | To Do | P0 | ART-113, ART-115 |
-| FR-O002 Canon-driven 移動與動畫 | New | ART-119 | **To Do；production validation blocked by ART-139** | P0 | ART-118, ART-117 |
+| FR-O002 Canon-driven 移動與動畫 | New | ART-119 | **To Do；production validation blocked by ART-141**（ART-139 schemaVersion／sceneId 契約層已修復） | P0 | ART-118, ART-117 |
 | FR-O003 活躍場景視覺化 | New | ART-122 | To Do | P0 | ART-118 |
 | FR-O004 公開交談與活動提示 | New | ART-123 | To Do | P0 | ART-119 |
 | FR-O005 鏡頭與導航 | New | ART-118（共用） | To Do | P0 | ART-113, ART-115 |
@@ -115,7 +115,7 @@ FR-O010（動態畫面降級）Disposition 為 **New**，擁有專屬 Task **ART
 | FR-Q005 效能基準與品質分級（實現 NFR2-002） | New | ART-136 | To Do | P0 | ART-119, ART-120 |
 | FR-Q006 Dynamic Live 驗證套件（實現 §21.3） | New | ART-137 | To Do | P0 | ART-126, ART-121 |
 | FR-Q007 動態分析事件（實現 §17） | New | ART-140 | To Do | P1 | ART-118, ART-121 |
-| FR-Q008 Dynamic MVP Release Gate（實現 §22） | New | ART-138 | To Do | P0 | ART-99, ART-139 ＋ 全部 P0 |
+| FR-Q008 Dynamic MVP Release Gate（實現 §22） | New | ART-138 | To Do | P0 | ART-99, ART-141（ART-139 已完成）＋ 全部 P0 |
 
 > **FR-Q004 ~ FR-Q008 的存在理由：** 先前版本讓 ART-135~138、140 直接掛在 NFR、§17、§21.3、§22 之下，違反「新工作納入 FR-N／O／P／Q Requirement Family」的規則，也讓非功能需求缺少可反向追蹤的 Requirement ID。新增這五條 Cross-cutting Delivery Requirement 後，每個新 Task 都有 FR 級擁有者。
 
@@ -141,7 +141,8 @@ FR-O010（動態畫面降級）Disposition 為 **New**，擁有專屬 Task **ART
 | 項目 | Disposition | Task | Delivery State | Release Criticality |
 |---|---|---|---|---|
 | 種子世界每日 Canon Snapshot 失敗 | **Carry Forward** | **ART-99**（既有，Medium → Critical） | To Do | **Release Blocker** |
-| PRD 1.0 FR-C002 真實 provider 場景解析失敗 | **Existing Baseline Defect**（§13.2 唯一獲准例外） | **ART-139** | To Do | **Release Blocker** |
+| PRD 1.0 FR-C002 真實 provider 場景解析失敗（schemaVersion／sceneId 契約層） | **Existing Baseline Defect**（§13.2 唯一獲准例外） | **ART-139** | **Done**（已對真實 provider 現場驗證） | **Release Blocker**（已解除） |
+| PRD 1.0 FR-C002 真實 provider `proposedEvents` 結構不合規（同一缺陷的第二層，ART-139 驗證時發現） | **Existing Baseline Defect**（ART-139 的延伸，非獨立例外） | **ART-141** | To Do | **Release Blocker** |
 
 ---
 
@@ -161,9 +162,9 @@ ART-119 production acceptance
   必須以真實 Provider 產生的 Accepted Event 驗證跨地點移動
 ```
 
-此區分已寫入 ART-119 的驗收條件，且 ART-138 Release Gate 直接依賴 ART-139。
+此區分已寫入 ART-119 的驗收條件，且 ART-138 Release Gate 直接依賴 ART-99、ART-139、ART-141。ART-139 完成後，FR-O002 production acceptance 與 §22.6／§22.29 的剩餘阻斷者改為 **ART-141**（見 4.3），不再是 ART-139。
 
-### 4.2 證據
+### 4.2 證據（schemaVersion／sceneId 契約層 — 已由 ART-139 確認並修復）
 
 Requirement Matrix 不應只放未附證據的診斷結論。ART-139 的既有證據：
 
@@ -178,7 +179,11 @@ Requirement Matrix 不應只放未附證據的診斷結論。ART-139 的既有�
 | 相關程式位置 | `convex/simulation/sceneSimulation.ts:110`（schemaVersion 檢查）、`:93-105`（`parseEventLinked` 白名單）、`:145-156`（`WHOLE_SCENE_JSON_SCHEMA` 巢狀 items） |
 | 診斷 | Schema 將巢狀集合宣告為 `items: { type: 'object' }`，不約束欄位名；parser 以 `record(item, path, allowed)` 嚴格拒絕未知欄位。Schema 無法使 provider 產出 parser 要求的形狀；`schemaVersion` 檢查又遮蔽真正的欄位錯誤 |
 
-**證據缺口（誠實記錄）：** 目前**沒有永久可重現的測試 harness**。ART-106 的煙霧測試是臨時 `internalAction`，驗證後已刪除，因此本表無法提供可直接執行的 reproduction command。**建立可重現的回歸測試是 ART-139 的第一項交付**，其驗收條件已載明。在該測試存在前，上述診斷應視為**高信心假說**而非已證實的根因。
+**根因狀態更新：已確認，不再是假說。** ART-139 建立了永久回歸測試（`convex/simulation/sceneSimulation.test.ts`「ART-139 real-provider schemaVersion contract」describe block），並以臨時 `internalAction`（同 ART-106 模式，驗證後已刪除）對真實 provider 現場執行確認：真正的缺陷不是 schema 將 `schemaVersion` 型別鬆化為字串，而是真實 provider 會**完全省略** `schemaVersion` 與 `sceneId`（兩者的值對呼叫端而言是已知常數／輸入回顯，並非模型生成內容）。修復：`WHOLE_SCENE_JSON_SCHEMA` 的巢狀集合（`keyActions`、`dialogueHighlights`、`relationshipChanges`、`knowledgeChanges`、`memories`、`rumors`、`proposedEvents`）補上完整 `properties`／`required`／`additionalProperties:false`；`schemaVersion`／`sceneId` 缺漏時以呼叫端已知的值補齊，其餘不符仍嚴格拒絕並回報精確欄位路徑。已對真實 provider 驗證：root 層級欄位（含 `schemaVersion`、`sceneId`）現在正確解析。
+
+### 4.3 現場驗證時發現的第二層缺陷（ART-141）
+
+修復 root 層級後，現場呼叫在 `proposedEvents` 停住：真實 provider 回傳的 `proposedEvents` 項目形狀為 `{ eventId, publicSummary, trigger }`，`ProposedEvent` 所需的 `schemaVersion`、`worldId`、`idempotencyKey`、`proposedBy`、`worldDay`、`timeSlot`、`eventType`、`participantIds`、`causedByEventIds`，尤其是**內容主體 `stateChanges`**全部缺漏。這些欄位是模型生成內容，不像 `schemaVersion`／`sceneId` 有安全的預設值可補。這是同一 FR-C002 缺陷的第二層，已建立 **ART-141**（依賴 ART-139）追蹤；FR-O002 production acceptance、§22.6、§22.29 現在由 ART-141 阻斷。
 
 ---
 
@@ -383,7 +388,7 @@ ART-112 同時負責移除公開面的 Human Player／Interact 語意與相關�
 | 3 /live 可操作地圖 | ART-118 |
 | 4 12 位角色綁定 | ART-111 |
 | 5 8 個地點綁定且語意相符 | ART-110, ART-109 |
-| 6 平滑跨地點移動 | ART-119（production acceptance 需 ART-139） |
+| 6 平滑跨地點移動 | ART-119（production acceptance 需 ART-141；ART-139 schemaVersion／sceneId 契約層已修復） |
 | 7 Idle／Walking／Speaking／Thinking | ART-119 |
 | 8 Ambient 零 Canon 副作用 | ART-120 |
 | 9 Replay 自動一次可手動、不呼叫 LLM | ART-121 |
@@ -406,7 +411,7 @@ ART-112 同時負責移除公開面的 Human Player／Interact 語意與相關�
 | 26 Typecheck／Lint／Tests／Build／CI | 全 Task DoD |
 | 27 全部 V2 P0 有 Task 與證據 | ART-138 |
 | 28 Closure Matrix 不再以後端完成宣稱產品完成 | ART-138 |
-| **29 ART-139 修復，真實 provider 產生 Accepted Event** | ART-139 |
+| **29 真實 provider 產生 Accepted Event** | ART-139（schemaVersion／sceneId 契約層，Done）＋ ART-141（proposedEvents 結構合規，To Do） |
 | **30 效能固定 Benchmark 公開前通過** | ART-136 |
 | **31 Replay 只引用已發布內容識別碼與版本** | ART-121, ART-132 |
 
@@ -419,7 +424,7 @@ ART-112 同時負責移除公開面的 Human Player／Interact 語意與相關�
 | 項目 | 類型 | 說明 | 處置 |
 |---|---|---|---|
 | **ART-99** | **Release Blocker** | `importWorld` 寫入的 `initial` 快照（`lastSequenceNumber: -1`）無法由 accepted events 推導，`assertSnapshotMatchesHistory` 以 `SNAPSHOT_CORRUPT` 拒絕。FR-N007 公開快照建立其上 | Critical；ART-138 依賴 |
-| **ART-139** | **Release Blocker** | 真實 provider 下 `simulateWholeScene()` 失敗；不修則無 Accepted Event，`withArrivalStateChanges` 不附加 `character_location_changed`，§22.6 無法達成。**根因為高信心假說，永久回歸測試尚未存在**（§4.2） | Critical；ART-138 依賴；建立可重現測試為其第一項交付 |
+| **ART-141** | **Release Blocker** | ART-139 修復並經真實 provider 現場驗證後，真實 provider 的 `proposedEvents` 項目仍不符合 `ProposedEvent` 契約（缺 `stateChanges` 等生成內容欄位），`simulateWholeScene()` 因而在真實 provider 下仍無法產出 Accepted Event，`withArrivalStateChanges` 不附加 `character_location_changed`，§22.6 無法達成（§4.3） | Critical；ART-138 依賴；依賴 ART-139（已完成） |
 | **RISK2-008 / RISK2-009** | 產品風險 | Ambient 被誤認為劇情、Replay 被誤認為即時 | ART-120／ART-121 驗收條件緩解，上線後觀察 |
 | **RISK2-004** | 技術風險 | 12+ 角色動畫 ＋ ambient ＋ 環境動畫在中階行動裝置的效能 | **ART-136 固定 Benchmark 必須在公開前通過**，不得以「上線後補」規避 |
 | **地圖工作量未知** | 排程風險 | `data/mistwood.ts` 需以既有 tileset 手工重排八個地點 | ART-107 完成後重估 ART-109 |

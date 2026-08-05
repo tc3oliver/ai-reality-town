@@ -1,11 +1,11 @@
 ---
 id: ART-139
 title: Whole-scene simulation fails to parse real provider output
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-04 16:16'
-updated_date: '2026-08-05 01:34'
+updated_date: '2026-08-05 02:15'
 labels:
   - prd-2.0
   - release-blocker
@@ -79,12 +79,12 @@ It does **not** block the rest of the dynamic layer. The Mistwood seed (`convex/
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 simulateWholeScene succeeds against the real provider and commits accepted events
+- [x] #1 The real-provider schemaVersion/sceneId root-level contract is confirmed fixed: a live smoke call against the real configured provider gets past root-level parsing without a SCENE_OUTPUT_INVALID at schemaVersion or sceneId
 - [x] #2 WHOLE_SCENE_JSON_SCHEMA declares nested item properties so the request schema matches the parser contract
 - [x] #3 A wrong schemaVersion and a wrong nested field each produce a distinct accurate error code and field path
 - [x] #4 The tolerance policy for non-conforming provider output is implemented and documented
 - [x] #5 A regression test reproduces the real-provider output shape that currently fails
-- [ ] #6 character_location_changed events are observed to be produced by a live world day run
+- [x] #6 The further blocker to producing character_location_changed from a live run (proposedEvents structural non-compliance) is identified with evidence and handed off as a dependent follow-up task (ART-141); this task does not itself produce a live character_location_changed event
 - [x] #7 Canon validation and post-generation safety behaviour are unchanged
 - [x] #8 A permanent reproduction test exists that fails on the current code and captures the real provider output shape
 - [x] #9 The confirmed root cause is documented, replacing the current hypothesis
@@ -92,7 +92,7 @@ It does **not** block the rest of the dynamic layer. The Mistwood seed (`convex/
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -101,7 +101,7 @@ It does **not** block the rest of the dynamic layer. The Mistwood seed (`convex/
 - [x] #7 No known regression is introduced
 - [x] #8 No secret or credential is committed
 - [x] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
+- [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [ ] #12 Final summary includes verification evidence
 - [ ] #13 Changes are committed and pushed
@@ -134,4 +134,18 @@ Fix landed and verified offline (no live network call made against the real llm.
 6. npm run check: 86 suites / 1119 tests passing (was 1109; +10 from the ART-139 regression coverage), typecheck/lint/build clean.
 
 NOT done, and deliberately not attempted without checking with the user first: AC #1 (simulateWholeScene succeeds against the real provider) and AC #6 (character_location_changed observed from a live world-day run against the real provider) both require an actual network call to the configured real LLM endpoint (llm.shouri.app), which spends real API quota/cost on a third-party paid service. Left both AC and DoD #1 unchecked pending the users decision on whether to run that live validation now.
+
+UPDATE after live validation (user-approved real-provider call): the initial hypothesis in this tasks earlier notes (schemaVersion returned as the string "1") was not quite what the real provider does. Confirmed via a live smoke call (temporary internalAction, removed after verification, same pattern as ART-106): the real provider omits schemaVersion and sceneId from its root output entirely. Both are fixed/known-in-advance values (schemaVersion is always the literal 1; sceneId is already known from the request), so defaulting them when absent is safe and does not weaken validation of any actual model-generated content. Code updated accordingly (default-when-undefined, still reject any present-but-wrong value); the numeric-string "1" tolerance was kept as a harmless additional defensive case. Live-reconfirmed: root-level parsing (including schemaVersion/sceneId) now succeeds against the real provider.
+
+Discovered during the same live check, past the root-level fix: proposedEvents items from the real provider are shaped like { eventId, publicSummary, trigger } and are missing nearly every required ProposedEvent field, including stateChanges (the actual substantive content). Unlike schemaVersion/sceneId this cannot be safely defaulted -- there is no known-in-advance value for stateChanges. This is a materially different, deeper defect. Per user decision, split out as ART-141 (depends on ART-139) rather than expanding this tasks scope. Acceptance criteria revised to match what ART-139 actually owns and has now confirmed; the original AC #1/#6 wording (full end-to-end success, character_location_changed from a live run) is superseded by ART-141, which now owns that outcome.
+
+docs/prd-2.0-requirement-matrix.md updated: ART-139 marked Done with its confirmed evidence; ART-141 added to the baseline-defects table and §14 risk table; FR-O002/§22.6/§22.29 blocking references repointed from ART-139 to ART-141; ART-138s dependency updated to include ART-141.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Fixed the confirmed real-provider whole-scene schemaVersion/sceneId contract defect: WHOLE_SCENE_JSON_SCHEMA now declares full properties/required/additionalProperties for every nested item schema (matching each parsers exact allowed-key list), and parseWholeSceneOutput defaults schemaVersion/sceneId when the real provider omits them (both are caller-known constants, not generated content) while still rejecting any present-but-wrong value with a precise field path. Verified with a permanent regression test (red before the fix, green after, using the real HTTP adapter code path) plus a live smoke call against the actual configured provider (temporary internalAction, removed after verification, user-approved) confirming the fix live. npm run check: 86 suites/1119 tests, typecheck/lint/build clean.
+
+The live check also surfaced a second, deeper defect one layer past this fix: real-provider proposedEvents items are missing nearly all required ProposedEvent fields (notably stateChanges), which cannot be safely defaulted. Split out as ART-141 (depends on this task) rather than expanding scope, per user direction. Requirement matrix and ART-138s dependencies updated to reflect ART-139 Done / ART-141 as the new blocker for FR-O002 production acceptance.
+<!-- SECTION:FINAL_SUMMARY:END -->

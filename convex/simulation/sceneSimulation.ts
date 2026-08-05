@@ -107,15 +107,21 @@ function parseEventLinked<T>(value: unknown, path: string, scene: GroupedScene, 
 export function parseWholeSceneOutput(value: unknown, scene: GroupedScene): WholeSceneOutput {
   const root = record(value, '$', ['schemaVersion', 'sceneId', 'sceneSummary', 'keyActions', 'dialogueHighlights',
     'proposedEvents', 'relationshipChanges', 'knowledgeChanges', 'memories', 'rumors', 'continuityWarnings']);
-  // Strict-mode compilers on some OpenAI-compatible gateways drop a bare `{ const: 1 }` property
-  // that has no declared `type` and let the model emit the sentinel as a numeric string instead of
-  // an integer (ART-139). Tolerate exactly that one shape; everything else must be the literal 1.
+  // ART-139 (confirmed against the real provider, not just hypothesized): a strict-mode
+  // OpenAI-compatible gateway omits fields whose correct value is a fixed constant or an echo
+  // of caller-supplied input rather than model-generated content -- `schemaVersion` (always the
+  // literal 1) and `sceneId` (already known from the request, not something the model invents)
+  // are both dropped from the real provider's response entirely. Fill in exactly those two
+  // fields when omitted, since the caller already knows their only valid value; also tolerate
+  // the numeric-string "1" defensively. Anything present-but-wrong still fails loudly.
+  if (root.schemaVersion === undefined) root.schemaVersion = 1;
   if (root.schemaVersion === '1') root.schemaVersion = 1;
   if (root.schemaVersion !== 1) {
     const received = typeof root.schemaVersion === 'string' || typeof root.schemaVersion === 'number' || typeof root.schemaVersion === 'boolean'
       ? String(root.schemaVersion) : typeof root.schemaVersion;
     throw new SceneSimulationError('SCENE_OUTPUT_INVALID', `unsupported schema version: expected 1, received ${received}`, 'schemaVersion');
   }
+  if (root.sceneId === undefined) root.sceneId = scene.sceneId;
   if (root.sceneId !== scene.sceneId) throw new SceneSimulationError('SCENE_OUTPUT_PROVENANCE_MISMATCH', 'output Scene ID does not match', 'sceneId');
   const proposedEvents = array(root.proposedEvents, 'proposedEvents').map((event, eventIndex) => {
     const parsed = normalizeProposedEventOutput(event);

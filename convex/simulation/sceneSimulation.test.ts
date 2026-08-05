@@ -144,16 +144,19 @@ describe('FR-C005 whole-scene simulation', () => {
       }
     });
 
-    it('rejects a missing schemaVersion with a precise field path', () => {
+    // Confirmed against the real provider: schemaVersion is commonly omitted entirely, not just
+    // sent as the wrong type. It is a caller-known constant (always 1), so a missing value is
+    // defaulted rather than rejected -- this is the actual real-provider shape, not a hypothesis.
+    it('defaults a missing schemaVersion to 1 instead of rejecting it (confirmed real-provider shape)', () => {
       const missing = output() as Record<string, unknown>;
       delete missing.schemaVersion;
-      try {
-        parseWholeSceneOutput(missing, scene);
-        throw new Error('expected SceneSimulationError');
-      } catch (error) {
-        expect(error).toBeInstanceOf(SceneSimulationError);
-        expect((error as SceneSimulationError).path).toBe('schemaVersion');
-      }
+      expect(parseWholeSceneOutput(missing, scene).schemaVersion).toBe(1);
+    });
+
+    it('defaults a missing sceneId to the Scene ID already known from the request (confirmed real-provider shape)', () => {
+      const missing = output() as Record<string, unknown>;
+      delete missing.sceneId;
+      expect(parseWholeSceneOutput(missing, scene).sceneId).toBe(scene.sceneId);
     });
 
     it('rejects an unknown field inside a nested collection with its own precise field path', () => {

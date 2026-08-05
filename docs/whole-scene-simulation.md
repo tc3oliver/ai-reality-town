@@ -45,20 +45,27 @@ provider nothing to constrain it to the parser's exact-key contract, so it is fr
 omit fields the parser then rejects.
 
 Confirmed root cause of the real-provider `SCENE_OUTPUT_INVALID: unsupported schema version`
-failure (previously a hypothesis, per ART-106's discovery notes): `schemaVersion` was declared
-as a bare `{ const: 1 }` with no `type`. Strict-mode JSON Schema compilers on some
-OpenAI-compatible gateways drop an under-typed `const`-only property, letting the model emit the
-sentinel as a numeric string (`"1"`) instead of an integer. The schema now declares
-`{ type: 'integer', const: 1 }`, and the parser additionally tolerates the numeric-string shape
-as one narrow, explicitly-documented normalization (a structural sentinel, not narrative or
-reference content). Every other field keeps exact-match strict validation; a wrong or missing
-`schemaVersion`, and any unknown field inside a nested collection, each fail with their own
-precise field path (`SceneSimulationError.path`) rather than a generic message.
+failure (previously a hypothesis, per ART-106's discovery notes; confirmed live against the
+real configured provider for ART-139): the provider omits `schemaVersion` and `sceneId` from
+its response entirely, not just type-loosens them. Both are fixed/known-in-advance values --
+`schemaVersion` is always the literal `1`; `sceneId` already comes from the request the caller
+sent -- rather than model-generated content, so the parser now fills in exactly those two
+fields when absent (and still tolerates the numeric string `"1"` for `schemaVersion`
+defensively). Every other field, and any present-but-wrong value for these two, still fails
+with its own precise field path (`SceneSimulationError.path`) rather than a generic message.
+The tightened `WHOLE_SCENE_JSON_SCHEMA` (`properties`/`required`/`additionalProperties: false`
+on every nested item) is necessary but was not, on its own, sufficient to make the real
+provider emit these two fields -- the parser-side default is still required.
 
 `stateChanges` items inside `proposedEvents` are intentionally left as `{ type: 'object' }` in
 the request schema: that field is a 9-variant discriminated union already validated
 independently and strictly by `normalizeStateChange` (throws `CanonError` on any mismatch), so
-re-encoding the full union into JSON Schema was judged out of proportion to this bug.
+re-encoding the full union into JSON Schema was judged out of proportion to this bug. Separately
+(ART-141, follow-up to ART-139): the real provider's `proposedEvents` items themselves are not
+reliably schema-conformant even with a tightened request schema -- they were observed missing
+nearly every required `ProposedEvent` field, including `stateChanges`, which cannot be defaulted
+the way `schemaVersion`/`sceneId` can. That is a distinct, deeper compliance gap, tracked
+separately rather than folded into this contract-layer fix.
 
 Run focused verification with:
 
