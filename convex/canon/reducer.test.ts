@@ -1,7 +1,7 @@
 import { reduceWorldEvent } from './reducer';
 import { CanonError, isCanonError } from '../shared/errors';
 import { emptyProjection, type AcceptedEvent, type WorldProjection } from './model';
-import { mistwoodEvents, mistwoodInitialProjection } from './legacyCanonTestFixture';
+import { mistwoodEvents, mistwoodInitialProjection } from './mistwoodFixture';
 
 function accepted(over: Partial<AcceptedEvent> & Pick<AcceptedEvent, 'sequenceNumber'>): AcceptedEvent {
   return {
@@ -178,6 +178,6 @@ describe('reduceWorldEvent', () => {
 
   it('applies the Mistwood movement event consistently', () => {
     const afterFirst = reduceWorldEvent(mistwoodInitialProjection, mistwoodEvents[0]);
-    expect(afterFirst.characterLocations.cassia).toBe('mistwood-grove');
+    expect(afterFirst.characterLocations['lin-yingxue']).toBe('mistwood-station');
   });
 });

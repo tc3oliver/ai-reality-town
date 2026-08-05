@@ -3,7 +3,7 @@ import { replayWorldEvents } from './replay';
 import { replayFromSnapshot } from './snapshots';
 import { validateCanon, validateEventStructure } from './validators';
 import type { AcceptedEvent, ProposedEvent } from './model';
-import { createMistwoodFixture, MISTWOOD_FIXED_SEED, MISTWOOD_FIXTURE_VERSION } from './legacyCanonTestFixture';
+import { createMistwoodFixture, MISTWOOD_FIXED_SEED, MISTWOOD_FIXTURE_VERSION } from './mistwoodFixture';
 
 describe('Mistwood fixed world fixture', () => {
   it('is versioned, fixed-seed, structurally valid, canon-valid, and replayable', () => {
@@ -31,7 +31,7 @@ describe('Mistwood fixed world fixture', () => {
 
   it('returns isolated copies that cannot contaminate later tests', () => {
     const first = createMistwoodFixture();
-    first.initialProjection.characterLocations.cassia = 'mutated';
+    first.initialProjection.characterLocations['lin-yingxue'] = 'mutated';
     first.events[0].participantIds.push('intruder');
     first.snapshot.projection.facts.push({
       factId: 'mutated-event:fact:0',
@@ -39,8 +39,8 @@ describe('Mistwood fixed world fixture', () => {
       sourceEventId: 'mutated-event', validFromEventId: 'mutated-event', validUntilEventId: null,
     });
     const second = createMistwoodFixture();
-    expect(second.initialProjection.characterLocations.cassia).toBe('mistwood-market');
-    expect(second.events[0].participantIds).toEqual(['cassia']);
+    expect(second.initialProjection.characterLocations['lin-yingxue']).toBe('mistwood-paper');
+    expect(second.events[0].participantIds).toEqual(['lin-yingxue']);
     expect(second.snapshot.projection.facts).not.toContainEqual(expect.objectContaining({ subjectId: 'bad' }));
   });
 });
