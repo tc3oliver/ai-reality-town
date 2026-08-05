@@ -1,7 +1,7 @@
 ---
 id: ART-108
 title: Audit and enforce visual asset licensing and attribution
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-04 15:57'
