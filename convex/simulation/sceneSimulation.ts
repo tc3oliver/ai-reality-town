@@ -107,7 +107,21 @@ function parseEventLinked<T>(value: unknown, path: string, scene: GroupedScene, 
 export function parseWholeSceneOutput(value: unknown, scene: GroupedScene): WholeSceneOutput {
   const root = record(value, '$', ['schemaVersion', 'sceneId', 'sceneSummary', 'keyActions', 'dialogueHighlights',
     'proposedEvents', 'relationshipChanges', 'knowledgeChanges', 'memories', 'rumors', 'continuityWarnings']);
-  if (root.schemaVersion !== 1) throw new SceneSimulationError('SCENE_OUTPUT_INVALID', 'unsupported schema version', 'schemaVersion');
+  // ART-139 (confirmed against the real provider, not just hypothesized): a strict-mode
+  // OpenAI-compatible gateway omits fields whose correct value is a fixed constant or an echo
+  // of caller-supplied input rather than model-generated content -- `schemaVersion` (always the
+  // literal 1) and `sceneId` (already known from the request, not something the model invents)
+  // are both dropped from the real provider's response entirely. Fill in exactly those two
+  // fields when omitted, since the caller already knows their only valid value; also tolerate
+  // the numeric-string "1" defensively. Anything present-but-wrong still fails loudly.
+  if (root.schemaVersion === undefined) root.schemaVersion = 1;
+  if (root.schemaVersion === '1') root.schemaVersion = 1;
+  if (root.schemaVersion !== 1) {
+    const received = typeof root.schemaVersion === 'string' || typeof root.schemaVersion === 'number' || typeof root.schemaVersion === 'boolean'
+      ? String(root.schemaVersion) : typeof root.schemaVersion;
+    throw new SceneSimulationError('SCENE_OUTPUT_INVALID', `unsupported schema version: expected 1, received ${received}`, 'schemaVersion');
+  }
+  if (root.sceneId === undefined) root.sceneId = scene.sceneId;
   if (root.sceneId !== scene.sceneId) throw new SceneSimulationError('SCENE_OUTPUT_PROVENANCE_MISMATCH', 'output Scene ID does not match', 'sceneId');
   const proposedEvents = array(root.proposedEvents, 'proposedEvents').map((event, eventIndex) => {
     const parsed = normalizeProposedEventOutput(event);
@@ -142,16 +156,49 @@ export function parseWholeSceneOutput(value: unknown, scene: GroupedScene): Whol
   };
 }
 
+// ART-139: every nested item schema below must declare exactly the fields the corresponding
+// parser accepts (parseActions/parseDialogue/parseEventLinked's allowed-key lists), or a strict
+// provider has nothing constraining it to the parser's exact-key contract. stateChanges items are
+// intentionally left as `{ type: 'object' }`: that 9-variant discriminated union already has its
+// own independent strict validator (normalizeStateChange, throws CanonError), so re-encoding it
+// here is out of proportion to this bug and not implicated by the ART-106 evidence.
+const characterActionItem = { type: 'object', additionalProperties: false, required: ['characterId', 'action'],
+  properties: { characterId: { type: 'string' }, action: { type: 'string' } } };
+const dialogueItem = { type: 'object', additionalProperties: false, required: ['characterId', 'text'],
+  properties: { characterId: { type: 'string' }, text: { type: 'string' } } };
+const relationshipChangeItem = { type: 'object', additionalProperties: false,
+  required: ['sourceCharacterId', 'targetCharacterId', 'summary', 'proposedEventIndex'],
+  properties: { sourceCharacterId: { type: 'string' }, targetCharacterId: { type: 'string' },
+    summary: { type: 'string' }, proposedEventIndex: { type: 'integer' } } };
+const characterLinkedItem = { type: 'object', additionalProperties: false,
+  required: ['characterId', 'content', 'proposedEventIndex'],
+  properties: { characterId: { type: 'string' }, content: { type: 'string' }, proposedEventIndex: { type: 'integer' } } };
+const rumorItem = { type: 'object', additionalProperties: false,
+  required: ['sourceCharacterId', 'content', 'proposedEventIndex'],
+  properties: { sourceCharacterId: { type: 'string' }, content: { type: 'string' }, proposedEventIndex: { type: 'integer' } } };
+const proposedEventItem = { type: 'object', additionalProperties: false,
+  required: ['schemaVersion', 'worldId', 'idempotencyKey', 'proposedBy', 'worldDay', 'timeSlot', 'eventType',
+    'participantIds', 'causedByEventIds', 'stateChanges'],
+  properties: {
+    schemaVersion: { type: 'integer', const: 1 }, worldId: { type: 'string' }, idempotencyKey: { type: 'string' },
+    proposedBy: { type: 'object', additionalProperties: false, required: ['type'],
+      properties: { type: { type: 'string' }, id: { type: 'string' } } },
+    worldDay: { type: 'integer' }, timeSlot: { type: 'string' }, eventType: { type: 'string' },
+    locationId: { type: 'string' }, participantIds: { type: 'array', items: { type: 'string' } },
+    causedByEventIds: { type: 'array', items: { type: 'string' } }, publicSummary: { type: 'string' },
+    stateChanges: { type: 'array', items: { type: 'object' } }, metadata: { type: 'object' },
+  } };
+
 export const WHOLE_SCENE_JSON_SCHEMA: Record<string, unknown> = {
   type: 'object', additionalProperties: false,
   required: ['schemaVersion', 'sceneId', 'sceneSummary', 'keyActions', 'dialogueHighlights', 'proposedEvents',
     'relationshipChanges', 'knowledgeChanges', 'memories', 'rumors', 'continuityWarnings'],
   properties: {
-    schemaVersion: { const: 1 }, sceneId: { type: 'string' }, sceneSummary: { type: 'string' },
-    keyActions: { type: 'array', items: { type: 'object' } }, dialogueHighlights: { type: 'array', items: { type: 'object' } },
-    proposedEvents: { type: 'array', items: { type: 'object' } }, relationshipChanges: { type: 'array', items: { type: 'object' } },
-    knowledgeChanges: { type: 'array', items: { type: 'object' } }, memories: { type: 'array', items: { type: 'object' } },
-    rumors: { type: 'array', items: { type: 'object' } }, continuityWarnings: { type: 'array', items: { type: 'string' } },
+    schemaVersion: { type: 'integer', const: 1 }, sceneId: { type: 'string' }, sceneSummary: { type: 'string' },
+    keyActions: { type: 'array', items: characterActionItem }, dialogueHighlights: { type: 'array', items: dialogueItem },
+    proposedEvents: { type: 'array', items: proposedEventItem }, relationshipChanges: { type: 'array', items: relationshipChangeItem },
+    knowledgeChanges: { type: 'array', items: characterLinkedItem }, memories: { type: 'array', items: characterLinkedItem },
+    rumors: { type: 'array', items: rumorItem }, continuityWarnings: { type: 'array', items: { type: 'string' } },
   },
 };
 
