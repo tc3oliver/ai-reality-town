@@ -33,9 +33,13 @@ consistent past the audience can trust and revisit.
   decides what enters the canon. AI output can never directly mutate world truth.
 - **Deterministic replay.** World state is derived by pure reducers, so the same events
   always reproduce the same world — no hidden state, no clock or randomness in the math.
-- **AI Town as the visual runtime.** [AI Town](https://github.com/a16z-infra/ai-town)
-  powers the map, movement, and realtime visuals. The canonical domain is the long-term
-  source of truth that sits alongside it.
+- **Canon Simulation is the sole narrative source.** [AI Town](https://github.com/a16z-infra/ai-town)'s
+  own server-side simulation (world lifecycle, agent reasoning, chat) has been retired
+  (ART-112): it made its own LLM calls and would have competed with Canon as a second
+  narrative source. Its PixiJS renderer, viewport, tilemap, sprite, and animation code is
+  retained for reuse by a future read-only Visual Runtime, which will be driven entirely
+  by Canon-derived projections — it will contain no agent, no LLM call, and cannot mutate
+  Canon. Public visitors never start or sustain a simulation.
 
 ## Architecture
 
@@ -48,12 +52,12 @@ Proposed Event  ──►  Structural + canonical validation
                           ▼
                Append-only event log  ──►  Deterministic reducer  ──►  World projection
                                                                           (read models)
-                                          ▲
-                            AI Town = visual & realtime runtime
 ```
 
 The canonical event log is the source of truth; the visible world and any narrative
-projections are derived from it.
+projections are derived from it. The upstream AI Town server-side simulation that used to
+sit alongside this pipeline has been retired (ART-112) — only its renderer survives, and
+only for future reuse by a projection-driven, read-only Visual Runtime.
 
 ## Repository layout
 
@@ -63,9 +67,21 @@ convex/
   simulation/    simulation provider interface and workflow
   story/         story projection boundary
   recaps/        recap projection boundary
-  aiTown/        upstream AI Town game logic (retained)
-  engine/        upstream AI Town engine (retained)
-src/             upstream PixiJS client (retained)
+  publicRead/    public read model and (future) dynamic projection
+  aiTown/        upstream AI Town DATA SHAPES ONLY (ART-112): worldMap/ids/player/agent/
+                 conversation/playerDescription/agentDescription/conversationMembership
+                 validators + inert classes, kept because convex/aiTown/schema.ts still
+                 needs them for historical rows. The world execution lifecycle, agent
+                 reasoning, chat, and Human Player behavior that used to live here (main.ts,
+                 game.ts, agentOperations.ts, insertInput.ts, movement.ts, etc.) is retired.
+  engine/        schema only (ART-112): the generic AbstractGame engine framework
+                 (abstractGame.ts, historicalObject.ts) is retired; only engine/schema.ts's
+                 table definitions remain, for the same inert-historical-data reason.
+src/             upstream PixiJS RENDERER retained (ART-112): PixiViewport, PixiStaticMap,
+                 Character (sprite/animation) and data/{spritesheets,animations,gentle.js}
+                 are reusable and currently unreferenced, awaiting a future Visual Runtime.
+                 The interactive game route, join/move/chat UI, and Human Player client code
+                 that used to drive them are retired -- src/App.tsx no longer renders them.
 docs/            architecture and development docs
 ```
 

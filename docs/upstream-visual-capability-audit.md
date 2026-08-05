@@ -8,6 +8,15 @@ review. Evidence for every claim below was gathered by reading the current sourc
 and by actually booting the renderer (see §5); nothing here is inferred from memory of
 the original a16z template.
 
+> **Correction (2026-08-05, during ART-112 implementation):** three dispositions below
+> turned out to be wrong once actually executed, not just read. `convex/aiTown/movement.ts`
+> and `location.ts` import `Game`/`Player` (both retired) and cannot compile standalone —
+> they are retired, not preserved. `convex/testing.ts`'s `stop`/`resume`/`kick` call
+> `stopEngine`/`startEngine`/`kickEngine` from the now-deleted `aiTown/main.ts` and would
+> crash if kept; the whole file retires (this incident's containment mechanism does not
+> survive ART-112, by design — the engine it froze no longer exists to be frozen). See
+> ADR-0004 and §9 below for the corrected, as-shipped disposition.
+
 ## 1. Renderer inventory
 
 | Item | Status | Notes |
@@ -22,7 +31,7 @@ the original a16z template.
 | `data/gentle.js` (+ `assets/gentle-obj.png` tileset) | **Reusable as-is, but content is generic** | The current tilemap is the stock a16z demo map, not Mistwood. It is a valid *tileset* to reuse (per the PRD 2.0 decision to rebuild a Mistwood-specific map from this tileset) but its current tile layout has no relationship to Mistwood's eight locations. Building the actual Mistwood map layout is separate, later work (not this task). |
 | `data/convertMap.js` | **Reusable as-is (tooling)** | Offline script that produced `gentle.js` from the Tiled map export; useful again when building the Mistwood-specific map. |
 | `data/characters.ts` | **Dead / a16z-demo-specific** | Hardcoded a16z demo character roster (`Lucky`, `Bob`, `Stella`, …) with LLM personas, referenced only by `Player.tsx` (dead) to resolve `character.textureUrl`/`spritesheetData` by name. The *shape* (name → spritesheet/texture mapping) is a useful reference for `CharacterVisualBinding` (ART-111) but the content itself does not carry over. |
-| Collision / pathfinding | **Reusable utility, currently engine-coupled** | `convex/aiTown/movement.ts`: `blocked()`/`blockedWithPositions()` do tile-occupancy collision checks against `WorldMap` + other player positions (pure functions, no I/O); `findRoute()` does BFS pathfinding but takes a full `Game` object today. The occupancy-check primitives are directly reusable; `findRoute` needs a thinner signature (map + occupied tiles, not a live `Game`) before a future Visual Runtime can call it independently — noted as a gap for FR-N010, not fixed here. |
+| Collision / pathfinding | **Retired, corrected from "preserve"** | `convex/aiTown/movement.ts`'s `blocked()`/`findRoute()`/`movePlayer()`/`stopPlayer()` all take a `Game` and/or `Player` parameter (imported directly from `./game`/`./player`), not just `WorldMap`. Confirmed at ART-112 implementation time: the file cannot compile once `game.ts`/`player.ts`'s lifecycle is removed, so it retires with them. `convex/util/geometry.ts`/`util/minheap.ts` (generic math/heap primitives movement.ts itself depends on) have zero such coupling and are preserved instead — a future Visual Runtime's pathfinding still has to be written against them from scratch (FR-N010), not resumed from this file. |
 | Viewport drag/pan/zoom, click-to-select | **Reusable as-is** | `PixiViewport.tsx` (`.drag().pinch({}).wheel().decelerate().clamp(...).setZoom(...).clampZoom(...)`); click-to-select-a-character is `Character.tsx`'s own `Container interactive pointerdown={onClick}` (line 87), independent of `moveTo`. |
 
 `package.json`: `pixi.js@^7.2.4`, `@pixi/react@^7.1.0`, `pixi-viewport@^5.0.1`.
@@ -34,7 +43,7 @@ renderer depends on, not simulation lifecycle. ART-112 keeps these:
 
 - `convex/aiTown/worldMap.ts` — `WorldMap`/`AnimatedSprite` classes (tile dimensions, layers, animated-sprite placements). Imported by `PixiStaticMap.tsx`, `serverGame.ts`.
 - `convex/aiTown/ids.ts` — generic `GameId<T>` branded-string helper. Imported by `convex/schema.ts` itself (`conversationId`, `playerId`) and by renderer-adjacent types.
-- `convex/aiTown/location.ts` — `Location`/`locationFields`/`playerLocation` helpers used by the historical-position interpolation the renderer relies on today.
+- ~~`convex/aiTown/location.ts`~~ — **correction:** its only importer was `Player.tsx` (retired). Retired along with it, not preserved (see the correction note above).
 
 `convex/aiTown/schema.ts`, `convex/agent/schema.ts`, and `convex/engine/schema.ts` (Convex
 table definitions) are also preserved unchanged, per PRD 2.0 §10.3: "a16z engine tables
@@ -55,7 +64,7 @@ data migration.
 | Crons | `convex/crons.ts`: `stop inactive worlds` → `world.stopInactiveWorlds` (:69), `restart dead worlds` → `world.restartDeadWorlds` (:84) | **Retire** |
 | Client input dispatch | `convex/world.ts`: `sendWorldInput` (:186) | **Retire** |
 | Chat write path | `convex/messages.ts`: `writeMessage` | **Retire** |
-| Dev-only freeze/resume | `convex/testing.ts`: `stop`, `resume`, `stopAllowed`, `kick` | **Preserve as an admin control** — this is the exact mechanism used for this incident's containment. ART-112 removes its *public-page* UI (`FreezeButton.tsx`, part of AC#9's "Freeze" control) but keeps the underlying mutations operator-callable via CLI (`npx convex run testing:stop`/`resume`). |
+| Dev-only freeze/resume | `convex/testing.ts`: `stop`, `resume`, `stopAllowed`, `kick` | **Retire, corrected from "preserve"** — `stop`/`resume`/`kick` call `stopEngine`/`startEngine`/`kickEngine` from `aiTown/main.ts`; once that file is gone, calling them would crash. This was the exact mechanism used for this incident's containment, but it is retiring *by design*, not oversight: once the engine it froze no longer exists, "freezing" it is meaningless, and "Preserve: admin emergency controls" in ART-112's scope refers to ART's own FR-K006 kill switch (`convex/simulation/emergencyStopOperations.ts`), a separate, unrelated system that is unaffected. |
 | Read-only world-state queries | `convex/world.ts`: `defaultWorldStatus` (:19), `worldState` (:203), `gameDescriptions` (:227), `userStatus` (:114), `previousConversation` (:251) | **Retire together with their only callers** (`Game.tsx`, `PixiGame.tsx`, `PlayerDetails.tsx`, `serverGame.ts`, `InteractButton.tsx` — none of these are used by any ART/public-read surface) |
 | Emergency-stop guard | `convex/simulation/emergencyStopOperations.ts` (`isPublicWorldEmergencyStopped`, `assertPublicWorldAdmitsSimulation`) | **Preserve unchanged** — this is ART's own FR-K006 kill switch; `heartbeatWorld`/`restartDeadWorlds` merely call into it today. Its two call sites inside the retired functions disappear along with those functions; the module itself, and its use elsewhere in the ART pipeline, is untouched. |
 
@@ -146,21 +155,29 @@ accompanying this audit).
 
 ## 9. Summary disposition
 
-- **Retire (ART-112):** `convex/aiTown/main.ts`, `game.ts`, `agent.ts`,
-  `agentDescription.ts`, `agentInputs.ts`, `agentOperations.ts`, `conversation.ts`,
-  `conversationMembership.ts`, `inputHandler.ts`, `inputs.ts`, `insertInput.ts`,
-  `player.ts`, `playerDescription.ts`; `convex/agent/conversation.ts`, `memory.ts`,
-  `embeddingsCache.ts`; `convex/world.ts`'s `heartbeatWorld`/`joinWorld`/`leaveWorld`/
-  `sendWorldInput`; `convex/messages.ts`'s `writeMessage`; the two crons; `src/components/
-  Game.tsx`, `PixiGame.tsx` (its engine-coupled parts), `Player.tsx`, `PlayerDetails.tsx`,
-  `MessageInput.tsx`, `Messages.tsx`, `DebugPath.tsx`, `PositionIndicator.tsx`,
-  `FreezeButton.tsx` (public UI only), `InteractButton.tsx`, `src/hooks/
-  useWorldHeartbeat.ts`, `sendInput.ts`, `serverGame.ts`.
+- **Retire (ART-112, as shipped):** `convex/aiTown/main.ts`, `game.ts`, `agentInputs.ts`,
+  `agentOperations.ts`, `conversationMembership.ts` *(correction: not needed — kept;
+  `conversation.ts` needs it)*, `inputHandler.ts`, `inputs.ts`, `insertInput.ts`,
+  `location.ts` *(correction: retired, not preserved — see note above)*, `movement.ts`
+  *(correction: retired, not preserved — see note above)*; `convex/agent/conversation.ts`,
+  `memory.ts`, `embeddingsCache.ts`; `convex/engine/abstractGame.ts`, `historicalObject.ts`;
+  `convex/world.ts` (entire file — every remaining function was only reachable from
+  retiring callers); `convex/messages.ts` (entire file); `convex/testing.ts` *(correction:
+  entire file retires — see note above)*; the two crons; `src/components/Game.tsx`,
+  `PixiGame.tsx`, `Player.tsx`, `PlayerDetails.tsx`, `MessageInput.tsx`, `Messages.tsx`,
+  `DebugPath.tsx`, `PositionIndicator.tsx`, `DebugTimeManager.tsx`, `FreezeButton.tsx`,
+  `InteractButton.tsx`; `src/hooks/useWorldHeartbeat.ts`, `sendInput.ts`, `serverGame.ts`,
+  `useHistoricalTime.ts`, `useHistoricalValue.ts`; `data/characters.ts`.
+  `convex/aiTown/player.ts`, `agent.ts`, `conversation.ts` are reduced (not deleted) to
+  their `serialized*` validator plus a minimal inert class, since `aiTown/schema.ts` still
+  needs the validators for historical-row compatibility.
 - **Preserve (data/renderer):** `PixiViewport.tsx`, `PixiStaticMap.tsx`, `Character.tsx`,
   `data/spritesheets/*`, `data/animations/*`, `data/gentle.js`, `data/convertMap.js`,
-  `convex/aiTown/worldMap.ts`, `ids.ts`, `location.ts`, `movement.ts` (as a utility, not
-  currently called by anything public), and all three `schema.ts` files (tables become
-  inert, not deleted).
+  `convex/aiTown/worldMap.ts`, `ids.ts`, `conversationMembership.ts`,
+  `playerDescription.ts`, `agentDescription.ts`, the reduced `player.ts`/`agent.ts`/
+  `conversation.ts`, and all three `schema.ts` files (tables become inert, not deleted).
+  `convex/util/geometry.ts` and `util/minheap.ts` are also preserved: generic math/heap
+  utilities with zero Game/Player coupling, unlike `movement.ts`.
 - **Preserve (ART pipeline, unaffected — confirmed zero cross-imports):** `convex/canon`,
   `simulation`, `knowledge`, `story`, `editorial`, `recaps`, `publicRead`, `viewer`,
   `operations`, `safety`, `observability`.

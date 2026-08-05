@@ -1,8 +1,17 @@
 # Current State (Upstream Baseline)
 
-A factual snapshot of how AI Town works at the baseline commit, used to decide what to
-keep, what to layer on top of, and what not to duplicate. Source: `ARCHITECTURE.md` and
-the code under `convex/` and `src/`.
+> **2026-08-05 (ART-112 / ADR-0004): this document describes the upstream baseline AS
+> INHERITED, before retirement — it is deliberately historical, not the live system.**
+> The server-side engine, game logic, and agent layer described below (§1-§4, §6, "How
+> agents call LLMs asynchronously", "Vector memory") have been **retired**: `convex/aiTown/`
+> and `convex/engine/` now contain only inert data-shape validators/schemas (kept for
+> historical row compatibility, not a running engine), and `convex/agent/` no longer
+> exists. Only the PixiJS renderer described in §4 ("Client UI") survives, and only its
+> rendering components (`PixiViewport`, `PixiStaticMap`, `Character`) — not the
+> `useQuery`/`useMutation`/`useHistoricalValue` wiring described there, which drove the
+> now-retired engine and has been removed. See ADR-0004 for the current architecture; keep
+> reading below only to understand what was inherited and why specific files still exist
+> as inert data shapes.
 
 ## Existing upstream layers
 
