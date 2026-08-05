@@ -18,7 +18,7 @@
 import { jest } from '@jest/globals';
 import { commitProposedEvent, type CommitResult } from '../canon/commit';
 import { InMemoryCanonStore } from '../canon/inMemoryStore';
-import { createMistwoodFixture } from '../canon/mistwoodFixture';
+import { createMistwoodFixture } from '../canon/legacyCanonTestFixture';
 import {
   emptyProjection,
   type AcceptedEvent,

@@ -1,7 +1,7 @@
 import { reduceWorldEvent } from './reducer';
 import { CanonError, isCanonError } from '../shared/errors';
 import { emptyProjection, type AcceptedEvent, type WorldProjection } from './model';
-import { mistwoodEvents, mistwoodInitialProjection } from './mistwoodFixture';
+import { mistwoodEvents, mistwoodInitialProjection } from './legacyCanonTestFixture';
 
 function accepted(over: Partial<AcceptedEvent> & Pick<AcceptedEvent, 'sequenceNumber'>): AcceptedEvent {
   return {

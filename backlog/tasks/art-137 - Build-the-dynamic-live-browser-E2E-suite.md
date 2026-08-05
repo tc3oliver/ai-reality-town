@@ -4,7 +4,7 @@ title: Build the dynamic live browser E2E suite
 status: To Do
 assignee: []
 created_date: '2026-08-04 16:00'
-updated_date: '2026-08-04 16:51'
+updated_date: '2026-08-05 02:49'
 labels:
   - prd-2.0
   - v2-k
@@ -37,6 +37,8 @@ ordinal: 137000
 - Replay auto-plays once then enters ambient state; manual replay works.
 - No network request contains an unauthorized mutation.
 - LLM call count does not increase during the run.
+
+**Fixture rule (ART-107 §8):** The four fixture characters must be drawn from the production Mistwood seed (`convex/canon/mistwoodSeed.ts`), never from `convex/canon/legacyCanonTestFixture.ts` (renamed from `mistwoodFixture.ts`; its Cassia/Rowan characters and `mistwood-market`/`mistwood-grove` locations are not part of the real Mistwood seed).
 
 **Out of Scope:** Performance measurement (ART-136); security probing (ART-128).
 

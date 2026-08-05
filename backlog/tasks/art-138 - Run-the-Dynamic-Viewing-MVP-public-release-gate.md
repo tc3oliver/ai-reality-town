@@ -4,7 +4,7 @@ title: Run the Dynamic Viewing MVP public release gate
 status: To Do
 assignee: []
 created_date: '2026-08-04 16:00'
-updated_date: '2026-08-05 02:14'
+updated_date: '2026-08-05 02:50'
 labels:
   - prd-2.0
   - v2-k
@@ -28,7 +28,7 @@ ordinal: 138000
 **Scope:**
 - Verify each of the thirty-one §22 criteria with cited evidence.
 - Confirm ART-99 fixed with a fixed-seed regression test.
-- Confirm ART-139 fixed, with the real provider producing accepted events and a permanent regression test in place.
+- Confirm ART-139 (schemaVersion/sceneId contract layer, Done) and ART-141 (proposedEvents structural compliance) both fixed, with the real provider producing accepted events and a permanent regression test in place.
 - Confirm twelve character bindings and eight location bindings.
 - Confirm zero successful public mutations and zero viewer-triggered LLM calls.
 - Confirm the ART-136 performance benchmark was executed and passed before release.
@@ -39,9 +39,11 @@ ordinal: 138000
 - Confirm regression on affected PRD 1.0 P0 capability.
 - Report every §18.1 metric that FR-Q007 has not yet made measurable as "not measured" rather than estimated.
 
+**Fixture rule (ART-107 §8):** The twelve character bindings and any release-gate evidence must be verified against the production Mistwood seed (`convex/canon/mistwoodSeed.ts`), never `convex/canon/legacyCanonTestFixture.ts` (renamed from `mistwoodFixture.ts`).
+
 **Out of Scope:** Any new feature work. This task only verifies and records.
 
-**Dependencies:** ART-99, ART-139 and every PRD 2.0 P0 task.
+**Dependencies:** ART-99, ART-141 (ART-139 already Done) and every PRD 2.0 P0 task.
 
 **Schema Impact:** None.
 

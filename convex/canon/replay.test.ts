@@ -8,7 +8,7 @@ import {
   mistwoodFullProjection,
   mistwoodInitialProjection,
   mistwoodSnapshot,
-} from './mistwoodFixture';
+} from './legacyCanonTestFixture';
 
 describe('replayWorldEvents', () => {
   it('produces identical output for identical input (determinism)', () => {

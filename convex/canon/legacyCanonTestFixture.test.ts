@@ -3,7 +3,7 @@ import { replayWorldEvents } from './replay';
 import { replayFromSnapshot } from './snapshots';
 import { validateCanon, validateEventStructure } from './validators';
 import type { AcceptedEvent, ProposedEvent } from './model';
-import { createMistwoodFixture, MISTWOOD_FIXED_SEED, MISTWOOD_FIXTURE_VERSION } from './mistwoodFixture';
+import { createMistwoodFixture, MISTWOOD_FIXED_SEED, MISTWOOD_FIXTURE_VERSION } from './legacyCanonTestFixture';
 
 describe('Mistwood fixed world fixture', () => {
   it('is versioned, fixed-seed, structurally valid, canon-valid, and replayable', () => {
