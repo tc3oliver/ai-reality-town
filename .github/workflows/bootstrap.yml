@@ -36,6 +36,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Asset licence check
+        run: npm run check:asset-licenses
+
       - name: Tests
         run: npm test
 
