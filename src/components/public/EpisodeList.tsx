@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from 'convex/react';
-import { api } from '../../../convex/_generated/api';
+import { getPublishedReadModelRef } from './publicReadModelRef';
 import { PublicPageFrame } from './PublicPageFrame';
 import {
   composeEpisodeListViewModel,
@@ -32,7 +32,7 @@ export default function EpisodeList() {
 
   // Public read only — no provider calls (AC#3).
   const result = useQuery(
-    api.publicRead.readModelFunctions.getPublishedReadModel,
+    getPublishedReadModelRef,
     enabled ? { worldId, modelKind: 'episode', modelRef: `episodes:${worldId}` } : 'skip',
   );
 
