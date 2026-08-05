@@ -2,7 +2,7 @@ import { v } from 'convex/values';
 import { query, internalMutation } from './_generated/server';
 import Replicate, { WebhookEventType } from 'replicate';
 import { httpAction, internalAction } from './_generated/server';
-import { internal, api } from './_generated/api';
+import { internalFunctionRef } from './shared/internalFunctionRef';
 
 function client(): Replicate {
   const replicate = new Replicate({
@@ -25,6 +25,8 @@ export const insertMusic = internalMutation({
   },
 });
 
+const insertMusicRef = internalFunctionRef<typeof insertMusic>('music:insertMusic');
+
 export const getBackgroundMusic = query({
   handler: async (ctx) => {
     const music = await ctx.db
@@ -44,13 +46,8 @@ export const getBackgroundMusic = query({
 });
 
 export const enqueueBackgroundMusicGeneration = internalAction({
-  handler: async (ctx): Promise<void> => {
+  handler: async (): Promise<void> => {
     if (!replicateAvailable()) {
-      return;
-    }
-    const worldStatus = await ctx.runQuery(api.world.defaultWorldStatus);
-    if (!worldStatus) {
-      console.log('No active default world, returning.');
       return;
     }
     // TODO: MusicGen-Large on Replicate only allows 30 seconds. Use MusicGen-Small for longer?
@@ -65,7 +62,7 @@ export const handleReplicateWebhook = httpAction(async (ctx, request) => {
     const response = await fetch(prediction.output);
     const music = await response.blob();
     const storageId = await ctx.storage.store(music);
-    await ctx.runMutation(internal.music.insertMusic, { type: 'background', storageId });
+    await ctx.runMutation(insertMusicRef, { type: 'background', storageId });
   }
   return new Response();
 });

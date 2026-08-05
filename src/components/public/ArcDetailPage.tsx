@@ -1,5 +1,5 @@
 import { useQuery } from 'convex/react';
-import { api } from '../../../convex/_generated/api';
+import { getPublishedReadModelRef } from './publicReadModelRef';
 import { PublicPageFrame } from './PublicPageFrame';
 import {
   composeArcViewModel,
@@ -38,11 +38,11 @@ export default function ArcDetailPage() {
 
   // Public reads only — no provider calls.
   const arcResult = useQuery(
-    api.publicRead.readModelFunctions.getPublishedReadModel,
+    getPublishedReadModelRef,
     enabled ? { worldId: worldId as string, modelKind: 'arc', modelRef: `arc:${arcId}` } : 'skip',
   );
   const primerResult = useQuery(
-    api.publicRead.readModelFunctions.getPublishedReadModel,
+    getPublishedReadModelRef,
     enabled ? { worldId: worldId as string, modelKind: 'arc', modelRef: `primer:${arcId}` } : 'skip',
   );
 

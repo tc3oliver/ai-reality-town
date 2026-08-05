@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from 'convex/react';
-import { api } from '../../../convex/_generated/api';
+import { getPublishedReadModelRef } from './publicReadModelRef';
 import {
   composeTimelineViewModel,
   parseTimelineRoute,
@@ -29,7 +29,7 @@ export default function TimelineView() {
 
   // Public read only — no provider calls.
   const result = useQuery(
-    api.publicRead.readModelFunctions.getPublishedReadModel,
+    getPublishedReadModelRef,
     enabled ? { worldId, modelKind: 'timeline', modelRef: `timeline:${worldId}` } : 'skip',
   );
 

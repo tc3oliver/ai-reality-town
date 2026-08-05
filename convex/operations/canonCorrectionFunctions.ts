@@ -38,7 +38,6 @@
  */
 
 import { mutation } from '../_generated/server';
-import { internal } from '../_generated/api';
 import type { DataModel } from '../_generated/dataModel';
 import type { GenericMutationCtx } from 'convex/server';
 import { v } from 'convex/values';
@@ -48,7 +47,12 @@ import type { StateChange, TimeSlot } from '../canon/model';
 import { stateChangeValidator } from '../canon/proposedEvent';
 import { REMEDIATION_POLICY, submitRemediation, type RemediationResult } from './canonCorrection';
 import { commandArgs, operatorNow, requireOperator } from './opsConsoleFunctions';
-import type { PostCommitOutcome } from './postCommitLiveFunctions';
+import { internalFunctionRef } from '../shared/internalFunctionRef';
+import type { PostCommitOutcome, runPostCommitPipeline as runPostCommitPipelineExport } from './postCommitLiveFunctions';
+
+const runPostCommitPipelineRef = internalFunctionRef<typeof runPostCommitPipelineExport>(
+  'operations/postCommitLiveFunctions:runPostCommitPipeline',
+);
 
 /**
  * What an operator states when remediating Canon. `reason` and `worldId` come from
@@ -115,7 +119,7 @@ async function handleRemediation(
       },
       refreshPublicContent: async (worldId, sequenceNumber) => {
         const run: PostCommitOutcome = await ctx.runMutation(
-          internal.operations.postCommitLiveFunctions.runPostCommitPipeline,
+          runPostCommitPipelineRef,
           { worldId, sourceEventSequenceNumber: sequenceNumber, now: at },
         );
         return { runId: run.runId, status: run.status };

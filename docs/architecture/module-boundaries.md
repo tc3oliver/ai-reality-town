@@ -22,9 +22,13 @@ representative reverse dependencies and provider leakage. Both run in `npm run c
 | Shared | `convex/shared/` | None | Architecture Engineering |
 
 Roots may be absent until their first Backlog task implements them; the boundary already
-applies as soon as a source file is added. Upstream `convex/aiTown/`, `convex/agent/`, and
-`convex/engine/` remain the replaceable visual runtime and are not authoritative product
-domains.
+applies as soon as a source file is added. `convex/agent/` no longer exists (ART-112 /
+ADR-0004: the upstream agent reasoning layer was retired). `convex/aiTown/` and
+`convex/engine/` now contain only inert data-shape validators and Convex table schemas
+kept for historical-row compatibility, not a running engine; they are not authoritative
+product domains. The reusable visual runtime is `src/`'s PixiJS renderer components
+(`PixiViewport`, `PixiStaticMap`, `Character`), currently unreferenced by any route,
+awaiting a future Canon-projection-driven Visual Runtime.
 
 The central invariant is one-way authority: providers propose, Canon validates and commits,
 derived domains project accepted history, and Viewer/Public code reads published projections.

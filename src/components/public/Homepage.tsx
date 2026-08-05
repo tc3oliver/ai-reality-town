@@ -1,5 +1,5 @@
 import { useQuery } from 'convex/react';
-import { api } from '../../../convex/_generated/api';
+import { getPublishedReadModelRef } from './publicReadModelRef';
 import { PublicPageFrame } from './PublicPageFrame';
 import {
   composeHomepageViewModel,
@@ -33,15 +33,15 @@ export default function Homepage() {
 
   // Public reads only — no provider calls (AC#1/#5).
   const onboarding = useQuery(
-    api.publicRead.readModelFunctions.getPublishedReadModel,
+    getPublishedReadModelRef,
     enabled ? { worldId, modelKind: 'world', modelRef: `onboarding:${worldId}` } : 'skip',
   );
   const world = useQuery(
-    api.publicRead.readModelFunctions.getPublishedReadModel,
+    getPublishedReadModelRef,
     enabled ? { worldId, modelKind: 'world', modelRef: `world:${worldId}` } : 'skip',
   );
   const live = useQuery(
-    api.publicRead.readModelFunctions.getPublishedReadModel,
+    getPublishedReadModelRef,
     enabled ? { worldId, modelKind: 'liveState', modelRef: `live:${worldId}` } : 'skip',
   );
 
