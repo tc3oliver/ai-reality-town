@@ -104,15 +104,6 @@ costs several megabytes of document reads, so `maxPostCommitEvents` defaults to 
 under the Convex 16 MiB per-transaction limit. Making the projection builders incremental
 is tracked as ART-100; until then the live cycle processes one accepted event per call.
 
-### Known limitation: daily snapshots on seeded worlds
-
-A world seeded through `canon/worldConfig.ts:importWorld` cannot currently take a daily
-snapshot at all. `importWorld` inserts an `initial` snapshot whose projection holds the
-seeded locations and organizations, which are not derivable from accepted events; the
-snapshot manager's `assertSnapshotMatchesHistory` invariant rejects it, and
-`canon/snapshotOperations:persistDailySnapshot` therefore fails standalone for such a
-world. This predates the post-commit pipeline and is tracked separately (ART-99).
-
 ## Editorial authority
 
 The pipeline runs as a `system` actor. FR-K004 reserves `publish` and `withhold` for an

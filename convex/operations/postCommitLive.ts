@@ -690,12 +690,7 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
     //
     // The snapshot is a canon RECOVERY artifact: it is not an input to any public read
     // model, so a snapshot failure is recorded on the artifact instead of aborting the
-    // editorial release that already completed in stage 19. A world seeded through
-    // `canon/worldConfig.ts:importWorld` currently cannot take a daily snapshot at all —
-    // its `initial` snapshot holds seeded locations/organizations that are not derivable
-    // from accepted events, which `assertSnapshotMatchesHistory` rejects. That mismatch
-    // predates this pipeline (`persistDailySnapshot` fails standalone for such a world)
-    // and is tracked separately; it must not stop the live daily cycle.
+    // editorial release that already completed in stage 19.
     snapshot: async (context): Promise<SnapshotArtifact> => {
       const state = await port.loadWorldState(sourceOf(context));
       const worldDay = state.latestWorldDay;

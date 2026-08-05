@@ -583,7 +583,7 @@ describe('ART-61 AC #4 — determinism and 100% replay equality', () => {
 
     for (let cut = 0; cut < world.events.length; cut++) {
       const snapshot = buildSnapshot(prefixes[cut], FIXED_ACCEPTED_AT, world.events[cut].worldDay);
-      assertSnapshotMatchesHistory(snapshot, world.events);
+      assertSnapshotMatchesHistory(snapshot, world.events, { projection: emptyProjection(WORLD_ID), lastSequenceNumber: -1 });
       const resumed = replayFromSnapshot(snapshot, world.events.slice(cut + 1));
       if (serializeProjectionDeterministically(resumed) === expected) equal += 1;
     }
