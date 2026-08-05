@@ -1,0 +1,383 @@
+{
+  "$schema": "./asset-licenses.schema.json",
+  "version": 1,
+  "generatedFor": "ART-108 (FR-N008)",
+  "notes": "Machine-readable licence/attribution register for every visual, audio, font and tilemap asset inherited from upstream a16z-infra/ai-town. Human-readable form: /ASSETS-LICENSE.md. Enforcement: scripts/assets/check-asset-licenses.mjs reads this file and fails npm run check if any asset reachable from the current or planned public bundle (PUBLIC_BUNDLE_PATHS in that script) is missing, not 'approved', or missing a required field.",
+  "assets": [
+    {
+      "path": "public/assets/gentle-obj.png",
+      "type": "tileset-image",
+      "source": "https://opengameart.org/content/16x16-rpg-tileset (dual-licensed, built on https://opengameart.org/content/16x16-game-assets and 'LPC Thatched-roof Cottage')",
+      "author": "hilau (primary), George Bailey, bluecarrot16 (contributing packs per upstream a16z-infra/ai-town README 'Other credits')",
+      "license": "CC-BY-SA 3.0 / GPL 3.0 (dual, per opengameart.org) and CC-BY 4.0 (George Bailey base pack)",
+      "redistribution": true,
+      "modification": true,
+      "attributionRequired": true,
+      "status": "approved",
+      "notes": "Byte-identical to upstream a16z-infra/ai-town public/assets/gentle-obj.png. Upstream's README credits three named OpenGameArt sources collectively for its tileset art and does not give a per-file mapping; all three verified sources are commercial-use/modify/redistribute permissive, so combined attribution (recorded in ASSETS-LICENSE.md) is used to satisfy the strictest (CC-BY-SA/GPL) term."
+    },
+    {
+      "path": "data/gentle.js",
+      "type": "tilemap-data",
+      "source": "Derived from public/assets/gentle-obj.png tile indices (Tiled export, converted by data/convertMap.js)",
+      "author": "a16z-infra/ai-town (numeric tile-index data; not independently copyrightable art)",
+      "license": "Follows public/assets/gentle-obj.png",
+      "redistribution": true,
+      "modification": true,
+      "attributionRequired": true,
+      "status": "approved",
+      "notes": "Tile-index array only; the copyrightable content is the referenced tileset image."
+    },
+    {
+      "path": "public/assets/spritesheets/campfire.png",
+      "type": "fx-spritesheet-image",
+      "source": "Same tileset/pack family as public/assets/gentle-obj.png (bundled decorative-animation spritesheet in the a16z-infra/ai-town stock map asset set)",
+      "author": "See public/assets/gentle-obj.png entry",
+      "license": "CC-BY-SA 3.0 / GPL 3.0 / CC-BY 4.0 (see public/assets/gentle-obj.png)",
+      "redistribution": true,
+      "modification": true,
+      "attributionRequired": true,
+      "status": "approved",
+      "notes": "Consumed by src/components/PixiStaticMap.tsx via data/animations/campfire.json. Byte-identical to upstream."
+    },
+    {
+      "path": "public/assets/spritesheets/gentlesparkle32.png",
+      "type": "fx-spritesheet-image",
+      "source": "Same tileset/pack family as public/assets/gentle-obj.png",
+      "author": "See public/assets/gentle-obj.png entry",
+      "license": "CC-BY-SA 3.0 / GPL 3.0 / CC-BY 4.0 (see public/assets/gentle-obj.png)",
+      "redistribution": true,
+      "modification": true,
+      "attributionRequired": true,
+      "status": "approved",
+      "notes": "Consumed by PixiStaticMap.tsx via data/animations/gentlesparkle.json. Byte-identical to upstream."
+    },
+    {
+      "path": "public/assets/spritesheets/gentlewaterfall32.png",
+      "type": "fx-spritesheet-image",
+      "source": "Same tileset/pack family as public/assets/gentle-obj.png",
+      "author": "See public/assets/gentle-obj.png entry",
+      "license": "CC-BY-SA 3.0 / GPL 3.0 / CC-BY 4.0 (see public/assets/gentle-obj.png)",
+      "redistribution": true,
+      "modification": true,
+      "attributionRequired": true,
+      "status": "approved",
+      "notes": "Consumed by PixiStaticMap.tsx via data/animations/gentlewaterfall.json AND data/animations/gentlesplash.json (both map to this one PNG per PixiStaticMap.tsx's ANIMATIONS table). Byte-identical to upstream."
+    },
+    {
+      "path": "public/assets/spritesheets/windmill.png",
+      "type": "fx-spritesheet-image",
+      "source": "Same tileset/pack family as public/assets/gentle-obj.png",
+      "author": "See public/assets/gentle-obj.png entry",
+      "license": "CC-BY-SA 3.0 / GPL 3.0 / CC-BY 4.0 (see public/assets/gentle-obj.png)",
+      "redistribution": true,
+      "modification": true,
+      "attributionRequired": true,
+      "status": "approved",
+      "notes": "Consumed by PixiStaticMap.tsx via data/animations/windmill.json. Byte-identical to upstream."
+    },
+    {
+      "path": "data/animations/campfire.json",
+      "type": "animation-definition",
+      "source": "Frame/timing metadata for public/assets/spritesheets/campfire.png",
+      "author": "a16z-infra/ai-town",
+      "license": "Follows public/assets/spritesheets/campfire.png",
+      "redistribution": true,
+      "modification": true,
+      "attributionRequired": true,
+      "status": "approved",
+      "notes": "Not independently copyrightable art; numeric frame/timing data only."
+    },
+    {
+      "path": "data/animations/gentlesparkle.json",
+      "type": "animation-definition",
+      "source": "Frame/timing metadata for public/assets/spritesheets/gentlesparkle32.png",
+      "author": "a16z-infra/ai-town",
+      "license": "Follows public/assets/spritesheets/gentlesparkle32.png",
+      "redistribution": true,
+      "modification": true,
+      "attributionRequired": true,
+      "status": "approved",
+      "notes": "Not independently copyrightable art; numeric frame/timing data only."
+    },
+    {
+      "path": "data/animations/gentlesplash.json",
+      "type": "animation-definition",
+      "source": "Frame/timing metadata for public/assets/spritesheets/gentlewaterfall32.png (confirmed via src/components/PixiStaticMap.tsx ANIMATIONS table)",
+      "author": "a16z-infra/ai-town",
+      "license": "Follows public/assets/spritesheets/gentlewaterfall32.png",
+      "redistribution": true,
+      "modification": true,
+      "attributionRequired": true,
+      "status": "approved",
+      "notes": "Not independently copyrightable art; numeric frame/timing data only."
+    },
+    {
+      "path": "data/animations/gentlewaterfall.json",
+      "type": "animation-definition",
+      "source": "Frame/timing metadata for public/assets/spritesheets/gentlewaterfall32.png",
+      "author": "a16z-infra/ai-town",
+      "license": "Follows public/assets/spritesheets/gentlewaterfall32.png",
+      "redistribution": true,
+      "modification": true,
+      "attributionRequired": true,
+      "status": "approved",
+      "notes": "Not independently copyrightable art; numeric frame/timing data only."
+    },
+    {
+      "path": "data/animations/windmill.json",
+      "type": "animation-definition",
+      "source": "Frame/timing metadata for public/assets/spritesheets/windmill.png",
+      "author": "a16z-infra/ai-town",
+      "license": "Follows public/assets/spritesheets/windmill.png",
+      "redistribution": true,
+      "modification": true,
+      "attributionRequired": true,
+      "status": "approved",
+      "notes": "Not independently copyrightable art; numeric frame/timing data only."
+    },
+    {
+      "path": "public/assets/fonts/upheaval_pro.ttf",
+      "type": "font",
+      "source": "https://www.dafont.com/upheaval-pro.font",
+      "author": "Aleksandr Savenkov (extended version of 'Upheaval' by Brian Kent, extension authorised per dafont listing text); embedded TTF name-table copyright confirms 'Aleksandr Savenkov'",
+      "license": "dafont \"100% Free\" category; corroborated by blogfonts.com and fontget.com as free for personal + commercial use, modification and redistribution allowed",
+      "redistribution": true,
+      "modification": true,
+      "attributionRequired": false,
+      "status": "approved",
+      "notes": "Verified via WebFetch of dafont.com's own license-category page (author name matches embedded font metadata exactly) plus independent secondary corroboration. The original dafont zip's bundled readme/EULA text itself was not directly retrieved (dafont does not expose it via page content) -- residual caveat, not a blocking gap given the converging independent evidence. Byte-identical to upstream."
+    },
+    {
+      "path": "public/assets/fonts/vcr_osd_mono.ttf",
+      "type": "font",
+      "source": "https://www.dafont.com/vcr-osd-mono.font",
+      "author": "Riciery Leal",
+      "license": "dafont \"100% Free\" category; corroborated by blogfonts.com as free for personal + commercial use, modification and redistribution allowed",
+      "redistribution": true,
+      "modification": true,
+      "attributionRequired": false,
+      "status": "approved",
+      "notes": "The shipped TTF has no embedded copyright/license string in its name table (checked directly). Status relies on dafont's own site classification plus independent secondary corroboration (font family + author name match), not on filename inference alone -- residual caveat: no primary EULA text retrieved. Byte-identical to upstream."
+    },
+    {
+      "path": "public/favicon.ico",
+      "type": "image",
+      "source": "a16z-infra/ai-town own project asset (not a third-party open-asset-pack file)",
+      "author": "a16z-infra",
+      "license": "MIT (root LICENSE file; a16z-infra/ai-town's own repository license covers its own original branding assets)",
+      "redistribution": true,
+      "modification": true,
+      "attributionRequired": true,
+      "status": "approved",
+      "notes": "Byte-identical to upstream. Not sourced from any of the OpenGameArt/itch/dafont third-party credits; treated as project-original and covered by the MIT LICENSE already present at repo root."
+    },
+    {
+      "path": "public/assets/background.mp3",
+      "type": "audio",
+      "source": "Generated by Meta's MusicGen model via Replicate (per a16z-infra/ai-town README: 'Background Music Generation: Replicate using MusicGen')",
+      "author": "AI-generated (Meta MusicGen), not a credited human composer",
+      "license": "Unresolved -- AI-model-output commercial/redistribution terms (Meta MusicGen via Replicate) were not independently verified in this audit; distinct legal question from the asset-pack attributions above",
+      "redistribution": false,
+      "modification": false,
+      "attributionRequired": false,
+      "status": "restricted",
+      "notes": "Byte-identical to upstream's shipped fallback file (upstream commit 'Add background music :)', 2023-08-13). Currently NOT reachable from any public route: its only frontend consumer, src/components/buttons/MusicButton.tsx, has zero importers anywhere in src/. Must stay out of any public bundle until MusicGen/Replicate output-rights terms are confirmed."
+    },
+    {
+      "path": "public/assets/32x32folk.png",
+      "type": "character-spritesheet-image",
+      "source": "a16z-infra/ai-town stock demo character texture; historically mapped from data/characters.ts (removed from this repo by ART-112) to data/spritesheets/f1.ts..f8.ts frame data",
+      "author": "Unresolved -- not conclusively matched to any of the three named OpenGameArt tileset credits or the README's 'Pixel Art Generation: Replicate, Fal.ai' AI-art line",
+      "license": "Unresolved",
+      "redistribution": false,
+      "modification": false,
+      "attributionRequired": false,
+      "status": "quarantined",
+      "notes": "Byte-identical to upstream. ART-107 marked data/spritesheets/{f1-f8}.ts 'Reusable as-is' for a future Visual Runtime (FR-N010), so this texture is in planned-bundle scope, but its own art provenance is not established -- do not enter the public bundle until a definitive source/license is found or the character rendering path is rebuilt against a verified asset."
+    },
+    {
+      "path": "data/spritesheets/f1.ts", "type": "spritesheet-frame-data", "source": "Frame-coordinate metadata for public/assets/32x32folk.png", "author": "a16z-infra/ai-town", "license": "Follows public/assets/32x32folk.png", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Numeric frame data only; gated on the underlying texture's unresolved provenance."
+    },
+    {
+      "path": "data/spritesheets/f2.ts", "type": "spritesheet-frame-data", "source": "Frame-coordinate metadata for public/assets/32x32folk.png", "author": "a16z-infra/ai-town", "license": "Follows public/assets/32x32folk.png", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Numeric frame data only; gated on the underlying texture's unresolved provenance."
+    },
+    {
+      "path": "data/spritesheets/f3.ts", "type": "spritesheet-frame-data", "source": "Frame-coordinate metadata for public/assets/32x32folk.png", "author": "a16z-infra/ai-town", "license": "Follows public/assets/32x32folk.png", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Numeric frame data only; gated on the underlying texture's unresolved provenance."
+    },
+    {
+      "path": "data/spritesheets/f4.ts", "type": "spritesheet-frame-data", "source": "Frame-coordinate metadata for public/assets/32x32folk.png", "author": "a16z-infra/ai-town", "license": "Follows public/assets/32x32folk.png", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Numeric frame data only; gated on the underlying texture's unresolved provenance."
+    },
+    {
+      "path": "data/spritesheets/f5.ts", "type": "spritesheet-frame-data", "source": "Frame-coordinate metadata for public/assets/32x32folk.png", "author": "a16z-infra/ai-town", "license": "Follows public/assets/32x32folk.png", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Numeric frame data only; gated on the underlying texture's unresolved provenance."
+    },
+    {
+      "path": "data/spritesheets/f6.ts", "type": "spritesheet-frame-data", "source": "Frame-coordinate metadata for public/assets/32x32folk.png", "author": "a16z-infra/ai-town", "license": "Follows public/assets/32x32folk.png", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Numeric frame data only; gated on the underlying texture's unresolved provenance."
+    },
+    {
+      "path": "data/spritesheets/f7.ts", "type": "spritesheet-frame-data", "source": "Frame-coordinate metadata for public/assets/32x32folk.png", "author": "a16z-infra/ai-town", "license": "Follows public/assets/32x32folk.png", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Numeric frame data only; gated on the underlying texture's unresolved provenance."
+    },
+    {
+      "path": "data/spritesheets/f8.ts", "type": "spritesheet-frame-data", "source": "Frame-coordinate metadata for public/assets/32x32folk.png", "author": "a16z-infra/ai-town", "license": "Follows public/assets/32x32folk.png", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Numeric frame data only; gated on the underlying texture's unresolved provenance."
+    },
+    {
+      "path": "data/spritesheets/types.ts", "type": "type-definition", "source": "a16z-infra/ai-town", "author": "a16z-infra/ai-town", "license": "N/A -- pure TypeScript interface, no media content", "redistribution": true, "modification": true, "attributionRequired": false, "status": "tooling", "notes": "Not a media asset. Shared type used by both the quarantined character spritesheets and (indirectly) editor-only ones."
+    },
+    {
+      "path": "data/convertMap.js", "type": "tooling-script", "source": "a16z-infra/ai-town own build tooling", "author": "a16z-infra/ai-town", "license": "MIT (root LICENSE file)", "redistribution": true, "modification": true, "attributionRequired": false, "status": "tooling", "notes": "Offline Tiled-export conversion script; not a media asset."
+    },
+    {
+      "path": "public/assets/player.png",
+      "type": "character-spritesheet-image",
+      "source": "a16z-infra/ai-town stock asset; no confirmed textureUrl mapping found in this repo or upstream/main (grepped both)",
+      "author": "Unresolved",
+      "license": "Unresolved",
+      "redistribution": false,
+      "modification": false,
+      "attributionRequired": false,
+      "status": "quarantined",
+      "notes": "Not referenced by ART-107's 'reusable renderer' inventory scope beyond the generic data/spritesheets/player.ts frame-data file, which itself has no confirmed link to this PNG in any repo history. Excluded from current/planned public bundle."
+    },
+    {
+      "path": "public/assets/rpg-tileset.png", "type": "tileset-image", "source": "a16z-infra/ai-town stock asset; referenced only by src/editor (standalone dev-only level-editor tool, not part of the shipped app)", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Not part of ART-107's reusable-renderer inventory. Not reachable from any current or planned public bundle path; recorded here so it cannot silently enter one without a licence record."
+    },
+    {
+      "path": "public/assets/magecity.png", "type": "tileset-image", "source": "a16z-infra/ai-town stock asset; referenced only by src/editor (dev-only tool)", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Same disposition as public/assets/rpg-tileset.png."
+    },
+    {
+      "path": "public/assets/heart-empty.png", "type": "ui-icon-image", "source": "Possibly Mounir Tohami's 'Pixel Art GUI Elements' itch.io pack (named in upstream README credits), but the itch.io page returned HTTP 404 during verification and no definitive per-file match was established", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Not referenced by any live code path. Excluded from current/planned public bundle."
+    },
+    {
+      "path": "public/assets/tilemap.json", "type": "tilemap-data", "source": "a16z-infra/ai-town stock asset; Tiled export used only by data/convertMap.js / src/editor tooling", "author": "a16z-infra/ai-town", "license": "Unresolved (companion tileset image unresolved)", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Not reachable from any current or planned public bundle path."
+    },
+    {
+      "path": "data/spritesheets/p1.ts", "type": "spritesheet-frame-data", "source": "No confirmed textureUrl mapping found in this repo or upstream/main", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Orphaned in both this repo and upstream/main (grepped both, zero importers)."
+    },
+    {
+      "path": "data/spritesheets/p2.ts", "type": "spritesheet-frame-data", "source": "No confirmed textureUrl mapping found in this repo or upstream/main", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Orphaned in both this repo and upstream/main (grepped both, zero importers)."
+    },
+    {
+      "path": "data/spritesheets/p3.ts", "type": "spritesheet-frame-data", "source": "No confirmed textureUrl mapping found in this repo or upstream/main", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Orphaned in both this repo and upstream/main (grepped both, zero importers)."
+    },
+    {
+      "path": "data/spritesheets/player.ts", "type": "spritesheet-frame-data", "source": "No confirmed textureUrl mapping found in this repo or upstream/main", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Orphaned in both this repo and upstream/main (grepped both, zero importers)."
+    },
+    {
+      "path": "assets/a16z.png",
+      "type": "brand-logo-image",
+      "source": "a16z (Andreessen Horowitz) corporate logo, bundled by the a16z-infra/ai-town template as its own 'built by a16z' branding",
+      "author": "a16z (Andreessen Horowitz)",
+      "license": "Not an open creative-commons asset -- third-party trademark. MIT LICENSE covers a16z-infra's code, not its own trademark usage rights.",
+      "redistribution": false,
+      "modification": false,
+      "attributionRequired": false,
+      "status": "quarantined",
+      "notes": "Byte-identical to upstream. Not referenced anywhere in src/ (zero importers) -- currently unreachable from any build output. MUST NOT enter any public bundle of this unrelated derivative product without explicit trademark-owner authorisation; this is a brand-usage question, not a copyright-licence one."
+    },
+    {
+      "path": "assets/convex.svg",
+      "type": "brand-logo-image",
+      "source": "Convex Inc. corporate logo, bundled by the a16z-infra/ai-town template's PoweredByConvex.tsx banner",
+      "author": "Convex Inc.",
+      "license": "Not an open creative-commons asset -- third-party trademark.",
+      "redistribution": false,
+      "modification": false,
+      "attributionRequired": false,
+      "status": "quarantined",
+      "notes": "Byte-identical to upstream. src/components/PoweredByConvex.tsx (its only importer) has zero importers itself -- currently unreachable. Same trademark caveat as assets/a16z.png."
+    },
+    {
+      "path": "assets/convex-bg.webp", "type": "brand-logo-image", "source": "Convex Inc. banner background, bundled by PoweredByConvex.tsx", "author": "Convex Inc.", "license": "Not an open creative-commons asset -- third-party trademark.", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Same disposition as assets/convex.svg."
+    },
+    {
+      "path": "assets/background.webp", "type": "ui-chrome-image", "source": "a16z-infra/ai-town stock in-game menu background; no code importer found in this repo", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Not reachable from any current or planned public bundle path."
+    },
+    {
+      "path": "assets/close.svg", "type": "ui-icon-image", "source": "a16z-infra/ai-town stock in-game HUD icon; no code importer found in this repo", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Not reachable from any current or planned public bundle path."
+    },
+    {
+      "path": "assets/help.svg", "type": "ui-icon-image", "source": "a16z-infra/ai-town stock in-game HUD icon; no code importer found in this repo", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Not reachable from any current or planned public bundle path."
+    },
+    {
+      "path": "assets/interact.svg", "type": "ui-icon-image", "source": "a16z-infra/ai-town stock in-game HUD icon; no code importer found in this repo", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Not reachable from any current or planned public bundle path."
+    },
+    {
+      "path": "assets/star.svg", "type": "ui-icon-image", "source": "a16z-infra/ai-town stock in-game HUD icon; no code importer found in this repo", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Not reachable from any current or planned public bundle path."
+    },
+    {
+      "path": "assets/volume.svg", "type": "ui-icon-image", "source": "a16z-infra/ai-town stock icon, imported only by src/components/buttons/MusicButton.tsx", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "MusicButton.tsx itself has zero importers anywhere in src/ -- unreachable from the shipped app."
+    },
+    {
+      "path": "assets/ui/box.svg", "type": "ui-chrome-image", "source": "a16z-infra/ai-town stock dialogue/menu chrome; no code importer found in this repo", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Not reachable from any current or planned public bundle path."
+    },
+    {
+      "path": "assets/ui/bubble-left.svg", "type": "ui-chrome-image", "source": "a16z-infra/ai-town stock dialogue/menu chrome; no code importer found in this repo", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Not reachable from any current or planned public bundle path."
+    },
+    {
+      "path": "assets/ui/bubble-right.svg", "type": "ui-chrome-image", "source": "a16z-infra/ai-town stock dialogue/menu chrome; no code importer found in this repo", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Not reachable from any current or planned public bundle path."
+    },
+    {
+      "path": "assets/ui/button.svg", "type": "ui-chrome-image", "source": "a16z-infra/ai-town stock dialogue/menu chrome; no code importer found in this repo", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Not reachable from any current or planned public bundle path."
+    },
+    {
+      "path": "assets/ui/button_pressed.svg", "type": "ui-chrome-image", "source": "a16z-infra/ai-town stock dialogue/menu chrome; no code importer found in this repo", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Not reachable from any current or planned public bundle path."
+    },
+    {
+      "path": "assets/ui/chats.svg", "type": "ui-chrome-image", "source": "a16z-infra/ai-town stock dialogue/menu chrome; no code importer found in this repo", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Not reachable from any current or planned public bundle path."
+    },
+    {
+      "path": "assets/ui/desc.svg", "type": "ui-chrome-image", "source": "a16z-infra/ai-town stock dialogue/menu chrome; no code importer found in this repo", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Not reachable from any current or planned public bundle path."
+    },
+    {
+      "path": "assets/ui/frame.svg", "type": "ui-chrome-image", "source": "a16z-infra/ai-town stock dialogue/menu chrome; no code importer found in this repo", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Not reachable from any current or planned public bundle path."
+    },
+    {
+      "path": "assets/ui/jewel_box.svg", "type": "ui-chrome-image", "source": "a16z-infra/ai-town stock dialogue/menu chrome; no code importer found in this repo", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Not reachable from any current or planned public bundle path."
+    },
+    {
+      "path": "src/editor/spritesheets/campfire.png", "type": "editor-tool-asset", "source": "Duplicate of public/assets/spritesheets/campfire.png, bundled for the standalone level editor (npm run le)", "author": "See public/assets/gentle-obj.png entry", "license": "Follows public/assets/spritesheets/campfire.png", "redistribution": true, "modification": true, "attributionRequired": true, "status": "quarantined", "notes": "Editor-tool-only (src/editor is a separate dev server, not part of the built app). Excluded from the public-bundle enforcement gate on that basis, even though its licence terms are the same as the approved public/ copy."
+    },
+    {
+      "path": "src/editor/spritesheets/gentlesparkle32.png", "type": "editor-tool-asset", "source": "Duplicate of public/assets/spritesheets/gentlesparkle32.png", "author": "See public/assets/gentle-obj.png entry", "license": "Follows public/assets/spritesheets/gentlesparkle32.png", "redistribution": true, "modification": true, "attributionRequired": true, "status": "quarantined", "notes": "Editor-tool-only; excluded from the public-bundle enforcement gate."
+    },
+    {
+      "path": "src/editor/spritesheets/gentlewaterfall32.png", "type": "editor-tool-asset", "source": "Duplicate of public/assets/spritesheets/gentlewaterfall32.png", "author": "See public/assets/gentle-obj.png entry", "license": "Follows public/assets/spritesheets/gentlewaterfall32.png", "redistribution": true, "modification": true, "attributionRequired": true, "status": "quarantined", "notes": "Editor-tool-only; excluded from the public-bundle enforcement gate."
+    },
+    {
+      "path": "src/editor/spritesheets/windmill.png", "type": "editor-tool-asset", "source": "Duplicate of public/assets/spritesheets/windmill.png", "author": "See public/assets/gentle-obj.png entry", "license": "Follows public/assets/spritesheets/windmill.png", "redistribution": true, "modification": true, "attributionRequired": true, "status": "quarantined", "notes": "Editor-tool-only; excluded from the public-bundle enforcement gate."
+    },
+    {
+      "path": "src/editor/spritesheets/doll.png", "type": "editor-tool-asset", "source": "a16z-infra/ai-town stock level-editor character-sprite option; no external licence evidence gathered", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Editor-tool-only, unreferenced by the shipped app."
+    },
+    {
+      "path": "src/editor/spritesheets/peeps.png", "type": "editor-tool-asset", "source": "a16z-infra/ai-town stock level-editor character-sprite option; no external licence evidence gathered", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Editor-tool-only, unreferenced by the shipped app."
+    },
+    {
+      "path": "src/editor/spritesheets/tall.png", "type": "editor-tool-asset", "source": "a16z-infra/ai-town stock level-editor character-sprite option; no external licence evidence gathered", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Editor-tool-only, unreferenced by the shipped app."
+    },
+    {
+      "path": "src/editor/spritesheets/women.png", "type": "editor-tool-asset", "source": "a16z-infra/ai-town stock level-editor character-sprite option; no external licence evidence gathered", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Editor-tool-only, unreferenced by the shipped app."
+    },
+    {
+      "path": "src/editor/tilesets/Modern.png", "type": "editor-tool-asset", "source": "a16z-infra/ai-town stock level-editor tileset option; no external licence evidence gathered", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Editor-tool-only, unreferenced by the shipped app."
+    },
+    {
+      "path": "src/editor/tilesets/Serene.png", "type": "editor-tool-asset", "source": "a16z-infra/ai-town stock level-editor tileset option; no external licence evidence gathered", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Editor-tool-only, unreferenced by the shipped app."
+    },
+    {
+      "path": "src/editor/tilesets/forest.png", "type": "editor-tool-asset", "source": "Possibly ansimuz's 'Tiny RPG - Forest' (CC0, see public/assets/gentle-obj.png entry) given the matching theme, but no definitive per-file match was established -- not inferred from filename alone", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Editor-tool-only, unreferenced by the shipped app."
+    },
+    {
+      "path": "src/editor/tilesets/gentle-obj.png", "type": "editor-tool-asset", "source": "Duplicate of public/assets/gentle-obj.png, bundled for the standalone level editor", "author": "See public/assets/gentle-obj.png entry", "license": "Follows public/assets/gentle-obj.png", "redistribution": true, "modification": true, "attributionRequired": true, "status": "quarantined", "notes": "Editor-tool-only; excluded from the public-bundle enforcement gate even though its licence terms match the approved public/ copy."
+    },
+    {
+      "path": "src/editor/tilesets/gentle.png", "type": "editor-tool-asset", "source": "a16z-infra/ai-town stock level-editor tileset option; no external licence evidence gathered", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Editor-tool-only, unreferenced by the shipped app."
+    },
+    {
+      "path": "src/editor/tilesets/magecity.png", "type": "editor-tool-asset", "source": "Duplicate of public/assets/magecity.png", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Editor-tool-only, unreferenced by the shipped app."
+    },
+    {
+      "path": "src/editor/tilesets/phantasy2.png", "type": "editor-tool-asset", "source": "a16z-infra/ai-town stock level-editor tileset option; no external licence evidence gathered", "author": "Unresolved", "license": "Unresolved", "redistribution": false, "modification": false, "attributionRequired": false, "status": "quarantined", "notes": "Editor-tool-only, unreferenced by the shipped app."
+    }
+  ]
+}
