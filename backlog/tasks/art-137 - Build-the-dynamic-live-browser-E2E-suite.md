@@ -4,7 +4,7 @@ title: Build the dynamic live browser E2E suite
 status: To Do
 assignee: []
 created_date: '2026-08-04 16:00'
-updated_date: '2026-08-04 16:51'
+updated_date: '2026-08-05 03:37'
 labels:
   - prd-2.0
   - v2-k
@@ -37,6 +37,8 @@ ordinal: 137000
 - Replay auto-plays once then enters ambient state; manual replay works.
 - No network request contains an unauthorized mutation.
 - LLM call count does not increase during the run.
+
+**Fixture rule (ART-107 §8):** Any deterministic-fixture development or test must use IDs from the production Mistwood seed (`convex/canon/mistwoodSeed.ts`). `convex/canon/mistwoodFixture.ts` was rebuilt in place (not renamed) to use production seed IDs (Lin Yingxue, Wu Zhen), so it is now safe to import for structural testing, but production acceptance and any other V2 Dynamic Live work must still source data from `mistwoodSeed.ts` directly, not this foundation-test fixture.
 
 **Out of Scope:** Performance measurement (ART-136); security probing (ART-128).
 

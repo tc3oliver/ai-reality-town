@@ -3,11 +3,21 @@
  *
  * A fixed, repeatable world used by the foundation tests. It defines:
  *   - 1 world (Mistwood)
- *   - 2 characters (Cassia, Rowan — fictional, not real people)
- *   - 2 locations (market, grove)
+ *   - 2 characters (Lin Yingxue, Wu Zhen — reused from the production Mistwood seed,
+ *     `convex/canon/mistwoodSeed.ts`, per ART-107)
+ *   - 2 locations (`mistwood-paper`, `mistwood-station` — also from the production seed)
  *   - 1 initial relationship
  *   - 4 accepted events (movement, relationship change, canon fact, and a later movement)
  *   - 1 snapshot taken after the first three events
+ *
+ * ART-107 (PRD 2.0 §8): this fixture previously used invented character/location IDs
+ * (Lin Yingxue/Wu Zhen at mistwood-paper/mistwood-station) that do not exist in the production
+ * seed, which risked V2 tasks building against the wrong ID set. Rebuilt in place to reuse
+ * real seed IDs instead of renaming the file, after discovering (empirically, via a fresh
+ * clean-checkout reproduction) that renaming this file perturbs TypeScript's type
+ * instantiation order for the generated Convex `internal`/`api` union enough to push
+ * unrelated `useQuery`/`ctx.runMutation` call sites elsewhere in the repo over a hard
+ * `TS2589` depth limit. Keeping the filename and changing only its content avoids that.
  *
  * Everything here is a constant — no clock, no randomness — so the fixture produces the
  * same projection on every run. Placed under `convex/canon/` (colocated) to follow the
@@ -47,10 +57,10 @@ export const mistwoodInitialProjection: WorldProjection = {
   worldId: MISTWOOD_WORLD_ID,
   lastSequenceNumber: -1,
   characterLocations: {
-    cassia: 'mistwood-market',
-    rowan: 'mistwood-grove',
+    'lin-yingxue': 'mistwood-paper',
+    'wu-zhen': 'mistwood-station',
   },
-  characterAlive: { cassia: true, rowan: true },
+  characterAlive: { 'lin-yingxue': true, 'wu-zhen': true },
   characterStates: {},
   lastCharacterMovement: {},
   itemOwners: {},
@@ -58,7 +68,7 @@ export const mistwoodInitialProjection: WorldProjection = {
   characterKnowledge: {},
   characterMemories: {},
   relationships: {
-    'cassia|rowan': { trust: 20, affection: 10, resentment: 0, fear: 0, dependency: 5, familiarity: 30, lastUpdatedEventId: 'initial-seed' },
+    'lin-yingxue|wu-zhen': { trust: 20, affection: 10, resentment: 0, fear: 0, dependency: 5, familiarity: 30, lastUpdatedEventId: 'initial-seed' },
   },
   relationshipHistory: {},
   facts: [],
@@ -73,51 +83,51 @@ export const mistwoodInitialProjection: WorldProjection = {
 
 /** The accepted event log for Mistwood (sequences 0..3). */
 export const mistwoodEvents: AcceptedEvent[] = [
-  // 0: Cassia travels from the market to the grove.
+  // 0: Lin Yingxue travels from the newspaper office to the station.
   accepted(0, {
     schemaVersion: 1,
     worldId: MISTWOOD_WORLD_ID,
-    idempotencyKey: 'mistwood:cassia:to-grove',
-    proposedBy: { type: 'character', id: 'cassia' },
+    idempotencyKey: 'mistwood:lin-yingxue:to-station',
+    proposedBy: { type: 'character', id: 'lin-yingxue' },
     worldDay: 1,
     timeSlot: 'morning',
     eventType: 'movement',
-    participantIds: ['cassia'],
+    participantIds: ['lin-yingxue'],
     causedByEventIds: [],
-    publicSummary: 'Cassia walks from the market to the grove.',
+    publicSummary: 'Lin Yingxue walks from the newspaper office to the station.',
     stateChanges: [
       {
         type: 'character_location_changed',
-        characterId: 'cassia',
-        fromLocationId: 'mistwood-market',
-        toLocationId: 'mistwood-grove',
+        characterId: 'lin-yingxue',
+        fromLocationId: 'mistwood-paper',
+        toLocationId: 'mistwood-station',
       },
     ],
   }),
-  // 1: Cassia and Rowan's relationship shifts after sharing the morning.
+  // 1: Lin Yingxue and Wu Zhen's relationship shifts after sharing the morning.
   accepted(1, {
     schemaVersion: 1,
     worldId: MISTWOOD_WORLD_ID,
-    idempotencyKey: 'mistwood:cassia-rowan:bond',
+    idempotencyKey: 'mistwood:lin-yingxue-wu-zhen:bond',
     proposedBy: { type: 'system' },
     worldDay: 1,
     timeSlot: 'noon',
     eventType: 'relationship_change',
-    participantIds: ['cassia', 'rowan'],
+    participantIds: ['lin-yingxue', 'wu-zhen'],
     causedByEventIds: [],
-    publicSummary: 'Cassia and Rowan warm to each other.',
+    publicSummary: 'Lin Yingxue and Wu Zhen warm to each other.',
     stateChanges: [
       {
         type: 'relationship_changed',
-        sourceCharacterId: 'cassia',
-        targetCharacterId: 'rowan',
+        sourceCharacterId: 'lin-yingxue',
+        targetCharacterId: 'wu-zhen',
         trustDelta: 5,
         affectionDelta: 3,
         resentmentDelta: 0,
         fearDelta: 0,
         dependencyDelta: 1,
         familiarityDelta: 4,
-        reason: 'shared a quiet morning at the grove',
+        reason: 'shared a quiet morning at the station',
         visibility: 'public',
       },
     ],
@@ -126,43 +136,43 @@ export const mistwoodEvents: AcceptedEvent[] = [
   accepted(2, {
     schemaVersion: 1,
     worldId: MISTWOOD_WORLD_ID,
-    idempotencyKey: 'mistwood:fact:cassia-location',
+    idempotencyKey: 'mistwood:fact:lin-yingxue-location',
     proposedBy: { type: 'system' },
     worldDay: 1,
     timeSlot: 'afternoon',
     eventType: 'discovery',
-    participantIds: ['cassia'],
+    participantIds: ['lin-yingxue'],
     causedByEventIds: [],
-    publicSummary: 'Cassia is last seen at the grove.',
+    publicSummary: 'Lin Yingxue is last seen at the station.',
     stateChanges: [
       {
         type: 'fact_created',
         subjectType: 'character',
-        subjectId: 'cassia',
+        subjectId: 'lin-yingxue',
         predicate: 'lastKnownLocation',
-        value: 'mistwood-grove',
+        value: 'mistwood-station',
         visibility: 'public',
       },
     ],
   }),
-  // 3: A later event (after the snapshot) — Rowan heads to the market.
+  // 3: A later event (after the snapshot) — Wu Zhen heads to the newspaper office.
   accepted(3, {
     schemaVersion: 1,
     worldId: MISTWOOD_WORLD_ID,
-    idempotencyKey: 'mistwood:rowan:to-market',
-    proposedBy: { type: 'character', id: 'rowan' },
+    idempotencyKey: 'mistwood:wu-zhen:to-paper',
+    proposedBy: { type: 'character', id: 'wu-zhen' },
     worldDay: 1,
     timeSlot: 'evening',
     eventType: 'movement',
-    participantIds: ['rowan'],
+    participantIds: ['wu-zhen'],
     causedByEventIds: [],
-    publicSummary: 'Rowan walks from the grove to the market.',
+    publicSummary: 'Wu Zhen walks from the station to the newspaper office.',
     stateChanges: [
       {
         type: 'character_location_changed',
-        characterId: 'rowan',
-        fromLocationId: 'mistwood-grove',
-        toLocationId: 'mistwood-market',
+        characterId: 'wu-zhen',
+        fromLocationId: 'mistwood-station',
+        toLocationId: 'mistwood-paper',
       },
     ],
   }),

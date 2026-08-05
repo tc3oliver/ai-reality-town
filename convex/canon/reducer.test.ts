@@ -178,6 +178,6 @@ describe('reduceWorldEvent', () => {
 
   it('applies the Mistwood movement event consistently', () => {
     const afterFirst = reduceWorldEvent(mistwoodInitialProjection, mistwoodEvents[0]);
-    expect(afterFirst.characterLocations.cassia).toBe('mistwood-grove');
+    expect(afterFirst.characterLocations['lin-yingxue']).toBe('mistwood-station');
   });
 });

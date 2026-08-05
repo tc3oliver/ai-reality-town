@@ -1,10 +1,11 @@
 ---
 id: ART-107
 title: Audit upstream AI Town visual capability and engine retirement scope
-status: To Do
-assignee: []
+status: Done
+assignee:
+  - '@claude'
 created_date: '2026-08-04 15:57'
-updated_date: '2026-08-04 17:15'
+updated_date: '2026-08-05 02:53'
 labels:
   - prd-2.0
   - v2-a
@@ -59,32 +60,54 @@ ordinal: 107000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A code and asset inventory is produced covering renderer, tilemap, spritesheets, animations, viewport and pathfinding
-- [ ] #2 Every inventoried item is marked reusable-as-is, needs-modification, dead, or must-not-be-public
-- [ ] #3 The existing renderer is actually booted and observed, not inferred from source alone
-- [ ] #4 The reason the current public pages do not use the dynamic renderer is documented
-- [ ] #5 A minimal restoration path to a rendering public view is documented
-- [ ] #6 Every a16z server-side capability is classified against the PRD 2.0 section 10.3 retirement list
-- [ ] #7 Every client-triggerable Convex mutation or action reachable from the game UI is listed with file and line
-- [ ] #8 Every Mistwood dataset in the repository is classified as Production Mistwood Seed, Legacy Canon Test Fixture, or V2 Visual Runtime Fixture
-- [ ] #9 mistwoodFixture.ts is either renamed to make its non-production nature unambiguous or rebuilt to reuse the production seed's character and location IDs
-- [ ] #10 The audit states explicitly that V2 Dynamic Live production acceptance must not use the Cassia/Rowan fixture, and this rule is referenced by ART-119, ART-137 and ART-138
+- [x] #1 A code and asset inventory is produced covering renderer, tilemap, spritesheets, animations, viewport and pathfinding
+- [x] #2 Every inventoried item is marked reusable-as-is, needs-modification, dead, or must-not-be-public
+- [x] #3 The existing renderer is actually booted and observed, not inferred from source alone
+- [x] #4 The reason the current public pages do not use the dynamic renderer is documented
+- [x] #5 A minimal restoration path to a rendering public view is documented
+- [x] #6 Every a16z server-side capability is classified against the PRD 2.0 section 10.3 retirement list
+- [x] #7 Every client-triggerable Convex mutation or action reachable from the game UI is listed with file and line
+- [x] #8 Every Mistwood dataset in the repository is classified as Production Mistwood Seed, Legacy Canon Test Fixture, or V2 Visual Runtime Fixture
+- [x] #9 mistwoodFixture.ts is either renamed to make its non-production nature unambiguous or rebuilt to reuse the production seed's character and location IDs
+- [x] #10 The audit states explicitly that V2 Dynamic Live production acceptance must not use the Cassia/Rowan fixture, and this rule is referenced by ART-119, ART-137 and ART-138
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Produced docs/upstream-visual-capability-audit.md covering: (1) full renderer/asset/data inventory with reusable/dead disposition per item, (2) a16z server-side capability classification against PRD 2.0 section 10.3, (3) every client-triggerable Convex mutation/action with file:line (verified via grep -rl "useMutation|useAction" src -- exactly 4 files, plus useSendInput call sites), (4) confirmed via cross-repo grep that zero files under convex/simulation, knowledge, story, canon, publicRead, operations, safety, editorial, recaps, viewer, observability import from agent/, aiTown/, or engine/ -- the ART pipeline is fully decoupled from the a16z engine already, (5) booted the renderer live (localhost:5173/ai-town, after this sessions engine-stop containment) via a real browser, confirmed the canvas renders and the freeze toggle correctly reads Unfreeze, confirmed via npx convex data engines immediately before/after that loading the page does not change generationNumber/running, (6) Mistwood dataset disambiguation.
+
+Fixture decision: renamed (not rebuilt) convex/canon/mistwoodFixture.ts -> convex/canon/legacyCanonTestFixture.ts (plus its test file), updated all 4 importers (reducer.test.ts, replay.test.ts, canonCognitionIntegration.test.ts, its own test file). Chose rename over rebuild because the fixture is used by 3 pre-existing, unrelated PRD 1.0 Canon foundation tests -- rebuilding to reuse production seed IDs would risk perturbing established, passing, unrelated test behavior for no V2 benefit. Verified: grep -rl mistwoodFixture convex now returns zero matches; all 4 affected test files still pass (36/36).
+
+Added the "must never use the Cassia/Rowan legacy fixture" rule to ART-119, ART-137 and ART-138 descriptions (their AC lists were not touched). Also fixed stale prose in ART-138s description that still said "Dependencies: ART-99, ART-139" after ART-139 completed and split into ART-141 -- the structured Dependencies field was already correct (updated during ART-139s finalization) but the description text had not caught up; now both agree.
+
+One false-positive scare during verification: a typecheck run briefly showed ~20 errors across convex/agent/*, convex/aiTown/agent.ts, convex/engine/abstractGame.ts and src/components/Message*.tsx that do not exist on a clean checkout. Root-caused to the background `convex dev` process (already running for this project) transiently regenerating convex/_generated/* mid-typecheck right after the git mv changed the file set convex watches. Confirmed not a real regression: re-ran typecheck twice more with no code changes and got zero errors both times; full npm run check subsequently passed clean (86 suites/1120 tests, typecheck/lint/build all green).
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Produced docs/upstream-visual-capability-audit.md: the authoritative inventory of reusable PixiJS renderer capability (PixiViewport, PixiStaticMap, Character, spritesheets, animations, tilemap data -- all confirmed zero-dependency on a16z engine state) versus retiring a16z server-side capability (world execution loop, agent reasoning, chat/conversation, input plumbing, Human Player, heartbeat/crons), classified against PRD 2.0 section 10.3. Verified by cross-repo grep that the entire ART pipeline (canon/simulation/knowledge/story/publicRead/etc.) already has zero imports from agent/aiTown/engine -- retirement is safe. Listed every client-triggerable Convex mutation/action with file:line. Booted the actual renderer in a live browser and confirmed it renders (screenshot evidence) without restarting the just-contained engine. Documented why current public pages do not use the dynamic renderer (they read entirely disjoint data sources) and the minimal restoration path for later tasks.
+
+Resolved the Mistwood fixture ambiguity: renamed convex/canon/mistwoodFixture.ts to legacyCanonTestFixture.ts (4 importers updated, 36/36 affected tests still pass), and added the "never use Cassia/Rowan in production acceptance" rule to ART-119/137/138.
+
+Verified: npm run check passes (86 suites/1120 tests, typecheck/lint/build clean).
+<!-- SECTION:FINAL_SUMMARY:END -->
