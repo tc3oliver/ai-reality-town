@@ -4,7 +4,7 @@ title: Run the Dynamic Viewing MVP public release gate
 status: To Do
 assignee: []
 created_date: '2026-08-04 16:00'
-updated_date: '2026-08-05 02:50'
+updated_date: '2026-08-05 03:37'
 labels:
   - prd-2.0
   - v2-k
@@ -39,7 +39,7 @@ ordinal: 138000
 - Confirm regression on affected PRD 1.0 P0 capability.
 - Report every §18.1 metric that FR-Q007 has not yet made measurable as "not measured" rather than estimated.
 
-**Fixture rule (ART-107 §8):** The twelve character bindings and any release-gate evidence must be verified against the production Mistwood seed (`convex/canon/mistwoodSeed.ts`), never `convex/canon/legacyCanonTestFixture.ts` (renamed from `mistwoodFixture.ts`).
+**Fixture rule (ART-107 §8):** Any deterministic-fixture development or test must use IDs from the production Mistwood seed (`convex/canon/mistwoodSeed.ts`). `convex/canon/mistwoodFixture.ts` was rebuilt in place (not renamed) to use production seed IDs (Lin Yingxue, Wu Zhen), so it is now safe to import for structural testing, but production acceptance and any other V2 Dynamic Live work must still source data from `mistwoodSeed.ts` directly, not this foundation-test fixture.
 
 **Out of Scope:** Any new feature work. This task only verifies and records.
 

@@ -4,7 +4,7 @@ title: Render Canon-driven character movement and animation states
 status: To Do
 assignee: []
 created_date: '2026-08-04 15:58'
-updated_date: '2026-08-05 02:49'
+updated_date: '2026-08-05 03:37'
 labels:
   - prd-2.0
   - v2-f
@@ -34,7 +34,7 @@ ordinal: 119000
 - Frame-rate degradation on low-end devices without corrupting semantic state.
 - No teleporting unless a Canon event explicitly permits special movement.
 
-**Fixture rule (ART-107 §8):** Any deterministic-fixture development or test must use IDs from the production Mistwood seed (`convex/canon/mistwoodSeed.ts`). Production acceptance, and any other V2 Dynamic Live work, must never use `convex/canon/legacyCanonTestFixture.ts` (renamed from `mistwoodFixture.ts`; Cassia/Rowan at `mistwood-market`/`mistwood-grove` are not real Mistwood seed locations).
+**Fixture rule (ART-107 §8):** Any deterministic-fixture development or test must use IDs from the production Mistwood seed (`convex/canon/mistwoodSeed.ts`). `convex/canon/mistwoodFixture.ts` was rebuilt in place (not renamed) to use production seed IDs (Lin Yingxue, Wu Zhen), so it is now safe to import for structural testing, but production acceptance and any other V2 Dynamic Live work must still source data from `mistwoodSeed.ts` directly, not this foundation-test fixture.
 
 **Out of Scope:** Ambient in-zone behaviour (FR-O011); dialogue content and safety filtering (FR-O004); replay playback (FR-O013).
 
