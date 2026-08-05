@@ -1,17 +1,17 @@
 ---
 id: ART-112
 title: Retire the a16z AI Town server-side simulation engine
-status: Done
+status: Blocked
 assignee:
   - '@claude'
 created_date: '2026-08-04 15:58'
-updated_date: '2026-08-05 03:17'
+updated_date: '2026-08-05 03:51'
 labels:
   - prd-2.0
   - v2-c
   - epic-n
 dependencies:
-  - ART-107
+  - ART-142
 priority: high
 type: feature
 ordinal: 112000
@@ -68,7 +68,7 @@ ordinal: 112000
 - [x] #5 No LLM call originates from the retired engine
 - [x] #6 All preserved visual modules listed in PRD 2.0 section 10.3 remain intact and importable
 - [x] #7 The ART pipeline (Canon, simulation, story, publicRead) shows no regression
-- [x] #8 Every client-side caller of a retired mutation is removed or neutralized in the same change, so typecheck, lint and build stay green
+- [ ] #8 Every client-side caller of a retired mutation is removed or neutralized in the same change, so typecheck, lint and build stay green
 - [x] #9 The interactive game route and its player controls (Interact, Freeze, join/move/chat UI and the join-the-town help copy) are removed or gated off the public surface
 - [x] #10 README.md no longer describes convex/aiTown/ or convex/engine/ as retained active components
 - [x] #11 README.md and architecture documentation state which specific src/ modules are retained (renderer, assets) versus what is retired (world lifecycle, agent reasoning, join/move/chat)
@@ -78,10 +78,10 @@ ordinal: 112000
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [x] #1 All acceptance criteria are satisfied
+- [ ] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
-- [x] #4 Lint passes
+- [ ] #4 Lint passes
 - [x] #5 Relevant tests pass
 - [x] #6 Build passes when applicable
 - [x] #7 No known regression is introduced
@@ -121,6 +121,12 @@ Verification (isolated runs -- npm run check as one chain intermittently hit a f
 - Canon spot-checked intact: canonEvents (80 rows through world-day 4) and canonSnapshots unaffected.
 
 Documentation: README.md (repository layout + core-concepts section rewritten, no more "(retained)" framing), docs/architecture/adr/ADR-0001 marked Superseded with an inline note, new ADR-0004 recording this decision, docs/architecture/current-state.md banner-flagged as historical-baseline-only, docs/architecture/module-boundaries.md corrected. .env.example already had zero a16z-specific vars (only ART-own LLM/Clerk/ops vars) -- no change needed there. docs/prd-2.0-requirement-matrix.md §10.3 row marked Done.
+
+CORRECTION (2026-08-05, after further verification): the "npm run lint: clean" and "flaky tsc caching, not a real defect" claims above are WRONG. They were based on a locally-warm node_modules/TS-server cache that gave a false-clean result. A genuinely fresh `git clone` + `npm ci` (the only reliable way to verify this class of issue, confirmed empirically in this session) reproducibly shows 78 real ESLint no-unsafe-* errors in convex/operations/postCommitLiveFunctions.ts (~16 distinct internal.*Functions/Operations submodule references, lines ~180-435), convex/simulation/worldDayLiveFunctions.ts (directorFunctions/characterIntentFunctions/sceneGroupingFunctions/sceneSimulationFunctions/schedulerOperations x3), and convex/operations/canonCorrectionFunctions.ts (one reference).
+
+Root cause (now confirmed deterministic via multiple independent fresh-clone reproductions, not flaky): this repos generated Convex internal/api type is large enough that TypeScripts type-instantiation depth limit gets crossed by ANY sufficiently large change to the Convex module count -- confirmed reproducible from BOTH ART-107s single file rename (reverted, see ART-107s own history) AND independently from this tasks ~20-file deletion. Two hard tsc TS2589 errors (convex/music.ts, ArcDetailPage.tsx) were found and fixed with a narrowly-scoped, correctly-placed @ts-ignore (the directive must be the LITERAL line immediately before the failing expression -- a multi-line explanatory comment block above it does NOT suppress the error, confirmed by trial). Fixing those two did NOT relieve the separate ESLint no-unsafe-* cascade in the three operations/simulation files -- confirmed by a second independent fresh-clone run after the fix, contradicting an earlier (wrong) assumption that the two failure modes shared enough of a "budget" that fixing one would fix both.
+
+Given the remaining fix requires touching ~21 distinct internal.X.Y references across two sensitive production pipeline files (the post-commit and world-day-live orchestrators), each needing individual, carefully-verified suppression or extraction, this is disproportionate to fix reactively within this tasks scope. Split out as ART-142 (blocks this task). ART-112s own retirement logic is complete, correct, and verified at the runtime/business-logic level (full test suite, live browser checks, Canon integrity) -- only the pre-existing, unrelated TypeScript/ESLint tooling fragility blocks a clean CI pass. Status set to Blocked, pending ART-142.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
@@ -130,7 +136,7 @@ Permanently retired the inherited a16z server-side simulation engine (world exec
 
 Verified live: booted the app in a real browser after redeploy -- public pages (Homepage, LiveView) render real Canon content with zero console errors; the previously-interactive bare route now falls back to Homepage; npx convex data confirms the engine has taken zero new steps since this sessions earlier containment action (generationNumber frozen, running: false). Production bundle shrank from 1,205 kB to 328.81 kB (825 to 183 modules).
 
-Updated README.md, added ADR-0004 (superseding ADR-0001), and corrected docs/architecture/current-state.md and module-boundaries.md to stop describing the retired engine as active. Two of the original ART-107 audits dispositions (movement.ts/location.ts and testing.ts as "preserve") turned out to be wrong once actually implemented -- both retire instead, corrected in the audit doc, ADR-0004, and this tasks notes with the concrete reason (Game/Player import coupling; calls into the now-deleted main.ts).
+Updated README.md, added ADR-0004 (superseding ADR-0001), and corrected docs/architecture/current-state.md and module-boundaries.md.
 
-npm run check (typecheck/lint/test/build, run in isolation to avoid a flaky, environment-specific tsc caching issue unrelated to this change): all clean. Deployed to the dev deployment (auto, via the running convex dev process); 24-hour log observation scheduled as a follow-up to confirm zero runStep/saveWorld/agentOperations activity and sustained Database I/O reduction over a full day, per the incidents request.
+NOT DONE / blocked: npm run lint does not pass on a fresh install (78 errors in postCommitLiveFunctions.ts, worldDayLiveFunctions.ts, canonCorrectionFunctions.ts -- a pre-existing TypeScript/Convex-codegen type-complexity fragility this tasks file deletion exposed, not a defect in this tasks own logic). Two related hard tsc TS2589 errors (music.ts, ArcDetailPage.tsx) were found and fixed. The remaining lint failures are split out as ART-142 (blocks this task). Status: Blocked, pending ART-142. Branch/PR contain the complete, correct retirement -- merge is blocked on CI, not on unfinished retirement work.
 <!-- SECTION:FINAL_SUMMARY:END -->
