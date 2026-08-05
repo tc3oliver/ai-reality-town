@@ -3,9 +3,11 @@ id: ART-142
 title: >-
   Fix TS2589-adjacent no-unsafe-* ESLint cascade in postCommitLiveFunctions.ts /
   worldDayLiveFunctions.ts
-status: To Do
-assignee: []
+status: Done
+assignee:
+  - '@claude'
 created_date: '2026-08-05 03:49'
+updated_date: '2026-08-05 05:26'
 labels:
   - infrastructure
   - typescript
@@ -54,12 +56,12 @@ Documentation Impact: Record the root cause and fix in docs/DEVELOPMENT.md or a 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 npm run typecheck passes with zero errors on a genuinely fresh git clone + npm ci
-- [ ] #2 npm run lint passes with zero errors on a genuinely fresh git clone + npm ci
-- [ ] #3 The fix is verified via an actual fresh-clone reproduction, not a locally-warm node_modules, and that verification step is recorded in the task notes
+- [x] #1 npm run typecheck passes with zero errors on a genuinely fresh git clone + npm ci
+- [x] #2 npm run lint passes with zero errors on a genuinely fresh git clone + npm ci
+- [x] #3 The fix is verified via an actual fresh-clone reproduction, not a locally-warm node_modules, and that verification step is recorded in the task notes
 - [ ] #4 A TypeScript/typescript-eslint version upgrade is evaluated first as the preferred root-cause fix before applying per-call-site suppressions
-- [ ] #5 Every remaining per-call-site @ts-ignore (if the upgrade path does not fully resolve it) carries a comment explaining why, and is placed correctly (verified to actually suppress, not silently unused)
-- [ ] #6 The root cause and fix are documented for future contributors
+- [x] #5 Every remaining per-call-site @ts-ignore (if the upgrade path does not fully resolve it) carries a comment explaining why, and is placed correctly (verified to actually suppress, not silently unused)
+- [x] #6 The root cause and fix are documented for future contributors
 <!-- AC:END -->
 
 ## Definition of Done
@@ -79,3 +81,81 @@ Documentation Impact: Record the root cause and fix in docs/DEVELOPMENT.md or a 
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Root fix implemented directly (no TS/typescript-eslint upgrade attempted): the user's
+follow-up instruction for this task explicitly directed NOT to start with a broad toolchain
+upgrade, and to fix the type boundary itself first -- this supersedes AC#4's original
+"evaluate the upgrade first" ordering, so AC#4 is unchecked as literally written; the actual
+outcome (zero errors, zero remaining per-call-site suppressions, no toolchain version change)
+meets the task's real goal via a different accepted path.
+
+Root cause confirmed unchanged from the original diagnosis: raw `internal.a.b.c` / `api.a.b.c`
+property-access chains force TypeScript to resolve the entire generated union at that call
+site. Root fix: added `convex/shared/internalFunctionRef.ts` (`internalFunctionRef` for
+internal-visibility functions, `publicFunctionRef` for public ones). Both build the identical
+runtime `FunctionReference` via Convex's own public `makeFunctionReference(path)` export, typed
+from `typeof theActualExportedFunction` (a type-only import of the real function), so `Args`/
+`ReturnType` stay derived from -- and in sync with -- the function's real signature without ever
+reading the generated `internal`/`api` union. No `@ts-ignore` needed anywhere.
+
+Prototyped on one call site first (rebuildWorldProjection in postCommitLiveFunctions.ts),
+confirmed via a fresh-clone-equivalent sandbox (npm ci once, source files swapped per
+iteration) that the no-unsafe-* errors at that exact site disappeared with no new errors
+introduced, before rolling the pattern out further.
+
+Applied to every remaining raw internal/api chain repo-wide, not only the files CI flagged:
+postCommitLiveFunctions.ts (21 refs), worldDayLiveFunctions.ts (7 refs), canonCorrectionFunctions.ts
+(1 ref), convex/crons.ts (3 refs, previously untouched), convex/music.ts (the existing
+@ts-ignore, now removed), and every public page component reading getPublishedReadModel
+(ArcDetailPage/CharacterPage/EpisodeList/EpisodeDetail/TimelineView/LiveView/Homepage, plus
+the unused MusicButton.tsx) via one shared `getPublishedReadModelRef` in
+src/components/public/publicReadModelRef.ts. Reason for the wider sweep: after fixing only
+postCommitLiveFunctions.ts's rebuildWorldProjection call and re-running a fresh clone,
+`convex/crons.ts:17` and `src/components/public/CharacterPage.tsx:43` -- both untouched,
+previously-clean files -- newly failed with hard TS2589 errors. This confirms the generated
+union's complexity budget is shared/global, not purely per-expression: fixing one site can tip
+a different, previously-fine site over the same limit. Leaving any raw internal/api chain in
+place is latent fragility regardless of whether it currently errors, so all of them were moved
+off the union.
+
+ArcDetailPage.tsx's and convex/music.ts's ART-112 @ts-ignore workarounds are both removed --
+the root fix makes them unnecessary; no narrower typed solution was needed because
+`makeFunctionReference` + explicit types fully replaces the union-derived reference.
+
+Verification (all on a genuinely fresh `git clone` + `npm ci`, not a locally-warm checkout,
+per this session's own hard-won lesson about false-clean results from warm node_modules):
+- `npm run check` (architecture checks, typecheck, lint, full test suite -- 85 suites / 1113
+  tests / 5 skipped, build) -- exit 0, zero errors.
+- Targeted: worldDayLive.test.ts, postCommitLive.test.ts, canonCorrection.test.ts,
+  emergencyStopControls.test.ts (asserts the retired a16z entry points -- world.ts,
+  messages.ts, aiTown/main.ts, testing.ts, aiTown/game.ts, agent/conversation.ts -- stay
+  absent) -- 80/80 passed.
+- Repo-wide grep confirms zero remaining internal.a.b / api.a.b property chains outside the
+  generated api.d.ts and the new helper file itself.
+- Repo-wide grep for runStep/saveWorld/agentOperations finds no live source reference (only a
+  stale reference inside the committed, auto-regenerated convex/_generated/api.d.ts, which
+  `convex dev`/`convex deploy` will overwrite -- not a real restored code path).
+
+Branch/PR: feat/art-142-fix-ts2589-no-unsafe-cascade, stacked on and targeting
+feat/art-112-retire-aitown-engine-v2 (ART-112's branch), PR #154. Not targeting main directly
+per the user's explicit instruction, since this is fallout from ART-112's own file deletions
+and must land inside that branch before #153 can pass CI.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Fixed the ESLint no-unsafe-* cascade (and preemptively the related TS2589 fragility)
+by moving every remaining raw internal.a.b.c / api.a.b.c property-access chain off the
+generated Convex union onto explicitly typed local FunctionReference constants
+(convex/shared/internalFunctionRef.ts), built via Convex's own public makeFunctionReference
+export and typed from each target function's real exported type. Zero @ts-ignore remain
+anywhere in the codebase (the two from ART-112 were removed too). Verified via a genuinely
+fresh git clone + npm ci: npm run check passes end to end (typecheck, lint, 85/85 test suites,
+build), plus targeted pipeline tests and a repo-wide grep confirming no retired a16z engine
+path was restored. Landed as PR #154, merged into feat/art-112-retire-aitown-engine-v2 (ART-112's
+branch) so PR #153 can now pass CI.
+<!-- SECTION:FINAL_SUMMARY:END -->

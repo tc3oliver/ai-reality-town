@@ -1,11 +1,11 @@
 ---
 id: ART-112
 title: Retire the a16z AI Town server-side simulation engine
-status: Blocked
+status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-08-04 15:58'
-updated_date: '2026-08-05 03:51'
+updated_date: '2026-08-05 05:26'
 labels:
   - prd-2.0
   - v2-c
@@ -127,6 +127,15 @@ CORRECTION (2026-08-05, after further verification): the "npm run lint: clean" a
 Root cause (now confirmed deterministic via multiple independent fresh-clone reproductions, not flaky): this repos generated Convex internal/api type is large enough that TypeScripts type-instantiation depth limit gets crossed by ANY sufficiently large change to the Convex module count -- confirmed reproducible from BOTH ART-107s single file rename (reverted, see ART-107s own history) AND independently from this tasks ~20-file deletion. Two hard tsc TS2589 errors (convex/music.ts, ArcDetailPage.tsx) were found and fixed with a narrowly-scoped, correctly-placed @ts-ignore (the directive must be the LITERAL line immediately before the failing expression -- a multi-line explanatory comment block above it does NOT suppress the error, confirmed by trial). Fixing those two did NOT relieve the separate ESLint no-unsafe-* cascade in the three operations/simulation files -- confirmed by a second independent fresh-clone run after the fix, contradicting an earlier (wrong) assumption that the two failure modes shared enough of a "budget" that fixing one would fix both.
 
 Given the remaining fix requires touching ~21 distinct internal.X.Y references across two sensitive production pipeline files (the post-commit and world-day-live orchestrators), each needing individual, carefully-verified suppression or extraction, this is disproportionate to fix reactively within this tasks scope. Split out as ART-142 (blocks this task). ART-112s own retirement logic is complete, correct, and verified at the runtime/business-logic level (full test suite, live browser checks, Canon integrity) -- only the pre-existing, unrelated TypeScript/ESLint tooling fragility blocks a clean CI pass. Status set to Blocked, pending ART-142.
+
+ART-142 is Done and merged into this branch (PR #154, fast-forwarded into
+feat/art-112-retire-aitown-engine-v2). The blocking CI failure (78 ESLint no-unsafe-*
+errors after this task's own file deletions) is resolved at the root: every raw
+internal/api union property-access chain in the codebase now goes through a typed
+FunctionReference helper instead. Fresh-clone `npm run check` passes end to end.
+This task's own retirement logic and documentation were unchanged by ART-142 -- only
+the CI blocker is lifted. Re-running PR #153's CI against the updated branch tip now
+that ART-142 is merged in.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
