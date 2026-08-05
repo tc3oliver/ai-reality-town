@@ -1,7 +1,16 @@
 # ADR-0001: Retain AI Town as visual and realtime runtime
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0004](./ADR-0004-retire-aitown-server-side-engine.md) (2026-08-05)
 - **Date:** 2026-08-02
+
+> **2026-08-05 update (ART-112 / PRD 2.0 §10.3):** the "two cooperating layers" decision
+> below no longer holds. AI Town's server-side engine (`convex/engine` lifecycle,
+> `convex/aiTown` world execution, `convex/agent` reasoning) has been retired entirely —
+> it made its own LLM calls and would have competed with Canon as a second narrative
+> source. Only its PixiJS renderer (`src/`, `data/spritesheets`, `data/animations`,
+> `data/gentle.js`) and the data-shape-only remainder of `convex/aiTown`/`convex/engine`
+> (kept so `convex/aiTown/schema.ts` can still validate historical rows) survive, for
+> reuse by a future Canon-projection-driven Visual Runtime. See ADR-0004.
 
 ## Context
 

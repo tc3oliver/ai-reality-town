@@ -2,7 +2,7 @@ import { v } from 'convex/values';
 import { query, internalMutation } from './_generated/server';
 import Replicate, { WebhookEventType } from 'replicate';
 import { httpAction, internalAction } from './_generated/server';
-import { internal, api } from './_generated/api';
+import { internal } from './_generated/api';
 
 function client(): Replicate {
   const replicate = new Replicate({
@@ -44,13 +44,8 @@ export const getBackgroundMusic = query({
 });
 
 export const enqueueBackgroundMusicGeneration = internalAction({
-  handler: async (ctx): Promise<void> => {
+  handler: async (): Promise<void> => {
     if (!replicateAvailable()) {
-      return;
-    }
-    const worldStatus = await ctx.runQuery(api.world.defaultWorldStatus);
-    if (!worldStatus) {
-      console.log('No active default world, returning.');
       return;
     }
     // TODO: MusicGen-Large on Replicate only allows 30 seconds. Use MusicGen-Small for longer?

@@ -74,7 +74,7 @@ FR-O010（動態畫面降級）Disposition 為 **New**，擁有專屬 Task **ART
 | FR-N008 素材授權與 Attribution | New | ART-108 | To Do | P0 | — | ART-107 |
 | FR-N009 Mistwood 專屬地圖 | New | ART-109 | To Do | P0 | 重用 `assets/gentle-obj.png` tileset | ART-107 |
 | FR-N010 輕量 Visual Runtime | New | ART-114 | To Do | P0 | 抽取 a16z pathfinding | ART-110, ART-111 |
-| §10.3 a16z 伺服器端引擎停用 | New | ART-112 | To Do | P0 | — | ART-107 |
+| §10.3 a16z 伺服器端引擎停用 | New | ART-112 | **Done**（ADR-0004，含 24 小時現場 log 觀察） | P0 | — | ART-107（Done） |
 
 ### 3.2 Epic O — Dynamic Live Town
 

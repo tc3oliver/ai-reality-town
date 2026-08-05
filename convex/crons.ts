@@ -1,5 +1,5 @@
 import { cronJobs } from 'convex/server';
-import { DELETE_BATCH_SIZE, IDLE_WORLD_TIMEOUT, VACUUM_MAX_AGE } from './constants';
+import { DELETE_BATCH_SIZE, VACUUM_MAX_AGE } from './constants';
 import { internal } from './_generated/api';
 import { internalMutation } from './_generated/server';
 import { TableNames } from './_generated/dataModel';
@@ -7,13 +7,9 @@ import { v } from 'convex/values';
 
 const crons = cronJobs();
 
-crons.interval(
-  'stop inactive worlds',
-  { seconds: IDLE_WORLD_TIMEOUT / 1000 },
-  internal.world.stopInactiveWorlds,
-);
-
-crons.interval('restart dead worlds', { seconds: 60 }, internal.world.restartDeadWorlds);
+// ART-112: the "stop inactive worlds" and "restart dead worlds" crons drove the retired
+// a16z engine's own lifecycle (internal.world.stopInactiveWorlds / restartDeadWorlds, both
+// deleted with convex/world.ts). Removed, not disabled -- there is no engine left to manage.
 
 crons.interval(
   'reserve due AI Reality Town world slots',

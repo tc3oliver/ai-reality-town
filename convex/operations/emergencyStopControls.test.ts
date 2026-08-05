@@ -15,7 +15,7 @@
  * checked against the real recovery primitive rather than a re-implementation.
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import type { GenericMutationCtx } from 'convex/server';
 import type { DataModel } from '../_generated/dataModel';
 import { activateRecoveryHead, clearRecoveryHead, InMemorySnapshotRecoveryStore } from '../canon/snapshotManager';
@@ -432,18 +432,18 @@ describe('FR-K006 audit H-5 — the kill switch halts the upstream AI Town engin
       .rejects.toThrow(new RegExp(EMERGENCY_STOP_ERROR_CODE));
   });
 
-  it('the restart cron and heartbeat do not revive engines while the switch is engaged', () => {
-    const source = readFileSync('convex/world.ts', 'utf8');
-    // restartDeadWorlds short-circuits and heartbeatWorld gates its inactive-restart branch.
-    expect(source.match(/isPublicWorldEmergencyStopped\(ctx\.db\)/g)).toHaveLength(2);
-    expect(source).toContain('skipping dead-engine restarts.');
-    expect(source).toContain('not restarting inactive world.');
-  });
-
-  it('upstream client input routes refuse generation work while the switch is engaged', () => {
-    // joinWorld + sendWorldInput (world.ts), writeMessage (messages.ts), sendInput (aiTown/main.ts).
-    expect(readFileSync('convex/world.ts', 'utf8').match(/await assertPublicWorldAdmitsSimulation\(ctx\.db\)/g)).toHaveLength(2);
-    expect(readFileSync('convex/messages.ts', 'utf8').match(/await assertPublicWorldAdmitsSimulation\(ctx\.db\)/g)).toHaveLength(1);
-    expect(readFileSync('convex/aiTown/main.ts', 'utf8').match(/await assertPublicWorldAdmitsSimulation\(ctx\.db\)/g)).toHaveLength(1);
+  it('ART-112: the restart cron, heartbeat, and every upstream client input route no longer exist', () => {
+    // Superseded by ART-112: the a16z engine that these guards protected (restartDeadWorlds,
+    // heartbeatWorld, joinWorld, sendWorldInput in convex/world.ts; writeMessage in
+    // convex/messages.ts; sendInput in convex/aiTown/main.ts) is permanently retired, not
+    // merely gated. This is a strictly stronger guarantee than "gated while the switch is
+    // engaged": there is no entry point left for the switch to have to gate. Assert the
+    // retired files are gone rather than asserting a guard string inside them.
+    expect(existsSync('convex/world.ts')).toBe(false);
+    expect(existsSync('convex/messages.ts')).toBe(false);
+    expect(existsSync('convex/aiTown/main.ts')).toBe(false);
+    expect(existsSync('convex/testing.ts')).toBe(false);
+    expect(existsSync('convex/aiTown/game.ts')).toBe(false);
+    expect(existsSync('convex/agent/conversation.ts')).toBe(false);
   });
 });
