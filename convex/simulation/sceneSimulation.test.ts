@@ -1,9 +1,11 @@
 import { readFileSync } from 'node:fs';
 import type { ProposedEvent } from '../canon/model';
+import { OpenAICompatibleProvider } from './providers/openAICompatible';
+import type { OpenAICompatibleConfig } from './providers/config';
 import type { LanguageModelProvider, StructuredChatRequest, StructuredChatResult } from './provider';
 import { SimulationProviderError } from './provider';
 import type { GroupedScene } from './sceneGrouping';
-import { parseWholeSceneOutput, SceneSimulationError, simulateWholeScene } from './sceneSimulation';
+import { parseWholeSceneOutput, SceneSimulationError, simulateWholeScene, WHOLE_SCENE_JSON_SCHEMA } from './sceneSimulation';
 
 const scene: GroupedScene = {
   schemaVersion: 1, sceneId: 'group-1:scene:1', groupingRunId: 'group-1', directorRunId: 'director-1',
@@ -107,5 +109,74 @@ describe('FR-C005 whole-scene simulation', () => {
     const unlinked = output() as Record<string, unknown>;
     unlinked.knowledgeChanges = [{ characterId: 'lin-yingxue', content: 'Impossible', proposedEventIndex: 9 }];
     expect(() => parseWholeSceneOutput(unlinked, scene)).toThrow(/Proposed Event index/);
+  });
+
+  describe('ART-139 real-provider schemaVersion contract (FR-C002)', () => {
+    const providerConfig: OpenAICompatibleConfig = { apiUrl: 'https://llm.example/v1',
+      chatUrl: 'https://llm.example/v1/chat/completions', embeddingUrl: 'https://llm.example/v1/embeddings',
+      chatModel: 'chat-model', embeddingModel: 'embed-model', embeddingDimension: 3, apiKey: 'k',
+      allowUnauthenticated: false, timeoutMs: 100, maxAttempts: 1 };
+    const asChatResponse = (body: unknown) => new Response(
+      JSON.stringify({ choices: [{ message: { content: JSON.stringify(body) } }], usage: {} }),
+      { status: 200, headers: { 'content-type': 'application/json' } });
+
+    // A strict-mode JSON Schema compiler that drops an under-typed `{ const: 1 }` (no declared `type`)
+    // commonly stringifies the sentinel instead of emitting the integer -- this is the shape observed
+    // against the real provider in ART-106's smoke test. This is a permanent regression test for ART-139.
+    it('parses the real-provider schemaVersion shape ("1" as a string) via the tolerated normalization', async () => {
+      const provider = new OpenAICompatibleProvider(providerConfig, { fetch: () =>
+        Promise.resolve(asChatResponse({ ...(output() as Record<string, unknown>), schemaVersion: '1' })) });
+      const chat = await provider.structuredChat({ messages: [{ role: 'user', content: 'simulate' }],
+        schemaName: 'whole_scene_output', jsonSchema: WHOLE_SCENE_JSON_SCHEMA, temperature: 0.4, maxTokens: 4_000 });
+      const result = parseWholeSceneOutput(chat.output, scene);
+      expect(result.schemaVersion).toBe(1);
+    });
+
+    it('rejects a genuinely wrong schemaVersion with a precise, distinct field path', () => {
+      expect(() => parseWholeSceneOutput({ ...(output() as Record<string, unknown>), schemaVersion: 2 }, scene))
+        .toThrow(SceneSimulationError);
+      try {
+        parseWholeSceneOutput({ ...(output() as Record<string, unknown>), schemaVersion: 2 }, scene);
+        throw new Error('expected SceneSimulationError');
+      } catch (error) {
+        expect(error).toBeInstanceOf(SceneSimulationError);
+        expect((error as SceneSimulationError).path).toBe('schemaVersion');
+      }
+    });
+
+    it('rejects a missing schemaVersion with a precise field path', () => {
+      const missing = output() as Record<string, unknown>;
+      delete missing.schemaVersion;
+      try {
+        parseWholeSceneOutput(missing, scene);
+        throw new Error('expected SceneSimulationError');
+      } catch (error) {
+        expect(error).toBeInstanceOf(SceneSimulationError);
+        expect((error as SceneSimulationError).path).toBe('schemaVersion');
+      }
+    });
+
+    it('rejects an unknown field inside a nested collection with its own precise field path', () => {
+      const badRelationship = output() as Record<string, unknown>;
+      badRelationship.relationshipChanges = [{ sourceCharacterId: 'lin-yingxue', targetCharacterId: 'wu-zhen',
+        summary: 'x', proposedEventIndex: 0, confidence: 0.9 }];
+      try {
+        parseWholeSceneOutput(badRelationship, scene);
+        throw new Error('expected SceneSimulationError');
+      } catch (error) {
+        expect(error).toBeInstanceOf(SceneSimulationError);
+        expect((error as SceneSimulationError).path).toBe('relationshipChanges[0]');
+      }
+    });
+
+    it('declares nested item properties in the request schema matching every parser allowed-key list', () => {
+      const properties = WHOLE_SCENE_JSON_SCHEMA.properties as Record<string, Record<string, unknown>>;
+      expect(properties.schemaVersion).toMatchObject({ type: 'integer', const: 1 });
+      for (const key of ['keyActions', 'dialogueHighlights', 'relationshipChanges', 'knowledgeChanges', 'memories', 'rumors', 'proposedEvents']) {
+        const items = properties[key].items as Record<string, unknown>;
+        expect(items.additionalProperties).toBe(false);
+        expect(Array.isArray(items.required)).toBe(true);
+      }
+    });
   });
 });
