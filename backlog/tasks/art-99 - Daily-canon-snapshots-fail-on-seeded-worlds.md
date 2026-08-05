@@ -5,7 +5,7 @@ status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-04 06:14'
-updated_date: '2026-08-05 07:09'
+updated_date: '2026-08-05 07:10'
 labels:
   - prd-1.0
   - epic-b
@@ -72,6 +72,8 @@ Tests added in convex/canon/snapshotManager.test.ts ('ART-99 seeded-world baseli
 Validation: npm run typecheck, npm run lint - clean. Full npm test: 85/85 suites, 1120/1125 passed (5 pre-existing skips, same baseline as ART-108), no regression. npm run build succeeds. Fresh clone (git clone + npm ci) of the pushed branch at /tmp/art99-fresh: npm run check passed in full (architecture, asset-licences, typecheck, lint, 85/85 suites, build) - deleted after use.
 
 Live verification against the seeded Mistwood dev deployment (no data wiped, reseeded, or modified): canonSnapshots held only the 'initial' row beforehand (confirmed via `npx convex data canonSnapshots`). Ran `npx convex run canon/snapshotOperations:persistDailySnapshot '{"worldId":"mistwood","worldDay":4,"createdAt":1785900000000}'` - succeeded (previously failed standalone per this task's own description). Result: deduplicated=false, kind=daily, worldDay=4, lastSequenceNumber=77, projection contains both the seeded baseline (all 8 locations, all 3 organizations) and event-derived data (162 facts) confirming baseline+events composition. Re-ran the same call - deduplicated=true, same snapshotId, confirming live idempotency. canonSnapshots now holds both the original 'initial' row and the new 'daily' row.
+
+Opened PR #157 (feat/art-99-seeded-daily-snapshot -> main), auto-merge enabled (gh pr merge --auto --merge --delete-branch). As of this note, mergeStateStatus=BLOCKED pending required CI checks (not block-watched further per repo workflow).
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
