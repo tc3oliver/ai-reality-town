@@ -1,11 +1,11 @@
 ---
 id: ART-112
 title: Retire the a16z AI Town server-side simulation engine
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-04 15:58'
-updated_date: '2026-08-05 05:26'
+updated_date: '2026-08-05 05:30'
 labels:
   - prd-2.0
   - v2-c
@@ -68,7 +68,7 @@ ordinal: 112000
 - [x] #5 No LLM call originates from the retired engine
 - [x] #6 All preserved visual modules listed in PRD 2.0 section 10.3 remain intact and importable
 - [x] #7 The ART pipeline (Canon, simulation, story, publicRead) shows no regression
-- [ ] #8 Every client-side caller of a retired mutation is removed or neutralized in the same change, so typecheck, lint and build stay green
+- [x] #8 Every client-side caller of a retired mutation is removed or neutralized in the same change, so typecheck, lint and build stay green
 - [x] #9 The interactive game route and its player controls (Interact, Freeze, join/move/chat UI and the join-the-town help copy) are removed or gated off the public surface
 - [x] #10 README.md no longer describes convex/aiTown/ or convex/engine/ as retained active components
 - [x] #11 README.md and architecture documentation state which specific src/ modules are retained (renderer, assets) versus what is retired (world lifecycle, agent reasoning, join/move/chat)
@@ -78,10 +78,10 @@ ordinal: 112000
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
-- [ ] #4 Lint passes
+- [x] #4 Lint passes
 - [x] #5 Relevant tests pass
 - [x] #6 Build passes when applicable
 - [x] #7 No known regression is introduced
@@ -89,9 +89,9 @@ ordinal: 112000
 - [x] #9 Documentation is updated
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Notes
@@ -141,11 +141,12 @@ that ART-142 is merged in.
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Permanently retired the inherited a16z server-side simulation engine (world execution lifecycle, agent reasoning, chat, Human Player, heartbeat-driven restart, both lifecycle crons) while preserving every PixiJS renderer component (PixiViewport, PixiStaticMap, Character, spritesheets, animations, tilemap data) for future reuse and leaving the ART pipeline (Canon, simulation, story, publicRead) fully unaffected -- confirmed via a pre-existing cross-repo grep showing zero imports from agent/aiTown/engine anywhere in the ART pipeline (ART-107), and via the full test suite (85 suites/1113 tests) passing unchanged. Convex table schemas for the retired engine are kept (inert historical data, no Canon schema change) since three files (player.ts/agent.ts/conversation.ts) still export the validators schema.ts needs; their class bodies are reduced to inert data holders.
-
-Verified live: booted the app in a real browser after redeploy -- public pages (Homepage, LiveView) render real Canon content with zero console errors; the previously-interactive bare route now falls back to Homepage; npx convex data confirms the engine has taken zero new steps since this sessions earlier containment action (generationNumber frozen, running: false). Production bundle shrank from 1,205 kB to 328.81 kB (825 to 183 modules).
-
-Updated README.md, added ADR-0004 (superseding ADR-0001), and corrected docs/architecture/current-state.md and module-boundaries.md.
-
-NOT DONE / blocked: npm run lint does not pass on a fresh install (78 errors in postCommitLiveFunctions.ts, worldDayLiveFunctions.ts, canonCorrectionFunctions.ts -- a pre-existing TypeScript/Convex-codegen type-complexity fragility this tasks file deletion exposed, not a defect in this tasks own logic). Two related hard tsc TS2589 errors (music.ts, ArcDetailPage.tsx) were found and fixed. The remaining lint failures are split out as ART-142 (blocks this task). Status: Blocked, pending ART-142. Branch/PR contain the complete, correct retirement -- merge is blocked on CI, not on unfinished retirement work.
+Update: the CI blocker (78 ESLint no-unsafe-* errors from ART-142's root cause) is
+resolved by ART-142 (merged into this branch via PR #154). PR #153 re-ran CI on the updated
+branch tip -- both required checks (Bootstrap, Offline checks: typecheck/lint/test/build) passed
+-- and merged into main via the enabled auto-merge. lint now passes clean on a fresh clone; all
+acceptance criteria and Definition of Done items are satisfied. The retirement work itself
+(engine lifecycle removed, visual runtime preserved, docs updated, live-browser and Canon
+integrity verified) was already complete and correct prior to this -- only the tooling blocker
+needed lifting. See ART-142 for the fix's own details and verification evidence.
 <!-- SECTION:FINAL_SUMMARY:END -->
