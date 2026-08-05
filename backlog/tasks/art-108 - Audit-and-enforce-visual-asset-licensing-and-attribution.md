@@ -5,7 +5,7 @@ status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-04 15:57'
-updated_date: '2026-08-05 06:09'
+updated_date: '2026-08-05 06:10'
 labels:
   - prd-2.0
   - v2-a
@@ -74,7 +74,7 @@ ordinal: 108000
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -113,6 +113,8 @@ Built assets/asset-licenses.json (machine-readable register, mirrors the existin
 Rewrote ASSETS-LICENSE.md to close out all three items ART-62 (PRD 1.0 security/release audit) had explicitly left open (OpenGameArt licence versions, font terms, background.mp3 provenance) with verified evidence, and to narrow one of ART-62's carried-over attributions (assets/ui/*.svg) that could not be re-verified.
 
 Validation from a genuinely fresh clone (/tmp/art108-fresh, git clone + npm ci, deleted after): npm run check passed in full (check:architecture, test:architecture, check:asset-licenses, test:asset-licenses, typecheck, lint, 85/85 test suites / 1113/1118 tests with the same 5 pre-existing skips as the ART-112 baseline, build). Explicit negative-test proof per requirement: removed the public/assets/gentle-obj.png record from the fresh clone's assets/asset-licenses.json and re-ran npm run check:asset-licenses -- it failed with exit code 1 and the expected 'reachable from the public bundle but has no licence record' message.
+
+Pushed feat/art-108-asset-license-audit and opened PR #156 against main. Auto-merge enabled (gh pr merge 156 --auto --merge --delete-branch); status BLOCKED pending required CI checks, not block-watched per repo workflow -- will complete asynchronously. DoD #14 remains unchecked until the merge actually lands.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
