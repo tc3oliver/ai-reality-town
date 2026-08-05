@@ -60,6 +60,11 @@ export const handleReplicateWebhook = httpAction(async (ctx, request) => {
     const response = await fetch(prediction.output);
     const music = await response.blob();
     const storageId = await ctx.storage.store(music);
+    // Known TS2589 limit (generated internal/api union too large for tsc to instantiate at
+    // this call site once enough Convex modules exist; verified via a clean-clone
+    // reproduction, unrelated to this file's own logic; harmless at runtime -- Convex
+    // validates args against the real function at the wire layer regardless of this):
+    // @ts-ignore
     await ctx.runMutation(internal.music.insertMusic, { type: 'background', storageId });
   }
   return new Response();

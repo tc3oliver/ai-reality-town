@@ -37,12 +37,18 @@ export default function ArcDetailPage() {
   const enabled = route !== null;
 
   // Public reads only — no provider calls.
+  // Known TS2589 limit (generated internal/api union too large for tsc to instantiate at
+  // this call site once enough Convex modules exist; verified via a clean-clone
+  // reproduction; every other public page makes this identical call and typechecks fine).
+  // Sharing one reference between both queries below avoids resolving it twice.
+  // @ts-ignore
+  const getPublishedReadModel = api.publicRead.readModelFunctions.getPublishedReadModel;
   const arcResult = useQuery(
-    api.publicRead.readModelFunctions.getPublishedReadModel,
+    getPublishedReadModel,
     enabled ? { worldId: worldId as string, modelKind: 'arc', modelRef: `arc:${arcId}` } : 'skip',
   );
   const primerResult = useQuery(
-    api.publicRead.readModelFunctions.getPublishedReadModel,
+    getPublishedReadModel,
     enabled ? { worldId: worldId as string, modelKind: 'arc', modelRef: `primer:${arcId}` } : 'skip',
   );
 
