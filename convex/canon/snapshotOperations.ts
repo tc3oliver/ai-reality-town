@@ -2,7 +2,7 @@ import { internalMutation, internalQuery } from '../_generated/server';
 import type { DataModel, Id } from '../_generated/dataModel';
 import type { GenericMutationCtx, GenericQueryCtx } from 'convex/server';
 import { v } from 'convex/values';
-import { emptyProjection, type WorldProjection } from './model';
+import type { WorldProjection } from './model';
 import { replayWorldEvents } from './replay';
 import { rowToAcceptedEvent } from './serialize';
 import {
@@ -10,6 +10,7 @@ import {
   assertSnapshotMatchesHistory,
   clearRecoveryHead,
   createDailySnapshot,
+  resolveWorldBaseline,
   type RecoveryHead,
   type SnapshotKind,
   type SnapshotRecoveryStore,
@@ -73,6 +74,12 @@ export function createSnapshotRecoveryStore(db: GenericMutationCtx<DataModel>['d
       const row = await db.get(snapshotId as Id<'canonSnapshots'>);
       return row?.worldId === worldId ? rowToSnapshot(row) : null;
     },
+    async loadInitialSnapshot(worldId) {
+      const row = await db.query('canonSnapshots')
+        .withIndex('by_world_day_and_kind', (q) => q.eq('worldId', worldId).eq('worldDay', 0).eq('kind', 'initial'))
+        .unique();
+      return row ? rowToSnapshot(row) : null;
+    },
     async saveSnapshot(snapshot: CanonSnapshot, kind: SnapshotKind) {
       const snapshotId = await db.insert('canonSnapshots', { ...snapshot, kind });
       return { ...snapshot, snapshotId, kind };
@@ -116,16 +123,25 @@ export async function readOperationalWorldProjection(
   db: GenericQueryCtx<DataModel>['db'],
   worldId: string,
 ): Promise<WorldProjection> {
-  const [eventRows, head] = await Promise.all([
+  const [eventRows, head, initialRow] = await Promise.all([
     db.query('canonEvents').withIndex('by_world_and_sequence', (q) => q.eq('worldId', worldId)).collect(),
     db.query('canonRecoveryHeads').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).unique(),
+    db.query('canonSnapshots')
+      .withIndex('by_world_day_and_kind', (q) => q.eq('worldId', worldId).eq('worldDay', 0).eq('kind', 'initial'))
+      .unique(),
   ]);
   const events = eventRows.map(rowToAcceptedEvent);
-  if (!head) return replayWorldEvents(emptyProjection(worldId), events);
+  const baseline = resolveWorldBaseline(worldId, initialRow ? rowToSnapshot(initialRow) : null);
+  if (!head) {
+    return replayWorldEvents(
+      cloneProjection(baseline.projection),
+      events.filter((event) => event.sequenceNumber > baseline.lastSequenceNumber),
+    );
+  }
   const snapshotRow = await db.get(head.targetSnapshotId);
   if (!snapshotRow || snapshotRow.worldId !== worldId) throw new Error('RECOVERY_HEAD_CONFLICT');
   const snapshot = rowToSnapshot(snapshotRow);
-  assertSnapshotMatchesHistory(snapshot, events);
+  assertSnapshotMatchesHistory(snapshot, events, baseline);
   return cloneProjection(snapshot.projection);
 }
 
