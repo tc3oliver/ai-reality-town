@@ -32,8 +32,41 @@
 import { v } from 'convex/values';
 import type { GenericMutationCtx } from 'convex/server';
 import { internalMutation } from '../_generated/server';
-import { internal } from '../_generated/api';
 import type { DataModel, Doc } from '../_generated/dataModel';
+import { internalFunctionRef } from '../shared/internalFunctionRef';
+import type {
+  rebuildWorldProjection as rebuildWorldProjectionExport,
+  rebuildCharacterProjection as rebuildCharacterProjectionExport,
+} from '../publicRead/worldCharacterProjectionFunctions';
+import type {
+  rebuildRelationshipProjection as rebuildRelationshipProjectionExport,
+  rebuildArcProjection as rebuildArcProjectionExport,
+} from '../publicRead/relationshipArcProjectionFunctions';
+import type { recordArcEventClassification as recordArcEventClassificationExport } from '../story/classificationFunctions';
+import type {
+  admitArcToPortfolio as admitArcToPortfolioExport,
+  syncArcPortfolioEntry as syncArcPortfolioEntryExport,
+} from '../story/portfolioFunctions';
+import type { transitionArcLifecycleRecord as transitionArcLifecycleRecordExport } from '../story/functions';
+import type { updateArcProjection as updateArcProjectionExport } from '../story/projectionFunctions';
+import type { refreshArcStagnationPrompts as refreshArcStagnationPromptsExport } from '../story/resolutionFunctions';
+import type { generateAcceptedEventEpisode as generateAcceptedEventEpisodeExport } from '../editorial/episodeFunctions';
+import type { generateIncrementalRecap as generateIncrementalRecapExport } from '../recaps/functions';
+import type {
+  createEpisodePublication as createEpisodePublicationExport,
+  advancePublication as advancePublicationExport,
+} from '../editorial/publicationLifecycleFunctions';
+import type { reassessMajorActiveArcEntries as reassessMajorActiveArcEntriesExport } from '../story/entryRecommendationFunctions';
+import type {
+  rebuildEpisodeProjection as rebuildEpisodeProjectionExport,
+  rebuildTimelineProjection as rebuildTimelineProjectionExport,
+} from '../publicRead/episodeTimelineProjectionFunctions';
+import type { rebuildEpisodeIndexProjection as rebuildEpisodeIndexProjectionExport } from '../publicRead/episodeIndexProjectionFunctions';
+import type { rebuildArcPrimer as rebuildArcPrimerExport } from '../publicRead/arcPrimerFunctions';
+import type { rebuildLiveProjection as rebuildLiveProjectionExport } from '../publicRead/liveStateFunctions';
+import type { rebuildOnboardingSummary as rebuildOnboardingSummaryExport } from '../publicRead/onboardingSummaryFunctions';
+import type { persistDailySnapshot as persistDailySnapshotExport } from '../canon/snapshotOperations';
+import type { runQueuedWorldDaySlot as runQueuedWorldDaySlotExport } from '../simulation/worldDayLiveFunctions';
 import { emptyProjection, type AcceptedEvent } from '../canon/model';
 import { TIME_SLOTS } from '../canon/eventTypes';
 import { replayWorldEvents } from '../canon/replay';
@@ -76,6 +109,76 @@ const LAST_TIME_SLOT = TIME_SLOTS[TIME_SLOTS.length - 1];
  */
 const DEFAULT_MAX_POST_COMMIT_EVENTS = 1;
 const MAX_POST_COMMIT_EVENTS = 10;
+
+const rebuildWorldProjectionRef = internalFunctionRef<typeof rebuildWorldProjectionExport>(
+  'publicRead/worldCharacterProjectionFunctions:rebuildWorldProjection',
+);
+const rebuildCharacterProjectionRef = internalFunctionRef<typeof rebuildCharacterProjectionExport>(
+  'publicRead/worldCharacterProjectionFunctions:rebuildCharacterProjection',
+);
+const rebuildRelationshipProjectionRef = internalFunctionRef<typeof rebuildRelationshipProjectionExport>(
+  'publicRead/relationshipArcProjectionFunctions:rebuildRelationshipProjection',
+);
+const rebuildArcProjectionRef = internalFunctionRef<typeof rebuildArcProjectionExport>(
+  'publicRead/relationshipArcProjectionFunctions:rebuildArcProjection',
+);
+const recordArcEventClassificationRef = internalFunctionRef<typeof recordArcEventClassificationExport>(
+  'story/classificationFunctions:recordArcEventClassification',
+);
+const admitArcToPortfolioRef = internalFunctionRef<typeof admitArcToPortfolioExport>(
+  'story/portfolioFunctions:admitArcToPortfolio',
+);
+const syncArcPortfolioEntryRef = internalFunctionRef<typeof syncArcPortfolioEntryExport>(
+  'story/portfolioFunctions:syncArcPortfolioEntry',
+);
+const transitionArcLifecycleRecordRef = internalFunctionRef<typeof transitionArcLifecycleRecordExport>(
+  'story/functions:transitionArcLifecycleRecord',
+);
+const updateArcProjectionRef = internalFunctionRef<typeof updateArcProjectionExport>(
+  'story/projectionFunctions:updateArcProjection',
+);
+const refreshArcStagnationPromptsRef = internalFunctionRef<typeof refreshArcStagnationPromptsExport>(
+  'story/resolutionFunctions:refreshArcStagnationPrompts',
+);
+const generateAcceptedEventEpisodeRef = internalFunctionRef<typeof generateAcceptedEventEpisodeExport>(
+  'editorial/episodeFunctions:generateAcceptedEventEpisode',
+);
+const generateIncrementalRecapRef = internalFunctionRef<typeof generateIncrementalRecapExport>(
+  'recaps/functions:generateIncrementalRecap',
+);
+const createEpisodePublicationRef = internalFunctionRef<typeof createEpisodePublicationExport>(
+  'editorial/publicationLifecycleFunctions:createEpisodePublication',
+);
+const advancePublicationRef = internalFunctionRef<typeof advancePublicationExport>(
+  'editorial/publicationLifecycleFunctions:advancePublication',
+);
+const reassessMajorActiveArcEntriesRef = internalFunctionRef<typeof reassessMajorActiveArcEntriesExport>(
+  'story/entryRecommendationFunctions:reassessMajorActiveArcEntries',
+);
+const rebuildEpisodeProjectionRef = internalFunctionRef<typeof rebuildEpisodeProjectionExport>(
+  'publicRead/episodeTimelineProjectionFunctions:rebuildEpisodeProjection',
+);
+const rebuildEpisodeIndexProjectionRef = internalFunctionRef<typeof rebuildEpisodeIndexProjectionExport>(
+  'publicRead/episodeIndexProjectionFunctions:rebuildEpisodeIndexProjection',
+);
+const rebuildTimelineProjectionRef = internalFunctionRef<typeof rebuildTimelineProjectionExport>(
+  'publicRead/episodeTimelineProjectionFunctions:rebuildTimelineProjection',
+);
+const rebuildArcPrimerRef = internalFunctionRef<typeof rebuildArcPrimerExport>(
+  'publicRead/arcPrimerFunctions:rebuildArcPrimer',
+);
+const rebuildLiveProjectionRef = internalFunctionRef<typeof rebuildLiveProjectionExport>(
+  'publicRead/liveStateFunctions:rebuildLiveProjection',
+);
+const rebuildOnboardingSummaryRef = internalFunctionRef<typeof rebuildOnboardingSummaryExport>(
+  'publicRead/onboardingSummaryFunctions:rebuildOnboardingSummary',
+);
+const persistDailySnapshotRef = internalFunctionRef<typeof persistDailySnapshotExport>(
+  'canon/snapshotOperations:persistDailySnapshot',
+);
+const runQueuedWorldDaySlotRef = internalFunctionRef<typeof runQueuedWorldDaySlotExport>(
+  'simulation/worldDayLiveFunctions:runQueuedWorldDaySlot',
+);
 
 /**
  * A world day counts as finished once it is no longer the newest day, or once it has
@@ -177,14 +280,12 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
     },
 
     async rebuildWorldProjection(worldId) {
-      const { modelRef } = await ctx.runMutation(
-        internal.publicRead.worldCharacterProjectionFunctions.rebuildWorldProjection, { worldId, now });
+      const { modelRef } = await ctx.runMutation(rebuildWorldProjectionRef, { worldId, now });
       return modelRef;
     },
 
     async rebuildCharacterProjection(worldId, characterId) {
-      const { modelRef } = await ctx.runMutation(
-        internal.publicRead.worldCharacterProjectionFunctions.rebuildCharacterProjection, { worldId, characterId, now });
+      const { modelRef } = await ctx.runMutation(rebuildCharacterProjectionRef, { worldId, characterId, now });
       return modelRef;
     },
 
@@ -200,51 +301,50 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
 
     async rebuildRelationshipProjection(worldId, sourceCharacterId, targetCharacterId) {
       const { modelRef } = await ctx.runMutation(
-        internal.publicRead.relationshipArcProjectionFunctions.rebuildRelationshipProjection,
+        rebuildRelationshipProjectionRef,
         { worldId, sourceCharacterId, targetCharacterId, now });
       return modelRef;
     },
 
     async recordArcClassification(classification) {
-      const { created } = await ctx.runMutation(
-        internal.story.classificationFunctions.recordArcEventClassification, { classification });
+      const { created } = await ctx.runMutation(recordArcEventClassificationRef, { classification });
       return invalidate({ created });
     },
 
     async admitArcToPortfolio(worldId, candidate, remediation) {
-      return invalidate(await ctx.runMutation(internal.story.portfolioFunctions.admitArcToPortfolio,
+      return invalidate(await ctx.runMutation(admitArcToPortfolioRef,
         { worldId, candidate, remediation, decidedAt: now }));
     },
 
     async syncArcPortfolioEntry(worldId, arcId, sourceEventId) {
-      const { synced } = await ctx.runMutation(internal.story.portfolioFunctions.syncArcPortfolioEntry,
+      const { synced } = await ctx.runMutation(syncArcPortfolioEntryRef,
         { worldId, arcId, sourceEventId, updatedAt: now });
       return invalidate(synced);
     },
 
     async transitionArcLifecycle(input) {
-      const { status } = await ctx.runMutation(internal.story.functions.transitionArcLifecycleRecord,
+      const { status } = await ctx.runMutation(transitionArcLifecycleRecordRef,
         { ...input, changedAt: now });
       return invalidate({ status });
     },
 
     async updateArcProjection(input) {
-      return invalidate(await ctx.runMutation(internal.story.projectionFunctions.updateArcProjection, input));
+      return invalidate(await ctx.runMutation(updateArcProjectionRef, input));
     },
 
     async refreshStagnationPrompts(worldId, currentWorldDay) {
-      const prompts = await ctx.runMutation(internal.story.resolutionFunctions.refreshArcStagnationPrompts,
+      const prompts = await ctx.runMutation(refreshArcStagnationPromptsRef,
         { worldId, currentWorldDay });
       return prompts.length;
     },
 
     async generateEpisode(worldId, worldDay, episodeNumber) {
-      return invalidate(await ctx.runMutation(internal.editorial.episodeFunctions.generateAcceptedEventEpisode,
+      return invalidate(await ctx.runMutation(generateAcceptedEventEpisodeRef,
         { worldId, worldDay, episodeNumber, createdAt: now }));
     },
 
     async generateRecap(worldId, request) {
-      const { snapshot, deduplicated } = await ctx.runMutation(internal.recaps.functions.generateIncrementalRecap, {
+      const { snapshot, deduplicated } = await ctx.runMutation(generateIncrementalRecapRef, {
         snapshotId: request.snapshotId, worldId, recapType: request.recapType, targetId: request.targetId,
         mode: 'incremental', fromSequenceNumber: request.fromSequenceNumber,
         toSequenceNumber: request.toSequenceNumber, generatedAt: now,
@@ -261,68 +361,68 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
     },
 
     async createPublication(worldId, contentRef, summary) {
-      const { status } = await ctx.runMutation(internal.editorial.publicationLifecycleFunctions.createEpisodePublication,
+      const { status } = await ctx.runMutation(createEpisodePublicationRef,
         { worldId, contentRef, summary, actor: SYSTEM_ACTOR, reason: 'post-commit editorial pipeline', now });
       return { status };
     },
 
     async advancePublication(worldId, contentRef, action) {
-      const { status } = await ctx.runMutation(internal.editorial.publicationLifecycleFunctions.advancePublication,
+      const { status } = await ctx.runMutation(advancePublicationRef,
         { worldId, contentRef, action, actor: SYSTEM_ACTOR, reason: 'post-commit editorial pipeline', now });
       return { status };
     },
 
     async reassessArcEntries(worldId) {
       const { reassessed } = await ctx.runMutation(
-        internal.story.entryRecommendationFunctions.reassessMajorActiveArcEntries, { worldId, now });
+        reassessMajorActiveArcEntriesRef, { worldId, now });
       return reassessed;
     },
 
     async rebuildEpisodeProjection(worldId, worldDay) {
       const { modelRef } = await ctx.runMutation(
-        internal.publicRead.episodeTimelineProjectionFunctions.rebuildEpisodeProjection, { worldId, worldDay, now });
+        rebuildEpisodeProjectionRef, { worldId, worldDay, now });
       return modelRef;
     },
 
     async rebuildEpisodeIndexProjection(worldId) {
       const { modelRef } = await ctx.runMutation(
-        internal.publicRead.episodeIndexProjectionFunctions.rebuildEpisodeIndexProjection, { worldId, now });
+        rebuildEpisodeIndexProjectionRef, { worldId, now });
       return modelRef;
     },
 
     async rebuildTimelineProjection(worldId) {
       const { modelRef } = await ctx.runMutation(
-        internal.publicRead.episodeTimelineProjectionFunctions.rebuildTimelineProjection, { worldId, now });
+        rebuildTimelineProjectionRef, { worldId, now });
       return modelRef;
     },
 
     async rebuildArcReadModel(worldId, arcId) {
       const { modelRef } = await ctx.runMutation(
-        internal.publicRead.relationshipArcProjectionFunctions.rebuildArcProjection, { worldId, arcId, now });
+        rebuildArcProjectionRef, { worldId, arcId, now });
       return modelRef;
     },
 
     async rebuildArcPrimer(worldId, arcId) {
       const { modelRef } = await ctx.runMutation(
-        internal.publicRead.arcPrimerFunctions.rebuildArcPrimer, { worldId, arcId, now });
+        rebuildArcPrimerRef, { worldId, arcId, now });
       return modelRef;
     },
 
     async rebuildLiveProjection(worldId) {
       const { modelRef } = await ctx.runMutation(
-        internal.publicRead.liveStateFunctions.rebuildLiveProjection, { worldId, now });
+        rebuildLiveProjectionRef, { worldId, now });
       return modelRef;
     },
 
     async rebuildOnboardingSummary(worldId) {
       const { modelRef } = await ctx.runMutation(
-        internal.publicRead.onboardingSummaryFunctions.rebuildOnboardingSummary, { worldId, now });
+        rebuildOnboardingSummaryRef, { worldId, now });
       return modelRef;
     },
 
     async persistDailySnapshot(worldId, worldDay) {
       const { snapshot, deduplicated } = await ctx.runMutation(
-        internal.canon.snapshotOperations.persistDailySnapshot, { worldId, worldDay, createdAt: now });
+        persistDailySnapshotRef, { worldId, worldDay, createdAt: now });
       return { snapshotId: String(snapshot.snapshotId), deduplicated };
     },
 
@@ -432,7 +532,7 @@ export const runLiveWorldDayCycle = internalMutation({
       throw new Error('INVALID_POST_COMMIT_BATCH_SIZE');
     }
     const slotResult: { worldId: string; executed: number; slots: WorldDaySlotOutcome[] } = await ctx.runMutation(
-      internal.simulation.worldDayLiveFunctions.runQueuedWorldDaySlot,
+      runQueuedWorldDaySlotRef,
       { worldId: args.worldId, slotId: args.slotId, maxSlots: args.maxSlots ?? 1, now },
     );
     const rows = await ctx.db.query('canonEvents')

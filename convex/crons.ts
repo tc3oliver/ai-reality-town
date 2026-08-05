@@ -1,11 +1,21 @@
 import { cronJobs } from 'convex/server';
 import { DELETE_BATCH_SIZE, VACUUM_MAX_AGE } from './constants';
-import { internal } from './_generated/api';
 import { internalMutation } from './_generated/server';
 import { TableNames } from './_generated/dataModel';
 import { v } from 'convex/values';
+import { internalFunctionRef } from './shared/internalFunctionRef';
+import type { tickAllPublicSchedules as tickAllPublicSchedulesExport } from './simulation/schedulerOperations';
 
 const crons = cronJobs();
+
+const tickAllPublicSchedulesRef = internalFunctionRef<typeof tickAllPublicSchedulesExport>(
+  'simulation/schedulerOperations:tickAllPublicSchedules',
+);
+// `vacuumOldEntries`/`vacuumTable` are declared further down in this same file; a `typeof`
+// type query resolves across the whole module regardless of declaration order, and these
+// refs are only ever called from inside handler closures that run after module load.
+const vacuumOldEntriesRef = internalFunctionRef<typeof vacuumOldEntries>('crons:vacuumOldEntries');
+const vacuumTableRef = internalFunctionRef<typeof vacuumTable>('crons:vacuumTable');
 
 // ART-112: the "stop inactive worlds" and "restart dead worlds" crons drove the retired
 // a16z engine's own lifecycle (internal.world.stopInactiveWorlds / restartDeadWorlds, both
@@ -14,10 +24,10 @@ const crons = cronJobs();
 crons.interval(
   'reserve due AI Reality Town world slots',
   { seconds: 60 },
-  internal.simulation.schedulerOperations.tickAllPublicSchedules,
+  tickAllPublicSchedulesRef,
 );
 
-crons.daily('vacuum old entries', { hourUTC: 4, minuteUTC: 20 }, internal.crons.vacuumOldEntries);
+crons.daily('vacuum old entries', { hourUTC: 4, minuteUTC: 20 }, vacuumOldEntriesRef);
 
 export default crons;
 
@@ -51,7 +61,7 @@ export const vacuumOldEntries = internalMutation({
         .first();
       if (exists) {
         console.log(`Vacuuming ${tableName}...`);
-        await ctx.scheduler.runAfter(0, internal.crons.vacuumTable, {
+        await ctx.scheduler.runAfter(0, vacuumTableRef, {
           tableName,
           before,
           cursor: null,
@@ -78,7 +88,7 @@ export const vacuumTable = internalMutation({
       await ctx.db.delete(row._id);
     }
     if (!results.isDone) {
-      await ctx.scheduler.runAfter(0, internal.crons.vacuumTable, {
+      await ctx.scheduler.runAfter(0, vacuumTableRef, {
         tableName,
         before,
         soFar: results.page.length + soFar,

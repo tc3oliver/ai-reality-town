@@ -1,5 +1,5 @@
 import { useQuery } from 'convex/react';
-import { api } from '../../../convex/_generated/api';
+import { getPublishedReadModelRef } from './publicReadModelRef';
 import { PublicPageFrame } from './PublicPageFrame';
 import {
   composeCharacterViewModel,
@@ -40,11 +40,11 @@ export default function CharacterPage() {
 
   // Public reads only — no provider calls.
   const characterResult = useQuery(
-    api.publicRead.readModelFunctions.getPublishedReadModel,
+    getPublishedReadModelRef,
     enabled ? { worldId: worldId as string, modelKind: 'character', modelRef: `character:${characterId}` } : 'skip',
   );
   const timelineResult = useQuery(
-    api.publicRead.readModelFunctions.getPublishedReadModel,
+    getPublishedReadModelRef,
     enabled ? { worldId: worldId as string, modelKind: 'timeline', modelRef: `timeline:${worldId}` } : 'skip',
   );
 

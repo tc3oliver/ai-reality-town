@@ -1,5 +1,5 @@
 import { useQuery } from 'convex/react';
-import { api } from '../../../convex/_generated/api';
+import { getPublishedReadModelRef } from './publicReadModelRef';
 import { PublicPageFrame } from './PublicPageFrame';
 import {
   composeLiveViewModel,
@@ -33,7 +33,7 @@ export default function LiveView() {
 
   // Public read only — no provider calls (AC#3).
   const result = useQuery(
-    api.publicRead.readModelFunctions.getPublishedReadModel,
+    getPublishedReadModelRef,
     enabled ? { worldId, modelKind: 'liveState', modelRef: `live:${worldId}` } : 'skip',
   );
 

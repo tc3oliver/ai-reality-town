@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from 'convex/react';
-import { api } from '../../../convex/_generated/api';
+import { getPublishedReadModelRef } from './publicReadModelRef';
 import { PublicPageFrame } from './PublicPageFrame';
 
 /**
@@ -58,7 +58,7 @@ export default function EpisodeDetail() {
   const route = parseRoute();
 
   const result = useQuery(
-    api.publicRead.readModelFunctions.getPublishedReadModel,
+    getPublishedReadModelRef,
     route
       ? { worldId: route.worldId, modelKind: 'episode', modelRef: `episode:${route.worldDay}` }
       : 'skip',

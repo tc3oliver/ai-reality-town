@@ -23,10 +23,19 @@
  */
 
 import { internalMutation } from '../_generated/server';
-import { internal } from '../_generated/api';
 import type { DataModel, Doc, Id } from '../_generated/dataModel';
 import type { GenericMutationCtx } from 'convex/server';
 import { v } from 'convex/values';
+import { internalFunctionRef } from '../shared/internalFunctionRef';
+import type { persistDirectorPlan as persistDirectorPlanExport } from './directorFunctions';
+import type { persistCharacterIntent as persistCharacterIntentExport } from './characterIntentFunctions';
+import type { groupPersistedCharacterIntents as groupPersistedCharacterIntentsExport } from './sceneGroupingFunctions';
+import type { persistValidatedSceneSimulation as persistValidatedSceneSimulationExport } from './sceneSimulationFunctions';
+import type {
+  startScheduledSlot as startScheduledSlotExport,
+  completeScheduledSlot as completeScheduledSlotExport,
+  failScheduledSlot as failScheduledSlotExport,
+} from './schedulerOperations';
 import { createConvexCanonStore } from '../canon/commit';
 import { TIME_SLOTS, type TimeSlot } from '../canon/eventTypes';
 import { emptyProjection, type ProposedEvent } from '../canon/model';
@@ -49,6 +58,28 @@ import {
 
 type MutationCtx = GenericMutationCtx<DataModel>;
 type MutationDb = MutationCtx['db'];
+
+const persistDirectorPlanRef = internalFunctionRef<typeof persistDirectorPlanExport>(
+  'simulation/directorFunctions:persistDirectorPlan',
+);
+const persistCharacterIntentRef = internalFunctionRef<typeof persistCharacterIntentExport>(
+  'simulation/characterIntentFunctions:persistCharacterIntent',
+);
+const groupPersistedCharacterIntentsRef = internalFunctionRef<typeof groupPersistedCharacterIntentsExport>(
+  'simulation/sceneGroupingFunctions:groupPersistedCharacterIntents',
+);
+const persistValidatedSceneSimulationRef = internalFunctionRef<typeof persistValidatedSceneSimulationExport>(
+  'simulation/sceneSimulationFunctions:persistValidatedSceneSimulation',
+);
+const startScheduledSlotRef = internalFunctionRef<typeof startScheduledSlotExport>(
+  'simulation/schedulerOperations:startScheduledSlot',
+);
+const completeScheduledSlotRef = internalFunctionRef<typeof completeScheduledSlotExport>(
+  'simulation/schedulerOperations:completeScheduledSlot',
+);
+const failScheduledSlotRef = internalFunctionRef<typeof failScheduledSlotExport>(
+  'simulation/schedulerOperations:failScheduledSlot',
+);
 
 const text = (payload: unknown, key: string): string | null => {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
@@ -133,22 +164,22 @@ function createConvexWorldDayLivePort(ctx: MutationCtx, now: number): WorldDayLi
     // (FR-J001), which is not implemented yet, so no slot has any queued for it.
     loadScheduledEnvironmentEvents: (): Promise<ProposedEvent[]> => Promise.resolve([]),
     persistDirectorPlan: async (context, plan) => {
-      await ctx.runMutation(internal.simulation.directorFunctions.persistDirectorPlan,
+      await ctx.runMutation(persistDirectorPlanRef,
         { context, plan, createdAt: now });
     },
     persistCharacterIntent: async (context, intent) => {
-      await ctx.runMutation(internal.simulation.characterIntentFunctions.persistCharacterIntent,
+      await ctx.runMutation(persistCharacterIntentRef,
         { context, intent, createdAt: now });
     },
     persistGroupedScenes: async (input) => {
-      await ctx.runMutation(internal.simulation.sceneGroupingFunctions.groupPersistedCharacterIntents, {
+      await ctx.runMutation(groupPersistedCharacterIntentsRef, {
         worldId: input.worldId, groupingRunId: input.groupingRunId, directorRunId: input.directorRunId,
         worldDay: input.worldDay, timeSlot: input.timeSlot,
         intentRunIds: input.intents.map(({ intent }) => intent.intentRunId), createdAt: now,
       });
     },
     persistSceneSimulation: async (groupingRunId, result) => {
-      await ctx.runMutation(internal.simulation.sceneSimulationFunctions.persistValidatedSceneSimulation, {
+      await ctx.runMutation(persistValidatedSceneSimulationRef, {
         worldId: result.scene.worldId, simulationRunId: result.simulationRunId, groupingRunId,
         sceneId: result.scene.sceneId, output: result.output, attemptCount: result.attemptCount,
         trace: result.trace, createdAt: now,
@@ -177,7 +208,7 @@ export type WorldDaySlotOutcome = {
 
 /** Execute one queued slot: reserve → run stages 1–10 → record the slot outcome. */
 async function executeSlot(ctx: MutationCtx, row: Doc<'scheduledSlots'>, now: number): Promise<WorldDaySlotOutcome> {
-  await ctx.runMutation(internal.simulation.schedulerOperations.startScheduledSlot, { slotId: row._id, now });
+  await ctx.runMutation(startScheduledSlotRef, { slotId: row._id, now });
   const slot: WorldDaySlotIdentity = { worldId: row.worldId, worldDay: row.worldDay, timeSlot: row.timeSlot };
   const run = await executeWorldDay(
     { runId: worldDayRunId(slot), ...slot },
@@ -193,10 +224,10 @@ async function executeSlot(ctx: MutationCtx, row: Doc<'scheduledSlots'>, now: nu
   );
   const committedEventIds = run.committedEventIds ?? [];
   if (run.status === 'completed') {
-    await ctx.runMutation(internal.simulation.schedulerOperations.completeScheduledSlot,
+    await ctx.runMutation(completeScheduledSlotRef,
       { slotId: row._id, committedEventId: committedEventIds[0], now });
   } else {
-    await ctx.runMutation(internal.simulation.schedulerOperations.failScheduledSlot,
+    await ctx.runMutation(failScheduledSlotRef,
       { slotId: row._id, errorCode: run.errorCode ?? 'WORLD_DAY_RUN_FAILED', now });
   }
   return {

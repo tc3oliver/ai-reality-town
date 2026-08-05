@@ -2,7 +2,7 @@ import { v } from 'convex/values';
 import { query, internalMutation } from './_generated/server';
 import Replicate, { WebhookEventType } from 'replicate';
 import { httpAction, internalAction } from './_generated/server';
-import { internal } from './_generated/api';
+import { internalFunctionRef } from './shared/internalFunctionRef';
 
 function client(): Replicate {
   const replicate = new Replicate({
@@ -24,6 +24,8 @@ export const insertMusic = internalMutation({
     });
   },
 });
+
+const insertMusicRef = internalFunctionRef<typeof insertMusic>('music:insertMusic');
 
 export const getBackgroundMusic = query({
   handler: async (ctx) => {
@@ -60,12 +62,7 @@ export const handleReplicateWebhook = httpAction(async (ctx, request) => {
     const response = await fetch(prediction.output);
     const music = await response.blob();
     const storageId = await ctx.storage.store(music);
-    // Known TS2589 limit (generated internal/api union too large for tsc to instantiate at
-    // this call site once enough Convex modules exist; verified via a clean-clone
-    // reproduction, unrelated to this file's own logic; harmless at runtime -- Convex
-    // validates args against the real function at the wire layer regardless of this):
-    // @ts-ignore
-    await ctx.runMutation(internal.music.insertMusic, { type: 'background', storageId });
+    await ctx.runMutation(insertMusicRef, { type: 'background', storageId });
   }
   return new Response();
 });

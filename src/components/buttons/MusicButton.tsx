@@ -3,10 +3,13 @@ import volumeImg from '../../../assets/volume.svg';
 import { sound } from '@pixi/sound';
 import Button from './Button';
 import { useQuery } from 'convex/react';
-import { api } from '../../../convex/_generated/api';
+import { publicFunctionRef } from '../../../convex/shared/internalFunctionRef';
+import type { getBackgroundMusic as getBackgroundMusicExport } from '../../../convex/music';
+
+const getBackgroundMusicRef = publicFunctionRef<typeof getBackgroundMusicExport>('music:getBackgroundMusic');
 
 export default function MusicButton() {
-  const musicUrl = useQuery(api.music.getBackgroundMusic);
+  const musicUrl = useQuery(getBackgroundMusicRef);
   const [isPlaying, setPlaying] = useState(false);
 
   useEffect(() => {
