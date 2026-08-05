@@ -4,13 +4,14 @@ title: Define Character Visual Binding with palette variants for twelve characte
 status: To Do
 assignee: []
 created_date: '2026-08-04 15:57'
-updated_date: '2026-08-04 17:15'
+updated_date: '2026-08-05 06:51'
 labels:
   - prd-2.0
   - v2-b
   - epic-n
 dependencies:
   - ART-107
+  - ART-143
 priority: high
 type: feature
 ordinal: 111000
