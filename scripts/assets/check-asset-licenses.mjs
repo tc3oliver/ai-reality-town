@@ -7,13 +7,14 @@ const MANIFEST_PATH = join(ROOT, 'assets/asset-licenses.json');
 
 // Assets reachable from the current or planned public visual bundle (ART-107's
 // "reusable renderer" inventory: PixiGame/PixiStaticMap/Character + the stock
-// gentle-obj.png tileset + its FX spritesheets/animations + the two shipped
-// fonts + the favicon). Every path here must carry an "approved" manifest
-// record with a non-empty licence and attribution disposition. This list is
-// deliberately narrower than the full asset census in the manifest: assets
-// outside it (character folk sprites, editor-only tilesets, brand logos, the
-// AI-generated background track) are recorded for audit completeness but must
-// not enter the public bundle until they earn their own "approved" record.
+// gentle-obj.png tileset + its FX spritesheets/animations + the character
+// spritesheet ART-111 binds + the two shipped fonts + the favicon). Every path
+// here must carry an "approved" manifest record with a non-empty licence and
+// attribution disposition. This list is deliberately narrower than the full
+// asset census in the manifest: assets outside it (editor-only tilesets, brand
+// logos, the AI-generated background track) are recorded for audit
+// completeness but must not enter the public bundle until they earn their own
+// "approved" record.
 export const PUBLIC_BUNDLE_PATHS = [
   'public/assets/gentle-obj.png',
   'data/gentle.js',
@@ -29,6 +30,15 @@ export const PUBLIC_BUNDLE_PATHS = [
   'public/assets/fonts/upheaval_pro.ttf',
   'public/assets/fonts/vcr_osd_mono.ttf',
   'public/favicon.ico',
+  'public/assets/32x32folk.png',
+  'data/spritesheets/f1.ts',
+  'data/spritesheets/f2.ts',
+  'data/spritesheets/f3.ts',
+  'data/spritesheets/f4.ts',
+  'data/spritesheets/f5.ts',
+  'data/spritesheets/f6.ts',
+  'data/spritesheets/f7.ts',
+  'data/spritesheets/f8.ts',
 ];
 
 const REQUIRED_FIELDS = ['path', 'type', 'source', 'author', 'license', 'status'];
