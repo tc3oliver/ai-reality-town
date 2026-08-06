@@ -18,6 +18,7 @@ const MANIFEST_PATH = join(ROOT, 'assets/asset-licenses.json');
 export const PUBLIC_BUNDLE_PATHS = [
   'public/assets/gentle-obj.png',
   'data/gentle.js',
+  'data/mistwood.ts',
   'public/assets/spritesheets/campfire.png',
   'public/assets/spritesheets/gentlesparkle32.png',
   'public/assets/spritesheets/gentlewaterfall32.png',

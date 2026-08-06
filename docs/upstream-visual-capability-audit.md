@@ -133,7 +133,8 @@ shortest path once ART-112 lands:
    (`convex/publicRead/liveState.ts` + the new Visual Binding), never from `aiTown`'s
    `worldState`/`gameDescriptions`.
 3. A Mistwood-specific map is built from the `gentle.js`/`gentle-obj.png` tileset (§1),
-   replacing the generic demo layout.
+   replacing the generic demo layout. **Delivered by ART-109** as `data/mistwood.ts`
+   (see `docs/mistwood-tilemap.md`).
 4. `Character.tsx` is driven directly with `textureUrl`/`spritesheetData` resolved from
    `CharacterVisualBinding` (ART-111) instead of the retired `data/characters.ts` roster.
 
