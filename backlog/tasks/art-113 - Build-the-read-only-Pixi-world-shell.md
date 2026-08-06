@@ -1,11 +1,11 @@
 ---
 id: ART-113
 title: Build the read-only Pixi world shell
-status: In Progress
+status: Done
 assignee:
   - '@oliver'
 created_date: '2026-08-04 15:58'
-updated_date: '2026-08-06 08:56'
+updated_date: '2026-08-06 09:30'
 labels:
   - prd-2.0
   - v2-c
@@ -64,34 +64,34 @@ ordinal: 113000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The read-only renderer renders the Mistwood map and character sprites
-- [ ] #2 No world heartbeat is mounted by the read-only tree
-- [ ] #3 No join, move, chat, interact, accept, reject or leave action is reachable
-- [ ] #4 No player control buttons are rendered
-- [ ] #5 Map clicks cannot change any character destination
-- [ ] #6 A clear enforced module boundary separates read-only components from interactive game components
-- [ ] #7 An automated test proves public viewing produces no database mutation
-- [ ] #8 Public copy no longer promises joining, controlling or chatting with characters, and the help content describes watching, navigating, character cards, scenes, episodes and replay
-- [ ] #9 The Clerk login entry point and operator authorization path continue to work, and an authenticated viewer gains no world-control capability
-- [ ] #10 The existing text-based Live View remains reachable as a non-map accessibility fallback during and after the renderer refactor, rather than being removed before ART-135 ships its replacement
+- [x] #1 The read-only renderer renders the Mistwood map and character sprites
+- [x] #2 No world heartbeat is mounted by the read-only tree
+- [x] #3 No join, move, chat, interact, accept, reject or leave action is reachable
+- [x] #4 No player control buttons are rendered
+- [x] #5 Map clicks cannot change any character destination
+- [x] #6 A clear enforced module boundary separates read-only components from interactive game components
+- [x] #7 An automated test proves public viewing produces no database mutation
+- [x] #8 Public copy no longer promises joining, controlling or chatting with characters, and the help content describes watching, navigating, character cards, scenes, episodes and replay
+- [x] #9 The Clerk login entry point and operator authorization path continue to work, and an authenticated viewer gains no world-control capability
+- [x] #10 The existing text-based Live View remains reachable as a non-map accessibility fallback during and after the renderer refactor, rather than being removed before ART-135 ships its replacement
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -107,3 +107,28 @@ ordinal: 113000
 8. Docs + traceability: architecture note for the read-only renderer boundary, watch-only public experience doc, module-boundaries.md, current-state.md and the PRD 2.0 requirement matrix row for FR-N002.
 9. Verify with npm run check (architecture, asset licenses, typecheck, lint, tests, build).
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Verification evidence (all against the merged branch):
+
+AC#1 — `readOnlyWorld.dom.test.tsx` calls the scene component and walks the returned element tree: `mistwoodWorldMap` reaches PixiStaticMap, the viewport is clamped to 1536x1152 px, one Character element per bound motion at the expected pixel pose and painter order. `worldViewModel.test.ts` covers interpolation, clamping, direction/animation mapping and latest-motionSequence dedup.
+AC#2/#3/#5 — the dom test proves no element in the tree carries a function prop, an on* prop or a pointer prop (verified to fail when a pointertap prop is added to the tilemap element, passes once removed); `readOnlyWorldSurface.test.ts` proves no setInterval/heartbeat call and no retired input helper in the module.
+AC#4/#8/#10 — live browser check against the deployed backend via vite dev (routes reloaded, signed in with Clerk): #home/mistwood, #live/mistwood and #help/mistwood all render; the only controls on any route are 返回首頁, 開啟文字實況(不需地圖), 觀看指南, 從第 3 集開始 and arc links; the banned-copy scan for Interact / Freeze / 'Log in to join' / 'join the town' / 'Start conversation' returned empty on every route.
+AC#6 — `npm run check:architecture` reports 'Architecture boundaries valid (policy v1, 13 modules)'; adding `import { useMutation } from 'convex/react'` to ReadOnlyWorld.tsx produced 'BOUNDARY ERROR: src/components/world/ReadOnlyWorld.tsx: read-only client surface may not reference world-write API' and the check went green again once removed. `npm run test:architecture` covers clientPublic/clientWorldReadOnly import direction and the forbidden-symbol rule.
+AC#7 — `readOnlyWorldSurface.test.ts` scans every shipped file under src/components/world and src/components/public for the nine world-write APIs a browser mutation would have to travel through, and finds none.
+AC#9 — with VITE_CLERK_PUBLISHABLE_KEY set, the Clerk user menu renders on every public route, which only happens inside <Authenticated>, i.e. after the Convex client validated the Clerk token — so ctx.auth.getUserIdentity() is populated and the ART-105 operator authorization path still resolves. The same signed-in session exposes zero world-control affordances. convex/operations is untouched by this change. Signing in as a specific operator subject remains a human step (needs the owner's Clerk credentials).
+
+npm run check: 92 suites / 1211 tests passing, typecheck, lint, asset licences, architecture policy and production build all clean. PR #168 merged with both required CI checks SUCCESS.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Built the read-only Pixi world shell as `src/components/world/`: the three surviving a16z renderer components moved in, Character lost its onClick prop, and both it and the tile container became eventMode 'none' with interactiveChildren false, so map and sprite clicks reach nothing. A pure worldViewModel turns PRD 2.0 §10.4 PublicCharacterMotion units plus the FR-N004 sprite binding into interpolated poses, and ReadOnlyWorld composes Stage -> Viewport -> tilemap -> sprites from it with data props only — no callback, no heartbeat, no query of its own. Motion production (FR-N003/N010) and live page composition (FR-O001) stayed out of scope.
+
+The boundary is enforced rather than documented: module-boundaries.json declares clientPublic and clientWorldReadOnly (may depend only on publicRead and shared) plus a readOnlyClientBoundary symbol list, because import direction cannot separate useQuery from useMutation when both ship in convex/react. Public copy stopped promising retired capabilities: #help is a new watch-only guide whose content is unit-tested for the absence of join/control/chat offers, the Clerk entry point returned as OperatorEntry gated on a new clerkEnabled flag (fixing the useConvexAuth throw ART-105 + ART-112 left on deployments without a Clerk key), and the text Live View stays routed and linked from both the homepage and the help page as ART-135's baseline.
+
+Verified by npm run check (92 suites / 1211 tests, typecheck, lint, asset licences, architecture policy, build), by a live violation probe that made check:architecture and the surface test fail and pass again, and by a signed-in browser check of #home, #live and #help showing no world-control affordance on any route. PR #168 merged.
+<!-- SECTION:FINAL_SUMMARY:END -->
