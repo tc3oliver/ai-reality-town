@@ -50,7 +50,7 @@
       "modification": true,
       "attributionRequired": true,
       "status": "approved",
-      "notes": "Consumed by src/components/PixiStaticMap.tsx via data/animations/campfire.json. Byte-identical to upstream."
+      "notes": "Consumed by src/components/world/PixiStaticMap.tsx via data/animations/campfire.json. Byte-identical to upstream."
     },
     {
       "path": "public/assets/spritesheets/gentlesparkle32.png",
@@ -115,7 +115,7 @@
     {
       "path": "data/animations/gentlesplash.json",
       "type": "animation-definition",
-      "source": "Frame/timing metadata for public/assets/spritesheets/gentlewaterfall32.png (confirmed via src/components/PixiStaticMap.tsx ANIMATIONS table)",
+      "source": "Frame/timing metadata for public/assets/spritesheets/gentlewaterfall32.png (confirmed via src/components/world/PixiStaticMap.tsx ANIMATIONS table)",
       "author": "a16z-infra/ai-town",
       "license": "Follows public/assets/spritesheets/gentlewaterfall32.png",
       "redistribution": true,

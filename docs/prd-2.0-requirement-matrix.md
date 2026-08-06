@@ -65,7 +65,7 @@ FR-O010（動態畫面降級）Disposition 為 **New**，擁有專屬 Task **ART
 | Requirement | Disposition | Task | Delivery State | Release Criticality | 重用證據 | Dependencies |
 |---|---|---|---|---|---|---|
 | FR-N001 上游視覺能力稽核 | New | ART-107 | To Do | P0 | — | — |
-| FR-N002 Read-only Pixi World | New | ART-113 | To Do | P0 | 重用 `src/components/` PixiJS 元件 | ART-112, ART-109 |
+| FR-N002 Read-only Pixi World | New | ART-113 | Done | P0 | `src/components/world/`：PixiJS 元件移入唯讀模組並移除全部指標事件；`architecture/module-boundaries.json` 新增 `clientPublic`／`clientWorldReadOnly` 與 `readOnlyClientBoundary`（禁用 write symbol）由 `npm run check:architecture` 強制；`#help` 改寫為純觀看指南，Clerk 登入以 operator 身分回歸（見 `docs/read-only-world-shell.md`） | ART-112, ART-109 |
 | FR-N003 Public Dynamic Projection | New | ART-115 | To Do | P0 | 擴充 `convex/publicRead/liveState.ts` | ART-114 |
 | FR-N004 Character Visual Binding（12） | New | ART-111 | **Done** | P0 | 重用 `data/spritesheets/f1–f8`（共用 `public/assets/32x32folk.png`）；8 款原始 Sprite ＋ 4 組服裝／髮色 Palette Variant，Palette Range 由實際 PNG 量測並與 `PROTECTED_SKIN_WINDOW` 互斥；`convex/visual/`；見 `docs/character-visual-binding.md` | ART-107, ART-143 |
 | FR-N005 Location Visual Binding（8） | New | ART-110 | **Done** | P0 | `convex/visual/`：八個 Zone 由 `data/mistwood.ts` 的 footprint／collision 推導（Ambient Anchor 限定在 Entry Anchor 走得到的區域），label 取自 `mistwoodSeed.ts`；抵達判定為多邊形包含而非像素相等（見 `docs/mistwood-location-bindings.md`） | ART-109 |

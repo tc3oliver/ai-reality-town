@@ -21,19 +21,37 @@ representative reverse dependencies and provider leakage. Both run in `npm run c
 | Safety | `convex/safety/` | Shared | Trust & Safety Engineering |
 | Observability | `convex/observability/` | Shared | Reliability Engineering |
 | Shared | `convex/shared/` | None | Architecture Engineering |
+| Public Client | `src/components/public/` | Public Read Model, Shared | Public Platform Engineering |
+| Read-only World Client | `src/components/world/` | Public Read Model, Shared | Public Platform Engineering |
 
 Roots may be absent until their first Backlog task implements them; the boundary already
 applies as soon as a source file is added. `convex/agent/` no longer exists (ART-112 /
 ADR-0004: the upstream agent reasoning layer was retired). `convex/aiTown/` and
 `convex/engine/` now contain only inert data-shape validators and Convex table schemas
 kept for historical-row compatibility, not a running engine; they are not authoritative
-product domains. The reusable visual runtime is `src/`'s PixiJS renderer components
-(`PixiViewport`, `PixiStaticMap`, `Character`), currently unreferenced by any route,
-awaiting a future Canon-projection-driven Visual Runtime.
+product domains. The reusable visual runtime is `src/components/world/`'s PixiJS renderer
+components (`PixiViewport`, `PixiStaticMap`, `Character`, `ReadOnlyWorld`), rebuilt as a
+read-only shell by ART-113 and awaiting the page composition FR-O001 will give it.
 
 The central invariant is one-way authority: providers propose, Canon validates and commits,
 derived domains project accepted history, and Viewer/Public code reads published projections.
 Presentation code cannot invoke Simulation, and Canon cannot depend on projections.
+
+## Read-only client boundary
+
+`readOnlyClientBoundary` in the policy declares the public surface -- `src/components/public/`
+and `src/components/world/` -- and the world-write APIs that may not appear anywhere inside
+it (`useMutation`, `useAction`, `useConvex`, `ConvexHttpClient`, and the retired a16z input
+helpers). Import direction alone cannot express this: `useQuery` and `useMutation` come from
+the same `convex/react` package, so the rule is stated at the symbol level and enforced by
+`npm run check:architecture`. `src/components/world/readOnlyWorldSurface.test.ts` asserts the
+same property as product acceptance evidence, and additionally covers the affordances the
+policy has no opinion about (pointer handlers, control buttons, the non-map fallback route).
+
+The interactive Game components the boundary used to separate the renderer from no longer
+exist -- ART-112 retired them with the engine. Re-introducing any world-write capability
+therefore means adding a new module outside these roots and declaring its edge here first,
+not relaxing the symbol list. See [`read-only-world-shell.md`](../read-only-world-shell.md).
 
 ## Provider boundary
 

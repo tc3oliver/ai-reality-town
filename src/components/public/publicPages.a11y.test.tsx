@@ -23,10 +23,12 @@ import { ArcDetailView } from './ArcDetailPage';
 import { CharacterPageView } from './CharacterPage';
 import { EpisodeDetailView, type EpisodeProjection } from './EpisodeDetail';
 import { EpisodeListView } from './EpisodeList';
+import { HelpView } from './HelpPage';
 import { HomepageView } from './Homepage';
 import { LiveViewBody } from './LiveView';
 import { composeArcViewModel } from './arcRoute';
 import { composeCharacterViewModel } from './characterRoute';
+import { composeHelpViewModel } from './helpRoute';
 import { composeHomepageViewModel } from './homeRoute';
 import { composeLiveViewModel } from './liveRoute';
 import type { EpisodeListIndex } from './episodeListRoute';
@@ -376,6 +378,12 @@ describe('P0 public experiences pass automated accessibility checks (NFR-009)', 
     await expectAccessible(<ArcDetailView worldId={WORLD_ID} vm={arcViewModel()} />);
   });
 
+  test('watch-only help page (ART-113)', async () => {
+    await expectAccessible(
+      <HelpView worldId={WORLD_ID} vm={composeHelpViewModel({ worldId: WORLD_ID })} />,
+    );
+  });
+
   test('story arc page for a resolved arc', async () => {
     const vm = arcViewModel({
       status: 'resolved',
@@ -486,6 +494,19 @@ describe('Live has an equivalent accessible non-map view (NFR-009 AC#3)', () => 
     // Position is stated in words rather than with an arrow glyph, which
     // screen readers do not announce.
     expect(text).not.toContain('→');
+  });
+
+  test('the watch-only help page points at the non-map live view', () => {
+    // ART-113 AC#10: the fallback stays signposted while the map renderer is
+    // introduced, so it is not silently orphaned before ART-135 replaces it.
+    const container = render(
+      <HelpView worldId={WORLD_ID} vm={composeHelpViewModel({ worldId: WORLD_ID })} />,
+    );
+    const live = Array.from(container.querySelectorAll('a[href]')).find(
+      (anchor) => anchor.getAttribute('href') === `#live/${WORLD_ID}`,
+    );
+    expect(live).toBeDefined();
+    expect(accessibleName(live as Element)).not.toBe('');
   });
 
   test('the homepage links to the non-map live view', () => {

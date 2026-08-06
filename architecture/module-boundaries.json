@@ -13,7 +13,23 @@
     "operations": { "roots": ["convex/operations"], "mayDependOn": ["canon", "simulation", "knowledge", "story", "editorial", "publicRead", "safety", "observability", "shared"] },
     "safety": { "roots": ["convex/safety"], "mayDependOn": ["shared"] },
     "observability": { "roots": ["convex/observability"], "mayDependOn": ["shared"] },
-    "shared": { "roots": ["convex/shared"], "mayDependOn": [] }
+    "shared": { "roots": ["convex/shared"], "mayDependOn": [] },
+    "clientPublic": { "roots": ["src/components/public"], "mayDependOn": ["publicRead", "shared"] },
+    "clientWorldReadOnly": { "roots": ["src/components/world"], "mayDependOn": ["publicRead", "shared"] }
+  },
+  "readOnlyClientBoundary": {
+    "roots": ["src/components/public", "src/components/world"],
+    "forbiddenSymbols": [
+      "useMutation",
+      "useAction",
+      "useConvex",
+      "ConvexHttpClient",
+      "useSendInput",
+      "useWorldHeartbeat",
+      "useServerGame",
+      "insertInput",
+      "sendWorldInput"
+    ]
   },
   "providerBoundary": {
     "contract": "convex/simulation/provider.ts",

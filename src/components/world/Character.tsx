@@ -3,6 +3,16 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { AnimatedSprite, Container, Graphics, Text } from '@pixi/react';
 import * as PIXI from 'pixi.js';
 
+/**
+ * Read-only character sprite (ART-113 / FR-N002).
+ *
+ * The inherited a16z version took an `onClick` handler and made its container
+ * `interactive` with a `pointerdown` binding, because clicking a character
+ * opened the chat panel that could start a conversation. That write path was
+ * retired with the engine (ART-112), so the sprite now accepts no callback and
+ * takes no pointer events at all (AC#3/#4/#5): there is nothing a click on a
+ * character could invoke.
+ */
 export const Character = ({
   textureUrl,
   spritesheetData,
@@ -15,7 +25,6 @@ export const Character = ({
   emoji = '',
   isViewer = false,
   speed = 0.1,
-  onClick,
 }: {
   // Path to the texture packed image.
   textureUrl: string;
@@ -35,7 +44,6 @@ export const Character = ({
   isViewer?: boolean;
   // The speed of the animation. Can be tuned depending on the side and speed of the NPC.
   speed?: number;
-  onClick: () => void;
 }) => {
   const [spriteSheet, setSpriteSheet] = useState<Spritesheet>();
   useEffect(() => {
@@ -84,7 +92,7 @@ export const Character = ({
   }
 
   return (
-    <Container x={x} y={y} interactive={true} pointerdown={onClick} cursor="pointer">
+    <Container x={x} y={y} eventMode="none" interactiveChildren={false}>
       {isThinking && (
         // TODO: We'll eventually have separate assets for thinking and speech animations.
         <Text x={-20} y={-10} scale={{ x: -0.8, y: 0.8 }} text={'💭'} anchor={{ x: 0.5, y: 0.5 }} />

@@ -28,12 +28,14 @@ Accessibility cannot be verified that way. Heading order, landmark structure,
 accessible names and ARIA state are properties of *rendered markup*; `axe-core`
 requires a DOM tree to walk. So the convention had to be relaxed — narrowly.
 
-**Decision.** `jest.config.ts` now declares two projects:
+**Decision.** `jest.config.ts` now declares two projects (a third, `dom`, was added later by
+ART-113 for the same class of reason — see below):
 
 | Project | Environment | Matches | Purpose |
 | --- | --- | --- | --- |
-| `unit` | node (default, **no DOM**) | everything except `*.a11y.test.tsx` | unchanged; the project-wide convention still holds |
+| `unit` | node (default, **no DOM**) | everything except `*.a11y.test.tsx` and `*.dom.test.tsx` | unchanged; the project-wide convention still holds |
 | `a11y` | `jest-environment-jsdom` | `**/*.a11y.test.tsx` **only** | NFR-009 evidence |
+| `dom` | `jest-environment-jsdom` | `**/*.dom.test.tsx` **only** | ART-113 / FR-N002: the PixiJS world shell cannot be imported without a DOM global (`pixi-viewport` reads `window` at module load). These specs call components and inspect the element trees they return; they mount nothing and render no markup. |
 
 Consequences and the reasoning behind them:
 
@@ -58,9 +60,9 @@ Consequences and the reasoning behind them:
   used, extended one step so the markup can be rendered without a Convex client
   — no mocking, no test-only branches in production code.
 
-Reviewers extending this: put accessibility specs in `*.a11y.test.tsx`. Do not
-widen the `a11y` project's `testMatch`, and do not move `testEnvironment` to the
-top level.
+Reviewers extending this: put accessibility specs in `*.a11y.test.tsx` and PixiJS renderer
+specs in `*.dom.test.tsx`. Do not widen either project's `testMatch`, and do not move
+`testEnvironment` to the top level.
 
 ---
 

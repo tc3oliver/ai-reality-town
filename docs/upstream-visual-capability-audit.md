@@ -19,6 +19,12 @@ the original a16z template.
 
 ## 1. Renderer inventory
 
+> **Update (ART-113 / FR-N002):** `PixiViewport.tsx`, `PixiStaticMap.tsx` and
+> `Character.tsx` moved to `src/components/world/` and were made read-only — `Character`'s
+> `onClick` prop is gone, and both it and the tile container now take no pointer events.
+> The paths below are the ones this audit found; see
+> [`read-only-world-shell.md`](read-only-world-shell.md) for the shell that owns them now.
+
 | Item | Status | Notes |
 |---|---|---|
 | `src/components/PixiGame.tsx` | **Needs modification** | Pure PixiJS scene composition (Viewport + StaticMap + Player list) is reusable; the click-to-move handler (`onMapPointerUp` → `useSendInput(engineId, 'moveTo')`, line 36/80) and the human-player zoom effect are engine-coupled and are removed by ART-112. |

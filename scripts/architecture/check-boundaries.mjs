@@ -7,6 +7,9 @@ const POLICY_PATH = join(ROOT, 'architecture/module-boundaries.json');
 const REQUIRED_MODULES = [
   'canon', 'simulation', 'knowledge', 'story', 'editorial', 'publicRead',
   'viewer', 'operations', 'safety', 'observability', 'shared',
+  // Client modules (ART-113 / FR-N002). Listed as required so the read-only
+  // public surface cannot be dissolved back into an undeclared blob.
+  'clientPublic', 'clientWorldReadOnly',
 ];
 
 export function loadPolicy(path = POLICY_PATH) {
@@ -41,6 +44,18 @@ export function validatePolicy(policy) {
       if (!policy.modules[dependency]) errors.push(`${name} references unknown dependency ${dependency}`);
       if (dependency === name) errors.push(`${name} must not list itself as a dependency`);
     }
+  }
+  const readOnly = policy.readOnlyClientBoundary;
+  if (!Array.isArray(readOnly?.roots) || readOnly.roots.length === 0) {
+    errors.push('read-only client boundary must declare at least one root');
+  }
+  if (!Array.isArray(readOnly?.forbiddenSymbols) || readOnly.forbiddenSymbols.length === 0) {
+    errors.push('read-only client boundary must declare at least one forbidden symbol');
+  }
+  for (const root of readOnly?.roots ?? []) {
+    // A root nobody owns could not be checked for illegal imports, so the
+    // read-only guarantee would only be half enforced.
+    if (!moduleForPath(root, policy)) errors.push(`read-only client root ${root} belongs to no module`);
   }
   if (!policy.providerBoundary?.contractVersion) errors.push('provider contract version is required');
   return errors;
@@ -79,6 +94,24 @@ export function validateImport({ sourcePath, specifier, policy }) {
   return errors;
 }
 
+/**
+ * Read-only client surface check (ART-113 / FR-N002 AC#6, AC#7).
+ *
+ * Import direction alone cannot express "this component may not write to the
+ * world": the mutation entry points live in `convex/react`, the same package
+ * the read-only surface legitimately imports `useQuery` from. So the boundary
+ * is stated at the symbol level instead -- if a file under a read-only root
+ * so much as names a write API, the build fails and the reviewer has to move
+ * the code outside the boundary or change the policy on purpose.
+ */
+export function validateReadOnlyClientSource({ sourcePath, source, policy }) {
+  const boundary = policy.readOnlyClientBoundary;
+  if (!boundary?.roots?.some((root) => under(posix(sourcePath), root))) return [];
+  return boundary.forbiddenSymbols
+    .filter((symbol) => new RegExp(`\\b${symbol}\\b`).test(source))
+    .map((symbol) => `${sourcePath}: read-only client surface may not reference world-write API '${symbol}'`);
+}
+
 function sourceFiles(dir) {
   if (!existsSync(dir)) return [];
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -98,6 +131,13 @@ export function checkRepository(root = ROOT, policy = loadPolicy()) {
           errors.push(...validateImport({ sourcePath, specifier, policy }));
         }
       }
+    }
+  }
+  for (const boundaryRoot of policy.readOnlyClientBoundary?.roots ?? []) {
+    for (const absolutePath of sourceFiles(join(root, boundaryRoot))) {
+      const sourcePath = posix(relative(root, absolutePath));
+      const source = readFileSync(absolutePath, 'utf8');
+      errors.push(...validateReadOnlyClientSource({ sourcePath, source, policy }));
     }
   }
   return errors;

@@ -1,0 +1,128 @@
+/**
+ * Proof that public viewing has no write path (ART-113, FR-N002 AC#2/#3/#4/#5/#7).
+ *
+ * A behavioural test cannot prove the *absence* of a mutation: it can only show
+ * that the paths it happened to exercise did not write. So the proof is
+ * structural instead -- every shipped source file on the public surface is read
+ * and checked for the API surface a write would have to travel through. If a
+ * future change adds one, this fails whether or not anyone wrote a test for
+ * the new feature.
+ *
+ * `architecture/module-boundaries.json` carries the same rule for the build
+ * gate (`npm run check:architecture`); this suite is the product-side
+ * acceptance evidence and additionally covers the affordances -- click
+ * handlers, control buttons, the non-map fallback route -- that the boundary
+ * policy has no opinion about.
+ */
+
+import { readFileSync, readdirSync } from 'node:fs';
+import { extname, join } from 'node:path';
+
+const ROOT = process.cwd();
+const READ_ONLY_ROOTS = ['src/components/world', 'src/components/public'];
+
+/** Every shipped (non-test) source file under a read-only root. */
+function sourceFiles(dir: string): string[] {
+  return readdirSync(join(ROOT, dir), { withFileTypes: true }).flatMap((entry) => {
+    const path = `${dir}/${entry.name}`;
+    if (entry.isDirectory()) return sourceFiles(path);
+    if (!['.ts', '.tsx'].includes(extname(entry.name))) return [];
+    return entry.name.includes('.test.') ? [] : [path];
+  });
+}
+
+const surface = READ_ONLY_ROOTS.flatMap(sourceFiles).map((path) => ({
+  path,
+  source: readFileSync(join(ROOT, path), 'utf8'),
+}));
+
+const worldModule = surface.filter((file) => file.path.startsWith('src/components/world/'));
+
+describe('read-only public surface', () => {
+  test('covers the renderer and every public page', () => {
+    const paths = surface.map((file) => file.path);
+    expect(paths).toContain('src/components/world/ReadOnlyWorld.tsx');
+    expect(paths).toContain('src/components/world/PixiStaticMap.tsx');
+    expect(paths).toContain('src/components/world/Character.tsx');
+    expect(paths).toContain('src/components/public/LiveView.tsx');
+  });
+
+  test('reaches no mutation, action or world-input API', () => {
+    // Convex's write entry points, plus the retired a16z input helpers. A
+    // mutation cannot be issued from the browser without one of these.
+    const writeApis = [
+      'useMutation',
+      'useAction',
+      'useConvex',
+      'ConvexHttpClient',
+      'useSendInput',
+      'useWorldHeartbeat',
+      'useServerGame',
+      'insertInput',
+      'sendWorldInput',
+    ];
+    const offenders = surface.flatMap((file) =>
+      writeApis
+        .filter((api) => new RegExp(`\\b${api}\\b`).test(file.source))
+        .map((api) => `${file.path}: ${api}`),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  test('offers no join, move, chat, interact, accept, reject or leave affordance', () => {
+    const retiredActions = [
+      'InteractButton',
+      'FreezeButton',
+      'startConversation',
+      'acceptInvite',
+      'rejectInvite',
+      'leaveConversation',
+      'joinWorld',
+      'leaveWorld',
+      'moveTo',
+    ];
+    const offenders = surface.flatMap((file) =>
+      retiredActions
+        .filter((action) => new RegExp(`\\b${action}\\b`).test(file.source))
+        .map((action) => `${file.path}: ${action}`),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  test('renders no interactive canvas: clicks cannot reach a handler', () => {
+    // Pixi delivers pointer events only to display objects that opt in. The
+    // renderer opts every one of them out, so a map or sprite click has
+    // nowhere to go -- it cannot set a destination it has no handler for.
+    const characterSource = worldModule.find((file) => file.path.endsWith('Character.tsx'))!.source;
+    const mapSource = worldModule.find((file) => file.path.endsWith('PixiStaticMap.tsx'))!.source;
+    expect(characterSource).toContain('eventMode="none"');
+    expect(mapSource).toContain("container.eventMode = 'none'");
+
+    // Bindings, not prose: the comments explaining *why* these are gone name
+    // the retired APIs on purpose.
+    for (const file of worldModule) {
+      expect(file.source).not.toMatch(/\bpointerdown\s*[:=]/);
+      expect(file.source).not.toMatch(/\bonClick\s*[:=]/);
+      expect(file.source).not.toMatch(/\binteractive\s*=\s*\{?true/);
+    }
+  });
+
+  test('mounts no heartbeat or polling timer', () => {
+    for (const file of worldModule) {
+      expect(file.source).not.toMatch(/\bsetInterval\b/);
+      expect(file.source).not.toMatch(/heartbeat\s*\(/i);
+    }
+  });
+
+  test('keeps the text Live View reachable as the non-map fallback', () => {
+    // NFR-009 AC#3 / ART-113 AC#10: the accessible equivalent of the map must
+    // stay routable and linked while the renderer is refactored, so ART-135
+    // extends a working baseline instead of filling a gap.
+    const app = readFileSync(join(ROOT, 'src/App.tsx'), 'utf8');
+    expect(app).toContain("startsWith('#live/')");
+    expect(app).toContain('<LiveView />');
+
+    const homepage = readFileSync(join(ROOT, 'src/components/public/Homepage.tsx'), 'utf8');
+    expect(homepage).toContain('#live/${worldId}');
+  });
+});
