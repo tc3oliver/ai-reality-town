@@ -67,7 +67,7 @@ FR-O010（動態畫面降級）Disposition 為 **New**，擁有專屬 Task **ART
 | FR-N001 上游視覺能力稽核 | New | ART-107 | To Do | P0 | — | — |
 | FR-N002 Read-only Pixi World | New | ART-113 | To Do | P0 | 重用 `src/components/` PixiJS 元件 | ART-112, ART-109 |
 | FR-N003 Public Dynamic Projection | New | ART-115 | To Do | P0 | 擴充 `convex/publicRead/liveState.ts` | ART-114 |
-| FR-N004 Character Visual Binding（12） | New | ART-111 | To Do | P0 | 重用 `data/spritesheets/f1–f8` | ART-107 |
+| FR-N004 Character Visual Binding（12） | New | ART-111 | **Done** | P0 | 重用 `data/spritesheets/f1–f8`（共用 `public/assets/32x32folk.png`）；8 款原始 Sprite ＋ 4 組服裝／髮色 Palette Variant，Palette Range 由實際 PNG 量測並與 `PROTECTED_SKIN_WINDOW` 互斥；`convex/visual/`；見 `docs/character-visual-binding.md` | ART-107, ART-143 |
 | FR-N005 Location Visual Binding（8） | New | ART-110 | To Do | P0 | 重用 `mistwoodSeed.ts` 8 locations ＋ `connectedLocationIds` | ART-109 |
 | FR-N006 Canon／Runtime 同步 | New | ART-117 | To Do | P0 | 重用 `character_location_changed`（含 `fromLocationId`／`toLocationId`） | ART-115 |
 | FR-N007 Runtime Snapshot | New | ART-116 | To Do | P0 | 概念沿用 `canon/snapshotManager`（獨立公開快照） | ART-115 |
