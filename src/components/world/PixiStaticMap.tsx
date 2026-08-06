@@ -1,11 +1,11 @@
 import { PixiComponent, applyDefaultProps } from '@pixi/react';
 import * as PIXI from 'pixi.js';
-import { AnimatedSprite, WorldMap } from '../../convex/aiTown/worldMap';
-import * as campfire from '../../data/animations/campfire.json';
-import * as gentlesparkle from '../../data/animations/gentlesparkle.json';
-import * as gentlewaterfall from '../../data/animations/gentlewaterfall.json';
-import * as gentlesplash from '../../data/animations/gentlesplash.json';
-import * as windmill from '../../data/animations/windmill.json';
+import { AnimatedSprite, SerializedWorldMap } from '../../../convex/aiTown/worldMap';
+import * as campfire from '../../../data/animations/campfire.json';
+import * as gentlesparkle from '../../../data/animations/gentlesparkle.json';
+import * as gentlewaterfall from '../../../data/animations/gentlewaterfall.json';
+import * as gentlesplash from '../../../data/animations/gentlesplash.json';
+import * as windmill from '../../../data/animations/windmill.json';
 
 const animations = {
   'campfire.json': { spritesheet: campfire, url: '/ai-town/assets/spritesheets/campfire.png' },
@@ -23,7 +23,7 @@ const animations = {
 };
 
 export const PixiStaticMap = PixiComponent('StaticMap', {
-  create: (props: { map: WorldMap; [k: string]: any }) => {
+  create: (props: { map: SerializedWorldMap; [k: string]: any }) => {
     const map = props.map;
     const numxtiles = Math.floor(map.tileSetDimX / map.tileDim);
     const numytiles = Math.floor(map.tileSetDimY / map.tileDim);
@@ -108,14 +108,13 @@ export const PixiStaticMap = PixiComponent('StaticMap', {
     container.x = 0;
     container.y = 0;
 
-    // Set the hit area manually to ensure `pointerdown` events are delivered to this container.
-    container.interactive = true;
-    container.hitArea = new PIXI.Rectangle(
-      0,
-      0,
-      screenxtiles * map.tileDim,
-      screenytiles * map.tileDim,
-    );
+    // ART-113 (FR-N002 AC#5): the map used to opt into `pointerdown` with an explicit
+    // hit area so a click could set the human player's destination. That write path is
+    // gone, so the tile container takes no pointer events at all -- a map click cannot
+    // reach a handler, let alone change a character's destination. Viewport pan/zoom is
+    // unaffected: `PixiViewport` handles its own drag/pinch/wheel gestures.
+    container.eventMode = 'none';
+    container.interactiveChildren = false;
 
     return container;
   },

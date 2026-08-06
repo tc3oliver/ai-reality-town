@@ -40,7 +40,7 @@ are both taken from the seed's own descriptions in `convex/canon/mistwoodSeed.ts
 ## Layers
 
 The module exports a `SerializedWorldMap` (`mistwoodWorldMap`) that
-`src/components/PixiStaticMap.tsx` consumes directly, plus the pieces it is built
+`src/components/world/PixiStaticMap.tsx` consumes directly, plus the pieces it is built
 from:
 
 - `mistwoodBgTiles` — ground, then ground detail.

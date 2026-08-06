@@ -1,10 +1,11 @@
 ---
 id: ART-113
 title: Build the read-only Pixi world shell
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@oliver'
 created_date: '2026-08-04 15:58'
-updated_date: '2026-08-04 17:16'
+updated_date: '2026-08-06 08:56'
 labels:
   - prd-2.0
   - v2-c
@@ -92,3 +93,17 @@ ordinal: 113000
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Create the read-only renderer module `src/components/world/`: git mv PixiViewport/PixiStaticMap/Character into it, strip Character's onClick/pointerdown and the static map's interactive hitArea so map and sprite clicks cannot reach any handler (AC#4/#5).
+2. Add pure `worldViewModel.ts`: PublicCharacterMotion-shaped input (PRD 2.0 §10.4) -> deterministic sprite placements interpolated from startedAt/arriveAt; unit-tested against `data/mistwood.ts` mistwoodWorldMap (AC#1).
+3. Add `ReadOnlyWorld.tsx`: Stage -> Viewport -> PixiStaticMap -> Character[] built only from the view model, with no callback props, no convex mutation/action hooks and no heartbeat mount (AC#1/#2/#3).
+4. Extend the existing module-boundary tooling: declare the read-only client modules in `architecture/module-boundaries.json` plus a `readOnlyClient` policy section (roots + forbidden write symbols), enforce it in `scripts/architecture/check-boundaries.mjs`, and cover it in `check-boundaries.test.mjs` (AC#6).
+5. Add a jest test that scans every read-only client source file and proves no mutation/action/heartbeat/input API is reachable from the public viewing surface (AC#7).
+6. Honest public copy: restore a Clerk operator-login entry point that renders only when VITE_CLERK_PUBLISHABLE_KEY is set (fixes the useConvexAuth throw ART-112 left behind) and promises no world control (AC#9); add a watch-only help page describing watching, navigating, character cards, scenes, episodes and replay, linked from the homepage, with no join/control/chat copy (AC#8).
+7. Keep the text Live View reachable: homepage keeps its `#live/<worldId>` link and the help page points at it as the non-map fallback; a11y suite extended to cover the new help view (AC#10).
+8. Docs + traceability: architecture note for the read-only renderer boundary, watch-only public experience doc, module-boundaries.md, current-state.md and the PRD 2.0 requirement matrix row for FR-N002.
+9. Verify with npm run check (architecture, asset licenses, typecheck, lint, tests, build).
+<!-- SECTION:PLAN:END -->

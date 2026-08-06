@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { extractImports, loadPolicy, moduleForPath, validateImport, validatePolicy } from './check-boundaries.mjs';
+import {
+  extractImports,
+  loadPolicy,
+  moduleForPath,
+  validateImport,
+  validatePolicy,
+  validateReadOnlyClientSource,
+} from './check-boundaries.mjs';
 
 const policy = loadPolicy();
 
@@ -44,6 +51,61 @@ test('provider packages are isolated to adapter roots', () => {
       policy,
     })[0],
     /provider adapters may only be imported from within an adapter root/,
+  );
+});
+
+test('read-only client components cannot reach simulation or canon', () => {
+  assert.match(
+    validateImport({
+      sourcePath: 'src/components/world/ReadOnlyWorld.tsx',
+      specifier: '../../../convex/simulation/workflow',
+      policy,
+    })[0],
+    /clientWorldReadOnly may not depend on simulation/,
+  );
+  assert.match(
+    validateImport({
+      sourcePath: 'src/components/public/LiveView.tsx',
+      specifier: '../../../convex/canon/model',
+      policy,
+    })[0],
+    /clientPublic may not depend on canon/,
+  );
+  assert.deepEqual(
+    validateImport({
+      sourcePath: 'src/components/public/publicReadModelRef.ts',
+      specifier: '../../../convex/publicRead/readModelFunctions',
+      policy,
+    }),
+    [],
+  );
+});
+
+test('read-only client surface rejects world-write symbols and allows reads', () => {
+  assert.match(
+    validateReadOnlyClientSource({
+      sourcePath: 'src/components/world/ReadOnlyWorld.tsx',
+      source: "import { useMutation } from 'convex/react';",
+      policy,
+    })[0],
+    /may not reference world-write API 'useMutation'/,
+  );
+  assert.deepEqual(
+    validateReadOnlyClientSource({
+      sourcePath: 'src/components/public/LiveView.tsx',
+      source: "import { useQuery } from 'convex/react';",
+      policy,
+    }),
+    [],
+  );
+  // Files outside the declared roots are none of this rule's business.
+  assert.deepEqual(
+    validateReadOnlyClientSource({
+      sourcePath: 'convex/operations/console.ts',
+      source: 'const send = useMutation;',
+      policy,
+    }),
+    [],
   );
 });
 

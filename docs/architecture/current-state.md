@@ -7,7 +7,8 @@
 > and `convex/engine/` now contain only inert data-shape validators/schemas (kept for
 > historical row compatibility, not a running engine), and `convex/agent/` no longer
 > exists. Only the PixiJS renderer described in §4 ("Client UI") survives, and only its
-> rendering components (`PixiViewport`, `PixiStaticMap`, `Character`) — not the
+> rendering components (`PixiViewport`, `PixiStaticMap`, `Character`, moved to
+> `src/components/world/` and made read-only by ART-113) — not the
 > `useQuery`/`useMutation`/`useHistoricalValue` wiring described there, which drove the
 > now-retired engine and has been removed. See ADR-0004 for the current architecture; keep
 > reading below only to understand what was inherited and why specific files still exist

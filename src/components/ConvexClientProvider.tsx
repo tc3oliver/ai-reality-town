@@ -28,6 +28,14 @@ const convex = new ConvexReactClient(convexUrl(), { unsavedChangesWarning: false
  */
 const clerkPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
 
+/**
+ * Whether Clerk owns authentication in this deployment. Components that use
+ * `Authenticated`/`Unauthenticated` (or any Clerk component) must check this
+ * first: those helpers call `useConvexAuth`, which throws when the tree is
+ * wrapped in the bare {@link ConvexProvider} fallback below.
+ */
+export const clerkEnabled = Boolean(clerkPublishableKey);
+
 export default function ConvexClientProvider({ children }: { children: ReactNode }) {
   if (!clerkPublishableKey) {
     return <ConvexProvider client={convex}>{children}</ConvexProvider>;

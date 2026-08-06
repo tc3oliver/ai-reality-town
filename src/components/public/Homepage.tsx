@@ -137,6 +137,12 @@ export function HomepageView({ worldId, vm }: { worldId: string; vm: HomepageVie
         <p className="mt-1">
           <a href={`#live/${worldId}`}>開啟文字實況(不需地圖)</a>
         </p>
+        {/* ART-113 (FR-N002 AC#8): the watch-only guide replaces the retired
+            "how to play" help. It describes watching and navigating, and
+            promises no joining, controlling or chatting. */}
+        <p className="mt-1">
+          <a href={`#help/${worldId}`}>觀看指南</a>
+        </p>
       </section>
       <section className="vote mt-4" aria-labelledby="home-vote">
         <h2 id="home-vote" className="text-xl font-semibold">

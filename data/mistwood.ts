@@ -11,7 +11,7 @@
 // reproduce the seed's `connectedLocationIds` graph.
 //
 // Layers are `layer[x][y]`, `-1` meaning "no tile here", matching the
-// `SerializedWorldMap` contract consumed by `src/components/PixiStaticMap.tsx`.
+// `SerializedWorldMap` contract consumed by `src/components/world/PixiStaticMap.tsx`.
 
 import type { AnimatedSprite, SerializedWorldMap } from '../convex/aiTown/worldMap';
 
