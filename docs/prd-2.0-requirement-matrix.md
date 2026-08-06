@@ -72,7 +72,7 @@ FR-O010（動態畫面降級）Disposition 為 **New**，擁有專屬 Task **ART
 | FR-N006 Canon／Runtime 同步 | New | ART-117 | To Do | P0 | 重用 `character_location_changed`（含 `fromLocationId`／`toLocationId`） | ART-115 |
 | FR-N007 Runtime Snapshot | New | ART-116 | To Do | P0 | 概念沿用 `canon/snapshotManager`（獨立公開快照） | ART-115 |
 | FR-N008 素材授權與 Attribution | New | ART-108 | To Do | P0 | — | ART-107 |
-| FR-N009 Mistwood 專屬地圖 | New | ART-109 | To Do | P0 | 重用 `assets/gentle-obj.png` tileset | ART-107 |
+| FR-N009 Mistwood 專屬地圖 | New | ART-109 | Done | P0 | `data/mistwood.ts`：僅用既有 `assets/gentle-obj.png` tileset 重組出八個正典地點與 seed 道路圖（見 `docs/mistwood-tilemap.md`） | ART-107 |
 | FR-N010 輕量 Visual Runtime | New | ART-114 | To Do | P0 | 抽取 a16z pathfinding | ART-110, ART-111 |
 | §10.3 a16z 伺服器端引擎停用 | New | ART-112 | **Done**（ADR-0004，含 24 小時現場 log 觀察） | P0 | — | ART-107（Done） |
 
