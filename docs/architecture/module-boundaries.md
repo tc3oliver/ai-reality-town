@@ -10,6 +10,7 @@ representative reverse dependencies and provider leakage. Both run in `npm run c
 | Module | Code root(s) | May depend on | Owner |
 | --- | --- | --- | --- |
 | Canon | `convex/canon/` | Shared | Canon Engineering |
+| Visual Binding | `convex/visual/` | Canon, Shared | Visual Runtime Engineering |
 | Simulation | `convex/simulation/` | Canon, Knowledge, Story, Safety, Observability, Shared | Simulation Engineering |
 | Character Knowledge | `convex/knowledge/` | Canon, Shared | Cognition Engineering |
 | Story | `convex/story/` | Canon, Knowledge, Shared | Story Engineering |
