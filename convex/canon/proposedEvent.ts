@@ -176,6 +176,10 @@ function normalizeStateChange(value: unknown, index: number): StateChange {
     'confidence', 'shareability', 'correctsKnowledgeId', 'content', 'interpretation',
     'importance', 'emotionalWeight', 'itemId', 'fromOwnerId',
     'toOwnerId', 'field', 'fromValue', 'toValue',
+    // ART-141: without these, location_state_changed and organization_state_changed were
+    // rejected by this outer filter before their own per-variant check could ever run.
+    'locationId', 'name', 'description', 'locationType', 'capacity', 'connectedLocationIds',
+    'active', 'organizationId', 'organizationType', 'headquartersLocationId',
   ]);
   const change = source as unknown as StateChange;
   switch (change.type) {

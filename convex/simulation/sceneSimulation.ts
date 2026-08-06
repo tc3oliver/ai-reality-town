@@ -1,4 +1,8 @@
 import { normalizeProposedEventOutput } from '../canon/proposedEvent';
+import {
+  CHARACTER_STATE_FIELDS, EVENT_TYPES, FACT_SUBJECT_TYPES, FACT_VISIBILITIES, KNOWLEDGE_SHAREABILITIES,
+  KNOWLEDGE_SOURCE_TYPES, KNOWLEDGE_TRUTH_STATUSES, PROPOSED_BY_TYPES, TIME_SLOTS,
+} from '../canon/eventTypes';
 import type { ProposedEvent } from '../canon/model';
 import { classifyPostGeneration, type PostGenerationClassification } from '../safety/postGeneration';
 import { SimulationProviderError, type LanguageModelProvider, type ProviderTraceMetadata } from './provider';
@@ -156,50 +160,99 @@ export function parseWholeSceneOutput(value: unknown, scene: GroupedScene): Whol
   };
 }
 
-// ART-139: every nested item schema below must declare exactly the fields the corresponding
-// parser accepts (parseActions/parseDialogue/parseEventLinked's allowed-key lists), or a strict
-// provider has nothing constraining it to the parser's exact-key contract. stateChanges items are
-// intentionally left as `{ type: 'object' }`: that 9-variant discriminated union already has its
-// own independent strict validator (normalizeStateChange, throws CanonError), so re-encoding it
-// here is out of proportion to this bug and not implicated by the ART-106 evidence.
-const characterActionItem = { type: 'object', additionalProperties: false, required: ['characterId', 'action'],
-  properties: { characterId: { type: 'string' }, action: { type: 'string' } } };
-const dialogueItem = { type: 'object', additionalProperties: false, required: ['characterId', 'text'],
-  properties: { characterId: { type: 'string' }, text: { type: 'string' } } };
-const relationshipChangeItem = { type: 'object', additionalProperties: false,
-  required: ['sourceCharacterId', 'targetCharacterId', 'summary', 'proposedEventIndex'],
-  properties: { sourceCharacterId: { type: 'string' }, targetCharacterId: { type: 'string' },
-    summary: { type: 'string' }, proposedEventIndex: { type: 'integer' } } };
-const characterLinkedItem = { type: 'object', additionalProperties: false,
-  required: ['characterId', 'content', 'proposedEventIndex'],
-  properties: { characterId: { type: 'string' }, content: { type: 'string' }, proposedEventIndex: { type: 'integer' } } };
-const rumorItem = { type: 'object', additionalProperties: false,
-  required: ['sourceCharacterId', 'content', 'proposedEventIndex'],
-  properties: { sourceCharacterId: { type: 'string' }, content: { type: 'string' }, proposedEventIndex: { type: 'integer' } } };
-const proposedEventItem = { type: 'object', additionalProperties: false,
-  required: ['schemaVersion', 'worldId', 'idempotencyKey', 'proposedBy', 'worldDay', 'timeSlot', 'eventType',
-    'participantIds', 'causedByEventIds', 'stateChanges'],
-  properties: {
-    schemaVersion: { type: 'integer', const: 1 }, worldId: { type: 'string' }, idempotencyKey: { type: 'string' },
-    proposedBy: { type: 'object', additionalProperties: false, required: ['type'],
-      properties: { type: { type: 'string' }, id: { type: 'string' } } },
-    worldDay: { type: 'integer' }, timeSlot: { type: 'string' }, eventType: { type: 'string' },
-    locationId: { type: 'string' }, participantIds: { type: 'array', items: { type: 'string' } },
-    causedByEventIds: { type: 'array', items: { type: 'string' } }, publicSummary: { type: 'string' },
-    stateChanges: { type: 'array', items: { type: 'object' } }, metadata: { type: 'object' },
-  } };
+// ART-141 (confirmed live, not hypothesized): under OpenAI-compatible strict structured output
+// every object node must list ALL of its `properties` in `required` and set
+// `additionalProperties: false`, and no node may be a bare `{ type: 'object' }`. Only
+// `proposedEventItem` broke those rules -- optional `locationId`/`publicSummary`/`metadata`,
+// an optional `proposedBy.id`, and unconstrained `stateChanges` items -- and it was the only
+// branch the real provider freelanced, returning `{ eventId, publicSummary, trigger }` while
+// every fully specified sibling collection came back correctly shaped. `strictObject` derives
+// `required` from `properties` so that invariant is structural and cannot drift again.
+const strictObject = (properties: Record<string, unknown>): Record<string, unknown> => ({
+  type: 'object', additionalProperties: false, required: Object.keys(properties), properties,
+});
+const enumOf = (values: readonly string[]): Record<string, unknown> => ({ type: 'string', enum: [...values] });
+const text = { type: 'string' };
+const integer = { type: 'integer' };
+const number = { type: 'number' };
+const boolean = { type: 'boolean' };
+const textArray = { type: 'array', items: text };
+const nullableText = { type: ['string', 'null'] };
+const primitive = { type: ['string', 'number', 'boolean'] };
+const stateFieldValue = { anyOf: [text, boolean, textArray] };
 
-export const WHOLE_SCENE_JSON_SCHEMA: Record<string, unknown> = {
-  type: 'object', additionalProperties: false,
-  required: ['schemaVersion', 'sceneId', 'sceneSummary', 'keyActions', 'dialogueHighlights', 'proposedEvents',
-    'relationshipChanges', 'knowledgeChanges', 'memories', 'rumors', 'continuityWarnings'],
-  properties: {
-    schemaVersion: { type: 'integer', const: 1 }, sceneId: { type: 'string' }, sceneSummary: { type: 'string' },
-    keyActions: { type: 'array', items: characterActionItem }, dialogueHighlights: { type: 'array', items: dialogueItem },
-    proposedEvents: { type: 'array', items: proposedEventItem }, relationshipChanges: { type: 'array', items: relationshipChangeItem },
-    knowledgeChanges: { type: 'array', items: characterLinkedItem }, memories: { type: 'array', items: characterLinkedItem },
-    rumors: { type: 'array', items: rumorItem }, continuityWarnings: { type: 'array', items: { type: 'string' } },
-  },
+// `metadata` and `correctsKnowledgeId` are deliberately absent: an open-ended object cannot be
+// expressed under strict mode at all, and both fields are optional in the canon contract, so
+// omitting them from the request keeps every remaining node strictly satisfiable.
+const stateChangeVariants = [
+  strictObject({ type: { const: 'character_location_changed' }, characterId: text, fromLocationId: text, toLocationId: text }),
+  strictObject({ type: { const: 'relationship_changed' }, sourceCharacterId: text, targetCharacterId: text,
+    trustDelta: number, affectionDelta: number, resentmentDelta: number, fearDelta: number, dependencyDelta: number,
+    familiarityDelta: number, reason: text, visibility: enumOf(['private', 'public']) }),
+  strictObject({ type: { const: 'fact_created' }, subjectType: enumOf(FACT_SUBJECT_TYPES), subjectId: text,
+    predicate: text, value: primitive, visibility: enumOf(FACT_VISIBILITIES) }),
+  strictObject({ type: { const: 'character_life_changed' }, characterId: text, alive: boolean, reason: text }),
+  strictObject({ type: { const: 'character_knowledge_learned' }, characterId: text, factId: text,
+    sourceType: enumOf(KNOWLEDGE_SOURCE_TYPES), sourceEventId: text, beliefValue: primitive,
+    truthStatus: enumOf(KNOWLEDGE_TRUTH_STATUSES), confidence: number, shareability: enumOf(KNOWLEDGE_SHAREABILITIES) }),
+  strictObject({ type: { const: 'character_memory_formed' }, characterId: text, content: text, interpretation: text,
+    importance: number, emotionalWeight: number, confidence: number, visibility: enumOf(KNOWLEDGE_SHAREABILITIES) }),
+  strictObject({ type: { const: 'item_transferred' }, itemId: text, fromOwnerId: nullableText, toOwnerId: text, reason: text }),
+  strictObject({ type: { const: 'character_state_changed' }, characterId: text, field: enumOf(CHARACTER_STATE_FIELDS),
+    fromValue: stateFieldValue, toValue: stateFieldValue, reason: text }),
+  strictObject({ type: { const: 'location_state_changed' }, locationId: text, name: text, description: text,
+    locationType: text, capacity: integer, connectedLocationIds: textArray, active: boolean, reason: text }),
+  strictObject({ type: { const: 'organization_state_changed' }, organizationId: text, name: text, description: text,
+    organizationType: text, headquartersLocationId: nullableText, active: boolean, reason: text }),
+];
+
+const characterActionItem = strictObject({ characterId: text, action: text });
+const dialogueItem = strictObject({ characterId: text, text });
+const relationshipChangeItem = strictObject({ sourceCharacterId: text, targetCharacterId: text,
+  summary: text, proposedEventIndex: integer });
+const characterLinkedItem = strictObject({ characterId: text, content: text, proposedEventIndex: integer });
+const rumorItem = strictObject({ sourceCharacterId: text, content: text, proposedEventIndex: integer });
+const proposedEventItem = strictObject({
+  schemaVersion: { type: 'integer', const: 1 }, worldId: text, idempotencyKey: text,
+  proposedBy: strictObject({ type: enumOf(PROPOSED_BY_TYPES) }),
+  worldDay: integer, timeSlot: enumOf(TIME_SLOTS), eventType: enumOf(EVENT_TYPES),
+  locationId: text, participantIds: textArray, causedByEventIds: textArray, publicSummary: text,
+  stateChanges: { type: 'array', items: { anyOf: stateChangeVariants } },
+});
+
+export const WHOLE_SCENE_JSON_SCHEMA: Record<string, unknown> = strictObject({
+  schemaVersion: { type: 'integer', const: 1 }, sceneId: text, sceneSummary: text,
+  keyActions: { type: 'array', items: characterActionItem }, dialogueHighlights: { type: 'array', items: dialogueItem },
+  proposedEvents: { type: 'array', items: proposedEventItem }, relationshipChanges: { type: 'array', items: relationshipChangeItem },
+  knowledgeChanges: { type: 'array', items: characterLinkedItem }, memories: { type: 'array', items: characterLinkedItem },
+  rumors: { type: 'array', items: rumorItem }, continuityWarnings: { type: 'array', items: text },
+});
+
+// ART-141 (confirmed live): the configured OpenAI-compatible gateway accepts
+// `response_format: { type: 'json_schema', strict: true }` but does not enforce it -- a request
+// carrying only the proposedEvents schema came back as an entirely invented
+// `{ sceneId, participants, narrativeEvents, outcome }` document. Every field that previously
+// looked "honored" was really the model inferring intent from self-describing names echoed in the
+// scene payload; `proposedEvents` is a canon concept it cannot infer, so it invented
+// `{ eventId, publicSummary, trigger }`. The contract therefore has to travel in the prompt.
+// The schema stays the single source of truth and is serialised into it, so the two cannot drift.
+export const wholeSceneSystemPrompt = (scene: GroupedScene): string => {
+  const example = {
+    schemaVersion: 1, worldId: scene.worldId, idempotencyKey: `${scene.sceneId}:1`,
+    proposedBy: { type: 'system' }, worldDay: scene.worldDay, timeSlot: scene.timeSlot,
+    eventType: 'movement', locationId: scene.locationId,
+    participantIds: scene.participantIds.slice(0, 1), causedByEventIds: [],
+    publicSummary: '角色離開原本的地點，前往下一個場所。',
+    stateChanges: [{ type: 'character_location_changed', characterId: scene.participantIds[0] ?? 'character-id',
+      fromLocationId: scene.locationId, toLocationId: 'destination-location-id' }],
+  };
+  return [
+    'Simulate the entire grouped scene once. Return structured JSON only. You may propose events but never commit or mutate Canon.',
+    'Write every narrative text field (sceneSummary, keyActions, dialogueHighlights, relationshipChanges, knowledgeChanges, memories, rumors, continuityWarnings, and each proposedEvents publicSummary) in Traditional Chinese (zh-TW). Field names and JSON structure stay in English.',
+    `The response must conform exactly to this JSON Schema. Use only the field names and enum values it declares, include every required field, and never invent fields: ${JSON.stringify(WHOLE_SCENE_JSON_SCHEMA)}`,
+    `Each proposedEvents item is a canonical world-state event, not a narrative beat: it carries the structured stateChanges that move the world forward. Never emit fields such as eventId, trigger or probability. A well-formed item for this scene looks like: ${JSON.stringify(example)}`,
+    'The memories, knowledgeChanges and rumors collections are short narrative notes about a proposed event, not state changes. Each memories or knowledgeChanges item has exactly characterId, content and proposedEventIndex; each rumors item has exactly sourceCharacterId, content and proposedEventIndex, where proposedEventIndex is the zero-based position in proposedEvents. Never give them interpretation, importance, emotionalWeight, confidence or visibility -- those belong only to a character_memory_formed entry inside proposedEvents stateChanges.',
+  ].join(' ');
 };
 
 function publicText(output: WholeSceneOutput): string {
@@ -228,7 +281,7 @@ export async function simulateWholeScene(provider: LanguageModelProvider, simula
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       const response = await provider.structuredChat({
-        messages: [{ role: 'system', content: 'Simulate the entire grouped scene once. Return structured JSON only. You may propose events but never commit or mutate Canon. Write every narrative text field (sceneSummary, keyActions, dialogueHighlights, relationshipChanges, knowledgeChanges, memories, rumors, continuityWarnings, and each proposedEvents publicSummary) in Traditional Chinese (zh-TW). Field names and JSON structure stay in English.' },
+        messages: [{ role: 'system', content: wholeSceneSystemPrompt(scene) },
           { role: 'user', content: JSON.stringify(scene) }],
         schemaName: 'whole_scene_output', jsonSchema: WHOLE_SCENE_JSON_SCHEMA, temperature: 0.4, maxTokens: 4_000,
       });

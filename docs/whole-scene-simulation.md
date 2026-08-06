@@ -57,15 +57,42 @@ The tightened `WHOLE_SCENE_JSON_SCHEMA` (`properties`/`required`/`additionalProp
 on every nested item) is necessary but was not, on its own, sufficient to make the real
 provider emit these two fields -- the parser-side default is still required.
 
-`stateChanges` items inside `proposedEvents` are intentionally left as `{ type: 'object' }` in
-the request schema: that field is a 9-variant discriminated union already validated
-independently and strictly by `normalizeStateChange` (throws `CanonError` on any mismatch), so
-re-encoding the full union into JSON Schema was judged out of proportion to this bug. Separately
-(ART-141, follow-up to ART-139): the real provider's `proposedEvents` items themselves are not
-reliably schema-conformant even with a tightened request schema -- they were observed missing
-nearly every required `ProposedEvent` field, including `stateChanges`, which cannot be defaulted
-the way `schemaVersion`/`sceneId` can. That is a distinct, deeper compliance gap, tracked
-separately rather than folded into this contract-layer fix.
+## The request schema does not bind the provider (ART-141)
+
+The configured gateway (`https://llm.shouri.app/v1`, `LLM_MODEL=auto`) accepts
+`response_format: { type: 'json_schema', json_schema: { strict: true, ... } }` and returns HTTP
+200, but **does not enforce the schema at all**. This was established live on 2026-08-06: a
+request carrying only the `proposedEvents` sub-schema came back as an entirely invented
+`{ sceneId, participants, narrative, outcome, dramaticTension }` document with no overlap with
+the requested shape. Every field that previously looked "honored" was really the model inferring
+intent from self-describing names echoed back from the scene payload.
+
+That explains the ART-141 symptom exactly. `proposedEvents` is a Canon concept the model cannot
+infer from the scene payload, so it invented its own idea of an event -- observed shapes were
+`{ eventId, publicSummary, trigger }` and `{ eventId, publicSummary, probability }`. Fully
+specifying the request schema (including expanding `stateChanges` into its complete ten-variant
+`anyOf`) changed nothing on its own; the model returned the same invented shape.
+
+The fix is therefore to carry the contract **in the prompt**. `wholeSceneSystemPrompt` serialises
+`WHOLE_SCENE_JSON_SCHEMA` into the system message, adds a worked `proposedEvents` example derived
+from the scene being simulated, and disambiguates the scene-level `memories`/`knowledgeChanges`/
+`rumors` notes from the `character_memory_formed` state change they otherwise get confused with.
+The schema remains the single source of truth and is serialised from it, so prompt and schema
+cannot drift. `WHOLE_SCENE_JSON_SCHEMA` is still sent as `response_format` for providers that do
+honour it, and every object node in it is strict-mode conformant -- `strictObject` derives
+`required` from `properties` so that invariant cannot regress. `metadata` and
+`correctsKnowledgeId` are deliberately absent from the request: an open-ended object is
+inexpressible under strict mode and both are optional in the Canon contract.
+
+Measured against the real provider after the fix: 6/6 consecutive runs produced
+`proposedEvents` items carrying all twelve contract fields and well-formed `stateChanges`,
+including `character_location_changed` for a travel-shaped scene, and median latency fell from
+~66s to ~8s. `LLM_MODEL=auto` is *not* implicated -- the gap is the gateway's structured-output
+implementation, not model selection -- so no deployment change is recommended.
+
+Provider output remains untrusted regardless: `normalizeProposedEventOutput` and
+`normalizeStateChange` still validate every event at the Canon boundary, and the prompt is a
+compliance aid, never a substitute for that check.
 
 Run focused verification with:
 
