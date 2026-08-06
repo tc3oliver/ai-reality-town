@@ -29,6 +29,18 @@
       "notes": "Tile-index array only; the copyrightable content is the referenced tileset image."
     },
     {
+      "path": "data/mistwood.ts",
+      "type": "tilemap-data",
+      "source": "Derived from public/assets/gentle-obj.png tile indices (Mistwood-specific layout authored for FR-N009 / ART-109)",
+      "author": "AI Reality Town (numeric tile-index data; not independently copyrightable art)",
+      "license": "Follows public/assets/gentle-obj.png",
+      "redistribution": true,
+      "modification": true,
+      "attributionRequired": true,
+      "status": "approved",
+      "notes": "Tile-index arrays only; the copyrightable content is the referenced tileset image, whose attribution block still applies. Introduces no new art asset."
+    },
+    {
       "path": "public/assets/spritesheets/campfire.png",
       "type": "fx-spritesheet-image",
       "source": "Same tileset/pack family as public/assets/gentle-obj.png (bundled decorative-animation spritesheet in the a16z-infra/ai-town stock map asset set)",

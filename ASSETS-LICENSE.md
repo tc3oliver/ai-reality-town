@@ -37,15 +37,15 @@ unnoticed later.
 
 | Status | Count | Meaning |
 |---|---:|---|
-| ✅ Approved | 14 | Reachable from the current/planned public bundle; licence + attribution verified and CI-enforced. |
+| ✅ Approved | 15 | Reachable from the current/planned public bundle; licence + attribution verified and CI-enforced. |
 | 🟡 Restricted | 1 | Verified provenance, but public use is not yet cleared (`background.mp3`). |
 | ⛔ Quarantined | 51 | Not entered into the public bundle: unresolved provenance, third-party trademark, or editor-tool-only / unreachable from any shipped surface. |
 | ⚙️ Tooling | 2 | Not a media asset (code utility / type definitions); covered by the project's own MIT `LICENSE`. |
-| **Total** | **68** | Every asset-like file tracked in git, outside `node_modules` and the gitignored `dist/` build output. |
+| **Total** | **69** | Every asset-like file tracked in git, outside `node_modules` and the gitignored `dist/` build output. |
 
 ## ✅ Approved — public-bundle assets (CI-enforced)
 
-These 14 files are exactly the set `scripts/assets/check-asset-licenses.mjs` enforces.
+These 15 files are exactly the set `scripts/assets/check-asset-licenses.mjs` enforces.
 CI fails if any of them loses its "approved" status, its licence field, or is removed
 from the manifest.
 
@@ -53,6 +53,7 @@ from the manifest.
 |---|---|---|---|---|
 | `public/assets/gentle-obj.png` | Tileset image | [16x16 RPG Tileset](https://opengameart.org/content/16x16-rpg-tileset) (hilau, built on [16x16 Game Assets](https://opengameart.org/content/16x16-game-assets) by George Bailey) | CC-BY-SA 3.0 / GPL 3.0 / CC-BY 4.0 | Yes |
 | `data/gentle.js` | Tilemap tile-index data | Derived from `gentle-obj.png` | Follows tileset | Yes |
+| `data/mistwood.ts` | Tilemap tile-index data | Mistwood-specific layout derived from `gentle-obj.png` (FR-N009) | Follows tileset | Yes |
 | `public/assets/spritesheets/campfire.png` | FX spritesheet | Same stock map asset set | Follows tileset | Yes |
 | `public/assets/spritesheets/gentlesparkle32.png` | FX spritesheet | Same stock map asset set | Follows tileset | Yes |
 | `public/assets/spritesheets/gentlewaterfall32.png` | FX spritesheet | Same stock map asset set (also backs `gentlesplash.json`) | Follows tileset | Yes |

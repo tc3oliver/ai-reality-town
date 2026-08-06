@@ -4,7 +4,7 @@ title: Build the Mistwood-specific tilemap from the existing tileset
 status: To Do
 assignee: []
 created_date: '2026-08-04 15:57'
-updated_date: '2026-08-04 16:00'
+updated_date: '2026-08-06 08:23'
 labels:
   - prd-2.0
   - v2-b
@@ -52,28 +52,42 @@ ordinal: 109000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 data/mistwood.ts exists and renders in the existing tilemap renderer
-- [ ] #2 All eight canonical Mistwood locations are represented by semantically appropriate buildings or areas
-- [ ] #3 Only the existing tileset is used; no new art asset is introduced
-- [ ] #4 Background, object and collision layers are present and structurally valid
-- [ ] #5 Walkable routes between locations are consistent with the seed connectedLocationIds graph
-- [ ] #6 Map tile dimensions and layer shape are compatible with the existing renderer
+- [x] #1 data/mistwood.ts exists and renders in the existing tilemap renderer
+- [x] #2 All eight canonical Mistwood locations are represented by semantically appropriate buildings or areas
+- [x] #3 Only the existing tileset is used; no new art asset is introduced
+- [x] #4 Background, object and collision layers are present and structurally valid
+- [x] #5 Walkable routes between locations are consistent with the seed connectedLocationIds graph
+- [x] #6 Map tile dimensions and layer shape are compatible with the existing renderer
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
 - [ ] #12 Final summary includes verification evidence
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Root constraint found during research: the only licence-approved tileset for the public bundle is `public/assets/gentle-obj.png` (ASSETS-LICENSE.md quarantines magecity.png / rpg-tileset.png / tilemap.json), and that tileset contains **no town buildings at all** — it is terrain plus camp/market/farm props. Verified by decoding the tileset and inspecting labelled contact sheets of every candidate region rather than guessing indices.
+
+So each location is built as a place rather than a house, which is what AC #2's 'buildings **or areas**' allows and which introduces no new art: station = timber platform + sealed lockers on the old rail corridor; hall = walled courtyard around a timber chamber + notice board + records crates; paper = print-shop floor beside the rail line + newsprint bales + ink barrels; square = paved market ground + stall canopies + produce baskets + lantern posts; clinic = timber ward + rear dispensary of bottles/flasks + juniper hedge + herb beds; mill = mill floor on the Northwater channel + animated wheel + grain sacks + millstones; orchard = planted tree rows either side of the disputed access road + packing shed; inn = boarding-house yard + dining tables + foxglove beds.
+
+Implementation shape: `data/mistwood.ts` is a deterministic builder (seeded, no randomness at import) rather than a dumped array, so the intent of each location stays reviewable; the tests assert the built output. Exports `mistwoodWorldMap` (SerializedWorldMap, consumed directly by PixiStaticMap), `mistwoodBgTiles` (ground + detail), `mistwoodObjectTiles` (structures + props), `mistwoodCollision` (explicit 0/1 layer — the SerializedWorldMap contract has no collision field), `mistwoodAnimatedSprites` (windmill.json wheel + gentlesplash.json water, both already-approved FX sheets), and `mistwoodLocationFootprints`/`mistwoodRoadEdges` as map-authoring metadata for the tests.
+
+Everything outside a location or a road is woodland and blocked, so the roads are the town's real circulation. One road corridor per undirected edge of the seed's connectedLocationIds graph (10 edges). The connectivity test BFSes the collision layer with every *other* location's footprint treated as impassable, so a pass proves a **direct** route, not a route via a third location. That test caught a real defect: the inn's canopy was sitting on the yard gate and blocking the inn->orchard road; the canopy was moved south.
+
+Also registered `data/mistwood.ts` in `assets/asset-licenses.json` + `PUBLIC_BUNDLE_PATHS`, so AC #3 (no new art asset) is now CI-enforced by `npm run check:asset-licenses` rather than only asserted in review.
+<!-- SECTION:NOTES:END -->
