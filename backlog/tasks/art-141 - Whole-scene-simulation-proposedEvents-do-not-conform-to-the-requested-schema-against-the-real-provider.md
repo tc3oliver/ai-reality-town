@@ -3,11 +3,11 @@ id: ART-141
 title: >-
   Whole-scene simulation proposedEvents do not conform to the requested schema
   against the real provider
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-05 02:11'
-updated_date: '2026-08-06 07:29'
+updated_date: '2026-08-06 07:30'
 labels:
   - prd-2.0
   - release-blocker
@@ -131,6 +131,8 @@ So the chain provider -> parseWholeSceneOutput -> normalizeProposedEventOutput -
 AC#6 finding: LLM_MODEL=auto is NOT a contributing factor. The defect is the gateway's structured-output implementation -- it accepts response_format json_schema strict:true and returns HTTP 200 without performing any schema enforcement, independent of which model 'auto' selects. Recommendation: leave LLM_MODEL=auto unchanged; no deployment or operational change is warranted by this task. Documented in docs/whole-scene-simulation.md.
 
 All temporary smoke-test code removed before the PR.
+
+PR #159 opened (https://github.com/tc3oliver/ai-reality-town/pull/159) with auto-merge enabled (gh pr merge 159 --auto --merge --delete-branch, enabledAt 2026-08-06T07:30:09Z). CI in progress at hand-off: 'Offline checks (typecheck, lint, test, build)' and 'Autonomous control plane + offline quality'. mergeStateStatus BLOCKED pending those checks, which is the expected pre-merge state; GitHub will merge automatically once they pass. Not block-watched, per the project's autonomous development rules.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
