@@ -28,6 +28,26 @@ test('canon cannot depend on projections', () => {
   );
 });
 
+test('visual binding may read Canon but Canon may not read map geometry', () => {
+  assert.equal(moduleForPath('convex/visualBinding/locationBinding.ts', policy), 'visualBinding');
+  assert.deepEqual(
+    validateImport({
+      sourcePath: 'convex/visualBinding/mistwoodLocationBindings.ts',
+      specifier: '../canon/mistwoodSeed',
+      policy,
+    }),
+    [],
+  );
+  assert.match(
+    validateImport({
+      sourcePath: 'convex/canon/reducer.ts',
+      specifier: '../visualBinding/locationBinding',
+      policy,
+    })[0],
+    /canon may not depend on visualBinding/,
+  );
+});
+
 test('provider packages are isolated to adapter roots', () => {
   assert.match(
     validateImport({ sourcePath: 'convex/story/classifier.ts', specifier: 'openai', policy })[0],

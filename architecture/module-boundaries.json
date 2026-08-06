@@ -3,6 +3,7 @@
   "version": 1,
   "modules": {
     "canon": { "roots": ["convex/canon"], "mayDependOn": ["shared"] },
+    "visualBinding": { "roots": ["convex/visualBinding"], "mayDependOn": ["canon", "shared"] },
     "simulation": { "roots": ["convex/simulation"], "mayDependOn": ["canon", "knowledge", "story", "safety", "observability", "shared"] },
     "knowledge": { "roots": ["convex/knowledge"], "mayDependOn": ["canon", "shared"] },
     "story": { "roots": ["convex/story"], "mayDependOn": ["canon", "knowledge", "shared"] },
