@@ -9,6 +9,7 @@
     "editorial": { "roots": ["convex/editorial", "convex/recaps"], "mayDependOn": ["canon", "story", "safety", "shared"] },
     "publicRead": { "roots": ["convex/publicRead"], "mayDependOn": ["canon", "knowledge", "story", "editorial", "shared"] },
     "viewer": { "roots": ["convex/viewer"], "mayDependOn": ["publicRead", "safety", "shared"] },
+    "visual": { "roots": ["convex/visual"], "mayDependOn": ["canon", "shared"] },
     "operations": { "roots": ["convex/operations"], "mayDependOn": ["canon", "simulation", "knowledge", "story", "editorial", "publicRead", "safety", "observability", "shared"] },
     "safety": { "roots": ["convex/safety"], "mayDependOn": ["shared"] },
     "observability": { "roots": ["convex/observability"], "mayDependOn": ["shared"] },

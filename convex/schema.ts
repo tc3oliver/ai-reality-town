@@ -14,6 +14,7 @@ import { recapTables } from './recaps/schema';
 import { publicReadTables } from './publicRead/schema';
 import { viewerTables } from './viewer/schema';
 import { operationsTables } from './operations/schema';
+import { visualTables } from './visual/schema';
 
 export default defineSchema({
   music: defineTable({
@@ -46,4 +47,5 @@ export default defineSchema({
   ...publicReadTables,
   ...viewerTables,
   ...operationsTables,
+  ...visualTables,
 });

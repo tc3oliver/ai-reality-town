@@ -1,10 +1,11 @@
 ---
 id: ART-111
 title: Define Character Visual Binding with palette variants for twelve characters
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@art111-executor'
 created_date: '2026-08-04 15:57'
-updated_date: '2026-08-05 06:51'
+updated_date: '2026-08-06 08:57'
 labels:
   - prd-2.0
   - v2-b
@@ -86,3 +87,16 @@ ordinal: 111000
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. New `visual` module at `convex/visual/` (registered in architecture/module-boundaries.json, mayDependOn canon+shared).
+2. `characterVisualBinding.ts`: CharacterVisualBindingV1 shape (schemaVersion, id, worldId, characterId, runtimeId, spriteKey, paletteVariant, nameplate, portraitFrame, displayName, locale, publicVariant, status, version), the sprite catalogue (f1-f8 -> 32x32folk.png cell origins + frame names), the HSV palette-range/variant model, pure `applyPaletteVariant()` RGBA recolour, PROTECTED_SKIN_RANGE, and `validateCharacterVisualBindingSet()` returning stable error codes.
+3. `mistwoodVisualBindings.ts`: 12 authored bindings for the Mistwood seed. 8 base sprites f1-f8 assigned by seed index; 4 palette variants derived from f1/f2/f4/f6. zh-TW displayName per character; nameplate === displayName (encodes the single-public-label rule).
+4. Palette ranges are measured HSV windows taken from the real `public/assets/32x32folk.png` (rgb->hsv histogram analysis per 96x128 sprite cell), each proven disjoint from the protected skin range. No global tint field exists in the model, so a whole-sprite tint is structurally unrepresentable.
+5. `schema.ts`: `characterVisualBindings` Convex table (versioned + auditable, indexed by world/character and by current version).
+6. Tests: shape/validation unit tests (unknown characterId, unknown spriteKey, unknown paletteVariant, duplicate runtimeId, nameplate/displayName divergence, non-zh-TW locale, skin-overlapping range, over-broad range); determinism test (bindings rebuilt twice are identical and match the seed roster); and an asset-backed test that decodes the real spritesheet PNG (node zlib, no new dependency) and asserts every variant leaves all skin-range and out-of-range pixels byte-identical while changing a bounded, non-trivial share of designated-range pixels.
+7. Docs: `docs/character-visual-binding.md` listing all twelve assignments + zh-TW names + measured range evidence; update `docs/prd-2.0-requirement-matrix.md` FR-N004 row.
+8. Verify with `npm run check`.
+<!-- SECTION:PLAN:END -->
