@@ -3,11 +3,11 @@ id: ART-143
 title: >-
   Resolve licensing/provenance for f1-f8 character sprites before ART-111 uses
   them
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-05 06:50'
-updated_date: '2026-08-06 08:31'
+updated_date: '2026-08-06 08:39'
 labels:
   - prd-2.0
   - v2-b
@@ -25,15 +25,15 @@ ART-108's asset-licence audit (assets/asset-licenses.json) found that public/ass
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 public/assets/32x32folk.png and data/spritesheets/f1.ts-f8.ts each have a verified source, author and licence recorded in assets/asset-licenses.json
-- [ ] #2 Their status in assets/asset-licenses.json is 'approved' (or they are replaced by assets that are), with redistribution and modification permissions confirmed from primary evidence, not inferred from filename or prior attribution text
-- [ ] #3 npm run check:asset-licenses passes with these sprites included in PUBLIC_BUNDLE_PATHS
-- [ ] #4 No quarantined asset is added to the public bundle to unblock this task
+- [x] #1 public/assets/32x32folk.png and data/spritesheets/f1.ts-f8.ts each have a verified source, author and licence recorded in assets/asset-licenses.json
+- [x] #2 Their status in assets/asset-licenses.json is 'approved' (or they are replaced by assets that are), with redistribution and modification permissions confirmed from primary evidence, not inferred from filename or prior attribution text
+- [x] #3 npm run check:asset-licenses passes with these sprites included in PUBLIC_BUNDLE_PATHS
+- [x] #4 No quarantined asset is added to the public bundle to unblock this task
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
 - [x] #3 Typecheck passes
 - [x] #4 Lint passes
@@ -85,6 +85,25 @@ Independent of the licence decision, the gate had a real loophole: validateManif
 npm run build shows the FR-N008 gate has two false negatives, both from ART-108 deriving reachability from a JS/TS importer grep. Vite copies public/ into dist/ verbatim with no import graph involved, and CSS url() references are not JS imports. Sixteen non-approved assets are in the production bundle today while check:asset-licenses reports '14 public-bundle asset(s) verified': seven under public/ (32x32folk.png, player.png, rpg-tileset.png, magecity.png, heart-empty.png, tilemap.json, plus restricted background.mp3) and nine reached from src/index.css (assets/background.webp and all eight assets/ui/*.svg — the very files ART-108 quarantined after the Mounir Tohami source page 404'd). dist/assets/32x32folk.png was confirmed byte-identical to the source. Out of scope here, so filed as ART-144 rather than silently expanding this task — but it means the disputed character art is not merely 'planned' for the bundle, it is already published, which raises the urgency of the H06 decision.
 
 PR #161 merged into main after CI and Bootstrap workflows both completed successfully (auto-merge, branch deleted). Task remains Blocked: DoD #1 (all acceptance criteria satisfied) stays unchecked because AC #1-#3 depend on the H06 licence decision recorded in the comment above.
+
+## Resolution (H06 decision accepted, 2026-08-06)
+
+Owner chose Option 1 on the H06 blocker: accept a16z-infra/ai-town's root MIT LICENSE (Copyright (c) 2023 a16z-infra) as the licence basis for the nine character-art paths, accepting the residual risk that upstream may not have held every right it purported to grant. That decision, not new research, is what closed this task -- the primary-source investigation recorded above still stands and could not attribute the art to any named artist, pack or generator.
+
+Shipped in PR #164 (branch fix/art-143-approve-f1-f8-mit-grant):
+- assets/asset-licenses.json: public/assets/32x32folk.png and data/spritesheets/f1.ts-f8.ts move from quarantined to approved. The 'Unresolved' placeholders are replaced by the actual grant (source = upstream commit dca78f5ea, byte-identical to our copy; author = a16z-infra/ai-town contributors, spritesheet committed by 61cygni; licence = MIT with the residual-risk caveat), and redistribution/modification/attributionRequired are set true. The full ART-143 evidence chain and an explicit 'this is a recorded risk acceptance, not a provenance finding -- revisit if the original artist is ever identified' caveat stay in notes, so approval does not erase the audit trail.
+- scripts/assets/check-asset-licenses.mjs: the nine paths join PUBLIC_BUNDLE_PATHS. Combined with ART-109's data/mistwood.ts landing in parallel, the enforced set is now 24 paths.
+- scripts/assets/check-asset-licenses.test.mjs: the ART-143 pin is inverted -- it now asserts the nine paths are approved, carry a non-placeholder MIT record with usable rights, and are present in PUBLIC_BUNDLE_PATHS. The two anti-laundering negative tests re-point at assets/ui/box.svg, which is still quarantined with placeholder provenance, so the loophole guard shipped in PR #161 keeps a live subject rather than silently becoming a no-op.
+- ASSETS-LICENSE.md: character art moves into the approved table; counts updated (approved 24, quarantined 42, total 69); the MIT copyright and permission notice joins the required attribution block, since MIT conditions the grant on those notices travelling with the files; the investigation table is reframed from an H06 blocker into a decision record.
+- docs/prd-2.0-requirement-matrix.md: FR-N008 row records ART-143 Done with the accepted-MIT basis and keeps ART-144 as the open follow-up.
+
+On AC #2's 'confirmed from primary evidence' wording: the recorded permissions come from a primary document (upstream's LICENSE file), not from a filename guess or carried-over attribution text -- which is the failure mode that AC was written against after ART-62 generically credited 'OpenGameArt'. What remains unverifiable is upstream's own chain of title, and that is exactly what the owner's H06 decision accepted and what the manifest notes record.
+
+Mid-flight conflict: ART-109 (PR #162/#163) merged to main while this branch was open and also touched assets/asset-licenses.json, ASSETS-LICENSE.md, docs/prd-2.0-requirement-matrix.md and the check script. Resolved by merging origin/main into the branch (no force-push) and combining both sides -- ART-109's data/mistwood.ts approval and FR-N009 Done row are preserved alongside this task's changes.
+
+Scope held: ART-144 (public/ copy and CSS url() bundle-detection gap) was deliberately not folded into this PR.
+
+Verification: npm run check:offline green end to end after the merge -- check:architecture, test:architecture, check:asset-licenses ('Asset licence check passed: 24 public-bundle asset(s) verified'), test:asset-licenses (13/13), typecheck, lint, test:foundation (33 suites / 359 tests), production build.
 <!-- SECTION:NOTES:END -->
 
 ## Comments
@@ -123,11 +142,5 @@ Owner decision received on the H06 blocker (2026-08-06): Option 1 -- accept upst
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-Re-opened the f1-f8 provenance question against primary sources rather than re-reading ART-108's conclusion, and confirmed it is unresolvable: upstream a16z-infra/ai-town touched public/assets/32x32folk.png in exactly two commits five hours apart on 2023-08-12 (a41c22089, dca78f5ea via PR #54), swapping the entire cast for different art without naming a source; its README credits a third-party source for every other art category but none for character art; the 'Pixel Art Generation: Replicate, Fal.ai' line was added 48 minutes later by a different author as a generic Stack bullet and is never linked to the file; the PNG carries no author/copyright/generator metadata; upstream issue #202 asked this exact question and the maintainer answered with a directory path only; and no match exists against candidate 32x32 character packs. Upstream's MIT LICENSE conveys only rights upstream actually held, which nothing establishes. Acceptance criteria #1-#3 therefore cannot be met, AC #4 forbids promoting the asset anyway, and the AC #2 replacement route is closed by PRD 2.0 section 6's v1 non-goal on external asset libraries and image-generation models. Raised as H06 with three concrete options for the owner.
-
-Shipped regardless of that decision: the full evidence chain is now recorded in assets/asset-licenses.json and ASSETS-LICENSE.md so it is not re-investigated; and a real loophole is closed — validateManifestShape accepted the literal string 'Unresolved' as a non-empty licence, so an unknown-provenance asset could reach the public bundle by flipping status alone. isPlaceholderProvenance() now rejects approved records with placeholder source/author/licence, matched only as a whole value or leading term plus separator so genuine text such as 'CC-BY 4.0, attribution unknown for one contributing pack' still passes.
-
-Verification evidence: npm run check:asset-licenses passed ('14 public-bundle asset(s) verified'); npm run test:asset-licenses 13/13 pass including four new regression tests, one pinning the nine character-art paths as non-approved and absent from PUBLIC_BUNDLE_PATHS; npm run check:offline fully green (check:architecture, test:architecture, asset licence check and tests, typecheck, lint, 33 suites / 359 tests, vite build). Negative proof against a temp manifest copy: flipping 32x32folk.png to approved and appending it to the bundle list returns two errors naming the path and 'unresolved provenance'. Delivered in PR #161.
-
-Also discovered while verifying and filed as ART-144 rather than expanding scope: the FR-N008 gate has two false negatives (vite copies public/ verbatim into dist/, and CSS url() references are not JS imports), so sixteen non-approved assets — including dist/assets/32x32folk.png, byte-identical to source — already ship while the check reports '14 verified'.
+Closed the f1-f8 character-art licensing question by recording the owner's H06 decision rather than by finding new provenance: upstream a16z-infra/ai-town's root MIT LICENSE (Copyright (c) 2023 a16z-infra) is accepted as the grant for public/assets/32x32folk.png and data/spritesheets/f1.ts-f8.ts, with the residual risk that upstream may not have held every right it granted explicitly accepted and recorded. The nine paths move from quarantined to approved in assets/asset-licenses.json with the real source/author/licence replacing the 'Unresolved' placeholders and the full investigation evidence kept in notes; they join PUBLIC_BUNDLE_PATHS so the FR-N008 gate enforces them; the regression test that used to pin them as quarantined now pins them as approved, MIT and non-placeholder, and the two anti-laundering negative tests move to the still-quarantined assets/ui/box.svg so the loophole guard keeps a live subject; ASSETS-LICENSE.md carries the MIT copyright/permission notice in its required attribution block and reframes the investigation as a decision record; the PRD 2.0 matrix marks FR-N008/ART-143 Done. Verified with npm run check:offline after merging origin/main (ART-109 landed mid-flight and touched the same files): check:asset-licenses reports 24 public-bundle assets verified, test:asset-licenses 13/13, typecheck, lint, 33 suites / 359 tests and the production build all pass. This unblocks ART-111 (Character Visual Binding). ART-144 (public/ and CSS url() bundle-detection gap) remains a separate open task and was not folded in. Shipped as PR #164 with auto-merge enabled.
 <!-- SECTION:FINAL_SUMMARY:END -->
