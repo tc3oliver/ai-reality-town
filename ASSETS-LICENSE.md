@@ -102,17 +102,32 @@ itself has zero importers anywhere in `src/`). Any future re-introduction of "po
 branding requires explicit trademark-owner authorisation, not just a copyright licence
 check.
 
-### Unresolved-provenance character art (resolves ART-62 open item #1, narrower than previously recorded)
+### Unresolved-provenance character art (ART-62 open item #1 → ART-108 → re-investigated by ART-143)
 
 `public/assets/32x32folk.png` and its frame-coordinate data (`data/spritesheets/f1.ts`–
 `f8.ts`) are the stock a16z character sprite ART-107 marked "reusable as-is" for a future
 Visual Runtime (FR-N010). ART-62's table optimistically attributed this file to "OpenGameArt"
-generically; this audit could not confirm that — upstream's README credits three named
-OpenGameArt sources collectively for its tileset art but does not attribute this specific
-character texture to any of them, and its separate "Pixel Art Generation: Replicate,
-Fal.ai" credit line is not conclusively linked to this file either. Downgraded from
-ART-62's unverified attribution to quarantined pending a definitive source or a rebuilt
-character-art path.
+generically; ART-108 could not confirm that and downgraded it to quarantined. ART-143 then
+re-opened the question against primary sources rather than re-reading that conclusion, and
+reached the same answer with a much stronger evidence base:
+
+| Line of enquiry | Result |
+|---|---|
+| Upstream commit history for the path | Exactly two commits, both by `61cygni` on 2023-08-12: `a41c22089` "New 32x32 spritesheet" (16:52:25Z) and `dca78f5ea` "New 32x32 characters" (21:40:38Z, PR #54 "Martin character"). The two versions are **entirely different character art** at the same 384×256 layout — upstream swapped the whole cast within five hours. Neither commit message, the PR body, nor its single review comment names a source. |
+| Upstream README credits | Upstream names a third-party source for every other art category it uses (two OpenGameArt tilesets, ansimuz, Mounir Tohami's UI pack, MusicGen audio) and **names none for the character spritesheet**. |
+| The "Pixel Art Generation: Replicate, Fal.ai" line | Added 48 minutes after the spritesheet landed, by a different author, as a generic bullet in the *Stack* list (PR #50). Never linked to this file. Suggestive of AI generation, not probative. |
+| PNG metadata | No author, copyright or generator fields. Only `sRGB`, an `eXIf` orientation tag, `pHYs`, and boilerplate Adobe XMP holding just `tiff:Orientation`. |
+| Upstream issue tracker | Issue #202 asked where these textures come from; the maintainer answered with the directory path only, recording no licence or attribution. |
+| Asset-pack matching | No visual or catalogue match against candidate 32×32 character packs (Pipoya, OpenGameArt CC0 sets, itch.io and RPG-Maker-style packs). Exact-string web search for `32x32folk` returns nothing. |
+
+**Conclusion:** redistribution and modification rights cannot be confirmed from primary
+evidence, so these nine paths stay quarantined. Upstream's root MIT `LICENSE` is a real
+grant, but it only conveys rights upstream actually held, and nothing establishes that for
+this file. This is now an owner-level licence decision rather than a research gap — ART-143
+is blocked on **H06 (legal licence acceptance)**. Note that re-sourcing is not a free
+alternative: PRD 2.0 §6 lists adopting an external free asset library or an image-generation
+model to fill out the sprite set as an explicit v1 non-goal, so a replacement pack would need
+a PRD exception. ART-111 (Character Visual Binding) depends on this decision.
 
 `assets/ui/*.svg` (the dialogue/menu chrome: `box`, `bubble-left`, `bubble-right`,
 `button`, `button_pressed`, `chats`, `desc`, `frame`, `jewel_box`) were attributed by
@@ -155,11 +170,17 @@ the project's own MIT `LICENSE`.
 3. that record has no `license` recorded, or is missing required attribution detail when
    `attributionRequired` is true;
 4. the manifest itself is malformed (missing required fields, an invalid `status` value,
-   or a duplicate path).
+   or a duplicate path);
+5. any record is marked `"approved"` while its `source`, `author` or `license` is still a
+   placeholder such as `"Unresolved"`, `"Unknown"` or `"TBD"` (added by ART-143). Without
+   this rule the gate could be satisfied by flipping `status` alone, which would admit an
+   asset of unknown provenance into the public bundle — exactly what FR-N008 acceptance
+   condition 3 forbids.
 
 `npm run test:asset-licenses` (`scripts/assets/check-asset-licenses.test.mjs`) proves this
 behaviourally, including a negative test that deletes a required public-bundle record and
-asserts the check fails. Both run in CI (`.github/workflows/ci.yml`,
+asserts the check fails, and ART-143 regression tests pinning the nine character-art paths
+as non-approved and absent from `PUBLIC_BUNDLE_PATHS`. Both run in CI (`.github/workflows/ci.yml`,
 `.github/workflows/bootstrap.yml`) and are part of `npm run check` / `npm run
 check:offline`.
 
