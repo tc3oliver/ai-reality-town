@@ -7,7 +7,7 @@ status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-05 02:11'
-updated_date: '2026-08-06 07:30'
+updated_date: '2026-08-06 07:34'
 labels:
   - prd-2.0
   - release-blocker
@@ -83,7 +83,7 @@ Documentation Impact: Update docs/whole-scene-simulation.md with the confirmed p
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -133,6 +133,8 @@ AC#6 finding: LLM_MODEL=auto is NOT a contributing factor. The defect is the gat
 All temporary smoke-test code removed before the PR.
 
 PR #159 opened (https://github.com/tc3oliver/ai-reality-town/pull/159) with auto-merge enabled (gh pr merge 159 --auto --merge --delete-branch, enabledAt 2026-08-06T07:30:09Z). CI in progress at hand-off: 'Offline checks (typecheck, lint, test, build)' and 'Autonomous control plane + offline quality'. mergeStateStatus BLOCKED pending those checks, which is the expected pre-merge state; GitHub will merge automatically once they pass. Not block-watched, per the project's autonomous development rules.
+
+PR #159 merged 2026-08-06 (https://github.com/tc3oliver/ai-reality-town/pull/159). Both required checks green: "Offline checks (typecheck, lint, test, build)" SUCCESS, "Autonomous control plane + offline quality" SUCCESS. Auto-merge completed; branch deleted.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
