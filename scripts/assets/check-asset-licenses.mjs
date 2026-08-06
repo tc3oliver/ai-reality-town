@@ -34,6 +34,31 @@ export const PUBLIC_BUNDLE_PATHS = [
 
 const REQUIRED_FIELDS = ['path', 'type', 'source', 'author', 'license', 'status'];
 const VALID_STATUSES = ['approved', 'restricted', 'quarantined', 'tooling'];
+const PLACEHOLDER_PROVENANCE_TERMS = [
+  'unresolved',
+  'unknown',
+  'undetermined',
+  'unverified',
+  'tbd',
+  'todo',
+  'pending',
+  'n/a',
+  'none',
+];
+const PLACEHOLDER_SEPARATORS = new Set([' ', '-', ':', ',', '.', ';']);
+
+export function isPlaceholderProvenance(value) {
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase();
+  if (normalized === '') return true;
+  for (const term of PLACEHOLDER_PROVENANCE_TERMS) {
+    if (normalized === term) return true;
+    if (normalized.startsWith(term) && PLACEHOLDER_SEPARATORS.has(normalized[term.length]))
+      return true;
+  }
+  return false;
+}
 
 export function loadManifest(path = MANIFEST_PATH) {
   return JSON.parse(readFileSync(path, 'utf8'));
@@ -54,10 +79,23 @@ export function validateManifestShape(manifest) {
       }
     }
     if (asset?.status && !VALID_STATUSES.includes(asset.status)) {
-      errors.push(`${label}: invalid status "${asset.status}" (expected one of ${VALID_STATUSES.join(', ')})`);
+      errors.push(
+        `${label}: invalid status "${asset.status}" (expected one of ${VALID_STATUSES.join(', ')})`,
+      );
     }
     if (asset?.status === 'approved' && (!asset.author || !asset.license)) {
-      errors.push(`${label}: status "approved" requires both "author" and "license" to be recorded`);
+      errors.push(
+        `${label}: status "approved" requires both "author" and "license" to be recorded`,
+      );
+    }
+    if (asset?.status === 'approved') {
+      for (const field of ['source', 'author', 'license']) {
+        if (isPlaceholderProvenance(asset?.[field])) {
+          errors.push(
+            `${label}: status "approved" requires verified provenance, but "${field}" is a placeholder value ("${asset[field]}") -- unresolved provenance must not enter public bundle`,
+          );
+        }
+      }
     }
     if (asset?.path) {
       if (seen.has(asset.path)) errors.push(`${label}: duplicate manifest entry`);
@@ -80,11 +118,15 @@ export function checkPublicBundleCoverage(manifest, publicBundlePaths = PUBLIC_B
   for (const path of publicBundlePaths) {
     const asset = byPath.get(path);
     if (!asset) {
-      errors.push(`${path}: reachable from the public bundle but has no licence record in assets/asset-licenses.json`);
+      errors.push(
+        `${path}: reachable from the public bundle but has no licence record in assets/asset-licenses.json`,
+      );
       continue;
     }
     if (asset.status !== 'approved') {
-      errors.push(`${path}: reachable from the public bundle but status is "${asset.status}", not "approved"`);
+      errors.push(
+        `${path}: reachable from the public bundle but status is "${asset.status}", not "approved"`,
+      );
     }
     if (!asset.license || String(asset.license).trim() === '') {
       errors.push(`${path}: reachable from the public bundle but has no recorded licence`);
@@ -98,7 +140,10 @@ export function checkPublicBundleCoverage(manifest, publicBundlePaths = PUBLIC_B
 
 export function runCheck(manifestPath = MANIFEST_PATH, publicBundlePaths = PUBLIC_BUNDLE_PATHS) {
   const manifest = loadManifest(manifestPath);
-  return [...validateManifestShape(manifest), ...checkPublicBundleCoverage(manifest, publicBundlePaths)];
+  return [
+    ...validateManifestShape(manifest),
+    ...checkPublicBundleCoverage(manifest, publicBundlePaths),
+  ];
 }
 
 function main() {
@@ -106,10 +151,14 @@ function main() {
   if (errors.length > 0) {
     console.error('Asset licence check failed:\n');
     for (const error of errors) console.error(`  - ${error}`);
-    console.error(`\n${errors.length} problem(s) found. See ASSETS-LICENSE.md and assets/asset-licenses.json.`);
+    console.error(
+      `\n${errors.length} problem(s) found. See ASSETS-LICENSE.md and assets/asset-licenses.json.`,
+    );
     process.exit(1);
   }
-  console.log(`Asset licence check passed: ${PUBLIC_BUNDLE_PATHS.length} public-bundle asset(s) verified.`);
+  console.log(
+    `Asset licence check passed: ${PUBLIC_BUNDLE_PATHS.length} public-bundle asset(s) verified.`,
+  );
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
