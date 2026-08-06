@@ -1,6 +1,5 @@
 import { Stage, useApp } from '@pixi/react';
-import { useRef } from 'react';
-import { Viewport } from 'pixi-viewport';
+import type { Application } from 'pixi.js';
 
 import { Character } from './Character';
 import { PixiStaticMap } from './PixiStaticMap';
@@ -50,7 +49,7 @@ export function ReadOnlyWorld({
 }) {
   return (
     <Stage width={screenWidth} height={screenHeight} options={{ backgroundColor: 0x7ab5ff }}>
-      <ReadOnlyWorldScene
+      <StageContents
         viewModel={viewModel}
         spriteAssets={spriteAssets}
         screenWidth={screenWidth}
@@ -60,31 +59,36 @@ export function ReadOnlyWorld({
   );
 }
 
-/**
- * Scene contents. Split from {@link ReadOnlyWorld} because `useApp` has to run
- * inside the `Stage` subtree.
- */
-function ReadOnlyWorldScene({
-  viewModel,
-  spriteAssets,
-  screenWidth,
-  screenHeight,
-}: {
+/** Bridges the Pixi application into the scene; `useApp` only works inside `Stage`. */
+function StageContents(props: ReadOnlyWorldSceneProps) {
+  return <ReadOnlyWorldScene app={useApp()} {...props} />;
+}
+
+interface ReadOnlyWorldSceneProps {
   viewModel: ReadOnlyWorldViewModel;
   spriteAssets: Readonly<Record<string, ReadOnlySpriteAsset>>;
   screenWidth: number;
   screenHeight: number;
-}) {
-  const pixiApp = useApp();
-  // Held only so the viewport instance is reachable for future camera work
-  // (following a character, framing a scene). Panning and zooming are local
-  // camera state and never leave the browser.
-  const viewportRef = useRef<Viewport | undefined>(undefined);
+}
 
+/**
+ * Scene contents: the whole thing this shell draws.
+ *
+ * Deliberately hook-free and a pure function of its props, so
+ * `readOnlyWorld.dom.test.tsx` can call it and inspect the element tree it
+ * returns -- which is how "renders the Mistwood map and character sprites" and
+ * "carries no callback anywhere in the tree" are asserted rather than assumed.
+ */
+export function ReadOnlyWorldScene({
+  app,
+  viewModel,
+  spriteAssets,
+  screenWidth,
+  screenHeight,
+}: ReadOnlyWorldSceneProps & { app: Application }) {
   return (
     <PixiViewport
-      app={pixiApp}
-      viewportRef={viewportRef}
+      app={app}
       screenWidth={screenWidth}
       screenHeight={screenHeight}
       worldWidth={viewModel.worldWidth}

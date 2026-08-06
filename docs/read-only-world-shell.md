@@ -44,8 +44,14 @@ is a valid frame.
 - `npm run check:architecture` fails the build on either violation;
   `npm run test:architecture` proves the policy rejects representative violations.
 - `src/components/world/readOnlyWorldSurface.test.ts` is the product-side acceptance
-  evidence (FR-N002 AC#7) and also covers pointer handlers, control affordances and the
-  non-map fallback route.
+  evidence (FR-N002 AC#7) and also covers control affordances and the non-map fallback
+  route.
+- `src/components/world/readOnlyWorld.dom.test.tsx` calls the scene component and walks the
+  element tree it returns: the Mistwood map reaches the tilemap component, one sprite is
+  emitted per bound motion at the expected pixel pose, an unbound character draws nothing,
+  and no element in the tree carries a function prop, an `on*` prop or a pointer prop. It
+  runs in the `dom` Jest project because `pixi-viewport` reads `window` at module load; it
+  mounts no Pixi application and renders no markup.
 
 Server-side enforcement is separate and stays owned by FR-O009: this boundary removes the
 client's ability to ask for a write, not the backend's duty to refuse one.
