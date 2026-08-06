@@ -1,10 +1,10 @@
 ---
 id: ART-109
 title: Build the Mistwood-specific tilemap from the existing tileset
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-04 15:57'
-updated_date: '2026-08-06 08:23'
+updated_date: '2026-08-06 08:32'
 labels:
   - prd-2.0
   - v2-b
@@ -73,21 +73,26 @@ ordinal: 109000
 - [x] #9 Documentation is updated
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-Root constraint found during research: the only licence-approved tileset for the public bundle is `public/assets/gentle-obj.png` (ASSETS-LICENSE.md quarantines magecity.png / rpg-tileset.png / tilemap.json), and that tileset contains **no town buildings at all** — it is terrain plus camp/market/farm props. Verified by decoding the tileset and inspecting labelled contact sheets of every candidate region rather than guessing indices.
+Delivered `data/mistwood.ts`: a 48x36 Mistwood-specific tilemap built entirely from the existing approved tileset `public/assets/gentle-obj.png`, replacing the generic a16z demo layout for FR-N009.
 
-So each location is built as a place rather than a house, which is what AC #2's 'buildings **or areas**' allows and which introduces no new art: station = timber platform + sealed lockers on the old rail corridor; hall = walled courtyard around a timber chamber + notice board + records crates; paper = print-shop floor beside the rail line + newsprint bales + ink barrels; square = paved market ground + stall canopies + produce baskets + lantern posts; clinic = timber ward + rear dispensary of bottles/flasks + juniper hedge + herb beds; mill = mill floor on the Northwater channel + animated wheel + grain sacks + millstones; orchard = planted tree rows either side of the disputed access road + packing shed; inn = boarding-house yard + dining tables + foxglove beds.
+Approach and the constraint that shaped it: the only tileset cleared for the public bundle is gentle-obj.png (ASSETS-LICENSE.md quarantines magecity.png / rpg-tileset.png / tilemap.json), and that tileset contains no town buildings — it is terrain plus camp, market and farm props. Verified by decoding the tileset and reading labelled contact sheets of every candidate region rather than guessing indices. So each location is built as a place rather than a house, which is exactly what AC #2's "buildings **or areas**" permits and which introduces no new art. The Chronicle beside the rail line and the mill on the water channel are taken from the seed's own descriptions in convex/canon/mistwoodSeed.ts.
 
-Implementation shape: `data/mistwood.ts` is a deterministic builder (seeded, no randomness at import) rather than a dumped array, so the intent of each location stays reviewable; the tests assert the built output. Exports `mistwoodWorldMap` (SerializedWorldMap, consumed directly by PixiStaticMap), `mistwoodBgTiles` (ground + detail), `mistwoodObjectTiles` (structures + props), `mistwoodCollision` (explicit 0/1 layer — the SerializedWorldMap contract has no collision field), `mistwoodAnimatedSprites` (windmill.json wheel + gentlesplash.json water, both already-approved FX sheets), and `mistwoodLocationFootprints`/`mistwoodRoadEdges` as map-authoring metadata for the tests.
+Verification evidence:
+- `npm run check` on the merged branch: 86 test suites, 1150 passed / 5 skipped, plus architecture boundaries, asset-licence gate, typecheck, lint and vite build all clean.
+- `data/mistwood.test.ts`: 23 tests. Renderer compatibility (tileset divides exactly into 45x32 tiles, `tileX + tileY * 45` indexing, layer shape is what PixiStaticMap derives width/height from); every tile index is -1 or in range; ground layer has no holes; collision is strictly 0/1; animated sprites sit on approved sheets inside map bounds; all eight footprint ids and names equal the seed's locations; footprints do not overlap; every location has structures and walkable tiles; no two locations share an identical prop signature (this is the assertion that stops the map degenerating back into anonymous grass); declared road edges equal the seed's undirected connectedLocationIds set; and each edge has a walkable route with every *other* location's footprint treated as impassable, in both directions.
+- That connectivity test caught a real defect during development: the Foxglove Inn's canopy was sitting on the yard gate and blocking the inn->orchard road. Fixed by moving the canopy south.
+- Booted in the **real PixiJS renderer**: `PixiStaticMap` mounted behind a temporary, uncommitted vite entry in a live browser. Canvas 1536x1152 (= 48x36 tiles at 32px), WebGL context present, 100% of sampled pixels painted across 1286 distinct colours, with spot samples matching the design (sand on the rail corridor and the square, dark teal water in the mill channel, canopy green in the woodland). The animated mill wheel (windmill.json) and channel splashes (gentlesplash.json) render. The temp entry was removed before committing.
+- AC #3 is now CI-enforced, not just review-asserted: `data/mistwood.ts` was added to `assets/asset-licenses.json` and to `PUBLIC_BUNDLE_PATHS`, so `npm run check:asset-licenses` fails if the map ever loses its approved licence record (15 public-bundle assets verified).
 
-Everything outside a location or a road is woodland and blocked, so the roads are the town's real circulation. One road corridor per undirected edge of the seed's connectedLocationIds graph (10 edges). The connectivity test BFSes the collision layer with every *other* location's footprint treated as impassable, so a pass proves a **direct** route, not a route via a third location. That test caught a real defect: the inn's canopy was sitting on the yard gate and blocking the inn->orchard road; the canopy was moved south.
+Merged as PR #162 (https://github.com/tc3oliver/ai-reality-town/pull/162), merge commit b62757c, both required checks green ("Offline checks (typecheck, lint, test, build)" and "Autonomous control plane + offline quality"). The branch was created before ART-143 landed, so origin/main was merged in and two conflicts resolved by hand: the FR-N008/FR-N009 rows of the PRD matrix (kept ART-143's FR-N008 row alongside the new FR-N009 row) and `assets/asset-licenses.json`, where an earlier whole-file reformat was discarded in favour of main's file plus a single minimal entry.
 
-Also registered `data/mistwood.ts` in `assets/asset-licenses.json` + `PUBLIC_BUNDLE_PATHS`, so AC #3 (no new art asset) is now CI-enforced by `npm run check:asset-licenses` rather than only asserted in review.
+Follow-up noted, not in scope here: ART-144 already records that `PUBLIC_BUNDLE_PATHS` and vite's actual `dist/` output disagree; adding the map to that list inherits the same known gap and does not widen it.
 <!-- SECTION:NOTES:END -->
