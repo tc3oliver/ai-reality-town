@@ -1,11 +1,11 @@
 ---
 id: ART-110
 title: Define Location Visual Binding for all eight Mistwood locations
-status: In Progress
+status: Done
 assignee:
   - '@claude-art110'
 created_date: '2026-08-04 15:57'
-updated_date: '2026-08-06 09:20'
+updated_date: '2026-08-06 09:29'
 labels:
   - prd-2.0
   - v2-b
@@ -74,8 +74,8 @@ ordinal: 110000
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -119,6 +119,12 @@ ART-111 (Character Visual Binding) merged first and created the Visual Binding m
 - Added the persisted `locationVisualBindings` table to `convex/visual/schema.ts` (PRD §14.2) alongside their `characterVisualBindings`, with the same versioned/retired auditing rule and `mapId` on the row because geometry does not survive a new map.
 - Boundary policy test now asserts `convex/visual/locationVisualBinding.ts` resolves to the `visual` module and that canon may not depend on it; added the missing Visual Binding row to `docs/architecture/module-boundaries.md`.
 - Resolved the `docs/prd-2.0-requirement-matrix.md` conflict by keeping ART-111's FR-N004 row intact and updating only the FR-N005 row.
+
+## Merge evidence
+
+PR #166 (https://github.com/tc3oliver/ai-reality-town/pull/166) merged to main as 0a6e0356 at 2026-08-06T09:25:51Z. Both required workflows green on the merged head: 'Offline checks (typecheck, lint, test, build)' SUCCESS and 'Autonomous control plane + offline quality' SUCCESS.
+
+Force push is blocked in this repo, so after the rebase onto ART-111 the superseded pre-rebase tip was merged in with `-s ours` (tree identical to the rebased branch, verified by `git diff HEAD <rebased-tip>` returning empty) and pushed as a fast-forward. The merged diff against main is exactly the eleven ART-110 files; ART-111's task file and sources are untouched.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
