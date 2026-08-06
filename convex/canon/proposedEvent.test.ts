@@ -127,4 +127,18 @@ describe('ProposedEvent v1 contract', () => {
     expectContractError({ ...movement(), metadata: { callback: () => true } }, 'INVALID_EVENT_SHAPE', 'metadata.callback');
     expectContractError({ ...movement(), metadata: { invalid: Number.NaN } }, 'INVALID_EVENT_SHAPE', 'metadata.invalid');
   });
+
+  // ART-141: the shared allow-list that gates every state change omitted the fields these two
+  // variants are made of, so a perfectly well-formed payload was rejected before its own
+  // per-variant check could run.
+  it('normalizes the location and organization state-change variants', () => {
+    const location = { type: 'location_state_changed', locationId: 'mistwood-station', name: '迷霧鎮車站',
+      description: '清晨的月台', locationType: 'station', capacity: 40, connectedLocationIds: ['mistwood-square'],
+      active: true, reason: '月台整修完成' } as const;
+    const organization = { type: 'organization_state_changed', organizationId: 'mistwood-rail', name: '迷霧鐵道',
+      description: '經營早班列車', organizationType: 'company', headquartersLocationId: 'mistwood-station',
+      active: true, reason: '恢復營運' } as const;
+    const event = normalizeProposedEventOutput({ ...movement(), stateChanges: [location, organization] });
+    expect(event.stateChanges).toEqual([location, organization]);
+  });
 });

@@ -5,7 +5,8 @@ import type { OpenAICompatibleConfig } from './providers/config';
 import type { LanguageModelProvider, StructuredChatRequest, StructuredChatResult } from './provider';
 import { SimulationProviderError } from './provider';
 import type { GroupedScene } from './sceneGrouping';
-import { parseWholeSceneOutput, SceneSimulationError, simulateWholeScene, WHOLE_SCENE_JSON_SCHEMA } from './sceneSimulation';
+import { STATE_CHANGE_TYPES } from '../canon/eventTypes';
+import { parseWholeSceneOutput, SceneSimulationError, simulateWholeScene, WHOLE_SCENE_JSON_SCHEMA, wholeSceneSystemPrompt } from './sceneSimulation';
 
 const scene: GroupedScene = {
   schemaVersion: 1, sceneId: 'group-1:scene:1', groupingRunId: 'group-1', directorRunId: 'director-1',
@@ -180,6 +181,110 @@ describe('FR-C005 whole-scene simulation', () => {
         expect(items.additionalProperties).toBe(false);
         expect(Array.isArray(items.required)).toBe(true);
       }
+    });
+  });
+
+  describe('ART-141 real-provider proposedEvents contract (FR-C002)', () => {
+    // Every payload below was captured verbatim from the configured provider
+    // (https://llm.shouri.app/v1, LLM_MODEL=auto) on 2026-08-06 for this scene.
+    const travelScene: GroupedScene = {
+      schemaVersion: 1, sceneId: 'group-live:scene:1', groupingRunId: 'group-live', directorRunId: 'director-live',
+      worldId: 'mistwood', worldDay: 3, timeSlot: 'morning', locationId: 'mistwood-square',
+      participantIds: ['wu-zhen', 'lin-yingxue'], sourceIntentIds: ['intent-live-1', 'intent-live-2'],
+      arcIds: ['arc-station-ledger'],
+      trigger: 'Wu Zhen must deliver a sealed envelope, so he leaves the town square and walks to the station where Lin Yingxue is waiting.',
+      dramaticPressure: 'The envelope must reach the station before the morning train departs.',
+    };
+
+    const conformingOutput = (): Record<string, unknown> => ({
+      schemaVersion: 1, sceneId: 'group-live:scene:1',
+      sceneSummary: '吳真攜帶著密封信封，在早晨的時限壓力下，迅速離開迷霧鎮廣場前往車站，將信件交付給等待中的林映雪。',
+      keyActions: [{ characterId: 'wu-zhen', action: '快步穿過廣場並前往車站，遞交密封信封。' },
+        { characterId: 'lin-yingxue', action: '在車站等待吳真，並接過信封。' }],
+      dialogueHighlights: [{ characterId: 'wu-zhen', text: '快接住！差點就趕不上早班車了。' },
+        { characterId: 'lin-yingxue', text: '你來得正是時候，這封信對我們至關重要。' }],
+      proposedEvents: [
+        { schemaVersion: 1, worldId: 'mistwood', idempotencyKey: 'group-live:event:1:1', proposedBy: { type: 'system' },
+          worldDay: 3, timeSlot: 'morning', eventType: 'movement', locationId: 'mistwood-station',
+          participantIds: ['wu-zhen'], causedByEventIds: [], publicSummary: '吳真從迷霧鎮廣場趕往車站。',
+          stateChanges: [{ type: 'character_location_changed', characterId: 'wu-zhen',
+            fromLocationId: 'mistwood-square', toLocationId: 'mistwood-station' }] },
+        { schemaVersion: 1, worldId: 'mistwood', idempotencyKey: 'group-live:event:1:2', proposedBy: { type: 'system' },
+          worldDay: 3, timeSlot: 'morning', eventType: 'conversation', locationId: 'mistwood-station',
+          participantIds: ['wu-zhen', 'lin-yingxue'], causedByEventIds: ['group-live:event:1:1'],
+          publicSummary: '吳真將密封信封交付給林映雪。',
+          stateChanges: [
+            { type: 'item_transferred', itemId: 'sealed-envelope-01', fromOwnerId: 'wu-zhen', toOwnerId: 'lin-yingxue', reason: '交付重要機密信件' },
+            { type: 'relationship_changed', sourceCharacterId: 'lin-yingxue', targetCharacterId: 'wu-zhen',
+              trustDelta: 0.1, affectionDelta: 0, resentmentDelta: 0, fearDelta: 0, dependencyDelta: 0.1,
+              familiarityDelta: 0.05, reason: '吳真在時限內準時交付信件', visibility: 'private' }] },
+      ],
+      relationshipChanges: [{ sourceCharacterId: 'lin-yingxue', targetCharacterId: 'wu-zhen',
+        summary: '林映雪對吳真的信任度略微提升，因為他成功在期限前交付了信件。', proposedEventIndex: 1 }],
+      knowledgeChanges: [{ characterId: 'lin-yingxue', content: '密封信封已安全送達。', proposedEventIndex: 1 }],
+      memories: [{ characterId: 'wu-zhen', content: '在早晨的壓力下趕到車站並將信交給林映雪的緊張過程。', proposedEventIndex: 1 }],
+      rumors: [], continuityWarnings: [],
+    });
+
+    it('parses the confirmed conforming real-provider response end to end', () => {
+      const result = parseWholeSceneOutput(conformingOutput(), travelScene);
+      expect(result.proposedEvents).toHaveLength(2);
+      expect(result.proposedEvents.flatMap((event) => event.stateChanges.map((change) => change.type)))
+        .toEqual(['character_location_changed', 'item_transferred', 'relationship_changed']);
+    });
+
+    it('rejects the pre-fix real-provider proposedEvents shape', () => {
+      const preFix = conformingOutput();
+      preFix.proposedEvents = [{ eventId: 'event-train-departure',
+        publicSummary: '林盈雪帶著信件登上早班列車，離開迷霧鎮。', trigger: '列車發車信號響起。' }];
+      expect(() => parseWholeSceneOutput(preFix, travelScene)).toThrow(/unknown fields/);
+    });
+
+    it('rejects the pre-fix real-provider memories shape that absorbed character_memory_formed fields', () => {
+      const preFix = conformingOutput();
+      preFix.memories = [{ characterId: 'wu-zhen', content: '緊張的交付過程。', interpretation: '責任感',
+        importance: 0.8, emotionalWeight: 0.6, confidence: 0.9, visibility: 'private' }];
+      try {
+        parseWholeSceneOutput(preFix, travelScene);
+        throw new Error('expected SceneSimulationError');
+      } catch (error) {
+        expect((error as SceneSimulationError).path).toBe('memories[0]');
+      }
+    });
+
+    // The configured gateway accepts `response_format: { type: 'json_schema', strict: true }` but does
+    // not enforce it, so the schema only actually binds the model by travelling in the prompt.
+    it('carries the request schema and the proposedEvents contract in the system prompt', () => {
+      const prompt = wholeSceneSystemPrompt(travelScene);
+      expect(prompt).toContain(JSON.stringify(WHOLE_SCENE_JSON_SCHEMA));
+      expect(prompt).toContain('never invent fields');
+      expect(prompt).toContain('eventId');
+      expect(prompt).toContain('character_memory_formed');
+      expect(prompt).toContain('"type":"character_location_changed"');
+    });
+
+    it('keeps every object node of the request schema strict-mode conformant', () => {
+      const visit = (node: unknown, path: string): void => {
+        if (!node || typeof node !== 'object' || Array.isArray(node)) return;
+        const schema = node as Record<string, unknown>;
+        if (schema.type === 'object') {
+          const properties = schema.properties as Record<string, unknown> | undefined;
+          expect(properties && Object.keys(properties).length > 0).toBe(true);
+          expect(schema.additionalProperties).toBe(false);
+          expect(schema.required).toEqual(Object.keys(properties ?? {}));
+        }
+        for (const [key, child] of Object.entries(schema.properties ?? {})) visit(child, `${path}.${key}`);
+        visit(schema.items, `${path}[]`);
+        for (const [index, child] of (schema.anyOf as unknown[] ?? []).entries()) visit(child, `${path}|${index}`);
+      };
+      visit(WHOLE_SCENE_JSON_SCHEMA, '$');
+    });
+
+    it('describes every canon state-change variant so the model cannot invent one', () => {
+      const properties = WHOLE_SCENE_JSON_SCHEMA.properties as Record<string, Record<string, unknown>>;
+      const event = properties.proposedEvents.items as Record<string, Record<string, unknown>>;
+      const variants = (event.properties.stateChanges as Record<string, Record<string, unknown>>).items.anyOf as Record<string, Record<string, Record<string, string>>>[];
+      expect(variants.map((variant): string => variant.properties.type.const)).toEqual([...STATE_CHANGE_TYPES]);
     });
   });
 });
