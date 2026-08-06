@@ -97,8 +97,8 @@ test('isPlaceholderProvenance detects placeholder values', () => {
   );
 });
 
-test('ART-143: character art with unresolved provenance stays out of the public bundle', () => {
-  const quarantinedPaths = [
+test('ART-143: character art is approved under the accepted upstream MIT grant and enforced', () => {
+  const characterArtPaths = [
     'public/assets/32x32folk.png',
     'data/spritesheets/f1.ts',
     'data/spritesheets/f2.ts',
@@ -110,40 +110,38 @@ test('ART-143: character art with unresolved provenance stays out of the public 
     'data/spritesheets/f8.ts',
   ];
   const byPath = new Map(manifest.assets.map((asset) => [asset.path, asset]));
-  for (const path of quarantinedPaths) {
+  for (const path of characterArtPaths) {
     const asset = byPath.get(path);
     assert.ok(asset, `${path} missing from manifest`);
-    assert.notEqual(asset.status, 'approved', `${path} must not be approved`);
-    assert.ok(
-      !PUBLIC_BUNDLE_PATHS.includes(path),
-      `${path} must not be listed in PUBLIC_BUNDLE_PATHS`,
-    );
+    assert.equal(asset.status, 'approved', `${path} must be approved`);
+    assert.match(asset.license, /MIT/, `${path} must record the upstream MIT grant`);
+    assert.equal(isPlaceholderProvenance(asset.source), false);
+    assert.equal(isPlaceholderProvenance(asset.author), false);
+    assert.equal(isPlaceholderProvenance(asset.license), false);
+    assert.ok(asset.redistribution && asset.modification, `${path} must carry usable rights`);
+    assert.ok(PUBLIC_BUNDLE_PATHS.includes(path), `${path} must be listed in PUBLIC_BUNDLE_PATHS`);
   }
 });
 
 test('rejects laundering an unresolved-provenance asset into the public bundle by status flip alone', () => {
   const laundered = {
     assets: manifest.assets.map((asset) =>
-      asset.path === 'public/assets/32x32folk.png' ? { ...asset, status: 'approved' } : asset,
+      asset.path === 'assets/ui/box.svg' ? { ...asset, status: 'approved' } : asset,
     ),
   };
   const errors = validateManifestShape(laundered);
   assert.ok(
     errors.some(
-      (error) =>
-        error.includes('public/assets/32x32folk.png') && error.includes('unresolved provenance'),
+      (error) => error.includes('assets/ui/box.svg') && error.includes('unresolved provenance'),
     ),
   );
 });
 
 test('adding a quarantined path directly to PUBLIC_BUNDLE_PATHS is caught by coverage check', () => {
-  const errors = checkPublicBundleCoverage(manifest, [
-    ...PUBLIC_BUNDLE_PATHS,
-    'public/assets/32x32folk.png',
-  ]);
+  const errors = checkPublicBundleCoverage(manifest, [...PUBLIC_BUNDLE_PATHS, 'assets/ui/box.svg']);
   assert.ok(
     errors.some(
-      (error) => error.includes('public/assets/32x32folk.png') && error.includes('not "approved"'),
+      (error) => error.includes('assets/ui/box.svg') && error.includes('not "approved"'),
     ),
   );
 });
