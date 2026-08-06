@@ -68,7 +68,7 @@ FR-O010（動態畫面降級）Disposition 為 **New**，擁有專屬 Task **ART
 | FR-N002 Read-only Pixi World | New | ART-113 | To Do | P0 | 重用 `src/components/` PixiJS 元件 | ART-112, ART-109 |
 | FR-N003 Public Dynamic Projection | New | ART-115 | To Do | P0 | 擴充 `convex/publicRead/liveState.ts` | ART-114 |
 | FR-N004 Character Visual Binding（12） | New | ART-111 | **Done** | P0 | 重用 `data/spritesheets/f1–f8`（共用 `public/assets/32x32folk.png`）；8 款原始 Sprite ＋ 4 組服裝／髮色 Palette Variant，Palette Range 由實際 PNG 量測並與 `PROTECTED_SKIN_WINDOW` 互斥；`convex/visual/`；見 `docs/character-visual-binding.md` | ART-107, ART-143 |
-| FR-N005 Location Visual Binding（8） | New | ART-110 | To Do | P0 | 重用 `mistwoodSeed.ts` 8 locations ＋ `connectedLocationIds` | ART-109 |
+| FR-N005 Location Visual Binding（8） | New | ART-110 | **Done** | P0 | `convex/visual/`：八個 Zone 由 `data/mistwood.ts` 的 footprint／collision 推導（Ambient Anchor 限定在 Entry Anchor 走得到的區域），label 取自 `mistwoodSeed.ts`；抵達判定為多邊形包含而非像素相等（見 `docs/mistwood-location-bindings.md`） | ART-109 |
 | FR-N006 Canon／Runtime 同步 | New | ART-117 | To Do | P0 | 重用 `character_location_changed`（含 `fromLocationId`／`toLocationId`） | ART-115 |
 | FR-N007 Runtime Snapshot | New | ART-116 | To Do | P0 | 概念沿用 `canon/snapshotManager`（獨立公開快照） | ART-115 |
 | FR-N008 素材授權與 Attribution | New | ART-108, ART-143, ART-144 | ART-108 **Done**；ART-143 **Done**；ART-144 To Do | P0 | ART-143：f1–f8 角色美術 provenance 經 primary source 調查仍無法確認，H06 由 owner 決議接受 upstream MIT 授權並承擔殘餘風險，九個路徑轉為 approved 並納入 `PUBLIC_BUNDLE_PATHS`，ART-111 解除阻擋；ART-144：`PUBLIC_BUNDLE_PATHS` 與 vite 實際輸出不一致，16 個非 approved 素材已進入 `dist/` | ART-107 |
