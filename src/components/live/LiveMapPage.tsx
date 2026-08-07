@@ -2,6 +2,7 @@ import { useQuery } from 'convex/react';
 import { useMemo, useState } from 'react';
 
 import { mistwoodCharacterSpriteKeys } from '../../../data/mistwoodCharacters';
+import { mistwoodAmbientAnchorsByLocationId } from '../../../data/mistwoodAmbientAnchors';
 import { mistwoodLocationFootprints, mistwoodWorldMap } from '../../../data/mistwood';
 import { focusTargetsFrom, primaryLocationId } from '../world/cameraModel';
 import { detectRenderQualityTierFromNavigator, updateIntervalMs } from '../world/renderQuality';
@@ -11,6 +12,7 @@ import type { PublicCharacterMotion } from '../world/worldViewModel';
 import { LiveMapView } from './LiveMapView';
 import { getPublicDynamicProjectionRef } from './publicDynamicRef';
 import { useMotionClock } from './useMotionClock';
+import { useReducedMotion } from './useReducedMotion';
 
 const NO_MOTIONS: readonly PublicCharacterMotion[] = [];
 
@@ -51,6 +53,11 @@ export default function LiveMapPage({ worldId, base }: { worldId: string; base: 
   // cannot change while the page is open.
   const [webglSupported] = useState(detectWebGLSupport);
   const [qualityTier] = useState(detectRenderQualityTierFromNavigator);
+  // Hoisted here from `LiveMapView` (which still reads it for the camera) because
+  // ART-120 needs it *before* the view model is composed: Reduced Motion is what
+  // turns in-zone drift off, and turning it off has to mean "never derived", not
+  // "derived and then hidden".
+  const reducedMotion = useReducedMotion();
 
   const motions: readonly PublicCharacterMotion[] = projection?.characters ?? NO_MOTIONS;
   // A world with nobody in it has nothing to interpolate, so the clock stays
@@ -61,7 +68,8 @@ export default function LiveMapPage({ worldId, base }: { worldId: string; base: 
   // projection's cadence deliberately: a fresh `targets` array every tick would
   // make `LiveMapView`'s camera effect re-run and restart the viewport tween
   // thirty times a second, so the camera would judder while the characters
-  // smoothed out.
+  // smoothed out. ART-120's ambient drift inherits that split for free, and that
+  // is what keeps it invisible to the camera (RISK2-008).
   const viewModel = useMemo(
     () =>
       composeReadOnlyWorldViewModel({
@@ -69,8 +77,11 @@ export default function LiveMapPage({ worldId, base }: { worldId: string; base: 
         motions,
         spriteKeys: mistwoodCharacterSpriteKeys,
         nowMs,
+        ambientAnchorsByLocationId: mistwoodAmbientAnchorsByLocationId,
+        worldDay: projection?.worldDay,
+        reducedMotion,
       }),
-    [motions, nowMs],
+    [motions, nowMs, projection?.worldDay, reducedMotion],
   );
   const camera = useMemo(
     () => ({
@@ -92,6 +103,8 @@ export default function LiveMapPage({ worldId, base }: { worldId: string; base: 
       viewModel={viewModel}
       targets={camera.targets}
       primaryLocationId={camera.primaryLocationId}
+      timeSlot={projection?.timeSlot}
+      reducedMotion={reducedMotion}
       webglSupported={webglSupported}
       loading={projection === undefined}
     />

@@ -26,6 +26,16 @@ export interface LiveMapViewProps {
   targets: readonly FocusTarget[];
   /** The location standing in for "the active scene" until FR-O003 publishes one. */
   primaryLocationId: string | null;
+  /** The Canon slot of the last accepted event, driving the day/night wash (FR-O012). */
+  timeSlot?: string;
+  /**
+   * The viewer's Reduced Motion preference, decided by the caller (ART-120).
+   *
+   * The page now needs it before this component renders — it gates whether in-zone drift is
+   * derived at all — so it is passed in rather than read twice. Omitted falls back to reading
+   * it here, which keeps every existing caller and test working unchanged.
+   */
+  reducedMotion?: boolean;
   /** Decided once by the caller, so the probe does not create a canvas per render. */
   webglSupported: boolean;
   loading: boolean;
@@ -51,10 +61,13 @@ export function LiveMapView({
   viewModel,
   targets,
   primaryLocationId,
+  timeSlot,
+  reducedMotion: reducedMotionProp,
   webglSupported,
   loading,
 }: LiveMapViewProps) {
-  const reducedMotion = useReducedMotion();
+  const observed = useReducedMotion();
+  const reducedMotion = reducedMotionProp ?? observed;
   const spriteAssets = useSpriteAssets();
   const viewportRef = useRef<Viewport | undefined>(undefined);
   const { ref, size } = useElementSize();
@@ -99,6 +112,7 @@ export function LiveMapView({
             viewportRef={viewportRef}
             camera={camera ?? undefined}
             reducedMotion={reducedMotion}
+            timeSlot={timeSlot}
             zones={mistwoodLocationFootprints}
             collision={mistwoodCollision}
           />

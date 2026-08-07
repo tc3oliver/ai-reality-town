@@ -194,13 +194,16 @@ describe('the read-only world scene', () => {
     }
   });
 
-  test('draws the map, the zones and the characters as three layers, back to front', () => {
+  test('draws the map, the wash, the zones and the characters back to front', () => {
     // ART-118 (FR-O001 AC#2). The character layer was asserted while it was
     // still empty: FR-O002 (ART-119) supplied the sprite bindings, and a
     // layer that only appears once it has contents is a layer whose z-order was
-    // never checked.
+    // never checked. ART-120 (FR-O012) inserted the day/night wash *between* the
+    // tiles and the zone outlines, so the town takes the colour of the hour
+    // while the labels and the residents stay legible on top of it.
     expect(layerNames(scene([], {}))).toEqual([
       'tilemap-layer',
+      'day-night-layer',
       'zone-layer',
       'character-layer',
     ]);

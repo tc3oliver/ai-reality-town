@@ -37,6 +37,7 @@ import {
   PUBLIC_ANIMATION_STATES,
   PUBLIC_DIRECTIONS,
   PUBLIC_DYNAMIC_FORBIDDEN_FIELDS,
+  PUBLIC_DYNAMIC_OPTIONAL_ROOT_FIELDS,
   PUBLIC_DYNAMIC_ROOT_FIELDS,
   PUBLIC_DYNAMIC_RUNTIME_VERSION,
   PUBLIC_MOTION_OPTIONAL_FIELDS,
@@ -153,6 +154,30 @@ describe('AC#1 — publishes the PRD 2.0 §10.4 PublicCharacterMotion shape', ()
     expect(projection.worldId).toBe(WORLD_ID);
     expect(projection.runtimeVersion).toBe(PUBLIC_DYNAMIC_RUNTIME_VERSION);
     expect(projection.worldStatus).toBe('running');
+  });
+
+  it('adds the Canon day and slot only once there is an accepted event to read them from', () => {
+    // ART-120 (FR-O011). Omitted rather than defaulted for a world with no history: `0` and
+    // `'morning'` would be claims about a world that has not had a morning yet.
+    const empty = project(createZeroEventFixture());
+    expect('worldDay' in empty).toBe(false);
+    expect('timeSlot' in empty).toBe(false);
+
+    const moved = project(createSingleMoveFixture());
+    expect(Object.keys(moved).sort()).toEqual(
+      [...PUBLIC_DYNAMIC_ROOT_FIELDS, ...PUBLIC_DYNAMIC_OPTIONAL_ROOT_FIELDS].sort(),
+    );
+    expect(moved.worldDay).toBe(1);
+    expect(moved.timeSlot).toBe('morning');
+  });
+
+  it('still accepts a payload persisted before the day and slot existed', () => {
+    // The reason both fields are optional: `selectPublicDynamicProjection` re-validates the
+    // stored payload on every read, and a required field would blank the map for every viewer
+    // until the next Canon commit rebuilt it.
+    const { worldDay: _day, timeSlot: _slot, ...legacy } = project(createSingleMoveFixture());
+    expect(() => assertPublicDynamicProjection(legacy)).not.toThrow();
+    expect(selectPublicDynamicProjection({ dynamic: legacy })).toEqual(legacy);
   });
 
   it('publishes exactly the specified per-character fields', () => {
@@ -302,9 +327,14 @@ describe('AC#4 — every field is covered by runtime schema validation', () => {
     expect(optional.sort()).toEqual([...PUBLIC_MOTION_OPTIONAL_FIELDS].sort());
 
     const rootFields = (publicDynamicProjectionValidator as unknown as {
-      fields: Record<string, unknown>;
+      fields: Record<string, { isOptional: string }>;
     }).fields;
-    expect(Object.keys(rootFields).sort()).toEqual([...PUBLIC_DYNAMIC_ROOT_FIELDS].sort());
+    expect(
+      Object.keys(rootFields).filter((key) => rootFields[key].isOptional === 'required').sort(),
+    ).toEqual([...PUBLIC_DYNAMIC_ROOT_FIELDS].sort());
+    expect(
+      Object.keys(rootFields).filter((key) => rootFields[key].isOptional === 'optional').sort(),
+    ).toEqual([...PUBLIC_DYNAMIC_OPTIONAL_ROOT_FIELDS].sort());
   });
 
   it('keeps the Convex enum unions aligned with the hand-written enums', () => {
@@ -428,10 +458,22 @@ describe('AC#7 — motionType distinguishes canon, ambient, idle and replay', ()
     expect(canon.map((motion) => motion.characterId)).toEqual(['wu-zhen']);
   });
 
-  it('accepts ambient and replay in the contract without producing them', () => {
+  it('reports a character who has finished a Canon walk as ambient-eligible', () => {
+    // ART-120 (FR-O011). `ambient` says "standing inside a Canon zone, so in-zone drift is
+    // permitted here"; it is not a position. The drift is derived on the client, which is why
+    // this projection carries no per-minute coordinate for it.
+    const fixture = createSingleMoveFixture();
+    const settled = project({ ...fixture, nowMs: FIXTURE_ACCEPTED_AT_MS + 60 * 60 * 1000 });
+    const moved = motionFor(settled, 'wu-zhen');
+    expect(moved.motionType).toBe('ambient');
+    expect(moved.animationState).toBe('idle');
+    expect(moved.from).toEqual(moved.to);
+    expect(moved.semanticLocationId).toBe('mistwood-square');
+  });
+
+  it('accepts replay in the contract without producing it', () => {
     const projection = project(createMultiHopFixture());
     const produced = new Set(projection.characters.map((motion) => motion.motionType));
-    expect(produced.has('ambient')).toBe(false);
     expect(produced.has('replay')).toBe(false);
     const widened = { ...projection, characters: [{ ...projection.characters[0], motionType: 'replay' }] };
     expect(() => assertPublicDynamicProjection(widened)).not.toThrow();

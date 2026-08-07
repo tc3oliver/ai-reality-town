@@ -74,6 +74,14 @@ describe('read-only public surface', () => {
     expect(paths).toContain('src/components/live/useMotionClock.ts');
     expect(paths).toContain('src/components/live/spriteAssets.ts');
     expect(paths).toContain('src/components/live/useSpriteAssets.ts');
+    // ART-120 (FR-O011/FR-O012) added in-zone drift and the day/night wash. Named for the
+    // same reason ART-119's files are: the sweeps below reach them by directory walk, and
+    // saying so makes that deliberate rather than incidental. `ambientMotion.ts` is the one
+    // client file permitted to import `convex/visualRuntime`, so it additionally carries its
+    // own structural guard in `ambientMotion.boundary.test.ts`.
+    expect(paths).toContain('src/components/world/ambientMotion.ts');
+    expect(paths).toContain('src/components/world/dayNightTint.ts');
+    expect(paths).toContain('src/components/world/DayNightLayer.tsx');
   });
 
   test('the animated character layer is still structurally uninvokable', () => {

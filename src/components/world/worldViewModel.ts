@@ -20,6 +20,8 @@
 import type { ISpritesheetData } from 'pixi.js';
 
 import type { SerializedWorldMap } from '../../../convex/aiTown/worldMap';
+import type { ZonePointLike } from '../../../convex/visualRuntime/ambientAnchor';
+import { deriveAmbientPose } from './ambientMotion';
 
 // Re-exported from the producer rather than redeclared, so consumer and publisher cannot
 // drift apart. FR-N003 (ART-115) publishes exactly these types.
@@ -77,11 +79,22 @@ export interface ReadOnlyWorldCharacter {
    */
   animationState: PublicAnimationState;
   /**
-   * Why the character is where it is. `ambient` (FR-O011) and `replay` (FR-O013)
-   * are forwarded but not yet produced, and this task renders them identically
-   * to `canon` on purpose.
+   * Why the character is where it is. `replay` (FR-O013) is forwarded but not
+   * yet produced.
    */
   motionType: PublicMotionType;
+  /**
+   * Whether this frame's position came from in-zone drift rather than from the
+   * published motion (ART-120 / FR-O011).
+   *
+   * Distinct from `motionType === 'ambient'`, which only says the character is
+   * *eligible*: an eligible character with one anchor, or a viewer with Reduced
+   * Motion on, is standing at its published position and this is `false`. The
+   * renderer keys the slower gait and the dwell marker off this field, so a
+   * character never gets an ambient marker while standing perfectly still at a
+   * Canon anchor.
+   */
+  isAmbient: boolean;
   /** Walking *and* still under way, so an arrived walk stops its animation. */
   isMoving: boolean;
 }
@@ -93,6 +106,9 @@ export interface ReadOnlyWorldViewModel {
   worldHeight: number;
   characters: ReadOnlyWorldCharacter[];
 }
+
+/** Stable empty default, so an omitted anchor table does not rebuild an object per call. */
+const NO_AMBIENT_ANCHORS: Readonly<Record<string, readonly ZonePointLike[]>> = {};
 
 /** `Character` reads `['right', 'down', 'left', 'up'][orientation / 90]`. */
 const ORIENTATION_DEGREES: Record<PublicDirection, number> = {
@@ -194,6 +210,9 @@ export function composeReadOnlyWorldViewModel({
   motions,
   spriteKeys,
   nowMs,
+  ambientAnchorsByLocationId = NO_AMBIENT_ANCHORS,
+  worldDay,
+  reducedMotion = false,
 }: {
   map: SerializedWorldMap;
   /** Published motion units. Empty until FR-N003 publishes them. */
@@ -201,6 +220,16 @@ export function composeReadOnlyWorldViewModel({
   /** `characterId -> spriteKey`, from the FR-N004 visual binding. */
   spriteKeys: Readonly<Record<string, string>>;
   nowMs: number;
+  /**
+   * `locationId -> standing positions`, from `data/mistwoodAmbientAnchors.ts`
+   * (ART-120 / FR-O011). Omitted means no in-zone drift is derived at all, which
+   * is what every caller predating ART-120 gets.
+   */
+  ambientAnchorsByLocationId?: Readonly<Record<string, readonly ZonePointLike[]>>;
+  /** The last accepted event's Canon day; seeds the drift. */
+  worldDay?: number;
+  /** Reduced Motion disables in-zone drift entirely (FR-O011 AC#8). */
+  reducedMotion?: boolean;
 }): ReadOnlyWorldViewModel {
   const characters = latestMotionPerCharacter(motions)
     // A character with no visual binding is dropped rather than drawn with a
@@ -208,7 +237,18 @@ export function composeReadOnlyWorldViewModel({
     // silently reskinned.
     .filter((motion) => spriteKeys[motion.characterId] !== undefined)
     .map((motion) => {
-      const tile = interpolatedTile(motion, nowMs);
+      // In-zone drift replaces the published interpolation only where it applies:
+      // `deriveAmbientPose` returns `null` for a walk still under way, an
+      // ineligible motion type and every character under Reduced Motion, so the
+      // Canon path below stays exactly what it was before ART-120.
+      const ambient = deriveAmbientPose({
+        motion,
+        anchors: ambientAnchorsByLocationId[motion.semanticLocationId],
+        worldDay,
+        nowMs,
+        reducedMotion,
+      });
+      const tile = ambient ?? interpolatedTile(motion, nowMs);
       // Bound by the map's tile *count*, not by its last tile index: a character
       // stands at a tile centre, so the rightmost legal anchor on a 48-wide map
       // is 47.5. Clamping to 47 silently shoved every character on the last
@@ -218,13 +258,19 @@ export function composeReadOnlyWorldViewModel({
       return {
         characterId: motion.characterId,
         spriteKey: spriteKeys[motion.characterId],
+        // Never touched by ambient drift: `semanticLocationId` is what Canon
+        // said, and drift that could change it would be drift inventing a fact
+        // (RISK2-008). It is carried through from the projection unchanged.
         semanticLocationId: motion.semanticLocationId,
         x: tileX * map.tileDim,
         y: tileY * map.tileDim,
-        orientation: ORIENTATION_DEGREES[motion.direction],
+        orientation: ORIENTATION_DEGREES[ambient ? ambient.direction : motion.direction],
         animationState: motion.animationState,
         motionType: motion.motionType,
-        isMoving: motion.animationState === 'walking' && motionProgress(motion, nowMs) < 1,
+        isAmbient: ambient !== null,
+        isMoving: ambient
+          ? ambient.isMoving
+          : motion.animationState === 'walking' && motionProgress(motion, nowMs) < 1,
       };
     })
     // Painter's order: lower on the map draws in front. `characterId` breaks

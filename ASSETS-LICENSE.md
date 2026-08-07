@@ -61,14 +61,14 @@ from the manifest.
 | `public/assets/gentle-obj.png` | Tileset image | [16x16 RPG Tileset](https://opengameart.org/content/16x16-rpg-tileset) (hilau, built on [16x16 Game Assets](https://opengameart.org/content/16x16-game-assets) by George Bailey) | CC-BY-SA 3.0 / GPL 3.0 / CC-BY 4.0 | Yes |
 | `data/gentle.js` | Tilemap tile-index data | Derived from `gentle-obj.png` | Follows tileset | Yes |
 | `data/mistwood.ts` | Tilemap tile-index data | Mistwood-specific layout derived from `gentle-obj.png` (FR-N009) | Follows tileset | Yes |
-| `public/assets/spritesheets/campfire.png` | FX spritesheet | Same stock map asset set | Follows tileset | Yes |
-| `public/assets/spritesheets/gentlesparkle32.png` | FX spritesheet | Same stock map asset set | Follows tileset | Yes |
-| `public/assets/spritesheets/gentlewaterfall32.png` | FX spritesheet | Same stock map asset set (also backs `gentlesplash.json`) | Follows tileset | Yes |
+| `public/assets/spritesheets/campfire.png` | FX spritesheet | Same stock map asset set (in the bundle since ART-120 — inn, square and hall hearths) | Follows tileset | Yes |
+| `public/assets/spritesheets/gentlesparkle32.png` | FX spritesheet | Same stock map asset set (in the bundle since ART-120 — orchard and Chronicle accents) | Follows tileset | Yes |
+| `public/assets/spritesheets/gentlewaterfall32.png` | FX spritesheet | Same stock map asset set (also backs `gentlesplash.json`; `gentlewaterfall.json` itself entered the bundle in ART-120) | Follows tileset | Yes |
 | `public/assets/spritesheets/windmill.png` | FX spritesheet | Same stock map asset set | Follows tileset | Yes |
-| `data/animations/campfire.json` | Animation frame data | Metadata for `campfire.png` | Follows tileset | Yes |
-| `data/animations/gentlesparkle.json` | Animation frame data | Metadata for `gentlesparkle32.png` | Follows tileset | Yes |
+| `data/animations/campfire.json` | Animation frame data | Metadata for `campfire.png`; placed on the map by ART-120 (FR-O012) | Follows tileset | Yes |
+| `data/animations/gentlesparkle.json` | Animation frame data | Metadata for `gentlesparkle32.png`; placed on the map by ART-120 (FR-O012) | Follows tileset | Yes |
 | `data/animations/gentlesplash.json` | Animation frame data | Metadata for `gentlewaterfall32.png` | Follows tileset | Yes |
-| `data/animations/gentlewaterfall.json` | Animation frame data | Metadata for `gentlewaterfall32.png` | Follows tileset | Yes |
+| `data/animations/gentlewaterfall.json` | Animation frame data | Metadata for `gentlewaterfall32.png`; placed on the map by ART-120 (FR-O012) | Follows tileset | Yes |
 | `data/animations/windmill.json` | Animation frame data | Metadata for `windmill.png` | Follows tileset | Yes |
 | `public/assets/fonts/upheaval_pro.ttf` | Font (live via `src/index.css` `@font-face`, class `.font-display`) | [dafont: Upheaval Pro](https://www.dafont.com/upheaval-pro.font), by Aleksandr Savenkov (extends "Upheaval" by Brian Kent) | dafont "100% Free"; free for personal + commercial use, modification and redistribution allowed (corroborated by blogfonts.com / fontget.com) | No (courtesy credit below) |
 | `public/assets/fonts/vcr_osd_mono.ttf` | Font (live via `src/index.css` `@font-face`, class `.font-body`) | [dafont: VCR OSD Mono](https://www.dafont.com/vcr-osd-mono.font), by Riciery Leal | dafont "100% Free"; free for personal + commercial use, modification and redistribution allowed (corroborated by blogfonts.com) | No (courtesy credit below) |

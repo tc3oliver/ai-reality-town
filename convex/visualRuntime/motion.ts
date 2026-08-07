@@ -18,10 +18,10 @@ export type TilePoint = {
 
 /**
  * Why a trajectory exists at all. `bootstrap` is a seeded character that has no accepted
- * event yet; `canon` is a `character_location_changed` fact; `ambient` is in-zone drift
- * (FR-O011) and `replay` is historical playback (ART-121). This module only ever produces
- * `bootstrap` and `canon` — the other two are declared so downstream tasks widen the
- * consumer contract rather than redefining it.
+ * event yet; `canon` is a `character_location_changed` fact still under way; `ambient`
+ * (FR-O011 / ART-120) is a character that has arrived and is therefore eligible for in-zone
+ * drift; `replay` is historical playback (ART-121), declared but not yet produced so that
+ * task widens the consumer contract rather than redefining it.
  */
 export type MotionType = 'bootstrap' | 'canon' | 'ambient' | 'replay';
 
@@ -55,6 +55,18 @@ export type TrajectoryWaypoint = {
  * the viewer can follow, not a teleport, and the whole map is only 48x36 tiles.
  */
 export const MOVEMENT_SPEED_TILES_PER_SECOND = 0.75;
+
+/**
+ * Tiles per second for in-zone ambient drift (FR-O011 / ART-120).
+ *
+ * Slower than {@link MOVEMENT_SPEED_TILES_PER_SECOND} on purpose, and that gap is one of the
+ * four signals AC#6 rests on: a character crossing town on an accepted Canon fact is going
+ * somewhere, and a character pottering about inside its own zone is not. Nothing published
+ * distinguishes the two at a glance, so the difference has to be legible in the motion
+ * itself. Kept as a plain constant rather than a ratio of the Canon speed so a future tuning
+ * pass can move either one without silently dragging the other with it.
+ */
+export const AMBIENT_SPEED_TILES_PER_SECOND = 0.4;
 
 /**
  * Exactly one of these is published per living character per planning pass. Two units for

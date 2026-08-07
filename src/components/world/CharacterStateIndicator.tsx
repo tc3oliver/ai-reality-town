@@ -4,15 +4,16 @@ import type * as PIXI from 'pixi.js';
 import {
   INDICATOR_KINDS,
   indicatorFor,
+  indicatorOffsetY,
   indicatorPrimitives,
-  INDICATOR_OFFSET_Y,
   type IndicatorKind,
   type IndicatorPrimitive,
 } from './characterAnimation';
 import type { PublicAnimationState } from './worldViewModel';
 
 /**
- * The speech / thought / activity marker above a character (ART-119 / FR-O002 AC#5).
+ * The speech / thought / activity marker above a character (ART-119 / FR-O002 AC#5), and the
+ * dwell ring beneath one that is drifting inside its zone (ART-120 / FR-O011 AC#6).
  *
  * Draws the shape list {@link ./characterAnimation} decides on, and decides
  * nothing itself — which is why "the three indicators are visually distinct" is
@@ -27,14 +28,21 @@ import type { PublicAnimationState } from './worldViewModel';
  * is `eventMode="none"` with `interactiveChildren={false}` and takes no `on*`
  * prop, so it cannot become the click target ART-113 removed.
  */
-export function CharacterStateIndicator({ animationState }: { animationState: PublicAnimationState }) {
-  const kind = indicatorFor(animationState);
+export function CharacterStateIndicator({
+  animationState,
+  isAmbient = false,
+}: {
+  animationState: PublicAnimationState;
+  /** Whether this frame's position came from in-zone drift (FR-O011). */
+  isAmbient?: boolean;
+}) {
+  const kind = indicatorFor(animationState, isAmbient);
   if (indicatorPrimitives(kind).length === 0) return null;
 
   return (
     <Container
       name="character-state-indicator"
-      y={INDICATOR_OFFSET_Y}
+      y={indicatorOffsetY(kind)}
       eventMode="none"
       interactiveChildren={false}
     >

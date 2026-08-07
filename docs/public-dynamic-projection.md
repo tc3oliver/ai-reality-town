@@ -29,6 +29,20 @@ validated payload. No `ctx`, no database handle, no clock.
 | `worldStatus` | `running` \| `paused` \| `unknown`. The raw `worldSchedules.status`, nothing more. |
 | `characters` | One `PublicCharacterMotion` per publishable character, sorted by `characterId`. |
 | `activeScenes` | The published episode's key scenes: `title`, `summary`, `sourceEventIds`. |
+| `worldDay` | *Optional.* Last accepted event's Canon day. Absent for a world with no history. Seeds the client's ambient derivation (FR-O011). |
+| `timeSlot` | *Optional.* Last accepted event's Canon slot. Absent for a world with no history. Drives the day/night wash (FR-O012). |
+
+`runtimeVersion` is **2** as of ART-120, which added those two optional fields.
+
+They are optional and not required on purpose. `selectPublicDynamicProjection` re-validates the
+stored payload on every read, so a required field would reject every payload persisted before
+ART-120 — including the last-known-good version FR-O010 falls back to — and blank the live map
+for every viewer until the next Canon commit rebuilt it, which is hours.
+
+`timeSlot` is validated as a non-empty string rather than as an enum. Pinning Canon's five-slot
+vocabulary into the public contract would turn "Canon grew a sixth slot" into a blank live map;
+the Visual Runtime's `timeBucketForSlot` already takes the same tolerant stance. Both fields are
+Canon-derived, so they do not disturb the deduplication property described below.
 
 ### Per character (PRD 2.0 §10.4)
 
@@ -201,7 +215,6 @@ widen it rather than redefining it.
 | Snapshot lifecycle and staleness classification (`worldStatus` is the raw schedule status) — built in `docs/public-runtime-snapshot.md`, where this projection's `snapshotSequence` is persisted as `sourceRuntimeSequence` and the snapshot table keeps a separate counter of its own | FR-N007 / ART-116 |
 | Replay payloads — `motionType: 'replay'` validates, but is never produced | FR-O013 / ART-121 |
 | Incremental updates — `rebuildLiveProjection` stays a full rebuild | FR-Q003 / ART-100 |
-| Ambient movement semantics — `motionType: 'ambient'` validates, but is never produced | FR-O011 / ART-120 |
 | Scene spatial fields beyond `title`/`summary`/`sourceEventIds` | FR-O003 / ART-122 |
 
 Fabricating a synthetic Canon event to force a character's visibility is **not permitted** and

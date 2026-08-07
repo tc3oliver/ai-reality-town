@@ -65,4 +65,8 @@ export const publicDynamicProjectionValidator = v.object({
   worldStatus: publicWorldStatusValidator,
   characters: v.array(publicCharacterMotionValidator),
   activeScenes: v.array(publicActiveSceneValidator),
+  // ART-120 (FR-O011). Optional for the same reason the hand-written assertion makes them
+  // optional: a payload persisted before this field existed still has to serve.
+  worldDay: v.optional(v.number()),
+  timeSlot: v.optional(v.string()),
 });

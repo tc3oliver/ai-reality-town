@@ -65,6 +65,15 @@ floor, and the orchard packing shed leaves a two-tile pocket behind blocked crat
 tiles inside their zone that a character could never walk to, so ambient anchors are taken from a
 flood fill seeded by the entry anchors rather than from raw walkability.
 
+**Where the derivation lives.** ART-120 (FR-O011) moved the entry-tile detection, the in-zone
+flood fill and the anchor spread into `data/mistwoodAmbientAnchors.ts`, and this module imports
+them back. The browser needs the same standing positions to re-derive ambient drift, and reaching
+them through this file would have meant importing `convex/canon/mistwoodSeed.ts` transitively —
+which carries every resident's `privateProfile`, `privateGoal`, `fear` and `secretContents`. Only
+`publicLabel` is Canon-sourced, so only it still comes from here. It is one derivation, not two:
+`mistwoodLocationBindings.test.ts` pins the eight zones' anchors literally against their pre-move
+values *and* asserts the binding and the client table hold the same object.
+
 ## The eight zones
 
 Zone columns are the tile ranges the polygon spans (`x from–to`, `y from–to`, upper bound exclusive).

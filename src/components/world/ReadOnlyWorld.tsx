@@ -6,6 +6,7 @@ import type { MutableRefObject } from 'react';
 import type { MistwoodLocationFootprint } from '../../../data/mistwood';
 import { CameraController } from './CameraController';
 import { Character } from './Character';
+import { DayNightLayer } from './DayNightLayer';
 import { MapZoneLayer } from './MapZoneLayer';
 import { PixiStaticMap } from './PixiStaticMap';
 import PixiViewport from './PixiViewport';
@@ -72,6 +73,12 @@ export interface ReadOnlyWorldProps {
   /** The frame to show. Omitted means "leave the camera wherever the viewer left it". */
   camera?: CameraView;
   reducedMotion?: boolean;
+  /**
+   * The Canon time slot of the last accepted event, driving the day/night wash
+   * (ART-120 / FR-O012). Omitted means no wash — a world with no accepted history
+   * has not had a time of day yet.
+   */
+  timeSlot?: string;
   /** Canonical location footprints drawn as labelled outlines (FR-O001 AC#2). */
   zones?: readonly MistwoodLocationFootprint[];
   collision?: readonly (readonly number[])[];
@@ -104,6 +111,7 @@ export function ReadOnlyWorldScene({
   viewportRef,
   camera,
   reducedMotion = false,
+  timeSlot,
   zones = NO_ZONES,
   collision = NO_COLLISION,
   showCollision = false,
@@ -119,7 +127,18 @@ export function ReadOnlyWorldScene({
       reducedMotion={reducedMotion}
     >
       <Container name="tilemap-layer" eventMode="none" interactiveChildren={false}>
-        <PixiStaticMap map={viewModel.map} />
+        <PixiStaticMap map={viewModel.map} reducedMotion={reducedMotion} />
+      </Container>
+      {/*
+        Above the tiles and below the characters, so the wash colours the town without
+        dimming the people in it. FR-O012.
+      */}
+      <Container name="day-night-layer" eventMode="none" interactiveChildren={false}>
+        <DayNightLayer
+          timeSlot={timeSlot}
+          worldWidth={viewModel.worldWidth}
+          worldHeight={viewModel.worldHeight}
+        />
       </Container>
       <Container name="zone-layer" eventMode="none" interactiveChildren={false}>
         <MapZoneLayer
@@ -146,6 +165,7 @@ export function ReadOnlyWorldScene({
               orientation={character.orientation}
               isMoving={character.isMoving}
               animationState={character.animationState}
+              isAmbient={character.isAmbient}
             />
           );
         })}

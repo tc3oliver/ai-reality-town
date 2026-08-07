@@ -16,7 +16,7 @@
     "observability": { "roots": ["convex/observability"], "mayDependOn": ["shared"] },
     "shared": { "roots": ["convex/shared"], "mayDependOn": [] },
     "clientPublic": { "roots": ["src/components/public"], "mayDependOn": ["publicRead", "shared", "clientProvider", "clientLiveRoute"] },
-    "clientWorldReadOnly": { "roots": ["src/components/world"], "mayDependOn": ["publicRead", "shared", "clientProvider"] },
+    "clientWorldReadOnly": { "roots": ["src/components/world"], "mayDependOn": ["publicRead", "visualRuntime", "shared", "clientProvider"] },
     "clientLive": { "roots": ["src/components/live"], "mayDependOn": ["clientPublic", "clientWorldReadOnly", "clientProvider", "clientLiveRoute", "publicRead", "shared"] },
     "clientLiveRoute": { "roots": ["src/components/live/liveMapRoute.ts"], "mayDependOn": [] },
     "clientProvider": { "roots": ["src/components/ConvexClientProvider.tsx"], "mayDependOn": [] },
