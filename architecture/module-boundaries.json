@@ -15,10 +15,12 @@
     "safety": { "roots": ["convex/safety"], "mayDependOn": ["shared"] },
     "observability": { "roots": ["convex/observability"], "mayDependOn": ["shared"] },
     "shared": { "roots": ["convex/shared"], "mayDependOn": [] },
-    "clientPublic": { "roots": ["src/components/public"], "mayDependOn": ["publicRead", "shared", "clientProvider"] },
+    "clientPublic": { "roots": ["src/components/public"], "mayDependOn": ["publicRead", "shared", "clientProvider", "clientLiveRoute"] },
     "clientWorldReadOnly": { "roots": ["src/components/world"], "mayDependOn": ["publicRead", "shared", "clientProvider"] },
+    "clientLive": { "roots": ["src/components/live"], "mayDependOn": ["clientPublic", "clientWorldReadOnly", "clientProvider", "clientLiveRoute", "publicRead", "shared"] },
+    "clientLiveRoute": { "roots": ["src/components/live/liveMapRoute.ts"], "mayDependOn": [] },
     "clientProvider": { "roots": ["src/components/ConvexClientProvider.tsx"], "mayDependOn": [] },
-    "clientShell": { "roots": ["src"], "mayDependOn": ["clientPublic", "clientWorldReadOnly", "clientProvider", "publicRead", "shared"] }
+    "clientShell": { "roots": ["src"], "mayDependOn": ["clientPublic", "clientWorldReadOnly", "clientLive", "clientLiveRoute", "clientProvider", "publicRead", "shared"] }
   },
   "readOnlyClientBoundary": {
     "roots": ["src"],

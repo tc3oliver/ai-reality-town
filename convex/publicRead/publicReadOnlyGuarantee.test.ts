@@ -286,16 +286,31 @@ describe('AC#1 — the client-reachable surface is exactly what policy declares'
     expect(ALLOWED.filter((entry) => entry.gate === 'anonymous').every((entry) => entry.kind === 'query')).toBe(true);
   });
 
-  test('the shipped client reaches exactly one Convex function, and it is a read', () => {
+  test('every Convex function the shipped client can reach is a read', () => {
     // The browser bundle's whole write capability is whatever it can name. After
-    // ART-128 deleted the music module, one reference remains -- a published-read query.
+    // ART-128 deleted the music module, only published-read queries remain; ART-118
+    // (FR-O001) added the live map's dynamic projection, which is also a query.
+    // The list is asserted exhaustively, so a new reference has to be added here on
+    // purpose -- and the assertion below then forces it to be a read.
     const refs = sourceFiles('src', ['.ts', '.tsx']).flatMap((path) =>
       [...readFileSync(join(ROOT, path), 'utf8').matchAll(/publicFunctionRef<[^>]*>\(\s*'([^']+)'/g)].map(
         (match) => match[1],
       ),
     );
-    expect(refs).toEqual(['publicRead/readModelFunctions:getPublishedReadModel']);
+    expect([...refs].sort()).toEqual([
+      'publicRead/liveStateFunctions:getPublicDynamicProjection',
+      'publicRead/readModelFunctions:getPublishedReadModel',
+    ]);
     expect(readModelFunctions.getPublishedReadModel).toHaveProperty('isQuery', true);
+    expect(liveStateFunctions.getPublicDynamicProjection).toHaveProperty('isQuery', true);
+    // Both are anonymous-gated queries in policy, so no viewer needs a credential
+    // to watch and none of them can write.
+    for (const ref of refs) {
+      const [path, name] = ref.split(':');
+      const entry = ALLOWED.find((allowed) => allowed.path === `convex/${path}.ts` && allowed.name === name);
+      expect(entry).toBeDefined();
+      expect(entry!.kind).toBe('query');
+    }
   });
 
   test('convex/init.ts is no longer a public mutation', () => {

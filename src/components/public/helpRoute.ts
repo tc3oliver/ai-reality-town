@@ -13,6 +13,8 @@
  * property of data instead of a review convention.
  */
 
+import { textLiveHref } from '../live/liveMapRoute';
+
 export interface HelpSection {
   /** Stable id, used for the section's `aria-labelledby` heading. */
   id: string;
@@ -35,7 +37,14 @@ export function parseHelpRoute(hash: string): { worldId: string | null } | null 
   return { worldId: match[1] ? decodeURIComponent(match[1]) : null };
 }
 
-export function composeHelpViewModel({ worldId }: { worldId: string | null }): HelpViewModel {
+export function composeHelpViewModel({
+  worldId,
+  base,
+}: {
+  worldId: string | null;
+  /** Deployment path prefix (`import.meta.env.BASE_URL`). */
+  base: string;
+}): HelpViewModel {
   return {
     title: '觀看指南',
     intro:
@@ -82,6 +91,6 @@ export function composeHelpViewModel({ worldId }: { worldId: string | null }): H
         ],
       },
     ],
-    textLiveHref: worldId === null ? null : `#live/${worldId}`,
+    textLiveHref: worldId === null ? null : textLiveHref(worldId, base),
   };
 }

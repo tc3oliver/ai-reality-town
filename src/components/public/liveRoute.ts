@@ -3,14 +3,17 @@
  *
  * Mirrors {@link ./homeRoute}: the React component is a thin render layer and
  * every correctness boundary lives here as a pure function, unit-tested without
- * a DOM (jest has no jsdom). Two concerns:
+ * a DOM (jest has no jsdom). One concern:
  *
- *   - {@link parseLiveRoute}: resolves the public world from `#live/<worldId>`.
  *   - {@link composeLiveViewModel}: normalises the published Live projection
  *     into a render model that satisfies FR-I002 — a text location list (AC#1,
  *     no game animation), scene summaries (AC#2), and graceful states so the
  *     page stays browsable from the last-known-good snapshot even when the
  *     simulation is paused or the model is missing (AC#4).
+ *
+ * Route resolution moved to `components/live/liveMapRoute.ts` with ART-118
+ * (FR-O001 AC#8): the map and the text view are siblings under one path shape,
+ * so one module owns both instead of each parsing its own hash.
  *
  * Pure module — no React, no Convex, no DOM, no clock, no randomness. Input
  * shapes mirror the published `liveState` projection payload.
@@ -40,18 +43,6 @@ export type LiveProjection = {
 
 const UNKNOWN_LOCATION = '未知位置';
 const NO_SUMMARY = '(無摘要)';
-
-/**
- * Resolve the public world from the `#live/<worldId>` hash route. Returns null
- * for a bare/unknown route so the component can surface a format hint.
- */
-export function parseLiveRoute(hash: string): { worldId: string } | null {
-  const stripped = hash.replace(/^#/, '');
-  const match = stripped.match(/^live\/([^/]+)$/);
-  if (!match) return null;
-  const worldId = decodeURIComponent(match[1]);
-  return worldId.length > 0 ? { worldId } : null;
-}
 
 export type LiveViewModel = {
   /** True when any live content exists — the page is browsable even while false (AC#4). */

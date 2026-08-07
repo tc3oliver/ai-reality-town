@@ -1,12 +1,7 @@
 import { useQuery } from 'convex/react';
 import { getPublishedReadModelRef } from './publicReadModelRef';
 import { PublicPageFrame } from './PublicPageFrame';
-import {
-  composeLiveViewModel,
-  parseLiveRoute,
-  type LiveProjection,
-  type LiveViewModel,
-} from './liveRoute';
+import { composeLiveViewModel, type LiveProjection, type LiveViewModel } from './liveRoute';
 
 /**
  * Public live-world view (FR-I002). Reads ONLY the published `liveState`
@@ -24,29 +19,20 @@ import {
  * character positions, active scenes, recent events and running arcs — as
  * screen-reader-readable text, and renders no canvas, image or map element at
  * all. `publicPages.a11y.test.tsx` asserts both halves of that claim.
+ *
+ * ART-118 (FR-O001 AC#8) moved live routing to `components/live/liveMapRoute.ts`
+ * and this view to `<base>/live/<worldId>/text`, so the world is resolved by the
+ * router and handed in rather than re-parsed from the hash here.
  */
 
-export default function LiveView() {
-  const route = typeof window === 'undefined' ? null : parseLiveRoute(window.location.hash);
-  const worldId = route?.worldId ?? null;
-  const enabled = worldId !== null;
-
+export default function LiveView({ worldId }: { worldId: string }) {
   // Public read only — no provider calls (AC#3).
-  const result = useQuery(
-    getPublishedReadModelRef,
-    enabled ? { worldId, modelKind: 'liveState', modelRef: `live:${worldId}` } : 'skip',
-  );
+  const result = useQuery(getPublishedReadModelRef, {
+    worldId,
+    modelKind: 'liveState',
+    modelRef: `live:${worldId}`,
+  });
 
-  if (!enabled) {
-    return (
-      <PublicPageFrame worldId={null}>
-        <h1 className="text-3xl font-bold">實況</h1>
-        <p className="mt-2">
-          網址格式應為 <code>#live/&lt;worldId&gt;</code>
-        </p>
-      </PublicPageFrame>
-    );
-  }
   if (result === undefined) {
     return (
       <PublicPageFrame worldId={worldId}>
