@@ -21,8 +21,10 @@ condition.
 > licence evidence verified against live source pages (OpenGameArt, dafont) rather than
 > carried-over attribution text, adds two findings ART-62's scope didn't cover (third-party
 > brand-logo assets, and per-file public-bundle reachability), and adds the CI enforcement
-> gate ART-62 did not have. The machine-readable register is
-> [`assets/asset-licenses.json`](assets/asset-licenses.json); the enforced gate is
+> gate ART-62 did not have. **ART-144 corrects ART-108's reachability analysis** — which
+> had two false negatives that let sixteen non-approved files ship — and deletes the files
+> it could not clear (see the ART-144 decision record below). The machine-readable register
+> is [`assets/asset-licenses.json`](assets/asset-licenses.json); the enforced gate is
 > [`scripts/assets/check-asset-licenses.mjs`](scripts/assets/check-asset-licenses.mjs)
 > (`npm run check:asset-licenses`, wired into `npm run check` and both CI workflows).
 
@@ -31,9 +33,11 @@ surface. ART-107 (`docs/upstream-visual-capability-audit.md`) established that t
 public pages read text-only projections and render no PixiJS canvas; the tileset/FX/font
 assets below are in scope because PRD 2.0 Epic O (`FR-O001`, the planned `/live` animated
 map) will restore the renderer ART-107 marked "reusable as-is." That renderer inventory is
-the CI enforcement boundary (`PUBLIC_BUNDLE_PATHS` in the check script). The two fonts are
+the *starting point* of the CI enforcement boundary (`PUBLIC_BUNDLE_PATHS` in the check
+script); ART-144 added two further checks that derive the boundary from real evidence
+rather than that hand-maintained list (see "How the CI gate works"). The two fonts are
 already live today via `src/index.css`'s `@font-face` rules. Every asset-like file in the
-repository is still recorded below (68 total) so nothing can enter a public bundle
+repository is still recorded below (53 total) so nothing can enter a public bundle
 unnoticed later.
 
 ## Summary
@@ -41,10 +45,10 @@ unnoticed later.
 | Status | Count | Meaning |
 |---|---:|---|
 | ✅ Approved | 24 | Reachable from the current/planned public bundle; licence + attribution verified and CI-enforced. |
-| 🟡 Restricted | 1 | Verified provenance, but public use is not yet cleared (`background.mp3`). |
-| ⛔ Quarantined | 42 | Not entered into the public bundle: unresolved provenance, third-party trademark, or editor-tool-only / unreachable from any shipped surface. |
+| 🟡 Restricted | 0 | Verified provenance, but public use not yet cleared. `background.mp3` was the only entry; ART-144 deleted it rather than leave it shipping. |
+| ⛔ Quarantined | 27 | Not entered into the public bundle: unresolved provenance, third-party trademark, or editor-tool-only / unreachable from any shipped surface. |
 | ⚙️ Tooling | 2 | Not a media asset (code utility / type definitions); covered by the project's own MIT `LICENSE`. |
-| **Total** | **69** | Every asset-like file tracked in git, outside `node_modules` and the gitignored `dist/` build output. |
+| **Total** | **53** | Every asset-like file tracked in git, outside `node_modules` and the gitignored `dist/` build output. ART-144 deleted 16 previously-recorded files. |
 
 ## ✅ Approved — public-bundle assets (CI-enforced)
 
@@ -124,9 +128,19 @@ later identifies the original artist, revisit these entries.
 
 ## 🟡 Restricted
 
-| Path | Reason |
-|---|---|
-| `public/assets/background.mp3` | **Resolves ART-62 open item #3.** AI-generated via Meta's MusicGen (through Replicate) — per upstream README: "Background Music Generation: Replicate using MusicGen" — not third-party-authored art. Byte-identical to upstream's shipped fallback (commit "Add background music :)", 2023-08-13). Commercial/redistribution terms for MusicGen model output were not independently verified in this audit — a distinct legal question from asset-pack attribution. Not currently reachable from any public route (its only frontend consumer, `MusicButton.tsx`, has zero importers anywhere in `src/`), so this does not block current public pages. Must not enter a public bundle until MusicGen/Replicate output rights are confirmed. |
+No asset currently holds this status.
+
+`public/assets/background.mp3` held it from ART-108 until ART-144. **It resolved ART-62
+open item #3:** AI-generated via Meta's MusicGen (through Replicate) — per upstream README,
+"Background Music Generation: Replicate using MusicGen" — not third-party-authored art, and
+byte-identical to upstream's shipped fallback (commit "Add background music :)",
+2023-08-13). Commercial/redistribution terms for MusicGen model output were never
+independently verified, a distinct legal question from asset-pack attribution. ART-108
+recorded that it "must not enter a public bundle until MusicGen/Replicate output rights are
+confirmed" — but because it sat in `public/`, vite was publishing it to `dist/` the whole
+time. **ART-144 deleted the file.** Nothing reachable played it: `MusicButton.tsx`, its only
+frontend consumer, has zero importers anywhere in `src/`. `convex/music.ts` still names the
+path as a string fallback, which is harmless — no reachable route exercises it.
 
 ## ⛔ Quarantined — must not enter the public bundle
 
@@ -142,31 +156,68 @@ itself has zero importers anywhere in `src/`). Any future re-introduction of "po
 branding requires explicit trademark-owner authorisation, not just a copyright licence
 check.
 
-### Unverifiable source page (ART-62 open item, carried by ART-108)
+### Unverifiable source page — deleted by ART-144 (ART-62 open item, carried by ART-108)
 
-`assets/ui/*.svg` (the dialogue/menu chrome: `box`, `bubble-left`, `bubble-right`,
-`button`, `button_pressed`, `chats`, `desc`, `frame`, `jewel_box`) were attributed by
-ART-62 to Mounir Tohami's itch.io "Pixel Art GUI Elements" pack, carried over from
-upstream's README text. This audit attempted to verify that page directly
-(`mounirtohami.itch.io/pixel-art-gui-elements`) and it returned **HTTP 404** — the page is
-no longer reachable at that URL, so the licence text could not be independently confirmed.
-Per this audit's evidentiary bar (do not accept previously-recorded attribution text
-without verification), these files are downgraded from ART-62's attributed entry to
-quarantined pending re-verification of the source. None of these files are imported
-anywhere in `src/` regardless, so this does not affect any current public page.
+The dialogue/menu chrome `assets/ui/*.svg` (`box`, `bubble-left`, `bubble-right`, `button`,
+`button_pressed`, `chats`, `desc`, `frame`, `jewel_box`) and the menu background
+`assets/background.webp` were attributed by ART-62 to Mounir Tohami's itch.io "Pixel Art
+GUI Elements" pack, carried over from upstream's README text. ART-108 attempted to verify
+that page directly (`mounirtohami.itch.io/pixel-art-gui-elements`) and it returned **HTTP
+404**; ART-144 re-checked and it still does. Web search surfaces only secondhand,
+paraphrased permission claims with no independently-verifiable licence text. That does not
+meet this document's evidentiary bar (do not accept previously-recorded attribution text
+without verification), so the licence remained unconfirmed.
 
-### Editor-tool-only / unreachable assets (35 files)
+**ART-144 deleted all ten files**, along with the dead CSS rules in `src/index.css` that
+referenced them. See the ART-144 decision record below for why they were shipping despite
+ART-108 marking them unreachable.
+
+### Editor-tool-only / unreachable assets (24 files)
 
 Everything under `src/editor/` (the standalone `npm run le` level-editor dev tool, not
-part of the built app), plus `public/assets/player.png`, `rpg-tileset.png`,
-`magecity.png`, `heart-empty.png`, `tilemap.json`, `data/spritesheets/p1.ts`–`p3.ts`/
-`player.ts`, and `assets/background.webp`, `close.svg`, `help.svg`, `interact.svg`,
-`star.svg`, `volume.svg`. None of these are imported by any file reachable from the
-shipped app (verified by repo-wide grep), and none are part of ART-107's "reusable
-renderer" inventory. Full per-file detail, including which ones share a licence with an
-approved twin (e.g. `src/editor/tilesets/gentle-obj.png` duplicates the approved
+part of the built app), plus `data/spritesheets/p1.ts`–`p3.ts`/`player.ts`, and
+`assets/close.svg`, `help.svg`, `interact.svg`, `star.svg`, `volume.svg`. None of these are
+imported by any file reachable from the shipped app, none is referenced by a CSS `url()`,
+and none sits under `public/` — so none reaches `dist/`, and CI now proves the last two of
+those three claims rather than asserting them. None is part of ART-107's "reusable
+renderer" inventory either. Full per-file detail, including which ones share a licence with
+an approved twin (e.g. `src/editor/tilesets/gentle-obj.png` duplicates the approved
 `public/assets/gentle-obj.png`) versus which have no external evidence at all, is in
 [`assets/asset-licenses.json`](assets/asset-licenses.json).
+
+### Decision record — the FR-N008 reachability gap (ART-108 → ART-144)
+
+ART-108 classified an asset as "unreachable from any shipped surface" by grepping for
+JavaScript/TypeScript importers. That test was too narrow in two ways, and `npm run build`
+showed sixteen non-approved files reaching `dist/` while the gate reported success:
+
+| False negative | Why the grep missed it | Files affected |
+|---|---|---|
+| **`public/` passthrough** | Vite copies `public/` into `dist/` verbatim. No import graph is involved at all, so no importer grep — and no allowlist — can describe what actually ships from it. | `public/assets/player.png`, `rpg-tileset.png`, `magecity.png`, `heart-empty.png`, `tilemap.json`, `background.mp3` (6) |
+| **CSS `url()` references** | A `url()` in a stylesheet is not a JS/TS import, but vite resolves and emits it just the same. `src/index.css` pulled in all nine `assets/ui/*.svg` files and `assets/background.webp` through `border-image-source` / `background`. | `assets/ui/*.svg` (9, of which `button_pressed.svg` was orphaned even from CSS) and `assets/background.webp` |
+
+The precise correction to ART-108's claim: **bundler reachability and runtime DOM usage are
+different properties, and ART-108 conflated them.** The CSS rules referencing
+`assets/ui/*.svg` (`.game-background`, `.game-frame`, `.bubble`, `.box`, `.desc`, `.chats`,
+`.login-prompt`, `.button`, …) were genuinely dead in the DOM sense — leftovers from the
+pre-pivot interactive game UI (ADR-0004), applied by no component reachable from
+`src/main.tsx` → `src/App.tsx`. ART-108 was right that nothing *rendered* them. But vite
+emits an asset because a stylesheet *references* it, not because a component applies the
+class. Dead CSS still ships its art. Closing that gap is exactly what FR-N008 acceptance
+condition 3 requires.
+
+**Resolution (ART-144): delete, do not approve.** All sixteen files were removed from the
+repository outright, together with the dead CSS rules that referenced them and their
+manifest records. None was in use; none had a verifiable licence; no replacement art was
+sought, because none is needed. The gate was then rewritten to derive its enforced set from
+the real `public/` directory and the real `url()` references in `src/**/*.css`, so this
+class of drift fails CI instead of passing it.
+
+**This is not a risk acceptance.** It is the opposite of the `32x32folk.png` H06 decision
+above: there, an in-use asset with no verifiable provenance was knowingly kept under an
+accepted residual risk, because the product needs character art and PRD 2.0 §6 rules out
+re-sourcing. Here, verification failed on assets nothing uses, so the safer default —
+removal — was taken and no owner decision was required.
 
 ## ⚙️ Tooling (not media assets)
 
@@ -190,14 +241,29 @@ the project's own MIT `LICENSE`.
    placeholder such as `"Unresolved"`, `"Unknown"` or `"TBD"` (added by ART-143). Without
    this rule the gate could be satisfied by flipping `status` alone, which would admit an
    asset of unknown provenance into the public bundle — exactly what FR-N008 acceptance
-   condition 3 forbids.
+   condition 3 forbids;
+6. **any file under `public/` lacks an approved record** (added by ART-144). The check
+   walks the directory recursively rather than consulting a list, because vite copies
+   `public/` into `dist/` verbatim — dropping a file in there ships it, allowlist or not;
+7. **any asset referenced by a `url()` in `src/**/*.css` lacks an approved record** (added
+   by ART-144). Each reference is resolved against the stylesheet's own directory (or
+   against `public/` for root-absolute paths) and checked on disk; `data:` URIs and remote
+   URLs are skipped. Vite emits these assets even when the CSS rule is never applied by any
+   component.
+
+Rules 6 and 7 need no maintenance: they read the repository, not a constant.
+`PUBLIC_BUNDLE_PATHS` is still hand-maintained, but now only carries its own weight for the
+`data/*.ts` / `data/*.js` files that ship through the JS bundle.
 
 `npm run test:asset-licenses` (`scripts/assets/check-asset-licenses.test.mjs`) proves this
 behaviourally, including a negative test that deletes a required public-bundle record and
 asserts the check fails, a test pinning the nine character-art paths as approved under a
-non-placeholder MIT record and present in `PUBLIC_BUNDLE_PATHS`, and two negative tests
-proving a still-quarantined asset cannot reach the public bundle by a status flip or by
-being added to `PUBLIC_BUNDLE_PATHS` directly. Both run in CI (`.github/workflows/ci.yml`,
+non-placeholder MIT record and present in `PUBLIC_BUNDLE_PATHS`, two negative tests proving
+a still-quarantined asset cannot reach the public bundle by a status flip or by being added
+to `PUBLIC_BUNDLE_PATHS` directly, and (ART-144) fixture-driven negative tests for an
+unlisted file under `public/` and for a CSS `url()` pointing at an unapproved asset, plus a
+regression test running both new checks against the real `public/` directory and
+`src/index.css`. Both commands run in CI (`.github/workflows/ci.yml`,
 `.github/workflows/bootstrap.yml`) and are part of `npm run check` / `npm run
 check:offline`.
 

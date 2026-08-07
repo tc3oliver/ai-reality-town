@@ -1,9 +1,11 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const MANIFEST_PATH = join(ROOT, 'assets/asset-licenses.json');
+const PUBLIC_DIR = join(ROOT, 'public');
+const CSS_SOURCE_DIR = join(ROOT, 'src');
 
 // Assets reachable from the current or planned public visual bundle (ART-107's
 // "reusable renderer" inventory: PixiGame/PixiStaticMap/Character + the stock
@@ -148,11 +150,97 @@ export function checkPublicBundleCoverage(manifest, publicBundlePaths = PUBLIC_B
   return errors;
 }
 
+function listFilesRecursively(dir) {
+  const files = [];
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) files.push(...listFilesRecursively(full));
+    else files.push(full);
+  }
+  return files;
+}
+
+function toManifestPath(...segments) {
+  return segments.join('/').split(sep).join('/');
+}
+
+function approvalError(manifest, path, reachability) {
+  const asset = (manifest.assets ?? []).find((candidate) => candidate.path === path);
+  if (!asset) {
+    return `${path}: ${reachability} but has no licence record in assets/asset-licenses.json`;
+  }
+  if (asset.status !== 'approved') {
+    return `${path}: ${reachability} but status is "${asset.status}", not "approved"`;
+  }
+  return null;
+}
+
+/**
+ * Vite copies public/ into dist/ verbatim -- no import graph is involved, so
+ * PUBLIC_BUNDLE_PATHS cannot describe what actually ships. This walks the real
+ * directory instead and demands an approved record for every file in it.
+ */
+export function checkPublicDirectoryCoverage(
+  manifest,
+  publicDir = PUBLIC_DIR,
+  manifestPrefix = 'public',
+) {
+  const errors = [];
+  for (const file of listFilesRecursively(publicDir)) {
+    const path = toManifestPath(manifestPrefix, relative(publicDir, file));
+    const error = approvalError(manifest, path, 'is published verbatim from public/');
+    if (error) errors.push(error);
+  }
+  return errors;
+}
+
+export function findCssFiles(dir = CSS_SOURCE_DIR) {
+  return listFilesRecursively(dir).filter((file) => file.endsWith('.css'));
+}
+
+const CSS_URL_PATTERN = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)"']*))\s*\)/g;
+const URI_SCHEME_PATTERN = /^[a-z][a-z0-9+.-]*:/i;
+
+/**
+ * CSS url() references are not JavaScript imports, but vite emits every one of
+ * them into dist/ all the same. Resolves each reference to a repo-relative path
+ * and demands an approved record for it.
+ */
+export function checkCssReferencedAssetsCoverage(
+  manifest,
+  cssFiles = findCssFiles(),
+  root = ROOT,
+  publicDir = join(root, 'public'),
+) {
+  const errors = [];
+  for (const cssFile of cssFiles) {
+    const source = readFileSync(cssFile, 'utf8');
+    for (const [, doubleQuoted, singleQuoted, bare] of source.matchAll(CSS_URL_PATTERN)) {
+      const reference = (doubleQuoted ?? singleQuoted ?? bare ?? '').trim();
+      if (reference === '' || URI_SCHEME_PATTERN.test(reference)) continue;
+      const resolved = reference.startsWith('/')
+        ? join(publicDir, reference)
+        : resolve(dirname(cssFile), reference);
+      if (!existsSync(resolved)) continue;
+      const path = toManifestPath(relative(root, resolved));
+      const error = approvalError(
+        manifest,
+        path,
+        `referenced by url(${reference}) in ${toManifestPath(relative(root, cssFile))} and emitted into dist/`,
+      );
+      if (error) errors.push(error);
+    }
+  }
+  return errors;
+}
+
 export function runCheck(manifestPath = MANIFEST_PATH, publicBundlePaths = PUBLIC_BUNDLE_PATHS) {
   const manifest = loadManifest(manifestPath);
   return [
     ...validateManifestShape(manifest),
     ...checkPublicBundleCoverage(manifest, publicBundlePaths),
+    ...checkPublicDirectoryCoverage(manifest),
+    ...checkCssReferencedAssetsCoverage(manifest),
   ];
 }
 
@@ -167,7 +255,8 @@ function main() {
     process.exit(1);
   }
   console.log(
-    `Asset licence check passed: ${PUBLIC_BUNDLE_PATHS.length} public-bundle asset(s) verified.`,
+    `Asset licence check passed: ${PUBLIC_BUNDLE_PATHS.length} public-bundle asset(s) verified, ` +
+      `plus every file under public/ and every url() reference in ${findCssFiles().length} stylesheet(s).`,
   );
 }
 
