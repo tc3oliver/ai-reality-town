@@ -19,10 +19,19 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { extname, join } from 'node:path';
 
 const ROOT = process.cwd();
-const READ_ONLY_ROOTS = ['src/components/world', 'src/components/public'];
+/**
+ * ART-128 (FR-O009) widened this from the two component directories to the whole of
+ * `src`, matching `readOnlyClientBoundary` in the boundary policy. Checking only the
+ * pages a visitor is shown proved the wrong thing: the app shell, the client provider
+ * and the shared buttons all ship in the same bundle and were never checked.
+ * `src/editor` is the dev-only level editor -- a separate Vite root, not shipped.
+ */
+const READ_ONLY_ROOTS = ['src'];
+const EXCLUDED_ROOTS = ['src/editor'];
 
 /** Every shipped (non-test) source file under a read-only root. */
 function sourceFiles(dir: string): string[] {
+  if (EXCLUDED_ROOTS.includes(dir)) return [];
   return readdirSync(join(ROOT, dir), { withFileTypes: true }).flatMap((entry) => {
     const path = `${dir}/${entry.name}`;
     if (entry.isDirectory()) return sourceFiles(path);
@@ -50,11 +59,20 @@ describe('read-only public surface', () => {
   test('reaches no mutation, action or world-input API', () => {
     // Convex's write entry points, plus the retired a16z input helpers. A
     // mutation cannot be issued from the browser without one of these.
+    //
+    // Kept in sync by hand with `readOnlyClientBoundary.forbiddenSymbols` in
+    // `architecture/module-boundaries.json`, minus `ConvexReactClient`: the policy
+    // exempts that one symbol for `ConvexClientProvider.tsx`, and this list carries
+    // no exemption machinery. `ConvexClient`/`BaseConvexClient` are the non-React
+    // `convex/browser` clients -- they expose `.mutation()`/`.action()` directly, so
+    // the React hooks above do not cover them.
     const writeApis = [
       'useMutation',
       'useAction',
       'useConvex',
       'ConvexHttpClient',
+      'ConvexClient',
+      'BaseConvexClient',
       'useSendInput',
       'useWorldHeartbeat',
       'useServerGame',

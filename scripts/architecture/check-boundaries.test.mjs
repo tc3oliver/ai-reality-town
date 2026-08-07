@@ -1,12 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import {
+  extractClientReachableRegistrations,
   extractImports,
   loadPolicy,
   moduleForPath,
   validateCanonWriteBoundarySource,
   validateImport,
   validatePolicy,
+  validateForbiddenHttpActions,
+  validatePublicFunctionSurface,
   validateReadOnlyClientSource,
 } from './check-boundaries.mjs';
 
@@ -209,6 +215,216 @@ test('read-only client surface rejects world-write symbols and allows reads', ()
       policy,
     }),
     [],
+  );
+});
+
+/** Build a throwaway repo root so the surface scan can be driven against known files. */
+function fixtureRoot(files) {
+  const root = mkdtempSync(join(tmpdir(), 'boundary-surface-'));
+  for (const [path, source] of Object.entries(files)) {
+    mkdirSync(join(root, dirname(path)), { recursive: true });
+    writeFileSync(join(root, path), source);
+  }
+  return root;
+}
+
+const surfacePolicy = (allowed) => ({
+  publicFunctionSurface: { scanRoots: ['convex'], forbiddenRegistrations: ['httpAction'], allowed },
+});
+
+test('the live policy declares exactly the repo\'s client-reachable surface', () => {
+  assert.deepEqual(validatePublicFunctionSurface(), []);
+  // Every declared public mutation is an operator control, never an anonymous one.
+  for (const entry of policy.publicFunctionSurface.allowed) {
+    if (entry.kind !== 'query') assert.equal(entry.gate, 'operator', `${entry.name} must be operator-gated`);
+  }
+});
+
+test('registrations are found through whatever name they are exported under', () => {
+  assert.deepEqual(
+    extractClientReachableRegistrations(
+      "export const a = query({});\nconst b = mutation({});\nexport default b;\nexport default action({});",
+    ),
+    [{ name: 'a', kind: 'query' }, { name: 'b', kind: 'mutation' }, { name: 'default', kind: 'action' }],
+  );
+  // The internal helpers are a different surface and are none of this rule's business.
+  assert.deepEqual(
+    extractClientReachableRegistrations(
+      'export const a = internalQuery({});\nexport const b = internalMutation({});\nexport const c = internalAction({});',
+    ),
+    [],
+  );
+});
+
+test('an undeclared public mutation fails the build', () => {
+  const root = fixtureRoot({ 'convex/init.ts': 'const init = mutation({});\nexport default init;' });
+  assert.match(
+    validatePublicFunctionSurface(root, surfacePolicy([])).join('\n'),
+    /convex\/init\.ts: client-reachable mutation 'init' is not declared in publicFunctionSurface/,
+  );
+});
+
+test('a declared public function passes', () => {
+  const root = fixtureRoot({ 'convex/ops.ts': 'export const pauseWorld = mutation({});' });
+  assert.deepEqual(
+    validatePublicFunctionSurface(
+      root,
+      surfacePolicy([{ path: 'convex/ops.ts', name: 'pauseWorld', kind: 'mutation', gate: 'operator' }]),
+    ),
+    [],
+  );
+});
+
+test('an httpAction is rejected outright, declared or not', () => {
+  const root = fixtureRoot({ 'convex/http.ts': 'export const hook = httpAction(async () => {});' });
+  assert.match(
+    validatePublicFunctionSurface(root, surfacePolicy([])).join('\n'),
+    /'hook' registers a forbidden httpAction/,
+  );
+  assert.match(
+    validatePublicFunctionSurface(
+      root,
+      surfacePolicy([{ path: 'convex/http.ts', name: 'hook', kind: 'action', gate: 'operator' }]),
+    ).join('\n'),
+    /'hook' registers a forbidden httpAction/,
+  );
+});
+
+test('an httpAction bound inline inside http.route() is caught, though it names no variable', () => {
+  // The idiomatic Convex spelling, and the exact shape of the unauthenticated webhook
+  // FR-O009 deleted. It assigns to nothing, so the registration-extraction regex cannot
+  // see it -- which is why the ban is enforced a second time, on the identifier alone.
+  const inline = [
+    "import { httpRouter } from 'convex/server';",
+    'const http = httpRouter();',
+    "http.route({ path: '/hook', method: 'POST', handler: httpAction(async (ctx, req) => { await ctx.runMutation(api.x.y, {}); }) });",
+    'export default http;',
+  ].join('\n');
+  assert.deepEqual(extractClientReachableRegistrations(inline), []);
+  const root = fixtureRoot({ 'convex/http.ts': inline });
+  assert.deepEqual(validatePublicFunctionSurface(root, surfacePolicy([])), []);
+  assert.match(
+    validateForbiddenHttpActions(root, surfacePolicy([])).join('\n'),
+    /convex\/http\.ts: 'httpAction' is forbidden anywhere under a scanned root/,
+  );
+});
+
+test('the identifier ban is blunt: any httpAction call shape is a violation, and only that', () => {
+  const cases = {
+    'convex/a.ts': 'export const hook = httpAction(async () => {});',
+    'convex/b.ts': 'const routes = [{ handler: httpAction(async () => {}) }];',
+    'convex/c.ts': 'export default httpAction (async () => {});',
+  };
+  for (const [path, source] of Object.entries(cases)) {
+    assert.match(
+      validateForbiddenHttpActions(fixtureRoot({ [path]: source }), surfacePolicy([])).join('\n'),
+      new RegExp(`${path.replace('.', '\\.')}: 'httpAction' is forbidden`),
+      path,
+    );
+  }
+  // Prose about `httpAction` is not a registration -- convex/http.ts documents the ban.
+  assert.deepEqual(
+    validateForbiddenHttpActions(
+      fixtureRoot({ 'convex/http.ts': '/** No `httpAction` may be added here. */\nexport default httpRouter();' }),
+      surfacePolicy([]),
+    ),
+    [],
+  );
+});
+
+test('the live repository registers no httpAction in any shape', () => {
+  assert.deepEqual(validateForbiddenHttpActions(), []);
+});
+
+test('a registration in any extension the Convex bundler accepts is scanned', () => {
+  // Convex accepts .js .mjs .cjs .jsx .ts .tsx .mts .cts as entry points. A file the
+  // scanner skipped would deploy a public function that no gate had ever seen.
+  for (const name of ['ops.cjs', 'ops.mts', 'ops.cts', 'ops.jsx', 'ops.mjs']) {
+    const root = fixtureRoot({ [`convex/${name}`]: 'export const sneak = mutation({});' });
+    assert.match(
+      validatePublicFunctionSurface(root, surfacePolicy([])).join('\n'),
+      new RegExp(`convex/${name.replace('.', '\\.')}: client-reachable mutation 'sneak' is not declared`),
+      name,
+    );
+  }
+  // A test file is still not part of the deployed surface.
+  assert.deepEqual(
+    validatePublicFunctionSurface(
+      fixtureRoot({ 'convex/ops.test.ts': 'export const sneak = mutation({});' }),
+      surfacePolicy([]),
+    ),
+    [],
+  );
+});
+
+test('a stale allowlist entry fails the build too', () => {
+  const root = fixtureRoot({ 'convex/ops.ts': 'export const stillHere = query({});' });
+  assert.match(
+    validatePublicFunctionSurface(
+      root,
+      surfacePolicy([
+        { path: 'convex/ops.ts', name: 'stillHere', kind: 'query', gate: 'operator' },
+        { path: 'convex/music.ts', name: 'getBackgroundMusic', kind: 'query', gate: 'anonymous' },
+      ]),
+    ).join('\n'),
+    /declares query convex\/music\.ts:getBackgroundMusic, which no longer exists/,
+  );
+});
+
+test('a declaration whose kind drifted from the registration fails the build', () => {
+  const root = fixtureRoot({ 'convex/ops.ts': 'export const pauseWorld = mutation({});' });
+  assert.match(
+    validatePublicFunctionSurface(
+      root,
+      surfacePolicy([{ path: 'convex/ops.ts', name: 'pauseWorld', kind: 'query', gate: 'operator' }]),
+    ).join('\n'),
+    /is declared as a query but registers a mutation/,
+  );
+});
+
+test('policy validation rejects an anonymous public mutation', () => {
+  const broken = structuredClone(policy);
+  broken.publicFunctionSurface.allowed.push({
+    path: 'convex/operations/opsConsoleFunctions.ts', name: 'joinWorld', kind: 'mutation', gate: 'anonymous',
+  });
+  assert.match(validatePolicy(broken).join('\n'), /public mutation .*joinWorld must be operator-gated/);
+});
+
+test('the read-only boundary now covers the whole shipped client', () => {
+  // ART-128 / FR-O009 GAP 3: the app shell and the shared buttons used to sit outside
+  // the boundary, so a write could be added to the shipped bundle without tripping it.
+  for (const path of ['src/App.tsx', 'src/main.tsx', 'src/components/buttons/Button.tsx']) {
+    assert.match(
+      validateReadOnlyClientSource({ sourcePath: path, source: 'const send = useMutation(ref);', policy })[0],
+      /may not reference world-write API 'useMutation'/,
+    );
+  }
+  // The dev-only level editor is a separate Vite root and is not shipped.
+  assert.deepEqual(
+    validateReadOnlyClientSource({ sourcePath: 'src/editor/le.js', source: 'const x = useMutation;', policy }),
+    [],
+  );
+});
+
+test('the client provider may construct a client but still may not write', () => {
+  const provider = 'src/components/ConvexClientProvider.tsx';
+  assert.deepEqual(
+    validateReadOnlyClientSource({
+      sourcePath: provider,
+      source: "const client = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL);",
+      policy,
+    }),
+    [],
+  );
+  // The exemption is scoped to client construction; issuing a write is still refused.
+  assert.match(
+    validateReadOnlyClientSource({ sourcePath: provider, source: 'const send = useMutation(ref);', policy })[0],
+    /may not reference world-write API 'useMutation'/,
+  );
+  // And no other file may construct one.
+  assert.match(
+    validateReadOnlyClientSource({ sourcePath: 'src/App.tsx', source: 'new ConvexReactClient(url);', policy })[0],
+    /may not reference world-write API 'ConvexReactClient'/,
   );
 });
 

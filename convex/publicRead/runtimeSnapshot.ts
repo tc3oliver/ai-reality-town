@@ -471,6 +471,12 @@ export async function serveRuntimeSnapshot(
   if (worldId.trim().length === 0) {
     throw new RuntimeSnapshotError('RUNTIME_SNAPSHOT_INVALID_SHAPE', 'worldId must be non-empty');
   }
+  // ART-128 (FR-O009): a non-finite clock silently poisons every elapsed-time
+  // subtraction in `classifyRuntimeFreshness` into NaN, and NaN fails every threshold
+  // comparison, so the verdict would degrade without anything reporting a problem.
+  if (!Number.isFinite(nowMs)) {
+    throw new RuntimeSnapshotError('RUNTIME_SNAPSHOT_INVALID_SHAPE', 'nowMs must be finite');
+  }
   const head = await store.loadCurrent(worldId);
   if (!head) return null;
   assertPublicRuntimeSnapshot(head);

@@ -1,5 +1,16 @@
 # Server-Side Authorization and Release Security Audit (ART-62)
 
+> **Superseded in part (2026-08-07, ART-128).** This document's inventory of the public
+> surface is a hand-maintained snapshot and is now stale — it missed two Critical findings
+> that ART-128 found and fixed: a public `mutation` in `convex/init.ts` that any anonymous
+> caller could invoke successfully, and an unauthenticated `POST /replicate_webhook` HTTP
+> action performing an SSRF-shaped server-side fetch. For the current, machine-enforced
+> inventory of every client-reachable Convex function, read
+> **`docs/public-read-only-guarantee.md`**. The surface is no longer maintained by hand:
+> `publicFunctionSurface` in `architecture/module-boundaries.json` fails the build on any
+> undeclared registration. The findings and remediations recorded below remain accurate as
+> history.
+
 - **Requirement IDs:** NFR-005, Public Test AC 20-23
 - **Audit date:** 2026-08-04
 - **Audited revision:** `origin/main` @ `67e60bd` (plus the fixes recorded in this document)

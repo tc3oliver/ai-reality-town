@@ -15,21 +15,60 @@
     "safety": { "roots": ["convex/safety"], "mayDependOn": ["shared"] },
     "observability": { "roots": ["convex/observability"], "mayDependOn": ["shared"] },
     "shared": { "roots": ["convex/shared"], "mayDependOn": [] },
-    "clientPublic": { "roots": ["src/components/public"], "mayDependOn": ["publicRead", "shared"] },
-    "clientWorldReadOnly": { "roots": ["src/components/world"], "mayDependOn": ["publicRead", "shared"] }
+    "clientPublic": { "roots": ["src/components/public"], "mayDependOn": ["publicRead", "shared", "clientProvider"] },
+    "clientWorldReadOnly": { "roots": ["src/components/world"], "mayDependOn": ["publicRead", "shared", "clientProvider"] },
+    "clientProvider": { "roots": ["src/components/ConvexClientProvider.tsx"], "mayDependOn": [] },
+    "clientShell": { "roots": ["src"], "mayDependOn": ["clientPublic", "clientWorldReadOnly", "clientProvider", "publicRead", "shared"] }
   },
   "readOnlyClientBoundary": {
-    "roots": ["src/components/public", "src/components/world"],
+    "roots": ["src"],
+    "excludeRoots": ["src/editor"],
+    "exemptFiles": [
+      { "path": "src/components/ConvexClientProvider.tsx", "symbols": ["ConvexReactClient"] }
+    ],
     "forbiddenSymbols": [
       "useMutation",
       "useAction",
       "useConvex",
       "ConvexHttpClient",
+      "ConvexReactClient",
+      "ConvexClient",
+      "BaseConvexClient",
       "useSendInput",
       "useWorldHeartbeat",
       "useServerGame",
       "insertInput",
       "sendWorldInput"
+    ]
+  },
+  "publicFunctionSurface": {
+    "scanRoots": ["convex"],
+    "forbiddenRegistrations": ["httpAction"],
+    "allowed": [
+      { "path": "convex/publicRead/readModelFunctions.ts", "name": "getPublishedReadModel", "kind": "query", "gate": "anonymous" },
+      { "path": "convex/publicRead/liveStateFunctions.ts", "name": "getPublicDynamicProjection", "kind": "query", "gate": "anonymous" },
+      { "path": "convex/publicRead/runtimeSnapshotFunctions.ts", "name": "getPublicRuntimeSnapshot", "kind": "query", "gate": "anonymous" },
+      { "path": "convex/observability/traces.ts", "name": "getTracePublic", "kind": "query", "gate": "anonymous" },
+      { "path": "convex/operations/opsConsoleFunctions.ts", "name": "inspectWorldState", "kind": "query", "gate": "operator" },
+      { "path": "convex/operations/opsConsoleFunctions.ts", "name": "inspectScheduleAndQueue", "kind": "query", "gate": "operator" },
+      { "path": "convex/operations/opsConsoleFunctions.ts", "name": "listOperatorAudit", "kind": "query", "gate": "operator" },
+      { "path": "convex/operations/opsConsoleFunctions.ts", "name": "describeOperatorSession", "kind": "query", "gate": "operator" },
+      { "path": "convex/operations/emergencyStopFunctions.ts", "name": "inspectEmergencyStop", "kind": "query", "gate": "operator" },
+      { "path": "convex/operations/proposalReviewFunctions.ts", "name": "listProposedEventReviews", "kind": "query", "gate": "operator" },
+      { "path": "convex/operations/proposalReviewFunctions.ts", "name": "reviewProposedEvent", "kind": "query", "gate": "operator" },
+      { "path": "convex/operations/opsConsoleFunctions.ts", "name": "pauseWorld", "kind": "mutation", "gate": "operator" },
+      { "path": "convex/operations/opsConsoleFunctions.ts", "name": "resumeWorld", "kind": "mutation", "gate": "operator" },
+      { "path": "convex/operations/opsConsoleFunctions.ts", "name": "advanceSlot", "kind": "mutation", "gate": "operator" },
+      { "path": "convex/operations/opsConsoleFunctions.ts", "name": "retryFailedSlot", "kind": "mutation", "gate": "operator" },
+      { "path": "convex/operations/opsConsoleFunctions.ts", "name": "cancelUncommittedScene", "kind": "mutation", "gate": "operator" },
+      { "path": "convex/operations/opsConsoleFunctions.ts", "name": "createWorldSnapshot", "kind": "mutation", "gate": "operator" },
+      { "path": "convex/operations/emergencyStopFunctions.ts", "name": "emergencyStop", "kind": "mutation", "gate": "operator" },
+      { "path": "convex/operations/emergencyStopFunctions.ts", "name": "resumeFromEmergencyStop", "kind": "mutation", "gate": "operator" },
+      { "path": "convex/operations/emergencyStopFunctions.ts", "name": "activateWorldRollback", "kind": "mutation", "gate": "operator" },
+      { "path": "convex/operations/emergencyStopFunctions.ts", "name": "clearWorldRollback", "kind": "mutation", "gate": "operator" },
+      { "path": "convex/operations/canonCorrectionFunctions.ts", "name": "createCorrectionEvent", "kind": "mutation", "gate": "operator" },
+      { "path": "convex/operations/canonCorrectionFunctions.ts", "name": "createCompensationEvent", "kind": "mutation", "gate": "operator" },
+      { "path": "convex/operations/canonCorrectionFunctions.ts", "name": "createRetconEvent", "kind": "mutation", "gate": "operator" }
     ]
   },
   "canonWriteBoundary": {

@@ -49,7 +49,6 @@ import type * as knowledge_memoryAuthorization from "../knowledge/memoryAuthoriz
 import type * as knowledge_memoryQueries from "../knowledge/memoryQueries.js";
 import type * as knowledge_memoryRetrieval from "../knowledge/memoryRetrieval.js";
 import type * as knowledge_queries from "../knowledge/queries.js";
-import type * as music from "../music.js";
 import type * as observability_llmTrace from "../observability/llmTrace.js";
 import type * as observability_model from "../observability/model.js";
 import type * as observability_trace from "../observability/trace.js";
@@ -222,7 +221,6 @@ declare const fullApi: ApiFromModules<{
   "knowledge/memoryQueries": typeof knowledge_memoryQueries;
   "knowledge/memoryRetrieval": typeof knowledge_memoryRetrieval;
   "knowledge/queries": typeof knowledge_queries;
-  music: typeof music;
   "observability/llmTrace": typeof observability_llmTrace;
   "observability/model": typeof observability_model;
   "observability/trace": typeof observability_trace;

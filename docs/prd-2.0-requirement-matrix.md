@@ -88,7 +88,7 @@ FR-O010（動態畫面降級）Disposition 為 **New**，擁有專屬 Task **ART
 | FR-O006 公開角色卡 | New | ART-124 | To Do | P0 | ART-118, ART-111 |
 | FR-O007 Live Story Overlay | New | ART-125 | To Do | P0 | ART-118 |
 | FR-O008 響應式觀看體驗 | New | ART-126 | To Do | P0 | ART-125, ART-124 |
-| FR-O009 公開只讀保證 | New | ART-128 | To Do | P0 | ART-113, ART-115 |
+| FR-O009 公開只讀保證 | New | ART-128 | **Done** | P0 | 保證成立且已機器強制：公開瀏覽結構上無法寫入或觸發生成。修復兩個 Critical：`convex/init.ts` 原以 `mutation`（非 `internalMutation`）匯出，任何匿名 client 皆可呼叫**且成功**，違反 §18.1「成功公開 mutation 為零」；`POST /replicate_webhook`（`convex/music.ts` 的 `httpAction`）無簽章驗證，匿名 POST 即造成伺服器 `fetch()` 攻擊者可控 URL、儲存無上限 blob 並寫入資料列——該模組為完全無呼叫者的死碼，故整組刪除（含 `MusicButton.tsx`、`replicate` 依賴；`music` 表比照 ADR-0004 留為 inert）。新增第三道邊界 `publicFunctionSurface`（`architecture/module-boundaries.json`）掃描 `convex/**` 的 `query`／`mutation`／`action`／`httpAction` 註冊並與 allowlist 雙向 diff，`httpAction` 一律禁止、公開 mutation 必須 operator-gated——此閘門先於修復落地並實際紅燈抓出上述兩個缺陷（證據見文件 §7）。另修復 `getPublicRuntimeSnapshot` 可由呼叫端偽造 `nowMs` 時鐘以偽造 freshness（GAP 6），並將 `readOnlyClientBoundary` 由兩個元件目錄擴及整個 `src`（GAP 3）。安全套件 `convex/publicRead/publicReadOnlyGuarantee.test.ts`（31 tests）以列舉、對抗式呼叫（throwing-db proxy 證明拒絕發生在讀取任何資料列之前）與缺席證明覆蓋全部 8 條 AC，並經三個 mutant 反證確有效力（見 `docs/public-read-only-guarantee.md`） | ART-113, ART-115 |
 | FR-O010 動態畫面降級 | New | ART-127 | To Do | P0 | ART-116, ART-118 |
 | FR-O011 Ambient Movement | New | ART-120 | To Do | P0 | ART-114, ART-110 |
 | FR-O012 Environmental Animation | New | ART-120（共用） | To Do | P0 | ART-114, ART-110 |
