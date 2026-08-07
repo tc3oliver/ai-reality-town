@@ -4,6 +4,7 @@ import {
   extractImports,
   loadPolicy,
   moduleForPath,
+  validateCanonWriteBoundarySource,
   validateImport,
   validatePolicy,
   validateReadOnlyClientSource,
@@ -52,6 +53,88 @@ test('visual binding may read Canon but Canon may not read map geometry', () => 
       policy,
     })[0],
     /canon may not depend on visual/,
+  );
+});
+
+test('visual runtime may read visual bindings but not Canon', () => {
+  assert.equal(moduleForPath('convex/visualRuntime/visualSyncPlanner.ts', policy), 'visualRuntime');
+  assert.deepEqual(
+    validateImport({
+      sourcePath: 'convex/visualRuntime/visualSyncPlanner.ts',
+      specifier: '../visual/locationVisualBinding',
+      policy,
+    }),
+    [],
+  );
+  assert.match(
+    validateImport({
+      sourcePath: 'convex/visualRuntime/visualSyncPlanner.ts',
+      specifier: '../canon/model',
+      policy,
+    })[0],
+    /visualRuntime may not depend on canon/,
+  );
+});
+
+test('a module outside the Canon write boundary cannot import a Canon write path', () => {
+  const errors = validateImport({
+    sourcePath: 'convex/visualRuntime/visualSyncPlanner.ts',
+    specifier: '../canon/commit',
+    policy,
+  });
+  assert.match(errors.join('\n'), /may not import Canon write path convex\/canon\/commit\.ts/);
+  assert.match(
+    validateImport({
+      sourcePath: 'src/components/public/LiveView.tsx',
+      specifier: '../../../convex/canon/characterSeed',
+      policy,
+    }).join('\n'),
+    /may not import Canon write path convex\/canon\/characterSeed\.ts/,
+  );
+});
+
+test('Canon write boundary rejects write symbols at the source level', () => {
+  assert.match(
+    validateCanonWriteBoundarySource({
+      sourcePath: 'convex/visualRuntime/visualSyncPlanner.ts',
+      source: 'export const publish = internalMutation({});',
+      policy,
+    })[0],
+    /may not reference 'internalMutation'/,
+  );
+  // The dots in a symbol are literal, not a regex wildcard.
+  assert.match(
+    validateCanonWriteBoundarySource({
+      sourcePath: 'convex/visualRuntime/visualSyncPlanner.ts',
+      source: 'await ctx.db.insert("positions", unit);',
+      policy,
+    })[0],
+    /may not reference 'ctx\.db\.insert'/,
+  );
+  assert.deepEqual(
+    validateCanonWriteBoundarySource({
+      sourcePath: 'convex/visualRuntime/visualSyncPlanner.ts',
+      source: 'const at = ctxAdbAinsert;',
+      policy,
+    }),
+    [],
+  );
+  assert.deepEqual(
+    validateCanonWriteBoundarySource({
+      sourcePath: 'convex/visualRuntime/visualSyncPlanner.ts',
+      source: 'export function planCharacterTrajectories(input) { return input; }',
+      policy,
+    }),
+    [],
+  );
+  // Canon itself is inside the boundary and is none of this rule's business.
+  assert.deepEqual(
+    validateCanonWriteBoundarySource({
+      sourcePath: 'convex/canon/commit.ts',
+      source: 'await ctx.db.insert("canonEvents", event);',
+      policy,
+    }),
+    [],
   );
 });
 
