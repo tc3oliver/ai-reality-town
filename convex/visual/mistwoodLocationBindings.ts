@@ -16,9 +16,18 @@
  *
  * Because everything is derived, an edit to the map or the seed that would strand a location
  * fails this module's import-time validation instead of silently publishing a broken zone.
+ *
+ * ART-120 (FR-O011) moved the two anchor derivations into `data/mistwoodAmbientAnchors.ts` so
+ * the browser can read the same standing positions without importing this file — which, via
+ * `mistwoodSeed`, would put every resident's private profile in the client bundle. Only
+ * `publicLabel` still comes from Canon, which is why this module remains the composer.
  */
 
-import { mistwoodCollision, mistwoodLocationFootprints, type MistwoodRect } from '../../data/mistwood';
+import { mistwoodLocationFootprints, type MistwoodRect } from '../../data/mistwood';
+import {
+  mistwoodAmbientAnchorsByLocationId,
+  mistwoodEntryAnchorsByLocationId,
+} from '../../data/mistwoodAmbientAnchors';
 import { MISTWOOD_PUBLIC_WORLD_ID, mistwoodWorldConfiguration } from '../canon/mistwoodSeed';
 import {
   LocationVisualBindingError,
@@ -33,18 +42,6 @@ export const MISTWOOD_MAP_ID = 'mistwood-v1';
 /** Bumped whenever an authored binding changes, so a published position stays auditable. */
 export const MISTWOOD_LOCATION_BINDING_VERSION = 1;
 
-/** Enough spread for ambient wandering without turning every walkable tile into an anchor. */
-const AMBIENT_ANCHORS_PER_ZONE = 5;
-
-type Tile = { readonly x: number; readonly y: number };
-
-const NEIGHBOUR_OFFSETS: readonly Tile[] = [
-  { x: 1, y: 0 },
-  { x: -1, y: 0 },
-  { x: 0, y: 1 },
-  { x: 0, y: -1 },
-];
-
 /** Tile `(x, y)` covers the unit square `(x, y)`–`(x + 1, y + 1)`, so its ring is the corners. */
 function zonePolygonForRect(rect: MistwoodRect): readonly ZonePoint[] {
   return [
@@ -53,115 +50,6 @@ function zonePolygonForRect(rect: MistwoodRect): readonly ZonePoint[] {
     { x: rect.x + rect.width, y: rect.y + rect.height },
     { x: rect.x, y: rect.y + rect.height },
   ];
-}
-
-/** Where a character standing on a tile actually stands. */
-function tileCentre(tile: Tile): ZonePoint {
-  return { x: tile.x + 0.5, y: tile.y + 0.5 };
-}
-
-function isWalkable(x: number, y: number): boolean {
-  return mistwoodCollision[x]?.[y] === 0;
-}
-
-function isInsideRect(rect: MistwoodRect, x: number, y: number): boolean {
-  return x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height;
-}
-
-/** Row-major, so every derivation below is deterministic across imports and platforms. */
-function walkableTilesIn(rect: MistwoodRect): readonly Tile[] {
-  const tiles: Tile[] = [];
-  for (let x = rect.x; x < rect.x + rect.width; x++) {
-    for (let y = rect.y; y < rect.y + rect.height; y++) {
-      if (isWalkable(x, y)) tiles.push({ x, y });
-    }
-  }
-  return tiles;
-}
-
-function squaredDistance(first: ZonePoint, second: ZonePoint): number {
-  return (first.x - second.x) ** 2 + (first.y - second.y) ** 2;
-}
-
-function tileKey(tile: Tile): string {
-  return `${tile.x},${tile.y}`;
-}
-
-function entryTilesFor(rect: MistwoodRect): readonly Tile[] {
-  return walkableTilesIn(rect).filter((tile) =>
-    NEIGHBOUR_OFFSETS.some((offset) => {
-      const x = tile.x + offset.x;
-      const y = tile.y + offset.y;
-      return !isInsideRect(rect, x, y) && isWalkable(x, y);
-    }),
-  );
-}
-
-/**
- * Walkable does not mean reachable: the Northwater channel cuts the mill zone's far bank off
- * from its floor, and the orchard packing shed leaves a two-tile pocket behind blocked crates.
- * Ambient anchors are therefore taken only from the tiles a character can walk to from an entry
- * anchor without leaving the zone.
- */
-function reachableTilesFrom(rect: MistwoodRect, seeds: readonly Tile[]): readonly Tile[] {
-  const walkable = walkableTilesIn(rect);
-  const inZone = new Set(walkable.map(tileKey));
-  const reached = new Set<string>();
-  const queue: Tile[] = [];
-  for (const seed of seeds) {
-    if (inZone.has(tileKey(seed)) && !reached.has(tileKey(seed))) {
-      reached.add(tileKey(seed));
-      queue.push(seed);
-    }
-  }
-  while (queue.length > 0) {
-    const tile = queue.shift() as Tile;
-    for (const offset of NEIGHBOUR_OFFSETS) {
-      const next = { x: tile.x + offset.x, y: tile.y + offset.y };
-      if (!inZone.has(tileKey(next)) || reached.has(tileKey(next))) continue;
-      reached.add(tileKey(next));
-      queue.push(next);
-    }
-  }
-  return walkable.filter((tile) => reached.has(tileKey(tile)));
-}
-
-/**
- * Farthest-point spread: start from the reachable tile nearest the zone centre, then repeatedly
- * take the reachable tile furthest from everything already chosen. Ties resolve to the earlier
- * tile in row-major order, so the result is stable.
- */
-function ambientAnchorsFor(
-  rect: MistwoodRect,
-  candidates: readonly Tile[],
-  count: number,
-): readonly ZonePoint[] {
-  if (candidates.length <= count) return candidates.map(tileCentre);
-
-  const centre = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-  const chosen: Tile[] = [
-    candidates.reduce((best, tile) =>
-      squaredDistance(centre, tileCentre(tile)) < squaredDistance(centre, tileCentre(best))
-        ? tile
-        : best,
-    ),
-  ];
-  while (chosen.length < count) {
-    let bestTile = candidates[0];
-    let bestDistance = -1;
-    for (const tile of candidates) {
-      if (chosen.includes(tile)) continue;
-      const distance = Math.min(
-        ...chosen.map((selected) => squaredDistance(tileCentre(selected), tileCentre(tile))),
-      );
-      if (distance > bestDistance) {
-        bestDistance = distance;
-        bestTile = tile;
-      }
-    }
-    chosen.push(bestTile);
-  }
-  return chosen.map(tileCentre);
 }
 
 const footprintsByLocationId = new Map(
@@ -181,7 +69,6 @@ function buildBinding(locationId: string, publicLabel: string): LocationVisualBi
     );
   }
   const rect = footprint.rect;
-  const entryTiles = entryTilesFor(rect);
   return {
     id: `location-binding-${locationId}`,
     worldId: MISTWOOD_PUBLIC_WORLD_ID,
@@ -189,12 +76,8 @@ function buildBinding(locationId: string, publicLabel: string): LocationVisualBi
     locationId,
     zoneType: 'canon-location',
     zonePolygon: zonePolygonForRect(rect),
-    entryAnchors: entryTiles.map(tileCentre),
-    ambientAnchors: ambientAnchorsFor(
-      rect,
-      reachableTilesFrom(rect, entryTiles),
-      AMBIENT_ANCHORS_PER_ZONE,
-    ),
+    entryAnchors: mistwoodEntryAnchorsByLocationId[locationId] ?? [],
+    ambientAnchors: mistwoodAmbientAnchorsByLocationId[locationId] ?? [],
     sceneFocusPoint: { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 },
     publicLabel,
     status: 'active',

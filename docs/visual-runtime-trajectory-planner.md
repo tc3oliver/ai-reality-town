@@ -19,7 +19,7 @@ per character it can place, plus a list of `VisualRuntimeProblem`s for the ones 
 | Field | Meaning |
 |---|---|
 | `characterId`, `mapId` | Who, and which map the coordinates are measured against. |
-| `motionType` | `bootstrap` (no accepted event yet) or `canon` (derived from a fact). `ambient` and `replay` are declared for ART-120 / ART-121 and are never produced here. |
+| `motionType` | `bootstrap` (no accepted event yet), `canon` (a fact still under way), or `ambient` (a fact this character has already arrived at). `replay` is declared for ART-121 and is never produced here. |
 | `movementPhase` | `bootstrap`, `in-transit`, or `arrived`, decided against the supplied `nowMs`. |
 | `from`, `to` | Tile coordinates. `to` is always inside the zone `semanticLocationId` names. |
 | `startedAt`, `arriveAt` | The source event's `acceptedAt`, and that plus the travel time. `arriveAt >= startedAt` always. |
@@ -72,6 +72,20 @@ Canon guarantees. The planner therefore does not care what order the caller read
 | Last fact, `nowMs >= arriveAt` | Arrived: `idle`, `from === to` at the destination. |
 | Destination location unbound | No trajectory at all, plus a `VISUAL_RUNTIME_UNBOUND_LOCATION` problem. |
 | No walkable route | Retry against the zone's `entryAnchors` (at most four attempts total); if all fail, an arrived unit at the destination plus a `VISUAL_RUNTIME_NO_PATH` problem. |
+
+### `ambient` is an eligibility signal, not a position (FR-O011 / ART-120)
+
+A settled unit — `movementPhase: 'arrived'`, `from === to`, `animationState: 'idle'` — is
+published as `motionType: 'ambient'` rather than `'canon'`. It means *in-zone drift is permitted
+for this character*, and nothing more: the drift itself is never published, because this payload
+is stored and only rebuilt when Canon commits, so a per-minute coordinate in it would defeat the
+read model's `contentHash` deduplication by construction. The client re-derives the drift from
+this module's own seeded primitives. See
+[`ambient-and-environmental-animation.md`](./ambient-and-environmental-animation.md) §1.
+
+`bootstrapTrajectory` deliberately stays `'bootstrap'`. A seeded character who has never moved is
+a different state from one who has arrived somewhere, and the client's ambient gate is a superset
+that covers both, so nothing is lost visually by keeping them distinct here.
 
 Problems are returned, not thrown: one unbound location must not stop the other eleven residents
 being drawn. But an unbound *destination* publishes nothing, because a guessed position would put a

@@ -10,7 +10,13 @@
  * where neither exists.
  */
 
-import { mistwoodWorldMap, MISTWOOD_TILE_DIM } from '../../../data/mistwood';
+import {
+  mistwoodLocationFootprints,
+  mistwoodWorldMap,
+  MISTWOOD_TILE_DIM,
+} from '../../../data/mistwood';
+import { mistwoodAmbientAnchorsByLocationId } from '../../../data/mistwoodAmbientAnchors';
+import { focusTargetsFrom, primaryLocationId } from './cameraModel';
 import {
   composeReadOnlyWorldViewModel,
   interpolatedTile,
@@ -72,6 +78,7 @@ describe('composeReadOnlyWorldViewModel', () => {
         orientation: 0,
         animationState: 'walking',
         motionType: 'canon',
+        isAmbient: false,
         isMoving: true,
       },
     ]);
@@ -177,8 +184,9 @@ describe('composeReadOnlyWorldViewModel', () => {
     expect(state('thinking')).toMatchObject({ animationState: 'thinking', isMoving: false });
     expect(state('activity')).toMatchObject({ animationState: 'activity', isMoving: false });
 
-    // FR-O011 (ambient) and FR-O013 (replay) are declared but not produced, and
-    // this task renders them exactly as it renders `canon`.
+    // The published `motionType` is forwarded whole. What a renderer *does* with
+    // `ambient` is ART-120's business (see the ambient-drift block below); this
+    // assertion is only that nothing here flattens the union on the way through.
     for (const motionType of ['canon', 'ambient', 'idle', 'replay'] as const) {
       const character = composeReadOnlyWorldViewModel({
         map: mistwoodWorldMap,
@@ -285,5 +293,109 @@ describe('isWithinSegment (AC#6: characters never teleport)', () => {
     const standing = motion({ from: { x: 7, y: 7 }, to: { x: 7, y: 7 } });
     expect(isWithinSegment(standing, { x: 7, y: 7 })).toBe(true);
     expect(isWithinSegment(standing, { x: 7.5, y: 7 })).toBe(false);
+  });
+});
+
+/**
+ * ART-120 (FR-O011): in-zone drift is composed in here, so this is where "the map moves but
+ * the world does not" has to hold. The camera invariance below is the RISK2-008 pin — ambient
+ * motion must never be mistaken for plot, and the most direct way a viewer would mistake it is
+ * if the camera followed it.
+ */
+describe('ambient drift in the view model (FR-O011)', () => {
+  const ambientMotion = motion({
+    characterId: 'wu-zhen',
+    semanticLocationId: 'mistwood-square',
+    motionType: 'ambient',
+    animationState: 'idle',
+    from: { x: 8.5, y: 19.5 },
+    to: { x: 8.5, y: 19.5 },
+    startedAt: 1_000,
+    arriveAt: 1_000,
+  });
+  const NOW = 1_700_000_600_000;
+
+  type ComposeArgs = Parameters<typeof composeReadOnlyWorldViewModel>[0];
+
+  function compose(over: Partial<ComposeArgs> = {}) {
+    return composeReadOnlyWorldViewModel({
+      map: mistwoodWorldMap,
+      motions: [ambientMotion],
+      spriteKeys: SPRITE_KEYS,
+      nowMs: NOW,
+      ambientAnchorsByLocationId: mistwoodAmbientAnchorsByLocationId,
+      worldDay: 3,
+      ...over,
+    });
+  }
+
+  test('marks a drifting character ambient and a Canon walker not', () => {
+    const drifting = compose().characters[0];
+    expect(drifting.isAmbient).toBe(true);
+
+    const walking = composeReadOnlyWorldViewModel({
+      map: mistwoodWorldMap,
+      motions: [motion()],
+      spriteKeys: SPRITE_KEYS,
+      nowMs: 1_500,
+      ambientAnchorsByLocationId: mistwoodAmbientAnchorsByLocationId,
+      worldDay: 3,
+    }).characters[0];
+    expect(walking.isAmbient).toBe(false);
+    expect(walking.motionType).toBe('canon');
+  });
+
+  test('derives no drift at all without an anchor table, so old callers are unchanged', () => {
+    const character = composeReadOnlyWorldViewModel({
+      map: mistwoodWorldMap,
+      motions: [ambientMotion],
+      spriteKeys: SPRITE_KEYS,
+      nowMs: NOW,
+    }).characters[0];
+    expect(character.isAmbient).toBe(false);
+    expect(character.x).toBe(8.5 * MISTWOOD_TILE_DIM);
+  });
+
+  test('Reduced Motion parks the character at its published position (AC#8)', () => {
+    const character = compose({ reducedMotion: true }).characters[0];
+    expect(character.isAmbient).toBe(false);
+    expect(character.x).toBe(8.5 * MISTWOOD_TILE_DIM);
+    expect(character.y).toBe(19.5 * MISTWOOD_TILE_DIM);
+  });
+
+  test('never changes the Canon location, however far the character drifts', () => {
+    // RISK2-008. `primaryLocationId` — the stand-in for "where the world's attention is" —
+    // reads `semanticLocationId`, so this is also what stops drift redirecting the story.
+    for (let offset = 0; offset < 4 * 60_000; offset += 3_137) {
+      const character = compose({ nowMs: NOW + offset }).characters[0];
+      expect(character.semanticLocationId).toBe('mistwood-square');
+    }
+  });
+
+  test('the camera cannot see the drift at all (RISK2-008)', () => {
+    // The camera interpolates the *published* `from`/`to`, which ambient drift never touches.
+    // Stated as a test rather than left as an implementation detail: a future refactor that
+    // fed the view model's positions into `focusTargetsFrom` would make the camera chase a
+    // character pottering about, and the whole town would look like it was mid-crisis.
+    const withDrift = focusTargetsFrom({
+      motions: [ambientMotion],
+      footprints: mistwoodLocationFootprints,
+      map: mistwoodWorldMap,
+      nowMs: NOW + 30_000,
+    });
+    const withoutDrift = focusTargetsFrom({
+      motions: [ambientMotion],
+      footprints: mistwoodLocationFootprints,
+      map: mistwoodWorldMap,
+      nowMs: NOW,
+    });
+    expect(withDrift).toEqual(withoutDrift);
+    expect(primaryLocationId([ambientMotion])).toBe('mistwood-square');
+
+    // ...and the drift really is happening, so the equality above is a property and not a
+    // vacuous truth about a character that never moved.
+    const early = compose({ nowMs: NOW }).characters[0];
+    const late = compose({ nowMs: NOW + 30_000 }).characters[0];
+    expect({ x: late.x, y: late.y }).not.toEqual({ x: early.x, y: early.y });
   });
 });

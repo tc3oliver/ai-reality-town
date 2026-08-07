@@ -4,7 +4,7 @@ import { AnimatedSprite, Container } from '@pixi/react';
 import * as PIXI from 'pixi.js';
 
 import { CharacterStateIndicator } from './CharacterStateIndicator';
-import { WALK_ANIMATION_SPEED } from './characterAnimation';
+import { AMBIENT_ANIMATION_SPEED, WALK_ANIMATION_SPEED } from './characterAnimation';
 import { loadSpriteSheet } from './spriteSheetCache';
 import type { PublicAnimationState } from './worldViewModel';
 
@@ -40,7 +40,8 @@ export const Character = ({
   orientation,
   isMoving = false,
   animationState = 'idle',
-  speed = WALK_ANIMATION_SPEED,
+  isAmbient = false,
+  speed,
 }: {
   /** Asset key; the spritesheet cache key, since all eight base sprites share one URL. */
   spriteKey: string;
@@ -55,7 +56,14 @@ export const Character = ({
   isMoving?: boolean;
   /** The published state. Drives the indicator above the sprite. */
   animationState?: PublicAnimationState;
-  // The speed of the animation. Can be tuned depending on the side and speed of the NPC.
+  /**
+   * Whether this frame's position came from in-zone drift (ART-120 / FR-O011 AC#6).
+   *
+   * Two of the four visual-distinction signals hang off this: the gait halves, and the marker
+   * becomes the dwell ring at the character's feet rather than nothing.
+   */
+  isAmbient?: boolean;
+  /** Frames per tick. Defaults to the gait matching `isAmbient`; override to tune. */
   speed?: number;
 }) => {
   const [spriteSheet, setSpriteSheet] = useState<Spritesheet>();
@@ -86,12 +94,12 @@ export const Character = ({
 
   return (
     <Container x={x} y={y} eventMode="none" interactiveChildren={false}>
-      <CharacterStateIndicator animationState={animationState} />
+      <CharacterStateIndicator animationState={animationState} isAmbient={isAmbient} />
       <AnimatedSprite
         ref={ref}
         isPlaying={isMoving}
         textures={spriteSheet.animations[direction]}
-        animationSpeed={speed}
+        animationSpeed={speed ?? (isAmbient ? AMBIENT_ANIMATION_SPEED : WALK_ANIMATION_SPEED)}
         anchor={{ x: 0.5, y: 0.5 }}
         eventMode="none"
       />

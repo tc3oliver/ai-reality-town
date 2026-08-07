@@ -3,6 +3,10 @@ import {
   mistwoodLocationFootprints,
   type MistwoodRect,
 } from '../../data/mistwood';
+import {
+  mistwoodAmbientAnchorsByLocationId,
+  mistwoodEntryAnchorsByLocationId,
+} from '../../data/mistwoodAmbientAnchors';
 import { MISTWOOD_PUBLIC_WORLD_ID, mistwoodWorldConfiguration } from '../canon/mistwoodSeed';
 import {
   MIN_AMBIENT_ANCHORS,
@@ -246,5 +250,66 @@ describe('Mistwood zone arrival and publication (FR-N005 AC #3, #4)', () => {
     expect(
       resolvePublishableLocationZone(mistwoodLocationVisualBindings, 'mistwood-nowhere'),
     ).toBeUndefined();
+  });
+});
+
+/**
+ * ART-120 (FR-O011) moved the anchor derivation out of `mistwoodLocationBindings.ts` and into
+ * `data/mistwoodAmbientAnchors.ts`, so the browser can read the same standing positions
+ * without importing the Canon seed. A refactor that quietly changed one anchor would move a
+ * character on the live map without any Canon fact saying so, which is exactly what the
+ * Visual Runtime is not allowed to do — so the values are pinned literally.
+ */
+describe('the anchors survived the move to data/ byte for byte', () => {
+  const GOLDEN_AMBIENT_ANCHORS: Readonly<Record<string, readonly ZonePoint[]>> = {
+    'mistwood-station': [
+      { x: 7.5, y: 7.5 }, { x: 12.5, y: 4.5 }, { x: 3.5, y: 4.5 },
+      { x: 12.5, y: 9.5 }, { x: 3.5, y: 9.5 },
+    ],
+    'mistwood-square': [
+      { x: 8.5, y: 19.5 }, { x: 14.5, y: 14.5 }, { x: 14.5, y: 24.5 },
+      { x: 3.5, y: 14.5 }, { x: 3.5, y: 24.5 },
+    ],
+    'mistwood-hall': [
+      { x: 22.5, y: 7.5 }, { x: 17.5, y: 10.5 }, { x: 27.5, y: 6.5 },
+      { x: 18.5, y: 5.5 }, { x: 25.5, y: 9.5 },
+    ],
+    'mistwood-paper': [
+      { x: 38.5, y: 7.5 }, { x: 32.5, y: 4.5 }, { x: 44.5, y: 4.5 },
+      { x: 32.5, y: 10.5 }, { x: 44.5, y: 10.5 },
+    ],
+    'mistwood-clinic': [
+      { x: 24.5, y: 19.5 }, { x: 19.5, y: 15.5 }, { x: 19.5, y: 23.5 },
+      { x: 29.5, y: 15.5 }, { x: 29.5, y: 23.5 },
+    ],
+    'mistwood-mill': [
+      { x: 38.5, y: 19.5 }, { x: 33.5, y: 13.5 }, { x: 33.5, y: 25.5 },
+      { x: 39.5, y: 13.5 }, { x: 39.5, y: 25.5 },
+    ],
+    'mistwood-orchard': [
+      { x: 32.5, y: 30.5 }, { x: 39.5, y: 27.5 }, { x: 26.5, y: 31.5 },
+      { x: 37.5, y: 32.5 }, { x: 35.5, y: 27.5 },
+    ],
+    'mistwood-inn': [
+      { x: 13.5, y: 31.5 }, { x: 7.5, y: 28.5 }, { x: 19.5, y: 28.5 },
+      { x: 7.5, y: 34.5 }, { x: 19.5, y: 34.5 },
+    ],
+  };
+
+  it('publishes the same eight zones the pre-move derivation produced', () => {
+    const published = Object.fromEntries(
+      mistwoodLocationVisualBindings.map((binding) => [binding.locationId, binding.ambientAnchors]),
+    );
+    expect(published).toEqual(GOLDEN_AMBIENT_ANCHORS);
+  });
+
+  it('serves the client table and the binding from one derivation, not two', () => {
+    // The point of the move was one source of truth, not a copy: the identical objects here
+    // are what stops the two halves drifting into "the server thinks she is by the well, the
+    // browser thinks she is by the gate".
+    for (const binding of mistwoodLocationVisualBindings) {
+      expect(binding.ambientAnchors).toBe(mistwoodAmbientAnchorsByLocationId[binding.locationId]);
+      expect(binding.entryAnchors).toBe(mistwoodEntryAnchorsByLocationId[binding.locationId]);
+    }
   });
 });

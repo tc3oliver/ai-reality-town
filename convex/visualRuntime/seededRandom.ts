@@ -78,6 +78,18 @@ export function timeBucketForInstant(instantMs: number): number {
 }
 
 /**
+ * A per-character, per-zone shift of the ambient bucket grid.
+ *
+ * Without it every resident's bucket boundary falls on the same instant, so all twelve stand
+ * up and walk on the same tick — which reads as a chorus line rather than as a town. The
+ * offset deliberately excludes `worldDay` and the bucket: it is a property of *who* and
+ * *where*, so a character's cadence stays steady instead of jumping every Canon day.
+ */
+export function ambientPhaseOffsetMs(characterId: string, locationId: string): number {
+  return fnv1a32(`${characterId}\0${locationId}\0phase`) % AMBIENT_BUCKET_DURATION_MS;
+}
+
+/**
  * xorshift32. Seed 0 is the generator's fixed point (it would emit zeroes forever), so it is
  * remapped to the golden-ratio constant instead of being rejected — a caller hashing an id
  * that happens to land on 0 should still get a usable stream.

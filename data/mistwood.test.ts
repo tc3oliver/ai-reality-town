@@ -158,14 +158,42 @@ describe('Mistwood tilemap renderer compatibility (FR-N009)', () => {
   });
 
   it('places animated sprites on approved sheets inside the map', () => {
+    // Every entry is on the ✅ list in `ASSETS-LICENSE.md`. ART-120 (FR-O012) added the last
+    // three; `campfire.json` and `gentlesparkle.json` had been approved but never used, so
+    // the environmental animation cost no new asset and raised no new licence question.
+    const approved = [
+      'windmill.json',
+      'gentlesplash.json',
+      'gentlewaterfall.json',
+      'campfire.json',
+      'gentlesparkle.json',
+    ];
     expect(mistwoodAnimatedSprites.length).toBeGreaterThan(0);
     for (const sprite of mistwoodAnimatedSprites) {
-      expect(['windmill.json', 'gentlesplash.json']).toContain(sprite.sheet);
+      expect(approved).toContain(sprite.sheet);
       expect(sprite.animation).toBe('pixels_large');
       expect(sprite.x).toBeGreaterThanOrEqual(0);
       expect(sprite.y).toBeGreaterThanOrEqual(0);
       expect(sprite.x + sprite.w).toBeLessThanOrEqual(MISTWOOD_MAP_WIDTH * MISTWOOD_TILE_DIM);
       expect(sprite.y + sprite.h).toBeLessThanOrEqual(MISTWOOD_MAP_HEIGHT * MISTWOOD_TILE_DIM);
+    }
+  });
+
+  it('stands every animated sprite on already-blocked ground (FR-O012)', () => {
+    // Two things at once. A character can never end up standing inside a waterfall or a
+    // hearth fire — and, because ART-120's ambient anchors are derived from this very
+    // collision layer, placing decoration only on blocked tiles is what guarantees the
+    // decoration moved nobody.
+    for (const sprite of mistwoodAnimatedSprites) {
+      for (let x = sprite.x; x < sprite.x + sprite.w; x += MISTWOOD_TILE_DIM) {
+        for (let y = sprite.y; y < sprite.y + sprite.h; y += MISTWOOD_TILE_DIM) {
+          const tile = { x: Math.floor(x / MISTWOOD_TILE_DIM), y: Math.floor(y / MISTWOOD_TILE_DIM) };
+          expect({ ...tile, blocked: mistwoodCollision[tile.x][tile.y] === 1 }).toEqual({
+            ...tile,
+            blocked: true,
+          });
+        }
+      }
     }
   });
 });

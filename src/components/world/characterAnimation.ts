@@ -33,7 +33,7 @@
 
 import type { PublicAnimationState } from './worldViewModel';
 
-export const INDICATOR_KINDS = ['none', 'speech', 'thought', 'activity'] as const;
+export const INDICATOR_KINDS = ['none', 'speech', 'thought', 'activity', 'ambient'] as const;
 export type IndicatorKind = (typeof INDICATOR_KINDS)[number];
 
 /**
@@ -51,8 +51,15 @@ const INDICATOR_BY_STATE: Record<PublicAnimationState, IndicatorKind> = {
   activity: 'activity',
 };
 
-export function indicatorFor(state: PublicAnimationState): IndicatorKind {
-  return INDICATOR_BY_STATE[state];
+/**
+ * `ambient` is not in that table because it is not an animation state: a character drifting
+ * inside its zone is published as `idle`, and what marks it out is *why* it is where it is
+ * (ART-120 / FR-O011). The published state still wins — a speaking character shows the speech
+ * bubble whether or not it is also drifting — so ambient is only ever the fallback.
+ */
+export function indicatorFor(state: PublicAnimationState, isAmbient = false): IndicatorKind {
+  const byState = INDICATOR_BY_STATE[state];
+  return byState === 'none' && isAmbient ? 'ambient' : byState;
 }
 
 /**
@@ -64,6 +71,16 @@ export function indicatorFor(state: PublicAnimationState): IndicatorKind {
  */
 export const WALK_ANIMATION_SPEED = 0.12;
 
+/**
+ * Frames per tick for an ambient walk (ART-120 / FR-O011 AC#6).
+ *
+ * Half the Canon gait, matching `AMBIENT_SPEED_TILES_PER_SECOND` being roughly half
+ * `MOVEMENT_SPEED_TILES_PER_SECOND`: the sprite's feet have to keep time with the distance it
+ * covers, or a character crossing its zone slowly would moonwalk. This is the second of the
+ * four asset-free signals AC#6 rests on — see `docs/ambient-and-environmental-animation.md`.
+ */
+export const AMBIENT_ANIMATION_SPEED = 0.06;
+
 /** One drawing instruction. Deliberately not a Pixi type, so this module stays pure. */
 export type IndicatorPrimitive =
   | { shape: 'roundedRect'; x: number; y: number; width: number; height: number; radius: number; fill: number; alpha: number }
@@ -73,6 +90,7 @@ export type IndicatorPrimitive =
 const BUBBLE_FILL = 0xfdfbf4;
 const BUBBLE_INK = 0x2f2a26;
 const ACTIVITY_FILL = 0xffd45e;
+const AMBIENT_RING = 0x2f2a26;
 
 const NO_PRIMITIVES: readonly IndicatorPrimitive[] = [];
 
@@ -115,11 +133,31 @@ const ACTIVITY_PRIMITIVES: readonly IndicatorPrimitive[] = [
   },
 ];
 
+/**
+ * A dwell ring: a low, flat ellipse *under* the character's feet rather than a badge above
+ * its head (ART-120 / FR-O011 AC#6, the fourth signal).
+ *
+ * Under, not over, on purpose. The three ART-119 indicators all sit overhead and all mean
+ * "this character is doing something narratively meaningful"; ambient drift means precisely
+ * the opposite — RISK2-008's whole warning is that ambient motion must never be mistaken for
+ * plot — so putting a fourth badge in the same place would say the wrong thing in the right
+ * shape. A soft mark on the ground reads as "lingering here", which is what it is.
+ *
+ * Also rejected: reducing the character sprite's own alpha or tint. A half-transparent
+ * resident reads as a ghost, a loading state or a rendering fault, not as someone pottering
+ * about, and it would make the twelve residents look broken for hours between Canon commits.
+ */
+const AMBIENT_PRIMITIVES: readonly IndicatorPrimitive[] = [
+  { shape: 'circle', x: 0, y: 0, radius: 7, fill: AMBIENT_RING, alpha: 0.16 },
+  { shape: 'circle', x: 0, y: 0, radius: 3.5, fill: AMBIENT_RING, alpha: 0.24 },
+];
+
 const PRIMITIVES_BY_KIND: Record<IndicatorKind, readonly IndicatorPrimitive[]> = {
   none: NO_PRIMITIVES,
   speech: SPEECH_PRIMITIVES,
   thought: THOUGHT_PRIMITIVES,
   activity: ACTIVITY_PRIMITIVES,
+  ambient: AMBIENT_PRIMITIVES,
 };
 
 /** The shapes an indicator is drawn from, back to front. Empty for `none`. */
@@ -129,3 +167,11 @@ export function indicatorPrimitives(kind: IndicatorKind): readonly IndicatorPrim
 
 /** How far above the sprite's centre an indicator is drawn. */
 export const INDICATOR_OFFSET_Y = -24;
+
+/** How far *below* it the ambient dwell ring is drawn: at the character's feet. */
+export const AMBIENT_INDICATOR_OFFSET_Y = 14;
+
+/** Where a given indicator kind sits relative to the sprite's centre. */
+export function indicatorOffsetY(kind: IndicatorKind): number {
+  return kind === 'ambient' ? AMBIENT_INDICATOR_OFFSET_Y : INDICATOR_OFFSET_Y;
+}

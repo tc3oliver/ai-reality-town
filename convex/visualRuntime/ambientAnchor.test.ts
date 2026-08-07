@@ -4,7 +4,11 @@ import {
   type ZonePoint,
 } from '../visual/locationVisualBinding';
 import { mistwoodLocationVisualBindings } from '../visual/mistwoodLocationBindings';
-import { selectAmbientAnchor, selectAmbientAnchorSequence } from './ambientAnchor';
+import {
+  selectAmbientAnchor,
+  selectAmbientAnchorForBucket,
+  selectAmbientAnchorSequence,
+} from './ambientAnchor';
 import { TIME_SLOT_ORDER, timeBucketForSlot, type AmbientSeed } from './seededRandom';
 
 function bindingFor(locationId: string): LocationVisualBinding {
@@ -128,5 +132,92 @@ describe('FR-N010 ambient anchor sequence', () => {
     const only: ZonePoint = { x: 20, y: 18 };
     const sequence = selectAmbientAnchorSequence(withAnchors([only]), seedFor(), 4);
     expect(sequence).toEqual([only, only, only, only]);
+  });
+});
+
+/**
+ * ART-120 (FR-O011 AC#4/#5). The per-bucket draw exists because
+ * {@link selectAmbientAnchorSequence} cannot answer "where is this character in bucket
+ * 29,148,033?" without replaying every bucket since the epoch, and a viewer joining the live
+ * map at an arbitrary minute has to agree with everyone already watching it.
+ */
+describe('FR-O011 per-bucket ambient anchor selection', () => {
+  const anchors = bindingFor('mistwood-square').ambientAnchors;
+
+  it('is reconstructible at any bucket without replaying the ones before it', () => {
+    // The property the stateful sequence could not offer: bucket 29 million costs the same as
+    // bucket 1, and neither needs the other.
+    for (const timeBucket of [0, 1, 7, 29_148_033, 1_000_000_007]) {
+      const first = selectAmbientAnchorForBucket(anchors, seedFor({ timeBucket }));
+      for (let repeat = 0; repeat < 100; repeat++) {
+        expect(selectAmbientAnchorForBucket(anchors, seedFor({ timeBucket }))).toBe(first);
+      }
+    }
+  });
+
+  it('never repeats across consecutive buckets, for any zone or resident', () => {
+    // Guaranteed algebraically rather than by retrying a draw: consecutive indices differ by a
+    // stride in [1, length - 1], which is never zero modulo the anchor count.
+    for (const binding of mistwoodLocationVisualBindings) {
+      for (const characterId of ['wu-zhen', 'lin-yingxue', 'he-jun']) {
+        for (let timeBucket = -5; timeBucket < 300; timeBucket++) {
+          const seed = seedFor({ characterId, locationId: binding.locationId, timeBucket });
+          expect(selectAmbientAnchorForBucket(binding.ambientAnchors, seed)).not.toBe(
+            selectAmbientAnchorForBucket(binding.ambientAnchors, { ...seed, timeBucket: timeBucket - 1 }),
+          );
+        }
+      }
+    }
+  });
+
+  it('only ever returns an authored anchor of the list it was given', () => {
+    for (const binding of mistwoodLocationVisualBindings) {
+      for (let timeBucket = 0; timeBucket < 60; timeBucket++) {
+        const anchor = selectAmbientAnchorForBucket(
+          binding.ambientAnchors,
+          seedFor({ locationId: binding.locationId, timeBucket }),
+        );
+        expect(binding.ambientAnchors).toContain(anchor);
+        expect(hasArrivedAtLocation(binding, anchor)).toBe(true);
+      }
+    }
+  });
+
+  it('visits every anchor of a five-anchor zone rather than oscillating between two', () => {
+    const visited = new Set(
+      Array.from({ length: 40 }, (_, timeBucket) =>
+        selectAmbientAnchorForBucket(anchors, seedFor({ timeBucket })),
+      ),
+    );
+    expect(visited.size).toBe(anchors.length);
+  });
+
+  it('gives two residents of one zone different orders on the same day', () => {
+    const order = (characterId: string) =>
+      Array.from({ length: 12 }, (_, timeBucket) =>
+        anchors.indexOf(selectAmbientAnchorForBucket(anchors, seedFor({ characterId, timeBucket }))),
+      ).join(',');
+    // Both live in Lantern Square in the Mistwood seed; two people pacing in lockstep would
+    // read as a cutscene, not as a town.
+    expect(order('shen-kai')).not.toBe(order('fang-yue'));
+  });
+
+  it('reshuffles when the Canon day turns', () => {
+    const order = (worldDay: number) =>
+      Array.from({ length: 12 }, (_, timeBucket) =>
+        anchors.indexOf(selectAmbientAnchorForBucket(anchors, seedFor({ worldDay, timeBucket }))),
+      ).join(',');
+    expect(order(3)).not.toBe(order(4));
+  });
+
+  it('stands still rather than throwing when a zone declares one anchor', () => {
+    const only: ZonePoint = { x: 20, y: 18 };
+    expect(selectAmbientAnchorForBucket([only], seedFor())).toBe(only);
+  });
+
+  it('refuses an empty anchor list rather than publishing a character nowhere', () => {
+    expect(() => selectAmbientAnchorForBucket([], seedFor())).toThrow(
+      'VISUAL_RUNTIME_NO_AMBIENT_ANCHORS',
+    );
   });
 });

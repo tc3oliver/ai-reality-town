@@ -354,6 +354,78 @@ describe('AC#5 — repeating a rebuild creates no duplicate Canon event', () => 
   });
 });
 
+/**
+ * ART-120 (FR-O011 AC#2): ambient movement creates no accepted event and changes no Canon,
+ * memory, knowledge, relationship or arc state.
+ *
+ * The claim is about a whole real rebuild rather than about the pure derivation, because the
+ * derivation obviously writes nothing — it has no database handle. What was worth proving is
+ * the surrounding path: that turning a settled character into an ambient-eligible one did not
+ * quietly turn the read model into something that churns.
+ */
+describe('FR-O011 AC#2 — ambient eligibility writes nothing, anywhere', () => {
+  it('publishes ambient for a settled character while leaving Canon untouched', async () => {
+    const canon = new MemoryCanonStore([WU_ZHEN_MOVE]);
+    const store = new MemoryReadStore();
+    const canonBefore = canon.snapshot();
+
+    await rebuildOnce({ canon, store, nowMs: SETTLED_MS });
+    const moved = motionFor(await servedMotions(store), 'wu-zhen');
+
+    expect(moved.motionType).toBe('ambient');
+    expect(moved.from).toEqual(moved.to);
+    expect(canon.snapshot()).toBe(canonBefore);
+    expect(canon.read()).toHaveLength(1);
+  });
+
+  it('adds no read-model version however long the world sits ambient', async () => {
+    // The architectural reason ambient drift is derived on the client rather than published.
+    // Three rebuilds spanning hours of ambient time produce one stored row, because the
+    // payload is a function of Canon and nothing else — no clock reaches it. Publishing a
+    // per-minute ambient coordinate would defeat `contentHash` by construction and append
+    // roughly 1,440 spurious version rows a day.
+    const canon = new MemoryCanonStore([WU_ZHEN_MOVE]);
+    const store = new MemoryReadStore();
+
+    const first = await rebuildOnce({ canon, store, nowMs: SETTLED_MS });
+    const second = await rebuildOnce({ canon, store, nowMs: SETTLED_MS + 60_000 });
+    const third = await rebuildOnce({ canon, store, nowMs: SETTLED_MS + 4 * 60 * 60 * 1000 });
+
+    expect(first.deduplicated).toBe(false);
+    expect([second.deduplicated, third.deduplicated]).toEqual([true, true]);
+    expect(store.rows).toHaveLength(1);
+    expect(canon.read()).toHaveLength(1);
+  });
+
+  it('publishes no coordinate that a clock could have produced', async () => {
+    // Ambient means "drift is permitted here", never "the character is at (x, y) right now".
+    // If the published payload carried a drifting position, these two payloads — derived four
+    // hours of ambient time apart — would differ.
+    const canon = new MemoryCanonStore([WU_ZHEN_MOVE]);
+    const early = await rebuildOnce({ canon, store: new MemoryReadStore(), nowMs: SETTLED_MS });
+    const late = await rebuildOnce({
+      canon,
+      store: new MemoryReadStore(),
+      nowMs: SETTLED_MS + 4 * 60 * 60 * 1000,
+    });
+    expect(late).toEqual(early);
+  });
+
+  it('carries the Canon day and slot the client needs to seed the drift', async () => {
+    // PRD 2.0 §9.1.2 requires the seed to include `worldDay`, and FR-O012's day/night wash
+    // needs the slot. Both are read off the last accepted event, so neither can imply a world
+    // time nobody accepted.
+    const store = new MemoryReadStore();
+    const canon = new MemoryCanonStore([WU_ZHEN_MOVE]);
+    await rebuildOnce({ canon, store, nowMs: SETTLED_MS });
+
+    const served = await serveReadModel(store, WORLD_ID, LIVE_MODEL_KIND, LIVE_REF);
+    const dynamic = selectPublicDynamicProjection(served?.payload);
+    expect(dynamic?.worldDay).toBe(rowToAcceptedEvent(WU_ZHEN_MOVE).worldDay);
+    expect(dynamic?.timeSlot).toBe(rowToAcceptedEvent(WU_ZHEN_MOVE).timeSlot);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // AC#6 — one character, one place
 // ---------------------------------------------------------------------------

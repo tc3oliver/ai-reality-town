@@ -375,6 +375,20 @@ function resolveOrigin(args: {
 /**
  * `from === to` at the destination: the motion is over, so there is nothing left to
  * interpolate and a client joining late draws the character standing still in the right place.
+ *
+ * `motionType` is `ambient` rather than `canon` (FR-O011 / ART-120). It is an *eligibility*
+ * signal, not a position: the character has finished a Canon walk and is standing inside its
+ * zone, which is exactly the state PRD 2.0 §9.1.2 permits in-zone drift for. The drift itself
+ * is never published — it is re-derived on the client from the same seeded primitives this
+ * module uses, because a stored payload only changes when Canon commits (roughly five times a
+ * day) and baking a minute-cadence position into it would defeat the read model's
+ * `contentHash` deduplication and append a version row per minute. See
+ * `docs/ambient-and-environmental-animation.md`.
+ *
+ * Deliberately *not* extended to {@link bootstrapTrajectory}: a seeded character who has never
+ * moved keeps `motionType: 'bootstrap'` (public `idle`), so "this character has no accepted
+ * history" stays a legible, separately-testable state rather than being folded into "standing
+ * about". The client's ambient gate treats both as eligible, so nothing is lost visually.
  */
 function settledTrajectory(args: {
   readonly characterId: string;
@@ -388,7 +402,7 @@ function settledTrajectory(args: {
   return {
     characterId: args.characterId,
     mapId: args.mapId,
-    motionType: 'canon',
+    motionType: 'ambient',
     movementPhase: 'arrived',
     from: args.target,
     to: args.target,

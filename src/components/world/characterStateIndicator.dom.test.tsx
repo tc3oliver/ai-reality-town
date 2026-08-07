@@ -12,11 +12,16 @@ import type * as PIXI from 'pixi.js';
 
 import { PUBLIC_ANIMATION_STATES } from '../../../convex/publicRead/publicDynamicProjection';
 import { CharacterStateIndicator } from './CharacterStateIndicator';
-import { INDICATOR_OFFSET_Y, indicatorFor, indicatorPrimitives } from './characterAnimation';
+import {
+  AMBIENT_INDICATOR_OFFSET_Y,
+  INDICATOR_OFFSET_Y,
+  indicatorFor,
+  indicatorPrimitives,
+} from './characterAnimation';
 import type { PublicAnimationState } from './worldViewModel';
 
-function render(animationState: PublicAnimationState): ReactElement | null {
-  return CharacterStateIndicator({ animationState }) as ReactElement | null;
+function render(animationState: PublicAnimationState, isAmbient = false): ReactElement | null {
+  return CharacterStateIndicator({ animationState, isAmbient }) as ReactElement | null;
 }
 
 /** Every element in the tree, parents before children. */
@@ -73,6 +78,55 @@ describe('CharacterStateIndicator', () => {
       const expectedNull = indicatorPrimitives(indicatorFor(state)).length === 0;
       expect(tree === null).toBe(expectedNull);
     }
+  });
+
+  describe('the ambient dwell ring (ART-120 / FR-O011 AC#6)', () => {
+    test('marks a drifting character that would otherwise show nothing', () => {
+      expect(render('idle')).toBeNull();
+      const tree = render('idle', true)!;
+      expect(tree).not.toBeNull();
+      expect(tree.props.name).toBe('character-state-indicator');
+    });
+
+    test('sits at the feet, not overhead where the narrative markers live', () => {
+      // RISK2-008: ambient movement must never be mistaken for plot. The three ART-119
+      // indicators all float above the head and all mean "something is happening here";
+      // a fourth badge in the same place would say the opposite thing in the same voice.
+      const ambient = render('idle', true)!;
+      expect(ambient.props.y).toBe(AMBIENT_INDICATOR_OFFSET_Y);
+      expect(ambient.props.y).toBeGreaterThan(0);
+      expect(render('speaking')!.props.y).toBe(INDICATOR_OFFSET_Y);
+    });
+
+    test('never displaces a published narrative state', () => {
+      // A drifting character that is also speaking is still speaking. The published state
+      // wins, so ambient can only ever fill the gap where there was no marker at all.
+      for (const state of ['speaking', 'thinking', 'activity'] as const) {
+        expect(recordDrawing(render(state, true)!)).toEqual(recordDrawing(render(state)!));
+      }
+    });
+
+    test('reads differently from all three narrative markers', () => {
+      const drawings = (['speaking', 'thinking', 'activity'] as const).map((state) =>
+        recordDrawing(render(state)!).join('|'),
+      );
+      drawings.push(recordDrawing(render('idle', true)!).join('|'));
+      expect(new Set(drawings).size).toBe(4);
+    });
+
+    test('is drawn faintly, so it reads as ground shadow rather than as a badge', () => {
+      const calls = recordDrawing(render('idle', true)!);
+      expect(calls[0]).toBe('clear');
+      const alphas = calls
+        .filter((call) => call.startsWith('beginFill'))
+        .map((call) => Number(call.replace(/^beginFill\([^,]+,/, '').replace(')', '')));
+      expect(alphas.length).toBeGreaterThan(0);
+      for (const alpha of alphas) expect(alpha).toBeLessThan(0.35);
+      // Circles only: every other indicator uses at least one straight edge, so the four
+      // stay apart in silhouette as well as in position.
+      expect(calls.filter((call) => call.startsWith('circle')).length).toBeGreaterThan(0);
+      expect(calls.some((call) => call.startsWith('roundedRect') || call.startsWith('polygon'))).toBe(false);
+    });
   });
 
   test('the three indicators produce genuinely different drawings (AC#5)', () => {

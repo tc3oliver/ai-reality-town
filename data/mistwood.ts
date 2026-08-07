@@ -549,6 +549,55 @@ export const mistwoodAnimatedSprites: readonly AnimatedSprite[] = [
     sheet: 'gentlesplash.json',
     animation: 'pixels_large',
   })),
+  /*
+   * ART-120 (FR-O012) added everything below. Two rules held throughout:
+   *
+   * 1. Approved art only. Every sheet named here is already on the ✅ list in
+   *    `ASSETS-LICENSE.md`; `campfire.json` and `gentlesparkle.json` were approved but
+   *    entirely unused, so this costs no new asset and no new licence question.
+   * 2. Blocked tiles only. Each placement sits on a tile the collision layer already blocks,
+   *    so no character can ever stand inside a fire or a waterfall — and, just as important,
+   *    adding these changed no walkable tile, so the ambient anchors ART-120 derives from the
+   *    same collision layer are byte-identical to before.
+   */
+  // The Northwater falling where the channel drops, above and below the mill race.
+  ...[12, 30].map((tileY) => ({
+    x: 42 * MISTWOOD_TILE_DIM,
+    y: tileY * MISTWOOD_TILE_DIM,
+    w: MISTWOOD_TILE_DIM,
+    h: 3 * MISTWOOD_TILE_DIM,
+    layer: 1,
+    sheet: 'gentlewaterfall.json',
+    animation: 'pixels_large',
+  })),
+  // Hearth fires: the inn's cook pot, the square's market brazier, the hall's courtyard
+  // brazier. Smoke and firelight are the cheapest signal that somebody lives here.
+  ...([
+    [8, 29],
+    [8, 22],
+    [24, 8],
+  ] as const).map(([tileX, tileY]) => ({
+    x: tileX * MISTWOOD_TILE_DIM,
+    y: tileY * MISTWOOD_TILE_DIM,
+    w: MISTWOOD_TILE_DIM,
+    h: MISTWOOD_TILE_DIM,
+    layer: 1,
+    sheet: 'campfire.json',
+    animation: 'pixels_large',
+  })),
+  // Two quiet accents: dust in the orchard rows, and ink-press motes on the Chronicle floor.
+  ...([
+    [36, 28],
+    [35, 6],
+  ] as const).map(([tileX, tileY]) => ({
+    x: tileX * MISTWOOD_TILE_DIM,
+    y: tileY * MISTWOOD_TILE_DIM,
+    w: MISTWOOD_TILE_DIM,
+    h: MISTWOOD_TILE_DIM,
+    layer: 1,
+    sheet: 'gentlesparkle.json',
+    animation: 'pixels_large',
+  })),
 ];
 
 export const mistwoodWorldMap: SerializedWorldMap = {

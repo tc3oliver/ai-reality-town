@@ -22,8 +22,36 @@ const animations = {
     url: '/ai-town/assets/spritesheets/gentlewaterfall32.png',},
 };
 
+/**
+ * Stops or starts every environmental sprite in one go (ART-120 / FR-O012 AC#8).
+ *
+ * Kept as a plain function over an array rather than inlined, because the sprites are created
+ * inside an async `parse()` callback: `applyProps` can and does run before that resolves, so
+ * the same decision has to be applied twice — once when the props change, once when the
+ * sprites finally exist — and the two must not diverge.
+ */
+export function setEnvironmentAnimationPlaying(
+  sprites: readonly PIXI.AnimatedSprite[],
+  playing: boolean,
+): void {
+  for (const sprite of sprites) {
+    sprite.autoUpdate = playing;
+    if (playing) sprite.play();
+    // `gotoAndStop(0)` and not just `stop()`: stopping alone leaves the campfire frozen on
+    // whichever frame it happened to reach, which for a flame is a half-drawn shape. Frame 0
+    // is the pose the sheet was authored to rest on.
+    else sprite.gotoAndStop(0);
+  }
+}
+
+/** Instance state the component has to keep so `applyProps` can reach the sprites it made. */
+type StaticMapContainer = PIXI.Container & {
+  environmentSprites: PIXI.AnimatedSprite[];
+  reducedMotion: boolean;
+};
+
 export const PixiStaticMap = PixiComponent('StaticMap', {
-  create: (props: { map: SerializedWorldMap; [k: string]: any }) => {
+  create: (props: { map: SerializedWorldMap; reducedMotion?: boolean; [k: string]: any }) => {
     const map = props.map;
     const numxtiles = Math.floor(map.tileSetDimX / map.tileDim);
     const numytiles = Math.floor(map.tileSetDimY / map.tileDim);
@@ -43,7 +71,9 @@ export const PixiStaticMap = PixiComponent('StaticMap', {
     const screenxtiles = map.bgTiles[0].length;
     const screenytiles = map.bgTiles[0][0].length;
 
-    const container = new PIXI.Container();
+    const container = new PIXI.Container() as StaticMapContainer;
+    container.environmentSprites = [];
+    container.reducedMotion = props.reducedMotion === true;
     const allLayers = [...map.bgTiles, ...map.objectTiles];
 
     // blit bg & object layers of map onto canvas
@@ -86,6 +116,7 @@ export const PixiStaticMap = PixiComponent('StaticMap', {
       });
       const spriteSheet = new PIXI.Spritesheet(texture, spritesheet);
       spriteSheet.parse().then(() => {
+        const created: PIXI.AnimatedSprite[] = [];
         for (const sprite of sprites) {
           const pixiAnimation = spriteSheet.animations[sprite.animation];
           if (!pixiAnimation) {
@@ -94,14 +125,20 @@ export const PixiStaticMap = PixiComponent('StaticMap', {
           }
           const pixiSprite = new PIXI.AnimatedSprite(pixiAnimation);
           pixiSprite.animationSpeed = 0.1;
-          pixiSprite.autoUpdate = true;
           pixiSprite.x = sprite.x;
           pixiSprite.y = sprite.y;
           pixiSprite.width = sprite.w;
           pixiSprite.height = sprite.h;
           container.addChild(pixiSprite);
-          pixiSprite.play();
+          created.push(pixiSprite);
         }
+        container.environmentSprites.push(...created);
+        // ART-120 (FR-O012 AC#8) fixed a live defect here: these sprites used to set
+        // `autoUpdate = true` and `play()` unconditionally, so the mill wheel and the water
+        // kept turning for a viewer who had asked the whole system to stop moving things.
+        // The preference is re-read from the container rather than captured, because this
+        // callback resolves after `applyProps` may already have changed it.
+        setEnvironmentAnimationPlaying(created, !container.reducedMotion);
       });
     }
 
@@ -121,5 +158,9 @@ export const PixiStaticMap = PixiComponent('StaticMap', {
 
   applyProps: (instance, oldProps, newProps) => {
     applyDefaultProps(instance, oldProps, newProps);
+
+    const container = instance as StaticMapContainer;
+    container.reducedMotion = (newProps as { reducedMotion?: boolean }).reducedMotion === true;
+    setEnvironmentAnimationPlaying(container.environmentSprites, !container.reducedMotion);
   },
 });

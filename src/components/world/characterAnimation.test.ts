@@ -39,7 +39,9 @@ describe('indicatorFor', () => {
   });
 
   test('the mapping is injective over the states that show something', () => {
-    const shown = PUBLIC_ANIMATION_STATES.map(indicatorFor).filter((kind) => kind !== 'none');
+    const shown = PUBLIC_ANIMATION_STATES.map((state) => indicatorFor(state)).filter(
+      (kind) => kind !== 'none',
+    );
     expect(new Set(shown).size).toBe(shown.length);
   });
 });

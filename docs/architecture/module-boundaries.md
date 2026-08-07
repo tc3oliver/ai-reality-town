@@ -74,6 +74,43 @@ inside the write-symbol gate with no new enforcement code. The product-side coun
 `src/components/live/liveMapSurface.test.ts`, which additionally proves the camera chrome
 names no request API of any kind (FR-O001 AC#4).
 
+## `clientWorldReadOnly -> visualRuntime` (ART-120 / FR-O011)
+
+The read-only renderer may depend on `visualRuntime`. This is the narrowest useful widening of
+the client graph and the most dangerous edit in ART-120, so it is documented here rather than
+left to the JSON.
+
+**Why.** Ambient in-zone drift is derived in the browser (the reasons are in
+[`ambient-and-environmental-animation.md`](../ambient-and-environmental-animation.md) §1). It has
+to agree, frame for frame, with a derivation two other viewers are running independently. The
+only way to guarantee that is to run *the same code* — `seededRandom.ts`'s FNV-1a hash and
+bucket grid, `ambientAnchor.ts`'s per-bucket draw, `motion.ts`'s speed constant and compass —
+rather than a second implementation that drifts the first time either side is tuned.
+
+**Why it is dangerous.** `visualRuntime` is not uniformly safe to ship:
+
+```
+convex/visualRuntime/mistwoodRuntime.ts
+  -> convex/visual/mistwoodLocationBindings.ts
+    -> convex/canon/mistwoodSeed.ts   <- privateProfile, privateGoal, fear, secretContents x12
+```
+
+The checker compares declared module roots. It cannot tell those three files apart from the
+three safe leaves, so the policy alone would permit exactly the leak ART-119 refused when it
+declined to add `visual` to `clientLive.mayDependOn`.
+
+**The guard that pays for it.** `src/components/world/ambientMotion.boundary.test.ts` — shaped
+after `convex/visualRuntime/visualRuntime.purity.test.ts` — walks the real import graph out of
+`ambientMotion.ts` and asserts the *bundled* closure (value imports only; type imports are
+erased and cannot reach the browser) is exactly `ambientAnchor.ts`, `motion.ts` and
+`seededRandom.ts`. It separately asserts the closure never contains `mistwoodRuntime.ts`,
+`mistwoodLocationBindings.ts` or `mistwoodSeed.ts`, names no private Canon field, reads no clock
+and reaches no write API.
+
+**Do not widen this edge without that guard, and do not widen it beyond those three files.** The
+anchors the client also needs went through `data/` instead, the same boundary-neutral route
+ART-119 used for the sprite roster.
+
 `clientLiveRoute` owns a single file, `liveMapRoute.ts`, and may depend on nothing. Both the
 live map and the public pages link through it, so scoping it separately keeps
 `clientPublic -> clientLive` out of the policy -- the public pages need the URLs, not the

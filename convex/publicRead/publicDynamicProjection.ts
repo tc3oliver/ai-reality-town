@@ -39,13 +39,18 @@ import {
  * Bumped when a published field is added, removed or reinterpreted, so a client holding an
  * older payload can tell that it is reading a contract it does not fully understand.
  */
-export const PUBLIC_DYNAMIC_RUNTIME_VERSION = 1;
+export const PUBLIC_DYNAMIC_RUNTIME_VERSION = 2;
 
 /**
  * Why a character is where it is. `canon` is an accepted `character_location_changed` fact
- * and `idle` is a standing character (including a seeded one that has never moved).
- * `ambient` (FR-O011 / ART-120) and `replay` (FR-O013 / ART-121) are declared so those tasks
- * widen the client contract rather than redefining it; this module never produces them.
+ * still under way; `ambient` (FR-O011 / ART-120) is a character that has finished one and is
+ * therefore eligible for in-zone drift; `idle` is a seeded character that has never moved.
+ * `replay` (FR-O013 / ART-121) is declared so that task widens the client contract rather
+ * than redefining it; this module never produces it.
+ *
+ * `ambient` is an *eligibility* signal, not a position. The drift itself is derived on the
+ * client, because this payload is stored and only rebuilt when Canon commits — see the
+ * `updatedAt` note above and `docs/ambient-and-environmental-animation.md`.
  */
 export const PUBLIC_MOTION_TYPES = ['canon', 'ambient', 'idle', 'replay'] as const;
 export type PublicMotionType = (typeof PUBLIC_MOTION_TYPES)[number];
@@ -98,12 +103,33 @@ export type PublicDynamicProjection = {
   worldStatus: PublicWorldStatus;
   characters: PublicCharacterMotion[];
   activeScenes: PublicActiveScene[];
+  /**
+   * The Canon world day and time slot of the last accepted event (FR-O011 / ART-120).
+   *
+   * Both are already public: every episode page prints them. They are published here because
+   * the client's ambient derivation is seeded by `worldDay` (PRD 2.0 §9.1.2 requires it) and
+   * the day/night tint is driven by `timeSlot` — which must come from an accepted fact rather
+   * than a wall clock, or the map would assert a world time nobody accepted (RISK2-008).
+   *
+   * Absent for a world with no accepted history, the same way `sourceEventIds` is absent for
+   * a character that has never moved: there is no honest value, and `0` would be a claim.
+   */
+  worldDay?: number;
+  timeSlot?: string;
 };
 
 export const PUBLIC_DYNAMIC_ROOT_FIELDS = [
   'worldId', 'mapId', 'runtimeVersion', 'snapshotSequence',
   'updatedAt', 'worldStatus', 'characters', 'activeScenes',
 ] as const;
+
+/**
+ * Optional, not required. A required field would make
+ * {@link assertPublicDynamicProjection} reject every payload persisted before ART-120 —
+ * including the last-known-good version FR-O010 falls back to — and blank the live map until
+ * the next Canon commit rebuilt it, which is hours.
+ */
+export const PUBLIC_DYNAMIC_OPTIONAL_ROOT_FIELDS = ['worldDay', 'timeSlot'] as const;
 
 export const PUBLIC_MOTION_REQUIRED_FIELDS = [
   'characterId', 'semanticLocationId', 'motionType', 'motionSequence',
@@ -409,6 +435,10 @@ export function buildPublicDynamicProjectionResult(
       sourceEventIds: [...scene.sourceEventIds],
     })),
   };
+  if (lastEvent) {
+    projection.worldDay = lastEvent.worldDay;
+    projection.timeSlot = lastEvent.timeSlot;
+  }
   assertPublicDynamicProjection(projection);
   return { projection, problems: summarizeRuntimeProblems(snapshot.problems) };
 }
@@ -537,7 +567,7 @@ export function assertPublicDynamicProjection(value: unknown): asserts value is 
   if (!isPlainObject(value)) {
     throw new PublicDynamicProjectionError('PUBLIC_DYNAMIC_INVALID_SHAPE', 'projection must be an object');
   }
-  assertExactFields(value, PUBLIC_DYNAMIC_ROOT_FIELDS, [], 'projection');
+  assertExactFields(value, PUBLIC_DYNAMIC_ROOT_FIELDS, PUBLIC_DYNAMIC_OPTIONAL_ROOT_FIELDS, 'projection');
   assertNonEmptyString(value.worldId, 'projection.worldId');
   assertNonEmptyString(value.mapId, 'projection.mapId');
   const runtimeVersion = assertFiniteNumber(value.runtimeVersion, 'projection.runtimeVersion');
@@ -559,6 +589,23 @@ export function assertPublicDynamicProjection(value: unknown): asserts value is 
     throw new PublicDynamicProjectionError('PUBLIC_DYNAMIC_INVALID_VALUE', 'projection.updatedAt must not be negative');
   }
   assertEnum(value.worldStatus, PUBLIC_WORLD_STATUSES, 'projection.worldStatus');
+
+  if (value.worldDay !== undefined) {
+    const worldDay = assertFiniteNumber(value.worldDay, 'projection.worldDay');
+    if (!Number.isSafeInteger(worldDay) || worldDay < 0) {
+      throw new PublicDynamicProjectionError(
+        'PUBLIC_DYNAMIC_INVALID_VALUE',
+        'projection.worldDay must be a non-negative integer',
+      );
+    }
+  }
+  // A non-empty string rather than an enum: `AcceptedEventLike.timeSlot` is a plain string and
+  // the runtime already treats an unrecognised slot as a Canon vocabulary change to tolerate
+  // rather than a fault (see `timeBucketForSlot`). Pinning the enum here would turn adding a
+  // sixth slot to Canon into a blank live map.
+  if (value.timeSlot !== undefined) {
+    assertNonEmptyString(value.timeSlot, 'projection.timeSlot');
+  }
 
   if (!Array.isArray(value.characters)) {
     throw new PublicDynamicProjectionError('PUBLIC_DYNAMIC_INVALID_SHAPE', 'projection.characters must be an array');
