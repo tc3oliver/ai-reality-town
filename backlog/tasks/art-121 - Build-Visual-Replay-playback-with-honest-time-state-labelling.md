@@ -1,10 +1,11 @@
 ---
 id: ART-121
 title: Build Visual Replay playback with honest time-state labelling
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-08-04 15:58'
-updated_date: '2026-08-04 17:13'
+updated_date: '2026-08-07 12:19'
 labels:
   - prd-2.0
   - v2-g
