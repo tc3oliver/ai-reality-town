@@ -186,10 +186,15 @@ is precisely the row this feature exists to keep serving.
 
 ## Reading
 
-`getPublicRuntimeSnapshot({ worldId, nowMs? })` is a public query returning the envelope or
+`getPublicRuntimeSnapshot({ worldId })` is a public query returning the envelope or
 `null`. It reads `publicRuntimeSnapshots` and nothing else — no Canon read, no schedule read, no
-provider call — so a visitor is served while the entire simulation is down. `nowMs` defaults to
-the server clock; supplying one reproduces a verdict at a chosen instant.
+provider call — so a visitor is served while the entire simulation is down.
+
+The server clock is authoritative. This query used to accept an optional `nowMs`, which is the
+value the freshness verdict is derived from; ART-128 (FR-O009) removed it, because a caller who
+names the instant can make a stale snapshot report `live` or a current one report `stale`. The
+pure `serveRuntimeSnapshot` keeps `nowMs` as a parameter so a test can still sit at a chosen
+instant, and now rejects a non-finite one. See `docs/public-read-only-guarantee.md`.
 
 The table starts empty and no history is backfilled, so the query returns `null` until the first
 capture — the same contract as `getPublicDynamicProjection`.

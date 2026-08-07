@@ -1,5 +1,5 @@
 import { v } from 'convex/values';
-import { mutation } from './_generated/server';
+import { internalMutation } from './_generated/server';
 import { detectMismatchedLLMProvider } from './util/llm';
 
 // ART-112: this mutation used to bootstrap the inherited a16z demo world (default engine,
@@ -9,7 +9,13 @@ import { detectMismatchedLLMProvider } from './util/llm';
 // working without a package.json change, and so the one still-relevant check --
 // misconfigured LLM provider detection, used by the real ART simulation pipeline -- keeps
 // running on every dev-server start.
-const init = mutation({
+//
+// ART-128 (FR-O009): `internalMutation`, not `mutation`. As a public mutation this was
+// reachable by any anonymous client holding the deployment URL, and it SUCCEEDED --
+// PRD 2.0 §18.1 sets successful public mutations to exactly zero. `predev` is unaffected:
+// `convex dev --run` authenticates with the deployment admin key, which reaches internal
+// functions (the same path the dashboard uses to run them).
+const init = internalMutation({
   args: {
     numAgents: v.optional(v.number()),
   },

@@ -130,15 +130,21 @@ export function runtimeSnapshotWriteStore(db: GenericMutationCtx<DataModel>['db'
 /**
  * Public read of the runtime snapshot and its freshness verdict (FR-N007).
  *
- * `nowMs` defaults to the server clock; a caller may supply one to reproduce a verdict at
- * a chosen instant. Returns `null` until the first capture — the table starts empty and no
- * history is backfilled, the same contract as `getPublicDynamicProjection`.
+ * The server clock is authoritative. ART-128 (FR-O009) removed the caller-suppliable
+ * `nowMs` argument this query used to accept: freshness is the one thing the snapshot
+ * asserts about itself, and letting the caller name the instant let anyone make a
+ * five-hour-old snapshot report `live`, or a current one report `stale`, purely by
+ * choosing a number. {@link serveRuntimeSnapshot} keeps `nowMs` as a parameter so a test
+ * can still sit at a chosen instant — but it is reachable only from the server.
+ *
+ * Returns `null` until the first capture — the table starts empty and no history is
+ * backfilled, the same contract as `getPublicDynamicProjection`.
  */
 export const getPublicRuntimeSnapshot = query({
-  args: { worldId: v.string(), nowMs: v.optional(v.number()) },
+  args: { worldId: v.string() },
   returns: v.union(publicRuntimeSnapshotEnvelopeValidator, v.null()),
   handler: async (ctx, args) =>
-    serveRuntimeSnapshot(runtimeSnapshotReadStore(ctx.db), args.worldId, args.nowMs ?? Date.now()),
+    serveRuntimeSnapshot(runtimeSnapshotReadStore(ctx.db), args.worldId, Date.now()),
 });
 
 /**

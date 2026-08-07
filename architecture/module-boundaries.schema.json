@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
-  "required": ["version", "modules", "providerBoundary", "readOnlyClientBoundary", "canonWriteBoundary"],
+  "required": ["version", "modules", "providerBoundary", "readOnlyClientBoundary", "canonWriteBoundary", "publicFunctionSurface"],
   "properties": {
     "version": { "type": "integer", "minimum": 1 },
     "modules": {
@@ -21,7 +21,44 @@
       "required": ["roots", "forbiddenSymbols"],
       "properties": {
         "roots": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "excludeRoots": { "type": "array", "items": { "type": "string" } },
+        "exemptFiles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "symbols"],
+            "properties": {
+              "path": { "type": "string" },
+              "symbols": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
         "forbiddenSymbols": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+      },
+      "additionalProperties": false
+    },
+    "publicFunctionSurface": {
+      "type": "object",
+      "required": ["scanRoots", "forbiddenRegistrations", "allowed"],
+      "properties": {
+        "scanRoots": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "forbiddenRegistrations": { "type": "array", "items": { "type": "string" } },
+        "allowed": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["path", "name", "kind", "gate"],
+            "properties": {
+              "path": { "type": "string" },
+              "name": { "type": "string" },
+              "kind": { "enum": ["query", "mutation", "action"] },
+              "gate": { "enum": ["anonymous", "operator"] }
+            },
+            "additionalProperties": false
+          }
+        }
       },
       "additionalProperties": false
     },

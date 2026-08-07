@@ -27,6 +27,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Architecture boundary check
+        run: npm run check:architecture
+
+      - name: Architecture boundary tests
+        run: npm run test:architecture
+
       - name: Typecheck
         run: npm run typecheck
 

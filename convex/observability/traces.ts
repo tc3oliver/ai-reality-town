@@ -8,7 +8,7 @@ import {
   type LlmTraceRecord,
   type LlmTraceStore,
 } from './llmTrace';
-import { llmTraceDraftValidator } from './schema';
+import { llmTraceDraftValidator, publicLlmTraceValidator } from './schema';
 
 function convexTraceStore(db: GenericMutationCtx<DataModel>['db']): LlmTraceStore {
   return {
@@ -50,6 +50,7 @@ export const getTraceInternal = internalQuery({
 /** Unauthorized/public access receives only correlation and final-status metadata. */
 export const getTracePublic = query({
   args: { traceId: v.string() },
+  returns: v.union(publicLlmTraceValidator, v.null()),
   handler: async (ctx, { traceId }) => {
     const row = await ctx.db.query('llmTraces').withIndex('by_trace_id', (q) => q.eq('traceId', traceId)).unique();
     if (!row) return null;

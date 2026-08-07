@@ -20,6 +20,22 @@ export const llmTraceDraftValidator = v.object({
   finalStatus: v.union(v.literal('succeeded'), v.literal('failed'), v.literal('withheld')),
 });
 
+/**
+ * The five fields a trace read may return to an unauthenticated caller (FR-O009).
+ *
+ * Declared to Convex so `getTracePublic` cannot widen by accident: without a `returns`
+ * validator a refactor that stopped calling `publicLlmTrace` would happily serve
+ * the full accounting record -- model, token counts, prompt version -- to anyone.
+ * Projected off the draft validator rather than restated so the field types cannot drift.
+ */
+export const publicLlmTraceValidator = v.object({
+  schemaVersion: llmTraceDraftValidator.fields.schemaVersion,
+  traceId: llmTraceDraftValidator.fields.traceId,
+  worldId: llmTraceDraftValidator.fields.worldId,
+  worldDay: llmTraceDraftValidator.fields.worldDay,
+  finalStatus: llmTraceDraftValidator.fields.finalStatus,
+});
+
 export const observabilityTables = {
   llmTraces: defineTable({
     ...llmTraceDraftValidator.fields,

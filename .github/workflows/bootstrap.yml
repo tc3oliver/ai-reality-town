@@ -30,6 +30,12 @@ jobs:
       - name: Bootstrap verification (agent:check)
         run: npm run agent:check
 
+      - name: Architecture boundary check
+        run: npm run check:architecture
+
+      - name: Architecture boundary tests
+        run: npm run test:architecture
+
       - name: Typecheck
         run: npm run typecheck
 

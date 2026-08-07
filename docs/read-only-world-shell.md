@@ -53,8 +53,14 @@ is a valid frame.
   runs in the `dom` Jest project because `pixi-viewport` reads `window` at module load; it
   mounts no Pixi application and renders no markup.
 
-Server-side enforcement is separate and stays owned by FR-O009: this boundary removes the
-client's ability to ask for a write, not the backend's duty to refuse one.
+Server-side enforcement is separate and is owned by FR-O009: this boundary removes the
+client's ability to ask for a write, not the backend's duty to refuse one. That duty is now
+discharged and audited — see **`docs/public-read-only-guarantee.md`** (ART-128), which
+enumerates the whole client-reachable Convex surface, proves every public mutation refuses an
+unauthenticated caller before reading any row, and records the two Critical findings it
+closed. ART-128 also widened this boundary's roots from the two component directories to the
+whole of `src`, since the app shell and the shared buttons ship in the same bundle and were
+not being checked.
 
 ## Watch-only public experience
 
