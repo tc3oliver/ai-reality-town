@@ -75,8 +75,8 @@ function rowToStored(row: PublishedReadModelRow): StoredReadModel {
   };
 }
 
-/** Read-only store adapter backed by a Convex query context. */
-function readStore(db: GenericQueryCtx<DataModel>['db']): PublicReadReadStore {
+/** Read-only store adapter backed by a Convex query context (exported for public queries). */
+export function readStore(db: GenericQueryCtx<DataModel>['db']): PublicReadReadStore {
   return {
     async loadTargetVersions(worldId, modelKind, modelRef) {
       const rows = await db

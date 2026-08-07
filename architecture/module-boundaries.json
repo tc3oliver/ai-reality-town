@@ -7,7 +7,7 @@
     "knowledge": { "roots": ["convex/knowledge"], "mayDependOn": ["canon", "shared"] },
     "story": { "roots": ["convex/story"], "mayDependOn": ["canon", "knowledge", "shared"] },
     "editorial": { "roots": ["convex/editorial", "convex/recaps"], "mayDependOn": ["canon", "story", "safety", "shared"] },
-    "publicRead": { "roots": ["convex/publicRead"], "mayDependOn": ["canon", "knowledge", "story", "editorial", "shared"] },
+    "publicRead": { "roots": ["convex/publicRead"], "mayDependOn": ["canon", "knowledge", "story", "editorial", "visualRuntime", "shared"] },
     "viewer": { "roots": ["convex/viewer"], "mayDependOn": ["publicRead", "safety", "shared"] },
     "visual": { "roots": ["convex/visual"], "mayDependOn": ["canon", "shared"] },
     "visualRuntime": { "roots": ["convex/visualRuntime"], "mayDependOn": ["visual", "shared"] },

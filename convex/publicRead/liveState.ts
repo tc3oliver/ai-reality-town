@@ -13,8 +13,15 @@
  */
 
 import type { AcceptedEvent, TimeSlot } from '../canon/model';
+import type { PublicDynamicProjection } from './publicDynamicProjection';
 
-export const LIVE_PROJECTION_SCHEMA_VERSION = 1;
+/**
+ * Version 2 adds the nested `dynamic` field (FR-N003 / ART-115). It is nested rather than
+ * merged into the root `characters` list because `LiveCharacter` is a different, semantic
+ * shape — location ids and aliveness — and collapsing the two would force every existing
+ * consumer to care about motion.
+ */
+export const LIVE_PROJECTION_SCHEMA_VERSION = 2;
 export const LIVE_MODEL_KIND = 'liveState' as const;
 export const LIVE_RECENT_EVENT_DEFAULT = 20;
 
@@ -40,6 +47,8 @@ export type LiveProjectionPayload = {
   activeArcs: LiveActiveArc[];
   activeScenes: LiveScene[];
   publishedEpisodeStatus: string;
+  /** Null when the world has no Visual Runtime binding, so motion cannot be planned. */
+  dynamic: PublicDynamicProjection | null;
 };
 
 export type LiveArcInput = { arcId: string; title: string; currentQuestion: string; status: string };
@@ -70,6 +79,7 @@ export function buildLiveProjection(input: {
   arcs: readonly LiveArcInput[];
   publishedEpisode: LivePublishedEpisodeInput | null;
   recentEventCount?: number;
+  dynamic?: PublicDynamicProjection | null;
 }): LiveProjectionPayload {
   if (input.worldId.trim().length === 0) {
     throw new LiveStateError('LIVE_STATE_INVALID', 'worldId must be non-empty');
@@ -142,6 +152,7 @@ export function buildLiveProjection(input: {
     activeArcs,
     activeScenes,
     publishedEpisodeStatus: input.publishedEpisode?.status ?? 'none',
+    dynamic: input.dynamic ?? null,
   };
 }
 
