@@ -73,7 +73,7 @@ FR-O010（動態畫面降級）Disposition 為 **New**，擁有專屬 Task **ART
 | FR-N007 Runtime Snapshot | New | ART-116 | To Do | P0 | 概念沿用 `canon/snapshotManager`（獨立公開快照） | ART-115 |
 | FR-N008 素材授權與 Attribution | New | ART-108, ART-143, ART-144 | ART-108 **Done**；ART-143 **Done**；ART-144 To Do | P0 | ART-143：f1–f8 角色美術 provenance 經 primary source 調查仍無法確認，H06 由 owner 決議接受 upstream MIT 授權並承擔殘餘風險，九個路徑轉為 approved 並納入 `PUBLIC_BUNDLE_PATHS`，ART-111 解除阻擋；ART-144：`PUBLIC_BUNDLE_PATHS` 與 vite 實際輸出不一致，16 個非 approved 素材已進入 `dist/` | ART-107 |
 | FR-N009 Mistwood 專屬地圖 | New | ART-109 | Done | P0 | `data/mistwood.ts`：僅用既有 `assets/gentle-obj.png` tileset 重組出八個正典地點與 seed 道路圖（見 `docs/mistwood-tilemap.md`） | ART-107 |
-| FR-N010 輕量 Visual Runtime | New | ART-114 | To Do | P0 | 抽取 a16z pathfinding | ART-110, ART-111 |
+| FR-N010 輕量 Visual Runtime | New | ART-114 | **Done** | P0 | `convex/visualRuntime/`：純函式 Visual Sync Planner，A\* 重寫（未沿用已刪除的 a16z `movement.ts`）；Anchor 以 characterId＋locationId＋worldDay＋timeBucket 種子決定；種子角色首次位置由 `initialLocationId` 推導而不寫入 Canon 事件；模組不 import `convex/canon` 或 `convex/util`，由 `visualRuntime.purity.test.ts` 的 import graph 走訪與 `module-boundaries.json` 的 `canonWriteBoundary` 雙重強制（見 `docs/visual-runtime-trajectory-planner.md`） | ART-110, ART-111 |
 | §10.3 a16z 伺服器端引擎停用 | New | ART-112 | **Done**（ADR-0004，含 24 小時現場 log 觀察） | P0 | — | ART-107（Done） |
 
 ### 3.2 Epic O — Dynamic Live Town

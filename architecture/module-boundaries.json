@@ -10,6 +10,7 @@
     "publicRead": { "roots": ["convex/publicRead"], "mayDependOn": ["canon", "knowledge", "story", "editorial", "shared"] },
     "viewer": { "roots": ["convex/viewer"], "mayDependOn": ["publicRead", "safety", "shared"] },
     "visual": { "roots": ["convex/visual"], "mayDependOn": ["canon", "shared"] },
+    "visualRuntime": { "roots": ["convex/visualRuntime"], "mayDependOn": ["visual", "shared"] },
     "operations": { "roots": ["convex/operations"], "mayDependOn": ["canon", "simulation", "knowledge", "story", "editorial", "publicRead", "safety", "observability", "shared"] },
     "safety": { "roots": ["convex/safety"], "mayDependOn": ["shared"] },
     "observability": { "roots": ["convex/observability"], "mayDependOn": ["shared"] },
@@ -29,6 +30,33 @@
       "useServerGame",
       "insertInput",
       "sendWorldInput"
+    ]
+  },
+  "canonWriteBoundary": {
+    "writePaths": [
+      "convex/canon/commit.ts",
+      "convex/canon/characterSeed.ts",
+      "convex/canon/worldConfig.ts",
+      "convex/canon/snapshotOperations.ts",
+      "convex/canon/snapshotManager.ts",
+      "convex/canon/inMemoryStore.ts",
+      "convex/canon/tensionReadiness.ts",
+      "convex/canon/queries.ts",
+      "convex/canon/schema.ts"
+    ],
+    "forbiddenModules": ["visualRuntime", "clientPublic", "clientWorldReadOnly"],
+    "forbiddenSymbols": [
+      "internalMutation",
+      "ctx.db.insert",
+      "ctx.db.patch",
+      "ctx.db.replace",
+      "ctx.db.delete",
+      "canonEvents",
+      "commitProposedEvent",
+      "validateAndCommitProposedEvent",
+      "reduceWorldEvent",
+      "seedWorldCharacters",
+      "importWorld"
     ]
   },
   "providerBoundary": {
