@@ -60,6 +60,14 @@ const TablesToVacuum: TableNames[] = [
   // We can vacuum fewer tables without serious consequences, but the only
   // one that will cause issues over time is having >>100k vectors.
   'memoryEmbeddings',
+
+  // FR-Q001: attributed dynamic-view defects. Per-occurrence and therefore unbounded in a
+  // world that keeps rebuilding with an unbound binding, so the standard two-week
+  // retention applies — a defect nobody looked at for a fortnight is not evidence.
+  // `dynamicViewMetricRollups` is deliberately NOT here: it holds one row per world, and
+  // vacuuming by `_creationTime` would delete a long-quiet world's only metrics row rather
+  // than trimming it. Same reasoning excludes `publicRuntimeSnapshots`.
+  'dynamicViewIncidents',
 ];
 
 export const vacuumOldEntries = internalMutation({

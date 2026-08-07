@@ -30,6 +30,7 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import * as canonCorrectionFunctions from '../operations/canonCorrectionFunctions';
+import * as dynamicViewMetricsFunctions from '../operations/dynamicViewMetricsFunctions';
 import * as emergencyStopFunctions from '../operations/emergencyStopFunctions';
 import * as opsConsoleFunctions from '../operations/opsConsoleFunctions';
 import * as proposalReviewFunctions from '../operations/proposalReviewFunctions';
@@ -72,6 +73,7 @@ const MODULES: Readonly<Record<string, Record<string, unknown>>> = {
   'convex/operations/opsConsoleFunctions.ts': opsConsoleFunctions,
   'convex/operations/emergencyStopFunctions.ts': emergencyStopFunctions,
   'convex/operations/canonCorrectionFunctions.ts': canonCorrectionFunctions,
+  'convex/operations/dynamicViewMetricsFunctions.ts': dynamicViewMetricsFunctions,
   'convex/operations/proposalReviewFunctions.ts': proposalReviewFunctions,
   'convex/observability/traces.ts': traces,
   'convex/publicRead/readModelFunctions.ts': readModelFunctions,

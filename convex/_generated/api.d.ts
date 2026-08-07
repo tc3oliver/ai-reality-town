@@ -55,6 +55,7 @@ import type * as observability_trace from "../observability/trace.js";
 import type * as observability_traces from "../observability/traces.js";
 import type * as operations_canonCorrection from "../operations/canonCorrection.js";
 import type * as operations_canonCorrectionFunctions from "../operations/canonCorrectionFunctions.js";
+import type * as operations_dynamicViewMetricsFunctions from "../operations/dynamicViewMetricsFunctions.js";
 import type * as operations_emergencyStopFunctions from "../operations/emergencyStopFunctions.js";
 import type * as operations_longRunHarness from "../operations/longRunHarness.js";
 import type * as operations_narrativeReviewSample from "../operations/narrativeReviewSample.js";
@@ -70,6 +71,9 @@ import type * as operations_proposalReviewFunctions from "../operations/proposal
 import type * as operations_proposalReviewStore from "../operations/proposalReviewStore.js";
 import type * as publicRead_arcPrimer from "../publicRead/arcPrimer.js";
 import type * as publicRead_arcPrimerFunctions from "../publicRead/arcPrimerFunctions.js";
+import type * as publicRead_canonRuntimeMismatch from "../publicRead/canonRuntimeMismatch.js";
+import type * as publicRead_dynamicViewMetrics from "../publicRead/dynamicViewMetrics.js";
+import type * as publicRead_dynamicViewMetricsFunctions from "../publicRead/dynamicViewMetricsFunctions.js";
 import type * as publicRead_episodeIndexProjection from "../publicRead/episodeIndexProjection.js";
 import type * as publicRead_episodeIndexProjectionFunctions from "../publicRead/episodeIndexProjectionFunctions.js";
 import type * as publicRead_episodeTimelineProjection from "../publicRead/episodeTimelineProjection.js";
@@ -164,6 +168,7 @@ import type * as visual_locationVisualBinding from "../visual/locationVisualBind
 import type * as visual_mistwoodLocationBindings from "../visual/mistwoodLocationBindings.js";
 import type * as visual_mistwoodVisualBindings from "../visual/mistwoodVisualBindings.js";
 import type * as visualRuntime_ambientAnchor from "../visualRuntime/ambientAnchor.js";
+import type * as visualRuntime_characterBindings from "../visualRuntime/characterBindings.js";
 import type * as visualRuntime_fixtures from "../visualRuntime/fixtures.js";
 import type * as visualRuntime_mistwoodRuntime from "../visualRuntime/mistwoodRuntime.js";
 import type * as visualRuntime_motion from "../visualRuntime/motion.js";
@@ -227,6 +232,7 @@ declare const fullApi: ApiFromModules<{
   "observability/traces": typeof observability_traces;
   "operations/canonCorrection": typeof operations_canonCorrection;
   "operations/canonCorrectionFunctions": typeof operations_canonCorrectionFunctions;
+  "operations/dynamicViewMetricsFunctions": typeof operations_dynamicViewMetricsFunctions;
   "operations/emergencyStopFunctions": typeof operations_emergencyStopFunctions;
   "operations/longRunHarness": typeof operations_longRunHarness;
   "operations/narrativeReviewSample": typeof operations_narrativeReviewSample;
@@ -242,6 +248,9 @@ declare const fullApi: ApiFromModules<{
   "operations/proposalReviewStore": typeof operations_proposalReviewStore;
   "publicRead/arcPrimer": typeof publicRead_arcPrimer;
   "publicRead/arcPrimerFunctions": typeof publicRead_arcPrimerFunctions;
+  "publicRead/canonRuntimeMismatch": typeof publicRead_canonRuntimeMismatch;
+  "publicRead/dynamicViewMetrics": typeof publicRead_dynamicViewMetrics;
+  "publicRead/dynamicViewMetricsFunctions": typeof publicRead_dynamicViewMetricsFunctions;
   "publicRead/episodeIndexProjection": typeof publicRead_episodeIndexProjection;
   "publicRead/episodeIndexProjectionFunctions": typeof publicRead_episodeIndexProjectionFunctions;
   "publicRead/episodeTimelineProjection": typeof publicRead_episodeTimelineProjection;
@@ -336,6 +345,7 @@ declare const fullApi: ApiFromModules<{
   "visual/mistwoodLocationBindings": typeof visual_mistwoodLocationBindings;
   "visual/mistwoodVisualBindings": typeof visual_mistwoodVisualBindings;
   "visualRuntime/ambientAnchor": typeof visualRuntime_ambientAnchor;
+  "visualRuntime/characterBindings": typeof visualRuntime_characterBindings;
   "visualRuntime/fixtures": typeof visualRuntime_fixtures;
   "visualRuntime/mistwoodRuntime": typeof visualRuntime_mistwoodRuntime;
   "visualRuntime/motion": typeof visualRuntime_motion;

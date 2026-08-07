@@ -108,7 +108,7 @@ FR-O010（動態畫面降級）Disposition 為 **New**，擁有專屬 Task **ART
 
 | Requirement | Disposition | Task | Delivery State | Release Criticality | Dependencies |
 |---|---|---|---|---|---|
-| FR-Q001 Dynamic View 可觀測性 | New | ART-133 | To Do | P0 | ART-115, ART-116 |
+| FR-Q001 Dynamic View 可觀測性 | New | ART-133 | **Done**（11 項指標中 7 項實測、4 項明示未量測並指派擁有者，理由見下方註） | P0 | ART-115, ART-116 |
 | FR-Q002 管理者動態觀看控制 | New | ART-134 | To Do | P1 | ART-133 |
 | FR-Q003 Incremental Public Projection | **Carry Forward** | **ART-100**（既有） | To Do | P1 | ART-115 |
 | FR-Q004 Dynamic View 無障礙交付（實現 NFR2-006） | New | ART-135 | To Do | P0 | ART-126, ART-120 |
@@ -116,6 +116,8 @@ FR-O010（動態畫面降級）Disposition 為 **New**，擁有專屬 Task **ART
 | FR-Q006 Dynamic Live 驗證套件（實現 §21.3） | New | ART-137 | To Do | P0 | ART-126, ART-121 |
 | FR-Q007 動態分析事件（實現 §17） | New | ART-140 | To Do | P1 | ART-118, ART-121 |
 | FR-Q008 Dynamic MVP Release Gate（實現 §22） | New | ART-138 | To Do | P0 | ART-99, ART-141（ART-139 已完成）＋ 全部 P0 |
+
+> **FR-Q001 的 4 項延後與其理由（ART-133）：** FR-Q001 列舉 11 項指標，其中 5 項於伺服器端實測（Runtime Projection 更新延遲、Snapshot 年齡、Canon／Runtime Location Mismatch、Missing Character Binding、Missing Location Binding），2 項為**結構性零值**（Public Mutation Attempt、Viewer-triggered LLM Call Count；由 ART-128 的公開函式面政策迭代證明，非計數器），其餘 4 項**明示標示為未量測並指派擁有者**，而非以永久 `0` 充數——儀表板上「永久 0」與「健康的量測值 0」無法區分，會誤導維運判讀（PRD FR-Q007 明文允許標示「未量測」而非估算）。(1) **Active Viewer 數量**與 (2) **Renderer Error Rate** 標為 `client_external`，因兩者皆需瀏覽器**寫入**回報，而 `architecture/module-boundaries.json` 的 `readOnlyClientBoundary` 與 ART-128 的安全套件正是禁止此路徑；登記擁有者為 **ART-136**／**ART-137**，實際收集機制預期落在 FR-Q007／ART-140 的分析事件管線而非 Convex 寫入路徑。(3) **降級模式使用率**（**ART-127**／FR-O010）與 (4) **Replay 播放次數與跳過率**（**ART-121**／FR-O013）標為 `pending_feature`，被量測的功能尚不存在，故僅登記 registry 項目，不建欄位、不建計數器（沿用 `PUBLIC_MOTION_TYPES` 預留 `'replay'` 的既有慣例）。另 AC#3 的「記錄」半邊：匿名拒絕**刻意不做持久化**，因 Convex mutation 為交易式、寫在拋出路徑上的資料列會被同一個拋出回滾，且未認證呼叫端可逐次寫入即構成儲存耗盡向量；改以 `anonymousDenialsDurable: null` ＋ 明文 reason 讓限制可見，並實測既有 `outcome: 'refused'` 稽核列數。詳見 `docs/dynamic-view-observability.md`。
 
 > **FR-Q004 ~ FR-Q008 的存在理由：** 先前版本讓 ART-135~138、140 直接掛在 NFR、§17、§21.3、§22 之下，違反「新工作納入 FR-N／O／P／Q Requirement Family」的規則，也讓非功能需求缺少可反向追蹤的 Requirement ID。新增這五條 Cross-cutting Delivery Requirement 後，每個新 Task 都有 FR 級擁有者。
 

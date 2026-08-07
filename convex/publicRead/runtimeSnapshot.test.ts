@@ -556,8 +556,13 @@ describe('threshold derivation is pinned to the real slot cadence', () => {
 
   it('keeps the snapshot table out of the vacuum list, so a paused world keeps its only row', () => {
     const cron = readFileSync(join(process.cwd(), 'convex/crons.ts'), 'utf8');
-    const list = cron.slice(cron.indexOf('const TablesToVacuum'), cron.indexOf('export const vacuumOldEntries'));
+    const list = cron
+      .slice(cron.indexOf('const TablesToVacuum'), cron.indexOf('export const vacuumOldEntries'))
+      // Comments stripped first: the list documents which tables are excluded and WHY, so
+      // a prose mention of this table is the opposite of it being vacuumed.
+      .replace(/\/\/.*$/gm, '');
     expect(list).not.toContain('publicRuntimeSnapshots');
+    expect(list).not.toContain('dynamicViewMetricRollups');
   });
 });
 

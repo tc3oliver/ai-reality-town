@@ -55,6 +55,7 @@
       { "path": "convex/operations/opsConsoleFunctions.ts", "name": "inspectScheduleAndQueue", "kind": "query", "gate": "operator" },
       { "path": "convex/operations/opsConsoleFunctions.ts", "name": "listOperatorAudit", "kind": "query", "gate": "operator" },
       { "path": "convex/operations/opsConsoleFunctions.ts", "name": "describeOperatorSession", "kind": "query", "gate": "operator" },
+      { "path": "convex/operations/dynamicViewMetricsFunctions.ts", "name": "inspectDynamicViewMetrics", "kind": "query", "gate": "operator" },
       { "path": "convex/operations/emergencyStopFunctions.ts", "name": "inspectEmergencyStop", "kind": "query", "gate": "operator" },
       { "path": "convex/operations/proposalReviewFunctions.ts", "name": "listProposedEventReviews", "kind": "query", "gate": "operator" },
       { "path": "convex/operations/proposalReviewFunctions.ts", "name": "reviewProposedEvent", "kind": "query", "gate": "operator" },

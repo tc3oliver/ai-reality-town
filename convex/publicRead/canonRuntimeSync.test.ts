@@ -435,17 +435,25 @@ describe('AC#7 — runtime problems carry stable codes and reach an operator', (
     expect(result.dynamicProblemsByCode).toEqual({ VISUAL_RUNTIME_UNBOUND_LOCATION: 2 });
   });
 
-  it('keeps the summary a tally of codes, carrying no characterId or message', () => {
+  it('tallies by code and attributes each problem, but never carries the free-text message', () => {
+    // ART-133 (FR-Q001 AC#4) widened this from counts-only: an operator cannot act on
+    // "one location is unbound" without knowing WHICH character and WHICH location. What
+    // stayed narrow is `message` — the only free-text field, and therefore the only one a
+    // future edit could interpolate something private into.
     const summary = summarizeRuntimeProblems([
-      { code: 'VISUAL_RUNTIME_UNBOUND_LOCATION', characterId: 'a', locationId: 'l1', message: 'm' },
-      { code: 'VISUAL_RUNTIME_NO_PATH', characterId: 'b', locationId: 'l2', message: 'm' },
-      { code: 'VISUAL_RUNTIME_NO_PATH', characterId: 'c', locationId: 'l3', message: 'm' },
+      { code: 'VISUAL_RUNTIME_UNBOUND_LOCATION', characterId: 'a', locationId: 'l1', message: 'private prose' },
+      { code: 'VISUAL_RUNTIME_NO_PATH', characterId: 'b', locationId: 'l2', message: 'private prose' },
+      { code: 'VISUAL_RUNTIME_NO_PATH', characterId: 'c', locationId: 'l3', message: 'private prose' },
     ]);
-    expect(summary).toEqual({
-      total: 3,
-      byCode: { VISUAL_RUNTIME_UNBOUND_LOCATION: 1, VISUAL_RUNTIME_NO_PATH: 2 },
-    });
-    expect(JSON.stringify(summary)).not.toContain('"a"');
+    expect(summary.total).toBe(3);
+    expect(summary.byCode).toEqual({ VISUAL_RUNTIME_UNBOUND_LOCATION: 1, VISUAL_RUNTIME_NO_PATH: 2 });
+    expect(summary.records).toEqual([
+      { code: 'VISUAL_RUNTIME_UNBOUND_LOCATION', characterId: 'a', locationId: 'l1' },
+      { code: 'VISUAL_RUNTIME_NO_PATH', characterId: 'b', locationId: 'l2' },
+      { code: 'VISUAL_RUNTIME_NO_PATH', characterId: 'c', locationId: 'l3' },
+    ]);
+    expect(JSON.stringify(summary)).not.toContain('private prose');
+    expect(JSON.stringify(summary)).not.toContain('message');
   });
 
   it('never lets the summary reach the published payload', async () => {
