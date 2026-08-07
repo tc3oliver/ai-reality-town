@@ -28,6 +28,9 @@ import { ActiveScenePanel } from './ActiveScenePanel';
 import { composeActiveScenePanel } from './activeSceneModel';
 import { CameraControls } from './CameraControls';
 import { LiveMapFallback } from './LiveMapFallback';
+import { ReplayControls } from './ReplayControls';
+import { TimeStateBanner } from './TimeStateBanner';
+import { composeTimeStateBadges } from './timeStateLabel';
 
 const WORLD_ID = 'mistwood';
 const BASE = '/ai-town/';
@@ -231,5 +234,136 @@ describe('the active scene panel (FR-O003 / ART-122)', () => {
     );
     expect(await jestAxe.axe(container)).toHaveNoViolations();
     expect(container.textContent).toContain('目前沒有進行中的場景。');
+  });
+});
+
+/**
+ * The replay chrome (FR-O013 / ART-121 AC#6/#8).
+ */
+describe('ReplayControls (FR-O013 / ART-121 AC#6/#8)', () => {
+  test('with nothing to replay, says so rather than showing a dead control', async () => {
+    const container = render(
+      <ReplayControls available={false} playing={false} onSkip={() => {}} onReplay={() => {}} />,
+    );
+    expect(await jestAxe.axe(container)).toHaveNoViolations();
+    expect(container.querySelectorAll('button')).toHaveLength(0);
+    expect(container.textContent).toContain('目前沒有可重播的場景。');
+  });
+
+  test('offers "重播今日事件" while idle, and it is a real, named button', async () => {
+    const container = render(
+      <ReplayControls available={true} playing={false} onSkip={() => {}} onReplay={() => {}} />,
+    );
+    expect(await jestAxe.axe(container)).toHaveNoViolations();
+    const buttons = Array.from(container.querySelectorAll('button'));
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].getAttribute('type')).toBe('button');
+    expect(accessibleName(buttons[0])).toBe('重播今日事件');
+    expect(container.textContent).not.toContain('跳過重播');
+  });
+
+  test('offers "跳過重播" while playing, in the same place, AC#8 reachable at every point', async () => {
+    const container = render(
+      <ReplayControls available={true} playing={true} onSkip={() => {}} onReplay={() => {}} />,
+    );
+    expect(await jestAxe.axe(container)).toHaveNoViolations();
+    const buttons = Array.from(container.querySelectorAll('button'));
+    expect(buttons).toHaveLength(1);
+    expect(accessibleName(buttons[0])).toBe('跳過重播');
+    expect(container.textContent).not.toContain('重播今日事件');
+  });
+});
+
+/**
+ * The persistent time-state banner (FR-O014 / ART-121 AC#9).
+ *
+ * "Not by colour alone" is proven three independent ways here: the visible label text differs
+ * per row, an `aria-hidden` glyph differs per row, and a `data-time-state` attribute the
+ * stylesheet keys a border style off is present on every row — so removing any one signal still
+ * leaves the other two.
+ */
+describe('TimeStateBanner (FR-O014 / ART-121 AC#9)', () => {
+  function rows(container: HTMLElement) {
+    return Array.from(container.querySelectorAll('.live-time-state-row'));
+  }
+
+  test('live state (no replay) renders exactly one row: 現在, and is axe-clean', async () => {
+    const badges = composeTimeStateBadges({ replay: null, worldDay: 4, timeSlot: 'evening' });
+    const container = render(<TimeStateBanner badges={badges} />);
+    expect(await jestAxe.axe(container)).toHaveNoViolations();
+    expect(rows(container)).toHaveLength(1);
+    expect(rows(container)[0].getAttribute('data-time-state')).toBe('now');
+    expect(container.textContent).toContain('現在');
+  });
+
+  test('a `role="status"` region announces state changes without interrupting', () => {
+    const badges = composeTimeStateBadges({ replay: null });
+    const container = render(<TimeStateBanner badges={badges} />);
+    const region = container.querySelector('[role="status"]');
+    expect(region).not.toBeNull();
+    expect(region?.getAttribute('aria-live')).toBe('polite');
+  });
+
+  test('during playback, three rows render — 重播/稍早/現在 — each with its own glyph, label and attribute, and the set is axe-clean', async () => {
+    const badges = composeTimeStateBadges({
+      replay: { worldDay: 2, timeSlot: 'morning', sceneIndex: 0, sceneCount: 2 },
+      worldDay: 4,
+      timeSlot: 'evening',
+    });
+    const container = render(<TimeStateBanner badges={badges} />);
+    expect(await jestAxe.axe(container)).toHaveNoViolations();
+
+    const states = rows(container).map((row) => row.getAttribute('data-time-state'));
+    expect(states).toEqual(['replay', 'earlier', 'now']);
+
+    const labels = Array.from(container.querySelectorAll('.live-time-state-label')).map(
+      (node) => node.textContent,
+    );
+    expect(labels).toEqual(['重播', '稍早', '現在']);
+    // Three distinct labels — the DOM order matches the state order, so a row can never be
+    // told apart from another only by position once the stylesheet is gone.
+    expect(new Set(labels).size).toBe(3);
+
+    const glyphs = Array.from(container.querySelectorAll('.live-time-state-glyph')).map(
+      (node) => node.textContent,
+    );
+    expect(new Set(glyphs).size).toBe(3);
+    // The glyph is decorative, not a second announcement of the same information.
+    for (const glyph of container.querySelectorAll('.live-time-state-glyph')) {
+      expect(glyph.getAttribute('aria-hidden')).toBe('true');
+    }
+  });
+
+  test('stripped of every class and data attribute, the three rows are still distinguishable by text alone', () => {
+    const badges = composeTimeStateBadges({
+      replay: { worldDay: 2, timeSlot: 'morning', sceneIndex: 0, sceneCount: 2 },
+      worldDay: 4,
+      timeSlot: 'evening',
+    });
+    const container = render(<TimeStateBanner badges={badges} />);
+    for (const row of rows(container)) {
+      row.removeAttribute('class');
+      row.removeAttribute('data-time-state');
+      for (const child of Array.from(row.querySelectorAll('[class]'))) child.removeAttribute('class');
+      for (const child of Array.from(row.querySelectorAll('[aria-hidden]'))) {
+        child.removeAttribute('aria-hidden');
+      }
+    }
+    const texts = rows(container).map((row) => (row.textContent ?? '').trim());
+    expect(texts.every((text) => text.length > 0)).toBe(true);
+    expect(new Set(texts).size).toBe(texts.length);
+  });
+
+  test('each row carries a full-sentence announcement for assistive tech', () => {
+    const badges = composeTimeStateBadges({
+      replay: { worldDay: 2, timeSlot: 'morning', sceneIndex: 0, sceneCount: 2 },
+      worldDay: 4,
+      timeSlot: 'evening',
+    });
+    const container = render(<TimeStateBanner badges={badges} />);
+    for (const row of rows(container)) {
+      const announcement = row.querySelector('.sr-only')?.textContent ?? '';
+      expect(announcement.length).toBeGreaterThan(0);
+    }
   });
 });

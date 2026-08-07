@@ -97,6 +97,46 @@ describe('the live map surface (FR-O001 AC#4)', () => {
     expect(paths).toContain(`${LIVE_ROOT}/useMotionClock.ts`);
     expect(paths).toContain(`${LIVE_ROOT}/spriteAssets.ts`);
     expect(paths).toContain(`${LIVE_ROOT}/useSpriteAssets.ts`);
+    // ART-121 (FR-O013) added replay playback, a session tracker that touches browser
+    // storage, and the controls that drive them. Named here so the sweeps below visibly
+    // cover them rather than covering them by accident of directory listing.
+    expect(paths).toContain(`${LIVE_ROOT}/replayPlayback.ts`);
+    expect(paths).toContain(`${LIVE_ROOT}/replaySession.ts`);
+    expect(paths).toContain(`${LIVE_ROOT}/ReplayControls.tsx`);
+    expect(paths).toContain(`${LIVE_ROOT}/TimeStateBanner.tsx`);
+    expect(paths).toContain(`${LIVE_ROOT}/timeStateLabel.ts`);
+  });
+
+  test('the replay chrome is a local state change too (FR-O013 AC#6/#8)', () => {
+    // ART-121 added a third interactive surface to this module. Same proof CameraControls
+    // and ActiveScenePanel carry: skipping a replay or asking for another is a `useState`
+    // setter one component up, and watching history must never be able to make the world
+    // produce more of it.
+    const controls = fileNamed('ReplayControls.tsx');
+    expect(REQUEST_APIS.filter((api) => new RegExp(`\\b${api}\\b`).test(controls))).toEqual([]);
+    expect(controls).not.toMatch(/\bhref\s*=/);
+    for (const label of ['跳過重播', '重播今日事件']) expect(controls).toContain(label);
+  });
+
+  test('the replay session tracker uses sessionStorage only, and never the network', () => {
+    // `localStorage` would outlive the viewing session AC#5 is about and suppress a replay
+    // the viewer never saw. Asserted on the code with comments stripped, since the module
+    // header explains the rejection and therefore names the rejected API.
+    const session = fileNamed('replaySession.ts')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    expect(REQUEST_APIS.filter((api) => new RegExp(`\\b${api}\\b`).test(session))).toEqual([]);
+    expect(session).not.toMatch(/\blocalStorage\b/);
+    expect(session).toContain('sessionStorage');
+  });
+
+  test('the replay playback machine is pure: no React, no clock, no network', () => {
+    const playback = fileNamed('replayPlayback.ts');
+    expect(REQUEST_APIS.filter((api) => new RegExp(`\\b${api}\\b`).test(playback))).toEqual([]);
+    expect(playback).not.toContain('Date.now');
+    expect(playback).not.toContain("from 'react'");
+    // No timer of its own: playback advances because the existing rAF clock re-evaluates it.
+    expect(playback).not.toMatch(/\b(setTimeout|setInterval|requestAnimationFrame)\b/);
   });
 
   test('the animation clock reads a clock and nothing else', () => {
@@ -210,13 +250,17 @@ describe('the live map surface (FR-O001 AC#4)', () => {
     expect(model).not.toContain('from \'react\'');
   });
 
-  test('reading is confined to the page, and to one public query', () => {
+  test('reading is confined to the page, and to two named public queries', () => {
     const page = fileNamed('LiveMapPage.tsx');
     expect(page).toContain('useQuery');
+    // Both reads are named explicitly rather than counted loosely: the count is what stops a
+    // third read appearing, and the names are what stop one of these two being swapped for
+    // something else while the count stays right. ART-121 (FR-O013) added the replay read as
+    // a second query on purpose — it is failure-isolated from the projection, so folding it
+    // into that payload would let a replay-build failure blank the live map.
     expect(page).toContain('getPublicDynamicProjectionRef');
-    // Exactly one read: a second one would be a second reason for the page to
-    // re-render and a second place for a write to be smuggled in.
-    expect(page.match(/\buseQuery\(/g)).toHaveLength(1);
+    expect(page).toContain('getPublicVisualReplayRef');
+    expect(page.match(/\buseQuery\(/g)).toHaveLength(2);
 
     // No other file in the module reads anything at all.
     const readers = surface
