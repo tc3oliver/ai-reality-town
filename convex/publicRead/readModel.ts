@@ -38,6 +38,12 @@ export const READ_MODEL_SCHEMA_VERSION = 1;
  */
 export const READ_MODEL_KINDS = [
   'world', 'character', 'episode', 'arc', 'relationship', 'liveState', 'timeline',
+  // FR-O013 / ART-121. A kind of its own rather than a field inside `liveState`, for three
+  // reasons: a replay-build failure must not be able to take the live map down with it, the
+  // two change on completely different cadences (the projection on every commit, the replay
+  // only when a slot completes) so sharing a `contentHash` would defeat dedup for both, and
+  // ART-132's future withhold handling needs a target it can invalidate on its own.
+  'visualReplay',
 ] as const;
 export type ReadModelKind = (typeof READ_MODEL_KINDS)[number];
 

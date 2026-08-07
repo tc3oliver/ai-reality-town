@@ -165,6 +165,47 @@ p[contenteditable='true']:empty::before {
   min-height: 280px;
 }
 
+/* Time-state banner (ART-121, FR-O014 AC#9). The three states must be told apart
+ * WITHOUT colour, so each carries three non-colour signals: its visible label, a
+ * distinct aria-hidden glyph, and the distinct border style below. In greyscale, or
+ * with the stylesheet off, the rows are still distinguishable. */
+.live-time-state-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.25rem;
+}
+
+.live-time-state-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  border-left-width: 4px;
+  border-left-color: currentColor;
+}
+
+.live-time-state-row[data-time-state='replay'] {
+  border-left-style: double;
+}
+
+.live-time-state-row[data-time-state='earlier'] {
+  border-left-style: dashed;
+}
+
+.live-time-state-row[data-time-state='now'] {
+  border-left-style: solid;
+}
+
+.live-time-state-glyph {
+  font-size: 1.1em;
+  line-height: 1;
+}
+
+.live-time-state-label {
+  font-weight: 600;
+}
+
 /* Reduced motion (NFR-009). The P0 public pages declare no animation or
  * transition of their own — the only @keyframes in this stylesheet belongs to
  * the game runtime progress bar. This guard keeps the shared stylesheet
