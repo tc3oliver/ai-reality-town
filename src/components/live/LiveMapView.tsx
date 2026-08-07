@@ -17,6 +17,7 @@ import { LiveMapFallback } from './LiveMapFallback';
 import { textLiveHref } from './liveMapRoute';
 import { useElementSize } from './useElementSize';
 import { useReducedMotion } from './useReducedMotion';
+import { useSpriteAssets } from './useSpriteAssets';
 
 export interface LiveMapViewProps {
   worldId: string;
@@ -54,6 +55,7 @@ export function LiveMapView({
   loading,
 }: LiveMapViewProps) {
   const reducedMotion = useReducedMotion();
+  const spriteAssets = useSpriteAssets();
   const viewportRef = useRef<Viewport | undefined>(undefined);
   const { ref, size } = useElementSize();
   const [mode, setMode] = useState<CameraMode>(INITIAL_CAMERA_MODE);
@@ -91,9 +93,7 @@ export function LiveMapView({
         {size.width > 0 && size.height > 0 && (
           <ReadOnlyWorld
             viewModel={viewModel}
-            // FR-O002 (ART-119) publishes the sprite bindings; until then the
-            // character layer is mounted and positioned but draws nothing.
-            spriteAssets={{}}
+            spriteAssets={spriteAssets}
             screenWidth={size.width}
             screenHeight={size.height}
             viewportRef={viewportRef}

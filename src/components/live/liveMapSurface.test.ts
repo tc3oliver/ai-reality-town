@@ -91,6 +91,61 @@ describe('the live map surface (FR-O001 AC#4)', () => {
     expect(paths).toContain(`${LIVE_ROOT}/CameraControls.tsx`);
     expect(paths).toContain(`${LIVE_ROOT}/LiveMapFallback.tsx`);
     expect(paths).toContain(`${LIVE_ROOT}/liveMapRoute.ts`);
+    // ART-119 (FR-O002) put a sixty-times-a-second clock and an image decoder in
+    // this module. Both are the kind of thing that grows a network call, so they
+    // are named here to make it explicit that the sweeps below cover them.
+    expect(paths).toContain(`${LIVE_ROOT}/useMotionClock.ts`);
+    expect(paths).toContain(`${LIVE_ROOT}/spriteAssets.ts`);
+    expect(paths).toContain(`${LIVE_ROOT}/useSpriteAssets.ts`);
+  });
+
+  test('the animation clock reads a clock and nothing else', () => {
+    // The heart of FR-O002's half of AC#4: the map now animates continuously, and
+    // that must not turn watching into polling. `motionClock.dom.test.tsx`
+    // asserts the same at runtime over sixty frames.
+    const clock = fileNamed('useMotionClock.ts')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    for (const api of [...REQUEST_APIS, 'convex']) {
+      expect(clock).not.toMatch(new RegExp(`\\b${api}\\b`, 'i'));
+    }
+    // The one thing it may read.
+    expect(clock).toContain('Date.now()');
+  });
+
+  test('the sprite loader decodes a bundled asset rather than requesting one', () => {
+    const loader = fileNamed('spriteAssets.ts')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    for (const api of REQUEST_APIS) {
+      expect(loader).not.toMatch(new RegExp(`\\b${api}\\b`));
+    }
+    // The texture is a build-time constant from `data/`, so its URL cannot be
+    // steered anywhere by a viewer or by world state.
+    expect(loader).toContain('CHARACTER_TEXTURE_URL');
+  });
+
+  test('the sprite roster comes from data/, never from convex/visual', () => {
+    // The disqualifying case, stated as a test. `convex/visual/mistwoodVisualBindings.ts`
+    // imports `convex/canon/mistwoodSeed.ts`, which carries `privateProfile`,
+    // `privateGoal`, `fear` and `secretContents` for all twelve residents. An
+    // import of `visual` from here would put every one of them a bundler decision
+    // away from the browser -- which is why `clientLive.mayDependOn` does not list
+    // `visual` and must not be widened to.
+    // Comments stripped: `LiveMapPage.tsx`'s doc block explains this rule and so
+    // names the modules it forbids, the same way `liveMapRoute.ts`'s does below.
+    const offenders = surface.flatMap((file) =>
+      ['convex/visual', 'convex/canon', 'mistwoodSeed', 'mistwoodVisualBindings']
+        .filter((module) =>
+          file.source
+            .replace(/\/\*[\s\S]*?\*\//g, '')
+            .replace(/^\s*\/\/.*$/gm, '')
+            .includes(module),
+        )
+        .map((module) => `${file.path}: ${module}`),
+    );
+    expect(offenders).toEqual([]);
+    expect(fileNamed('LiveMapPage.tsx')).toContain("from '../../../data/mistwoodCharacters'");
   });
 
   test('reaches no mutation, action or world-input API anywhere', () => {

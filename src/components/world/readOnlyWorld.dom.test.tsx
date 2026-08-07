@@ -14,6 +14,8 @@
 import type { ReactElement } from 'react';
 import type { Application, ISpritesheetData } from 'pixi.js';
 
+import { MISTWOOD_SEED_PLACEMENTS } from '../../../convex/visualRuntime/fixtures';
+import { mistwoodCharacterSpriteKeys } from '../../../data/mistwoodCharacters';
 import {
   mistwoodCollision,
   mistwoodLocationFootprints,
@@ -36,15 +38,24 @@ import {
 /** `useApp()` is bridged in by the `Stage` wrapper; the scene only forwards it. */
 const APP = {} as Application;
 
+/**
+ * Two of the real asset keys: `f1` is an inherited sprite, `f2#…` a palette
+ * variant. Every id below is a production Mistwood seed id (ART-107 §8).
+ */
 const SPRITE_ASSETS: Record<string, ReadOnlySpriteAsset> = {
-  f1: { textureUrl: '/assets/32x32folk.png', spritesheetData: {} as ISpritesheetData },
-  f2: { textureUrl: '/assets/32x32folk.png', spritesheetData: {} as ISpritesheetData },
+  f1: { textureUrl: '/ai-town/assets/32x32folk.png', spritesheetData: {} as ISpritesheetData },
+  'f2#mistwood-plum-outfit': {
+    textureUrl: 'data:image/png;base64,recoloured',
+    spritesheetData: {} as ISpritesheetData,
+  },
 };
+
+const SPRITE_KEYS = { 'lin-yingxue': 'f1', 'wu-zhen': 'f2#mistwood-plum-outfit' };
 
 function motion(overrides: Partial<PublicCharacterMotion> = {}): PublicCharacterMotion {
   return {
-    characterId: 'cassia',
-    semanticLocationId: 'mistwood-market',
+    characterId: 'lin-yingxue',
+    semanticLocationId: 'mistwood-paper',
     motionType: 'canon',
     motionSequence: 1,
     from: { x: 12, y: 8 },
@@ -111,9 +122,9 @@ describe('the read-only world scene', () => {
   test('renders one character sprite per bound published motion', () => {
     const tree = scene(
       [
-        motion({ characterId: 'cassia', from: { x: 12, y: 8 }, to: { x: 12, y: 8 } }),
+        motion({ characterId: 'lin-yingxue', from: { x: 12, y: 8 }, to: { x: 12, y: 8 } }),
         motion({
-          characterId: 'rowan',
+          characterId: 'wu-zhen',
           motionSequence: 4,
           from: { x: 30, y: 20 },
           to: { x: 30, y: 20 },
@@ -121,7 +132,7 @@ describe('the read-only world scene', () => {
           animationState: 'speaking',
         }),
       ],
-      { cassia: 'f1', rowan: 'f2' },
+      SPRITE_KEYS,
     );
 
     const sprites = elements(tree).filter((element) => element.type === Character);
@@ -129,25 +140,63 @@ describe('the read-only world scene', () => {
     // Painter's order: the character further down the map is drawn later.
     expect(sprites.map((sprite) => sprite.props.textureUrl)).toEqual([
       SPRITE_ASSETS.f1.textureUrl,
-      SPRITE_ASSETS.f2.textureUrl,
+      SPRITE_ASSETS['f2#mistwood-plum-outfit'].textureUrl,
     ]);
     expect(sprites[0].props).toMatchObject({
+      spriteKey: 'f1',
       x: 12 * MISTWOOD_TILE_DIM,
       y: 8 * MISTWOOD_TILE_DIM,
       orientation: 90,
-      isSpeaking: false,
+      animationState: 'idle',
     });
     expect(sprites[1].props).toMatchObject({
+      spriteKey: 'f2#mistwood-plum-outfit',
       x: 30 * MISTWOOD_TILE_DIM,
       y: 20 * MISTWOOD_TILE_DIM,
       orientation: 180,
-      isSpeaking: true,
+      animationState: 'speaking',
     });
   });
 
+  test('every one of the twelve residents reaches the character layer (AC#1)', () => {
+    // The real roster and the real bindings, not a two-row stand-in: AC#1 is
+    // about all twelve, and the failure mode it guards against -- one resident
+    // silently missing a sprite key -- only shows up at full size.
+    const assets = Object.fromEntries(
+      Object.values(mistwoodCharacterSpriteKeys).map((assetKey) => [
+        assetKey,
+        { textureUrl: '/ai-town/assets/32x32folk.png', spritesheetData: {} as ISpritesheetData },
+      ]),
+    );
+    const motions = MISTWOOD_SEED_PLACEMENTS.map((placement, index) =>
+      motion({
+        characterId: placement.characterId,
+        semanticLocationId: placement.initialLocationId,
+        from: { x: 4 + index, y: 4 + index },
+        to: { x: 4 + index, y: 4 + index },
+      }),
+    );
+    const tree = scene(motions, mistwoodCharacterSpriteKeys, { spriteAssets: assets });
+    expect(elements(tree).filter((element) => element.type === Character)).toHaveLength(12);
+  });
+
+  test('the published animation state reaches the sprite unflattened (AC#3/#4/#5)', () => {
+    const states = ['idle', 'walking', 'speaking', 'thinking', 'activity'] as const;
+    for (const animationState of states) {
+      const tree = scene(
+        [motion({ animationState, startedAt: 0, arriveAt: 1_000 })],
+        SPRITE_KEYS,
+      );
+      const sprite = elements(tree).find((element) => element.type === Character)!;
+      expect(sprite.props.animationState).toBe(animationState);
+      // AC#4: a walk at t=0 is under way, so its cycle plays; nothing else does.
+      expect(sprite.props.isMoving).toBe(animationState === 'walking');
+    }
+  });
+
   test('draws the map, the zones and the characters as three layers, back to front', () => {
-    // ART-118 (FR-O001 AC#2). The character layer is asserted even though it is
-    // empty in this task: FR-O002 (ART-119) supplies the sprite bindings, and a
+    // ART-118 (FR-O001 AC#2). The character layer was asserted while it was
+    // still empty: FR-O002 (ART-119) supplied the sprite bindings, and a
     // layer that only appears once it has contents is a layer whose z-order was
     // never checked.
     expect(layerNames(scene([], {}))).toEqual([
@@ -195,7 +244,7 @@ describe('the read-only world scene', () => {
   });
 
   test('renders nothing for a character with no sprite binding', () => {
-    const tree = scene([motion({ characterId: 'cassia' })], { cassia: 'f9-unbound' });
+    const tree = scene([motion({ characterId: 'lin-yingxue' })], { 'lin-yingxue': 'f9-unbound' });
     expect(elements(tree).filter((element) => element.type === Character)).toHaveLength(0);
   });
 
@@ -207,10 +256,13 @@ describe('the read-only world scene', () => {
     // all pure data props, which is the whole reason the camera *buttons* live in
     // `components/live/` instead: this scene must stay uninvokable.
     const trees = [
-      scene([motion({ characterId: 'cassia' }), motion({ characterId: 'rowan' })], {
-        cassia: 'f1',
-        rowan: 'f2',
-      }),
+      scene(
+        [
+          motion({ characterId: 'lin-yingxue' }),
+          motion({ characterId: 'wu-zhen', animationState: 'speaking' }),
+        ],
+        SPRITE_KEYS,
+      ),
       scene([], {}, {
         viewportRef: { current: undefined },
         camera: townView({ screenWidth: 800, screenHeight: 600, worldWidth: 1, worldHeight: 1 }),

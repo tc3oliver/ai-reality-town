@@ -3,11 +3,15 @@
 Authoritative reference for how each of Mistwood's twelve seeded characters is
 given a stable public appearance and a stable public name.
 
-- Shape and rules: `convex/visual/characterVisualBinding.ts`
-- Authored data: `convex/visual/mistwoodVisualBindings.ts`
+- Shape, rules and validation: `convex/visual/characterVisualBinding.ts`
+- Authored binding builder: `convex/visual/mistwoodVisualBindings.ts`
+- Sprite catalogue: `data/spritesheets/catalogue.ts`
+- Palette recolour engine: `data/spritePalette.ts`
+- Public roster, palette ranges and variants: `data/mistwoodCharacters.ts`
 - Persisted table: `convex/visual/schema.ts` (`characterVisualBindings`)
 - Tests: `convex/visual/characterVisualBinding.test.ts`,
-  `convex/visual/mistwoodVisualBindings.test.ts`
+  `convex/visual/mistwoodVisualBindings.test.ts`, `data/mistwoodCharacters.test.ts`,
+  `data/dataBoundary.test.ts`
 
 ## 1. The gap this closes
 
@@ -136,13 +140,48 @@ reconstructable.
 FR-N004 AC#7: when a character is deactivated or dies, the renderer changes
 presentation without touching the identity fields.
 
-## 8. Out of scope here
+## 8. Where this data lives (ART-119)
 
-The animation state machine (FR-O002), the character card UI (FR-O006), movement
-and the runtime projection wiring are separate tasks. This document only fixes
-the binding itself.
+ART-119 (FR-O002) relocated three things out of `convex/visual/` and into `data/`,
+because the live map has to resolve `characterId -> sprite` and apply a palette
+variant **in the browser**:
 
-Note that `SPRITE_CELL_ORIGINS` in `characterVisualBinding.ts` mirrors the frame
-coordinates in `data/spritesheets/f1.ts`–`f8.ts`; those inherited files are
-frozen art data and are not imported from `convex/` so that the Convex module
-tree stays self-contained.
+| Moved to | What |
+| --- | --- |
+| `data/spritesheets/catalogue.ts` | `SPRITE_KEYS`, the texture constants, `SPRITE_CELL_ORIGINS`, `SPRITE_FRAME_ORDER`, `isSpriteKey`, and the per-key frame data |
+| `data/spritePalette.ts` | the whole colour model and `applyPaletteVariant`, unchanged |
+| `data/mistwoodCharacters.ts` | the twelve-row public roster, `MISTWOOD_PALETTE_RANGES`, `MISTWOOD_PALETTE_VARIANTS`, and the asset-key helpers |
+
+`convex/visual/characterVisualBinding.ts` and
+`convex/visual/mistwoodVisualBindings.ts` **re-export every moved name
+unchanged**, so no backend caller changed and the validation rules read exactly
+as before. What is left in `convex/visual/` is the part that genuinely needs
+Canon: the binding record, its derived identifiers, and import-time validation.
+
+The reason for the move is a leak, not tidiness.
+`convex/visual/mistwoodVisualBindings.ts` imports `convex/canon/mistwoodSeed.ts`,
+which carries `privateProfile`, `privateGoal`, `fear` and `secretContents` for
+all twelve residents. Any import path from a client module into `visual` is
+therefore also a path to that data. Neither `clientWorldReadOnly` nor `clientLive`
+lists `visual` in `mayDependOn` in `architecture/module-boundaries.json`, and
+widening either is disqualified rather than a judgment call. `data/` is owned by
+no boundary module — the same property that already lets
+`convex/visual/mistwoodLocationBindings.ts` read `data/mistwood.ts` — so shared
+constants go there and both sides import them.
+
+Two tests hold the arrangement: `data/mistwoodCharacters.test.ts` pins the
+mirrored roster against `buildMistwoodCharacterVisualBindings()` so the two cannot
+drift, and `data/dataBoundary.test.ts` proves nothing shipped under `data/`
+imports a backend module, names a write API, or names a private Canon field.
+
+The palette *algorithm* was relocated rather than mirrored, deliberately: a drift
+test on an algorithm is only a second implementation of the algorithm, which is
+not a safe way to hold a skin-protection guarantee.
+
+## 9. Out of scope here
+
+The character card UI (FR-O006) and the runtime projection wiring are separate
+tasks. This document fixes the binding itself; how a binding becomes a moving,
+animated sprite is
+[`character-motion-rendering.md`](./character-motion-rendering.md) (FR-O002 /
+ART-119).

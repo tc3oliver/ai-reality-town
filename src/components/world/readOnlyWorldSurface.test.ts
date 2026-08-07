@@ -64,6 +64,47 @@ describe('read-only public surface', () => {
     expect(paths).toContain('src/components/world/PixiStaticMap.tsx');
     expect(paths).toContain('src/components/world/Character.tsx');
     expect(paths).toContain('src/components/public/LiveView.tsx');
+    // ART-119 (FR-O002) added the animated character layer. Named explicitly so
+    // the sweeps below are known to reach it, rather than only reaching it by
+    // accident of the directory walk.
+    expect(paths).toContain('src/components/world/CharacterStateIndicator.tsx');
+    expect(paths).toContain('src/components/world/characterAnimation.ts');
+    expect(paths).toContain('src/components/world/renderQuality.ts');
+    expect(paths).toContain('src/components/world/spriteSheetCache.ts');
+    expect(paths).toContain('src/components/live/useMotionClock.ts');
+    expect(paths).toContain('src/components/live/spriteAssets.ts');
+    expect(paths).toContain('src/components/live/useSpriteAssets.ts');
+  });
+
+  test('the animated character layer is still structurally uninvokable', () => {
+    // ART-113's proof rested on there being nothing in the character subtree that
+    // could take a pointer event. ART-119 added three nodes to that subtree, so
+    // the property is re-asserted against them by name.
+    const animated = worldModule.filter((file) =>
+      ['Character.tsx', 'CharacterStateIndicator.tsx'].some((name) => file.path.endsWith(name)),
+    );
+    expect(animated).toHaveLength(2);
+    for (const file of animated) {
+      expect(file.source).toContain('eventMode="none"');
+      expect(file.source).not.toMatch(/\bon[A-Z]\w*\s*=\s*\{/);
+    }
+  });
+
+  test('the sprite cache and the animation clock reach no texture by network call', () => {
+    // Decoding a bundled image is local work. Fetching one would be a request the
+    // renderer makes on its own initiative, which is the thing FR-O009 forbids.
+    const loaders = surface.filter((file) =>
+      ['spriteSheetCache.ts', 'spriteAssets.ts', 'useSpriteAssets.ts', 'useMotionClock.ts'].some(
+        (name) => file.path.endsWith(name),
+      ),
+    );
+    expect(loaders).toHaveLength(4);
+    for (const file of loaders) {
+      const code = file.source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+      for (const api of ['fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'sendBeacon']) {
+        expect(code).not.toMatch(new RegExp(`\\b${api}\\b`));
+      }
+    }
   });
 
   test('reaches no mutation, action or world-input API', () => {

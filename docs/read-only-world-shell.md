@@ -13,7 +13,11 @@ enforced, so a later change cannot quietly reintroduce a write path.
 | `worldViewModel.ts` | Pure. Turns published `PublicCharacterMotion` units (PRD 2.0 §10.4) plus a `characterId -> spriteKey` binding into interpolated sprite poses. No DOM, no Pixi, no query. |
 | `ReadOnlyWorld.tsx` | `Stage` -> `PixiViewport` -> `PixiStaticMap` + `Character[]`, built only from the view model. Data props only; no callback anywhere in the tree. |
 | `PixiStaticMap.tsx` | Blits the Mistwood tilemap (`data/mistwood.ts`, FR-N009) and its animated sprites. |
-| `Character.tsx` | One animated sprite with idle / walking / speaking / thinking states. |
+| `Character.tsx` | One animated sprite. Plays the walk cycle for its facing while moving, holds a still frame otherwise (ART-119). |
+| `CharacterStateIndicator.tsx` | The drawn speech / thought / activity marker above a sprite. Vector shapes, not emoji (ART-119). |
+| `characterAnimation.ts` | Pure. `PublicAnimationState -> indicator kind -> shape list`. No Pixi import (ART-119). |
+| `renderQuality.ts` | Pure. Device probe to animation-clock tier. Total over a probe that reports nothing (ART-119). |
+| `spriteSheetCache.ts` | One parsed spritesheet per asset key, shared by every character drawing with it (ART-119). |
 | `PixiViewport.tsx` | Drag, pinch and wheel camera. Camera state is local and never leaves the browser. |
 | `cameraModel.ts` | Pure. Where the camera looks, how far it zooms, how long the move takes. No DOM, no Pixi (ART-118). |
 | `CameraController.tsx` | Renders null. Applies a `CameraView` to the viewport. Data props only (ART-118). |
@@ -27,10 +31,16 @@ discipline. Producing the motion data is FR-N003/FR-N010.
 ART-118 (FR-O001) composed the shell onto a live page for the first time and added the
 camera. The camera *model* lives here because it produces nothing but view state; the
 buttons that choose a camera deliberately do not, because this module may not carry a
-handler — see [`live-view-navigation.md`](./live-view-navigation.md). Character sprites are
-still absent: no public query publishes a `characterId -> spriteKey` binding until FR-O002
-(ART-119), so the character layer is mounted and positioned but draws nothing, which is a
-valid frame.
+handler — see [`live-view-navigation.md`](./live-view-navigation.md).
+
+ART-119 (FR-O002) filled the character layer. All twelve residents now render, the
+interpolation clock advances between projections so movement is continuous rather than a
+jump per update, and the animation states carry drawn indicators. The sprite bindings arrive
+as a compile-time constant from `data/mistwoodCharacters.ts`, **not** from a query and
+emphatically not from `convex/visual` — see
+[`character-motion-rendering.md`](./character-motion-rendering.md) §9 for why that import
+would leak private Canon data into the browser bundle. Everything the character layer added
+is data props and drawn shapes, so the four properties below are unchanged.
 
 ## Why a viewer cannot write
 
@@ -38,10 +48,11 @@ valid frame.
    `useAction`, `useConvex`, `ConvexHttpClient`, or the retired a16z input helpers.
 2. **No heartbeat.** The hooks that kept the a16z engine alive were deleted with the engine
    (ART-112) and nothing replaced them. The shell schedules no backend work.
-3. **No pointer events.** The tile container, the zone layer and every character container
-   are `eventMode: 'none'` with `interactiveChildren: false`. A click on the map, a zone or a
-   sprite is not delivered to anything, so it cannot set a destination -- there is no handler
-   for it to reach. Camera gestures are unaffected: the viewport handles its own.
+3. **No pointer events.** The tile container, the zone layer, every character container and
+   ART-119's state indicator are `eventMode: 'none'` with `interactiveChildren: false`. A
+   click on the map, a zone or a sprite is not delivered to anything, so it cannot set a
+   destination -- there is no handler for it to reach. Camera gestures are unaffected: the
+   viewport handles its own.
 4. **No control affordances.** The Interact and Freeze buttons, the chat panel and the
    conversation controls were removed with the engine and have no replacement. ART-118's
    camera controls are DOM buttons in `src/components/live/`, outside this module on
