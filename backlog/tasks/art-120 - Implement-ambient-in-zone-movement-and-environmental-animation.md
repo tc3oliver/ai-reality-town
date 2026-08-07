@@ -1,10 +1,11 @@
 ---
 id: ART-120
 title: Implement ambient in-zone movement and environmental animation
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-08-04 15:58'
-updated_date: '2026-08-04 16:01'
+updated_date: '2026-08-07 10:42'
 labels:
   - prd-2.0
   - v2-g
