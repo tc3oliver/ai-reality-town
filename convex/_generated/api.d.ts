@@ -92,6 +92,9 @@ import type * as publicRead_relationshipArcProjectionFunctions from "../publicRe
 import type * as publicRead_runtimeSnapshot from "../publicRead/runtimeSnapshot.js";
 import type * as publicRead_runtimeSnapshotFunctions from "../publicRead/runtimeSnapshotFunctions.js";
 import type * as publicRead_runtimeSnapshotValidators from "../publicRead/runtimeSnapshotValidators.js";
+import type * as publicRead_visualReplay from "../publicRead/visualReplay.js";
+import type * as publicRead_visualReplayFunctions from "../publicRead/visualReplayFunctions.js";
+import type * as publicRead_visualReplayValidators from "../publicRead/visualReplayValidators.js";
 import type * as publicRead_worldCharacterProjection from "../publicRead/worldCharacterProjection.js";
 import type * as publicRead_worldCharacterProjectionFunctions from "../publicRead/worldCharacterProjectionFunctions.js";
 import type * as recaps_coverageValidation from "../recaps/coverageValidation.js";
@@ -270,6 +273,9 @@ declare const fullApi: ApiFromModules<{
   "publicRead/runtimeSnapshot": typeof publicRead_runtimeSnapshot;
   "publicRead/runtimeSnapshotFunctions": typeof publicRead_runtimeSnapshotFunctions;
   "publicRead/runtimeSnapshotValidators": typeof publicRead_runtimeSnapshotValidators;
+  "publicRead/visualReplay": typeof publicRead_visualReplay;
+  "publicRead/visualReplayFunctions": typeof publicRead_visualReplayFunctions;
+  "publicRead/visualReplayValidators": typeof publicRead_visualReplayValidators;
   "publicRead/worldCharacterProjection": typeof publicRead_worldCharacterProjection;
   "publicRead/worldCharacterProjectionFunctions": typeof publicRead_worldCharacterProjectionFunctions;
   "recaps/coverageValidation": typeof recaps_coverageValidation;

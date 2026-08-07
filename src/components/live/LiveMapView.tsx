@@ -17,11 +17,15 @@ import type { ActiveScenePanelModel } from './activeSceneModel';
 import { CameraControls } from './CameraControls';
 import { LiveMapFallback } from './LiveMapFallback';
 import { textLiveHref } from './liveMapRoute';
+import { ReplayControls } from './ReplayControls';
+import { TimeStateBanner } from './TimeStateBanner';
+import type { TimeStateBadge } from './timeStateLabel';
 import { useElementSize } from './useElementSize';
 import { useReducedMotion } from './useReducedMotion';
 import { useSpriteAssets } from './useSpriteAssets';
 
 const EMPTY_SCENE_PANEL: ActiveScenePanelModel = { hasScenes: false, scenes: [] };
+const NO_TIME_STATE_BADGES: readonly TimeStateBadge[] = [];
 
 export interface LiveMapViewProps {
   worldId: string;
@@ -34,6 +38,19 @@ export interface LiveMapViewProps {
   scenePanel?: ActiveScenePanelModel;
   /** The Canon slot of the last accepted event, driving the day/night wash (FR-O012). */
   timeSlot?: string;
+  /** The replay/earlier/now rows (FR-O014 / ART-121 AC#9). Empty renders no banner. */
+  timeStateBadges?: readonly TimeStateBadge[];
+  /** Whether the world has a replay to play at all. */
+  replayAvailable?: boolean;
+  replayPlaying?: boolean;
+  /**
+   * The event card's text for the step currently on screen, already resolved by the server.
+   * `null` when the reference no longer resolves — a withheld or superseded publication —
+   * in which case the card names the scene and says so rather than showing stale text.
+   */
+  replayText?: string | null;
+  onSkipReplay?: () => void;
+  onReplay?: () => void;
   /**
    * The viewer's Reduced Motion preference, decided by the caller (ART-120).
    *
@@ -69,6 +86,12 @@ export function LiveMapView({
   primaryLocationId,
   scenePanel,
   timeSlot,
+  timeStateBadges = NO_TIME_STATE_BADGES,
+  replayAvailable = false,
+  replayPlaying = false,
+  replayText = null,
+  onSkipReplay = () => undefined,
+  onReplay = () => undefined,
   reducedMotion: reducedMotionProp,
   webglSupported,
   loading,
@@ -109,6 +132,10 @@ export function LiveMapView({
         </p>
       </header>
 
+      {/* Above the canvas on purpose: "what am I looking at" has to be answerable before a
+          viewer looks, not after they scroll past the map to find out (FR-O014 AC#9). */}
+      {timeStateBadges.length > 0 && <TimeStateBanner badges={timeStateBadges} />}
+
       <div ref={ref} className="live-map-canvas mt-3">
         {size.width > 0 && size.height > 0 && (
           <ReadOnlyWorld
@@ -125,6 +152,19 @@ export function LiveMapView({
           />
         )}
       </div>
+
+      {replayPlaying && (
+        <p className="live-replay-card mt-3">
+          {replayText ?? '這個場景的公開摘要目前無法顯示。'}
+        </p>
+      )}
+
+      <ReplayControls
+        available={replayAvailable}
+        playing={replayPlaying}
+        onSkip={onSkipReplay}
+        onReplay={onReplay}
+      />
 
       <ActiveScenePanel
         model={scenePanel ?? EMPTY_SCENE_PANEL}

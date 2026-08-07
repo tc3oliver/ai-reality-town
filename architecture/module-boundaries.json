@@ -50,6 +50,7 @@
       { "path": "convex/publicRead/readModelFunctions.ts", "name": "getPublishedReadModel", "kind": "query", "gate": "anonymous" },
       { "path": "convex/publicRead/liveStateFunctions.ts", "name": "getPublicDynamicProjection", "kind": "query", "gate": "anonymous" },
       { "path": "convex/publicRead/runtimeSnapshotFunctions.ts", "name": "getPublicRuntimeSnapshot", "kind": "query", "gate": "anonymous" },
+      { "path": "convex/publicRead/visualReplayFunctions.ts", "name": "getPublicVisualReplay", "kind": "query", "gate": "anonymous" },
       { "path": "convex/observability/traces.ts", "name": "getTracePublic", "kind": "query", "gate": "anonymous" },
       { "path": "convex/operations/opsConsoleFunctions.ts", "name": "inspectWorldState", "kind": "query", "gate": "operator" },
       { "path": "convex/operations/opsConsoleFunctions.ts", "name": "inspectScheduleAndQueue", "kind": "query", "gate": "operator" },

@@ -38,6 +38,7 @@ import * as traces from '../observability/traces';
 import * as liveStateFunctions from './liveStateFunctions';
 import * as readModelFunctions from './readModelFunctions';
 import * as runtimeSnapshotFunctions from './runtimeSnapshotFunctions';
+import * as visualReplayFunctions from './visualReplayFunctions';
 
 import { publicLlmTraceValidator } from '../observability/schema';
 import { OPS_UNAUTHORIZED } from '../operations/operatorAuthorization';
@@ -79,6 +80,7 @@ const MODULES: Readonly<Record<string, Record<string, unknown>>> = {
   'convex/publicRead/readModelFunctions.ts': readModelFunctions,
   'convex/publicRead/liveStateFunctions.ts': liveStateFunctions,
   'convex/publicRead/runtimeSnapshotFunctions.ts': runtimeSnapshotFunctions,
+  'convex/publicRead/visualReplayFunctions.ts': visualReplayFunctions,
 };
 
 /** A Convex-registered function, as it exists at runtime. */
@@ -302,9 +304,11 @@ describe('AC#1 — the client-reachable surface is exactly what policy declares'
     expect([...refs].sort()).toEqual([
       'publicRead/liveStateFunctions:getPublicDynamicProjection',
       'publicRead/readModelFunctions:getPublishedReadModel',
+      'publicRead/visualReplayFunctions:getPublicVisualReplay',
     ]);
     expect(readModelFunctions.getPublishedReadModel).toHaveProperty('isQuery', true);
     expect(liveStateFunctions.getPublicDynamicProjection).toHaveProperty('isQuery', true);
+    expect(visualReplayFunctions.getPublicVisualReplay).toHaveProperty('isQuery', true);
     // Both are anonymous-gated queries in policy, so no viewer needs a credential
     // to watch and none of them can write.
     for (const ref of refs) {

@@ -331,6 +331,33 @@ at the plugin level rather than frame by frame. Screen-reader announcement of th
 camera controls falls under the same §4.4 manual gap as the rest of the public
 surface.
 
+### 4.7 Visual Replay and the time-state banner (FR-O013 / FR-O014, ART-121)
+
+Two accessibility-relevant surfaces ship with Visual Replay; both are reviewed and closed here,
+full design in [`visual-replay.md`](./visual-replay.md).
+
+**The time-state banner** (`TimeStateBanner.tsx`) is a `role="status" aria-live="polite"` region,
+always rendered on the Live map page — never conditional on a replay being in flight, so "is this
+live?" has an answer for the whole session rather than only during playback. It distinguishes
+`重播` (replay) / `稍早` (earlier) / `現在` (now) three ways at once, never by colour alone: visible
+label text, a distinct `aria-hidden` glyph per state (so the shape differs even stripped of colour
+and CSS), and a `data-time-state` attribute the stylesheet keys a distinct border style off in
+addition to hue. Each row also carries a full-sentence `announcement` in a visually-hidden span,
+so the `aria-live` region reads a complete statement rather than a label fragment. This follows the
+same non-colour-state convention this document records for ART-116's freshness vocabulary (§3.3's
+sibling decision, applied to a second feature).
+
+**Reduced Motion suppresses auto-play, not the feature.** The once-per-session auto-play effect in
+`LiveMapPage.tsx` checks `reducedMotion` before it ever calls `beginReplay`, following the FR-O011
+AC#8 convention already established for ambient drift: motion a viewer did not ask for is exactly
+what that preference is about. The manual "重播今日事件" control in `ReplayControls.tsx` stays
+available regardless — a viewer who wants the replay under Reduced Motion can still ask for it —
+so nothing about the feature becomes unreachable, only automatic.
+
+`ReplayControls.tsx` follows `CameraControls.tsx`'s established pattern exactly: real `<button>`
+elements, keyboard-reachable and announceable for free, `.public-tap` sizing, no handler that can
+reach the network.
+
 ---
 
 ## 5. Not covered here

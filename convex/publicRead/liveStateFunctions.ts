@@ -39,6 +39,13 @@ import { publicDynamicProjectionValidator } from './publicDynamicProjectionValid
 import { commitRuntimeSnapshot } from './runtimeSnapshot';
 import { runtimeSnapshotWriteStore } from './runtimeSnapshotFunctions';
 import {
+  VISUAL_REPLAY_MODEL_KIND,
+  buildVisualReplay,
+  type ReplayEpisodeInput,
+  type ReplayPublicationRecord,
+  type VisualReplay,
+} from './visualReplay';
+import {
   LIVE_MODEL_KIND,
   LIVE_RECENT_EVENT_DEFAULT,
   buildLiveProjection,
@@ -51,7 +58,8 @@ type ArcLifecycleRow = { arcId: string; status: string };
 type ArcProjectionEventRow = { arcId: string; revision: number; fields: unknown };
 type ArcClassificationRow = { sourceEventSequenceNumber: number; memberships?: unknown };
 /** `memberships` is `v.any()` in the schema, so it is read as untyped storage. */
-type ClassificationMembership = { arcId?: unknown };
+type ClassificationMembership = { arcId?: unknown; importance?: unknown };
+type PublicationRecordRow = { contentRef: string; status: string; version: number; isCurrent: boolean };
 type DailyEpisodeRow = {
   status: string;
   worldDay: number;
@@ -144,6 +152,7 @@ export const rebuildLiveProjection = internalMutation({
 
     const [
       canonRows, lifecycleRows, projectionRows, episodeRows, characterRows, scheduleRow, classificationRows,
+      publicationRows,
     ] = await Promise.all([
       ctx.db.query('canonEvents').withIndex('by_world_and_sequence', (q) => q.eq('worldId', args.worldId)).collect(),
       ctx.db.query('storyArcLifecycles').withIndex('by_world_and_arc', (q) => q.eq('worldId', args.worldId)).collect(),
@@ -154,6 +163,12 @@ export const rebuildLiveProjection = internalMutation({
       // The arc membership of each event (FR-O003 AC#6). `publicRead` already depends on
       // `story`, so this is a seventh parallel read rather than a new module dependency.
       ctx.db.query('storyArcEventClassifications').withIndex('by_world', (q) => q.eq('worldId', args.worldId)).collect(),
+      // The publication lifecycle of each derived text (FR-O013 / ART-121). `publicRead`
+      // already depends on `editorial`, so this is an eighth parallel read rather than a new
+      // module dependency. Read here and passed to the replay builder as a plain map, so the
+      // builder stays pure and the version a reference pins is the one that was current when
+      // the replay was built.
+      ctx.db.query('publicationRecords').withIndex('by_world_and_status', (q) => q.eq('worldId', args.worldId)).collect(),
     ]);
 
     const acceptedEvents = canonRows.map(rowToAcceptedEvent);
@@ -200,8 +215,14 @@ export const rebuildLiveProjection = internalMutation({
       const arcIds = memberships
         .map((membership) => membership.arcId)
         .filter((arcId): arcId is string => typeof arcId === 'string' && arcId.length > 0);
+      // The strongest membership decides the event's story weight, which is what FR-O013's
+      // scene selection ranks by. Read as defensively as `arcId` is, for the same reason.
+      const importance = memberships
+        .map((membership) => membership.importance)
+        .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+        .reduce((best, value) => Math.max(best, value), 0);
       return arcIds.length > 0
-        ? [{ sourceEventSequenceNumber: row.sourceEventSequenceNumber, arcIds }]
+        ? [{ sourceEventSequenceNumber: row.sourceEventSequenceNumber, arcIds, importance }]
         : [];
     });
 
@@ -248,6 +269,50 @@ export const rebuildLiveProjection = internalMutation({
       status: 'published',
       now: args.now,
     });
+
+    // The Visual Replay (FR-O013 / ART-121), derived from the rows this handler already
+    // collected plus the publication records read above. Wrapped, and `null` on any throw:
+    // a replay that cannot be built is a viewer arriving to a live map with no replay, which
+    // is the PRD's own failure behaviour — and it must never be able to fail the rebuild that
+    // publishes the map itself. Same isolation `canonCharacterLocations` states above.
+    const episodesForReplay: ReplayEpisodeInput[] = (episodeRows as DailyEpisodeRow[]).map((row) => ({
+      worldDay: row.worldDay,
+      status: row.status,
+      keyScenes: row.episode?.keyScenes ?? [],
+    }));
+    const publicationRecords = new Map<string, ReplayPublicationRecord>();
+    for (const row of publicationRows as PublicationRecordRow[]) {
+      if (!row.isCurrent) continue;
+      publicationRecords.set(row.contentRef, { version: row.version, status: row.status });
+    }
+    let replay: VisualReplay | null = null;
+    let replayBuildFailed = false;
+    try {
+      replay = runtime
+        ? buildVisualReplay({
+            worldId: args.worldId,
+            acceptedEvents,
+            arcMemberships,
+            excludedCharacterIds: excludedCharacterIds(acceptedEvents),
+            runtime,
+            episodes: episodesForReplay,
+            publicationRecords,
+          })
+        : null;
+    } catch {
+      replayBuildFailed = true;
+    }
+    const replayResult = replay
+      ? await commitReadModelVersion(writeStore(ctx.db), {
+          worldId: args.worldId,
+          modelKind: VISUAL_REPLAY_MODEL_KIND,
+          modelRef: `replay:${args.worldId}`,
+          payload: replay as unknown as Parameters<typeof commitReadModelVersion>[1]['payload'],
+          sourceEventIds: replay.sourceEventIds,
+          status: 'published',
+          now: args.now,
+        })
+      : null;
     // Capture the durable runtime snapshot (FR-N007) by a direct call inside THIS
     // transaction, not by dispatching a separate mutation: a snapshot failure then rolls the
     // whole rebuild back atomically instead of leaving a published projection with no
@@ -299,6 +364,13 @@ export const rebuildLiveProjection = internalMutation({
       // producing placeable events; `none` means it never has.
       activeSceneCount: presentation.scenes.length,
       activeSceneMode: presentation.mode,
+      // FR-O013 observability. `replayBuildFailed` is the one that matters operationally: a
+      // null replay is ordinary (a world whose only activity is the current slot has nothing
+      // completed to show), whereas a *failed* build is a defect that would otherwise be
+      // swallowed by the catch above.
+      replaySceneCount: replay?.scenes.length ?? 0,
+      replayVersion: replayResult?.version ?? null,
+      replayBuildFailed,
       snapshotSequence: snapshot?.snapshotSequence ?? null,
       dynamicProblemCount: derived?.problems.total ?? 0,
       dynamicProblemsByCode: derived?.problems.byCode ?? {},
