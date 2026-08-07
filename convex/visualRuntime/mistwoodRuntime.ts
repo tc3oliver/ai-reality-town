@@ -17,7 +17,9 @@ import {
   MISTWOOD_MAP_ID,
   mistwoodLocationVisualBindings,
 } from '../visual/mistwoodLocationBindings';
+import type { CharacterVisualBindingV1 } from '../visual/characterVisualBinding';
 import type { LocationVisualBinding } from '../visual/locationVisualBinding';
+import { buildMistwoodCharacterVisualBindings } from '../visual/mistwoodVisualBindings';
 import { createCollisionGrid, type WalkableGrid } from './walkableGrid';
 
 export const MISTWOOD_RUNTIME_MAP_ID = MISTWOOD_MAP_ID;
@@ -29,6 +31,12 @@ export type VisualRuntimeContext = {
   readonly mapId: string;
   readonly grid: WalkableGrid;
   readonly bindings: readonly LocationVisualBinding[];
+  /**
+   * Which characters have a sprite. The planner never reads this — it decides positions,
+   * not appearances — but `detectUnboundCharacters` (FR-Q001) needs it to notice a
+   * character that will be published and then drawn as nothing.
+   */
+  readonly characterBindings: readonly CharacterVisualBindingV1[];
 };
 
 /** The map-shaped half of a `VisualRuntimeInput`, ready to be given events and an instant. */
@@ -37,5 +45,6 @@ export function mistwoodRuntimeContext(): VisualRuntimeContext {
     mapId: MISTWOOD_RUNTIME_MAP_ID,
     grid: mistwoodWalkableGrid,
     bindings: mistwoodLocationVisualBindings,
+    characterBindings: buildMistwoodCharacterVisualBindings(),
   };
 }

@@ -305,10 +305,21 @@ export type PublicDynamicProjectionInput = {
  * Counts rather than the problems themselves: the individual records name `characterId`s,
  * and this value travels back through a mutation result that is easier to keep dull than to
  * keep private.
+ *
+ * ART-133 (FR-Q001) widened this by exactly one field. `records` carries the per-problem
+ * attribution that AC#4 requires — a defect that cannot be traced to a character and a
+ * location is not actionable — and `message` is dropped on the way, so what is carried is
+ * a strict subset of what `PublicCharacterMotion` already publishes. The destination is
+ * `dynamicViewIncidents`, read only through an operator-gated query; `records` never
+ * reaches the public payload, which `'problems'` in {@link PUBLIC_DYNAMIC_FORBIDDEN_FIELDS}
+ * and `assertPublicDynamicProjection`'s unknown-field refusal both independently prevent.
  */
+export type AttributedRuntimeProblem = Omit<VisualRuntimeProblem, 'message'>;
+
 export type RuntimeProblemSummary = {
   readonly total: number;
   readonly byCode: Readonly<Partial<Record<VisualRuntimeProblemCode, number>>>;
+  readonly records: readonly AttributedRuntimeProblem[];
 };
 
 export type PublicDynamicProjectionResult = {
@@ -320,10 +331,15 @@ export function summarizeRuntimeProblems(
   problems: readonly VisualRuntimeProblem[],
 ): RuntimeProblemSummary {
   const byCode: Partial<Record<VisualRuntimeProblemCode, number>> = {};
+  const records: AttributedRuntimeProblem[] = [];
   for (const problem of problems) {
     byCode[problem.code] = (byCode[problem.code] ?? 0) + 1;
+    // Field by field, not `{ ...problem }` minus a key: this is the one place `message`
+    // is discarded, and an explicit construction cannot silently start carrying a field
+    // that some future edit adds to `VisualRuntimeProblem`.
+    records.push({ code: problem.code, characterId: problem.characterId, locationId: problem.locationId });
   }
-  return { total: problems.length, byCode };
+  return { total: problems.length, byCode, records };
 }
 
 /**

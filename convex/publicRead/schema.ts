@@ -1,11 +1,20 @@
 import { defineTable } from 'convex/server';
 import { v } from 'convex/values';
 
+import { DYNAMIC_INCIDENT_CODES } from './dynamicViewMetrics';
 import {
   publicActiveSceneValidator,
   publicCharacterMotionValidator,
 } from './publicDynamicProjectionValidators';
 import { publicRuntimeSnapshotStatusValidator } from './runtimeSnapshotValidators';
+
+/**
+ * Built from the code array rather than written out, so a new Visual Runtime problem code
+ * widens the column automatically instead of failing an insert at runtime.
+ */
+const dynamicIncidentCodeValidator = v.union(
+  ...DYNAMIC_INCIDENT_CODES.map((code) => v.literal(code)),
+);
 
 /**
  * Publication-gated public read-model store (NFR-001/002/005, §16.3).
@@ -86,4 +95,64 @@ export const publicReadTables = {
   })
     .index('by_world_and_current', ['worldId', 'isCurrent'])
     .index('by_world_and_sequence', ['worldId', 'snapshotSequence']),
+
+  /**
+   * Attributed dynamic-view defects (FR-Q001, PRD 2.0 §12 Epic Q).
+   *
+   * SPARSE and per-occurrence: a healthy world writes nothing here. FR-Q001 AC#4 requires
+   * a mismatch to be locatable to a character, a location and a sequence, and a count
+   * cannot do that — so each defect gets its own row carrying exactly the identifiers that
+   * are already published in `PublicCharacterMotion`.
+   *
+   * PRIVACY: the writable field set is the allowlist `DYNAMIC_INCIDENT_FIELDS`, enforced
+   * by `assertDynamicViewIncident` before every insert. `VisualRuntimeProblem.message` —
+   * the one free-text field on the source record — is deliberately not a column here.
+   *
+   * Vacuumed on the standard two-week retention (`TablesToVacuum` in `convex/crons.ts`):
+   * these are diagnostics, and a defect nobody looked at for a fortnight is not evidence.
+   */
+  dynamicViewIncidents: defineTable({
+    schemaVersion: v.literal(1),
+    worldId: v.string(),
+    code: dynamicIncidentCodeValidator,
+    characterId: v.string(),
+    /** Where the runtime put the character, or tried to. */
+    locationId: v.string(),
+    /** Where Canon says the character is. Set only for `CANON_RUNTIME_LOCATION_MISMATCH`. */
+    canonLocationId: v.optional(v.string()),
+    /** Absent when no motion was published, e.g. an unbound location. */
+    motionSequence: v.optional(v.number()),
+    snapshotSequence: v.number(),
+    detectedAt: v.number(),
+  })
+    .index('by_world_and_time', ['worldId', 'detectedAt'])
+    .index('by_world_and_code', ['worldId', 'code', 'detectedAt'])
+    .index('by_world_and_character', ['worldId', 'characterId', 'detectedAt']),
+
+  /**
+   * Dense per-world rollup: exactly one row per world, patched in place.
+   *
+   * The counterpart to `dynamicViewIncidents`. Latency is kept as a histogram rather than
+   * a sample list so storage is O(worlds), not O(rebuilds) — a world that runs for a year
+   * costs the same row it did on day one, and P95 is derived at read time from the bucket
+   * bounds.
+   *
+   * Deliberately absent from `TablesToVacuum`, for the same reason as
+   * `publicRuntimeSnapshots`: this is a world's only metrics row, and vacuuming by
+   * `_creationTime` would delete a long-quiet world's entire history rather than trimming
+   * it.
+   */
+  dynamicViewMetricRollups: defineTable({
+    schemaVersion: v.literal(1),
+    worldId: v.string(),
+    rebuildCount: v.number(),
+    /** One counter per `LATENCY_BUCKET_BOUNDS_MS` bound, plus a final overflow bucket. */
+    latencyBuckets: v.array(v.number()),
+    latencyMaxMs: v.number(),
+    /** One entry per `DYNAMIC_INCIDENT_CODES` code, always present, cumulative. */
+    incidentCountsByCode: v.record(v.string(), v.number()),
+    lastRebuildAt: v.number(),
+    lastSnapshotSequence: v.number(),
+    updatedAt: v.number(),
+  }).index('by_world', ['worldId']),
 };
