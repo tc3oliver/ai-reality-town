@@ -19,7 +19,7 @@ import { mistwoodRuntimeContext, type VisualRuntimeContext } from '../visualRunt
 import { commitReadModelVersion, serveReadModel } from './readModel';
 import { readStore, writeStore } from './readModelFunctions';
 import {
-  buildPublicDynamicProjection,
+  buildPublicDynamicProjectionResult,
   seedPlacementsFromCharacterRows,
   selectPublicDynamicProjection,
   type PublicWorldStatus,
@@ -107,8 +107,8 @@ export const rebuildLiveProjection = internalMutation({
 
     const runtime = visualRuntimeForWorld(args.worldId);
     const worldStatus: PublicWorldStatus = scheduleRow?.status ?? 'unknown';
-    const dynamic = runtime
-      ? buildPublicDynamicProjection({
+    const derived = runtime
+      ? buildPublicDynamicProjectionResult({
           worldId: args.worldId,
           nowMs: args.now,
           runtime,
@@ -118,6 +118,7 @@ export const rebuildLiveProjection = internalMutation({
           activeScenes: publishedEpisode?.keyScenes ?? [],
         })
       : null;
+    const dynamic = derived?.projection ?? null;
 
     const payload = buildLiveProjection({
       worldId: args.worldId,
@@ -137,11 +138,17 @@ export const rebuildLiveProjection = internalMutation({
       status: 'published',
       now: args.now,
     });
+    // `dynamicProblem*` is the operator-facing half of the rebuild (FR-N006 / ART-117): a
+    // character the Visual Runtime could not place is omitted from the payload rather than
+    // guessed at, which is correct but silent. Counted here so the omission is reachable
+    // from outside; ART-133's metrics dashboard is the intended consumer.
     return {
       modelRef: `live:${args.worldId}`,
       version: result.version,
       deduplicated: result.deduplicated,
       dynamicCharacterCount: dynamic?.characters.length ?? 0,
+      dynamicProblemCount: derived?.problems.total ?? 0,
+      dynamicProblemsByCode: derived?.problems.byCode ?? {},
     };
   },
 });
