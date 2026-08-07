@@ -21,6 +21,12 @@ repeated or concurrent ticks cannot create duplicate slot work. Pausing suppress
 ticks. Resuming shifts the real-time anchor by the paused duration, so world time does
 not catch up while paused.
 
+A second, hourly cron (`captureAllPublicRuntimeSnapshots`, FR-N007) sweeps every public
+world — paused ones included — and records a public runtime snapshot. It reads
+`worldSchedules.status` and never writes it: the schedule remains the sole authority for
+whether a world is running, and that status is what the public freshness verdict reports as
+`paused`. See `docs/public-runtime-snapshot.md`.
+
 ## Development controls
 
 Internal operations support exactly one next slot, five consecutive slots (one world

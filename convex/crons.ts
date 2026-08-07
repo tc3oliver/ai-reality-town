@@ -5,11 +5,15 @@ import { TableNames } from './_generated/dataModel';
 import { v } from 'convex/values';
 import { internalFunctionRef } from './shared/internalFunctionRef';
 import type { tickAllPublicSchedules as tickAllPublicSchedulesExport } from './simulation/schedulerOperations';
+import type { captureAllPublicRuntimeSnapshots as captureAllPublicRuntimeSnapshotsExport } from './publicRead/runtimeSnapshotFunctions';
 
 const crons = cronJobs();
 
 const tickAllPublicSchedulesRef = internalFunctionRef<typeof tickAllPublicSchedulesExport>(
   'simulation/schedulerOperations:tickAllPublicSchedules',
+);
+const captureAllPublicRuntimeSnapshotsRef = internalFunctionRef<typeof captureAllPublicRuntimeSnapshotsExport>(
+  'publicRead/runtimeSnapshotFunctions:captureAllPublicRuntimeSnapshots',
 );
 // `vacuumOldEntries`/`vacuumTable` are declared further down in this same file; a `typeof`
 // type query resolves across the whole module regardless of declaration order, and these
@@ -25,6 +29,15 @@ crons.interval(
   'reserve due AI Reality Town world slots',
   { seconds: 60 },
   tickAllPublicSchedulesRef,
+);
+
+// FR-N007: re-observe every public world, paused ones included. Hourly gives a 12x margin
+// under the 12h observation threshold at which a snapshot is reported stale, and content-hash
+// dedup keeps an idle world at one `observedAt` patch per run rather than a new row.
+crons.interval(
+  'capture public runtime snapshots',
+  { hours: 1 },
+  captureAllPublicRuntimeSnapshotsRef,
 );
 
 crons.daily('vacuum old entries', { hourUTC: 4, minuteUTC: 20 }, vacuumOldEntriesRef);
