@@ -4,7 +4,9 @@ import { useMemo, useState } from 'react';
 import { mistwoodCharacterSpriteKeys } from '../../../data/mistwoodCharacters';
 import { mistwoodAmbientAnchorsByLocationId } from '../../../data/mistwoodAmbientAnchors';
 import { mistwoodLocationFootprints, mistwoodWorldMap } from '../../../data/mistwood';
-import { focusTargetsFrom, primaryLocationId } from '../world/cameraModel';
+import { focusTargetsFrom, primaryLocationId, primarySceneLocationId } from '../world/cameraModel';
+import type { SceneFocusInput } from '../world/cameraModel';
+import { composeActiveScenePanel, type ActiveSceneInput } from './activeSceneModel';
 import { detectRenderQualityTierFromNavigator, updateIntervalMs } from '../world/renderQuality';
 import { detectWebGLSupport } from '../world/webglSupport';
 import { composeReadOnlyWorldViewModel } from '../world/worldViewModel';
@@ -15,6 +17,7 @@ import { useMotionClock } from './useMotionClock';
 import { useReducedMotion } from './useReducedMotion';
 
 const NO_MOTIONS: readonly PublicCharacterMotion[] = [];
+const NO_SCENES: readonly ActiveSceneInput[] = [];
 
 /**
  * The live map route's data layer (ART-118 / FR-O001, animated by ART-119 / FR-O002).
@@ -60,6 +63,7 @@ export default function LiveMapPage({ worldId, base }: { worldId: string; base: 
   const reducedMotion = useReducedMotion();
 
   const motions: readonly PublicCharacterMotion[] = projection?.characters ?? NO_MOTIONS;
+  const scenes: readonly ActiveSceneInput[] = projection?.activeScenes ?? NO_SCENES;
   // A world with nobody in it has nothing to interpolate, so the clock stays
   // parked rather than re-rendering an empty map on a timer.
   const nowMs = useMotionClock(updateIntervalMs(qualityTier), motions.length > 0);
@@ -83,6 +87,10 @@ export default function LiveMapPage({ worldId, base }: { worldId: string; base: 
       }),
     [motions, nowMs, projection?.worldDay, reducedMotion],
   );
+  // Memoised on the projection's own cadence, never on `nowMs`: a fresh `targets` array per
+  // animation tick would restart the viewport tween thirty times a second and make the
+  // camera judder. Adding scenes here does not change that -- `activeScenes` moves when
+  // Canon commits, which is exactly when the camera should reconsider where to look.
   const camera = useMemo(
     () => ({
       targets: focusTargetsFrom({
@@ -90,10 +98,19 @@ export default function LiveMapPage({ worldId, base }: { worldId: string; base: 
         footprints: mistwoodLocationFootprints,
         map: mistwoodWorldMap,
         nowMs: Date.now(),
+        scenes: scenes as readonly SceneFocusInput[],
       }),
-      primaryLocationId: primaryLocationId(motions),
+      // The published scene is the real answer to "what is the world's attention on";
+      // character density is the documented fallback for worlds and payloads that carry no
+      // placeable scene (see `primaryLocationId`).
+      primaryLocationId: primarySceneLocationId(scenes as readonly SceneFocusInput[])
+        ?? primaryLocationId(motions),
     }),
-    [motions],
+    [motions, scenes],
+  );
+  const scenePanel = useMemo(
+    () => composeActiveScenePanel({ scenes, footprints: mistwoodLocationFootprints, worldId }),
+    [scenes, worldId],
   );
 
   return (
@@ -103,6 +120,7 @@ export default function LiveMapPage({ worldId, base }: { worldId: string; base: 
       viewModel={viewModel}
       targets={camera.targets}
       primaryLocationId={camera.primaryLocationId}
+      scenePanel={scenePanel}
       timeSlot={projection?.timeSlot}
       reducedMotion={reducedMotion}
       webglSupported={webglSupported}

@@ -31,7 +31,9 @@ import {
   nextCamera,
   nextZoomStep,
   primaryLocationId,
+  primarySceneLocationId,
   resolveFocusTarget,
+  sceneTargetId,
   townView,
   type CameraMode,
   type CameraViewport,
@@ -356,7 +358,95 @@ describe('focusTargetsFrom (AC#3)', () => {
 // AC#5 — auto-follow, and turning it off.
 // ---------------------------------------------------------------------------
 
-describe('primaryLocationId, the FR-O003 scene-focus seam', () => {
+describe('scene focus targets (FR-O003 / ART-122 AC#1/#3)', () => {
+  const HALL = 'mistwood-hall';
+  const hallFootprint = mistwoodLocationFootprints.find((footprint) => footprint.id === HALL)!;
+
+  test('every placeable scene yields one target at its location footprint centre', () => {
+    const all = focusTargetsFrom({
+      motions: [],
+      footprints: mistwoodLocationFootprints,
+      map: mistwoodWorldMap,
+      nowMs: 0,
+      scenes: [{ sceneId: `3:evening:${HALL}`, locationId: HALL, title: '簽約', status: 'active' }],
+    });
+    const scenes = all.filter((target) => target.kind === 'scene');
+    expect(scenes).toHaveLength(1);
+    expect(scenes[0].id).toBe(sceneTargetId(`3:evening:${HALL}`));
+    expect(scenes[0].label).toBe('簽約');
+    // The same point the location target for that footprint resolves to: a scene *is*
+    // somewhere, it does not have geometry of its own.
+    const location = all.find((target) => target.id === locationTargetId(HALL))!;
+    expect(scenes[0].point).toEqual(location.point);
+    expect(scenes[0].point).toEqual({
+      x: (hallFootprint.rect.x + hallFootprint.rect.width / 2) * mistwoodWorldMap.tileDim,
+      y: (hallFootprint.rect.y + hallFootprint.rect.height / 2) * mistwoodWorldMap.tileDim,
+    });
+  });
+
+  test('skips a scene the map cannot place rather than centring it at the origin', () => {
+    const scenes = focusTargetsFrom({
+      motions: [],
+      footprints: mistwoodLocationFootprints,
+      map: mistwoodWorldMap,
+      nowMs: 0,
+      scenes: [
+        { sceneId: 's1', locationId: 'nowhere-at-all', title: 'x' },
+        { sceneId: 's2', title: 'no location at all' },
+        { locationId: HALL, title: 'no scene id' },
+      ],
+    }).filter((target) => target.kind === 'scene');
+    expect(scenes).toEqual([]);
+  });
+
+  test('focusing a scene centres the camera on its location', () => {
+    const all = focusTargetsFrom({
+      motions: [],
+      footprints: mistwoodLocationFootprints,
+      map: mistwoodWorldMap,
+      nowMs: 0,
+      scenes: [{ sceneId: 'sc', locationId: HALL, title: '簽約' }],
+    });
+    const resolved = resolveFocusTarget({
+      mode: mode({ focusId: sceneTargetId('sc') }),
+      targets: all,
+      primaryLocationId: null,
+    });
+    expect(resolved?.kind).toBe('scene');
+    expect(resolved?.point).toEqual(all.find((target) => target.id === locationTargetId(HALL))!.point);
+  });
+
+  test('an unresolvable scene focus degrades to the town view rather than freezing', () => {
+    expect(resolveFocusTarget({
+      mode: mode({ focusId: sceneTargetId('scene-that-ended') }),
+      targets: targets(),
+      primaryLocationId: null,
+    })).toBeNull();
+  });
+});
+
+describe('primarySceneLocationId (FR-O003 AC#3) and its documented fallback', () => {
+  test('prefers an active scene over an ended one', () => {
+    expect(primarySceneLocationId([
+      { sceneId: 'a', locationId: 'mistwood-mill', status: 'ended' },
+      { sceneId: 'b', locationId: 'mistwood-hall', status: 'active' },
+    ])).toBe('mistwood-hall');
+  });
+
+  test('uses the degraded ended scene when no scene is active', () => {
+    expect(primarySceneLocationId([{ sceneId: 'a', locationId: 'mistwood-mill', status: 'ended' }]))
+      .toBe('mistwood-mill');
+  });
+
+  test('is null for no scenes and for scenes the payload could not place', () => {
+    expect(primarySceneLocationId([])).toBeNull();
+    // A payload persisted before ART-122 carries scenes with no locationId at all; the
+    // caller then falls back to the character-density heuristic rather than to nothing.
+    expect(primarySceneLocationId([{ sceneId: 'a', status: 'active' }])).toBeNull();
+  });
+});
+
+describe('primaryLocationId, the documented fallback for scene-less worlds', () => {
   test('is the location holding the most characters', () => {
     expect(
       primaryLocationId([

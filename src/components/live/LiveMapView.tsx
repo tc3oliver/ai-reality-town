@@ -12,6 +12,8 @@ import {
   type FocusTarget,
 } from '../world/cameraModel';
 import type { ReadOnlyWorldViewModel } from '../world/worldViewModel';
+import { ActiveScenePanel } from './ActiveScenePanel';
+import type { ActiveScenePanelModel } from './activeSceneModel';
 import { CameraControls } from './CameraControls';
 import { LiveMapFallback } from './LiveMapFallback';
 import { textLiveHref } from './liveMapRoute';
@@ -19,13 +21,17 @@ import { useElementSize } from './useElementSize';
 import { useReducedMotion } from './useReducedMotion';
 import { useSpriteAssets } from './useSpriteAssets';
 
+const EMPTY_SCENE_PANEL: ActiveScenePanelModel = { hasScenes: false, scenes: [] };
+
 export interface LiveMapViewProps {
   worldId: string;
   base: string;
   viewModel: ReadOnlyWorldViewModel;
   targets: readonly FocusTarget[];
-  /** The location standing in for "the active scene" until FR-O003 publishes one. */
+  /** Where auto-follow points: the published active scene's location (FR-O003 / ART-122). */
   primaryLocationId: string | null;
+  /** Display data for the active scene panel. Omitted renders the panel's empty state. */
+  scenePanel?: ActiveScenePanelModel;
   /** The Canon slot of the last accepted event, driving the day/night wash (FR-O012). */
   timeSlot?: string;
   /**
@@ -61,6 +67,7 @@ export function LiveMapView({
   viewModel,
   targets,
   primaryLocationId,
+  scenePanel,
   timeSlot,
   reducedMotion: reducedMotionProp,
   webglSupported,
@@ -118,6 +125,12 @@ export function LiveMapView({
           />
         )}
       </div>
+
+      <ActiveScenePanel
+        model={scenePanel ?? EMPTY_SCENE_PANEL}
+        mode={mode}
+        onModeChange={setMode}
+      />
 
       <CameraControls targets={targets} mode={mode} onModeChange={setMode} />
 

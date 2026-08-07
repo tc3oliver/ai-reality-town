@@ -29,11 +29,15 @@
 
 import {
   PUBLIC_ACTIVE_SCENE_FIELDS,
+  PUBLIC_ACTIVE_SCENE_OPTIONAL_FIELDS,
+  PUBLIC_ACTIVE_SCENE_PUBLICATION_STATUSES,
+  PUBLIC_ACTIVE_SCENE_STATUSES,
   PUBLIC_ANIMATION_STATES,
   PUBLIC_DIRECTIONS,
   PUBLIC_MOTION_OPTIONAL_FIELDS,
   PUBLIC_MOTION_REQUIRED_FIELDS,
   PUBLIC_MOTION_TYPES,
+  toPublicActiveScene,
   type PublicActiveScene,
   type PublicCharacterMotion,
   type PublicDynamicProjection,
@@ -339,11 +343,10 @@ export function buildRuntimeSnapshot(input: BuildRuntimeSnapshotInput): PublicRu
   }
   const status = toRuntimeSnapshotStatus(input.worldStatus);
   const characterStates = input.dynamic.characters.map((motion) => ({ ...motion }));
-  const activeSceneStates = input.dynamic.activeScenes.map((scene) => ({
-    title: scene.title,
-    summary: scene.summary,
-    sourceEventIds: [...scene.sourceEventIds],
-  }));
+  // ART-115's own narrowing function, not a copy of it: a snapshot must carry exactly the
+  // scene the projection published, and re-implementing the field list here is how the two
+  // would drift the first time one of them gained a field (which ART-122 is).
+  const activeSceneStates = input.dynamic.activeScenes.map(toPublicActiveScene);
 
   const snapshot: PublicRuntimeSnapshot = {
     schemaVersion: RUNTIME_SNAPSHOT_SCHEMA_VERSION,
@@ -614,11 +617,20 @@ function assertCharacterState(value: unknown, path: string): void {
   }
 }
 
+/**
+ * Validate one carried scene against ART-115's field allowlist, widened by ART-122.
+ *
+ * The optional list is passed through rather than left empty, and that is the whole reason
+ * ART-122's fields are optional: this assertion runs on {@link serveRuntimeSnapshot}, so a
+ * row written before those fields existed must still validate, and a row written after them
+ * must not be rejected as carrying unknown fields. Requiring either half would take the
+ * public read path down on rows nobody can rewrite.
+ */
 function assertActiveSceneState(value: unknown, path: string): void {
   if (!isPlainObject(value)) {
     throw new RuntimeSnapshotError('RUNTIME_SNAPSHOT_INVALID_SHAPE', `${path} must be an object`);
   }
-  assertExactFields(value, PUBLIC_ACTIVE_SCENE_FIELDS, [], path);
+  assertExactFields(value, PUBLIC_ACTIVE_SCENE_FIELDS, PUBLIC_ACTIVE_SCENE_OPTIONAL_FIELDS, path);
   if (typeof value.title !== 'string') {
     throw new RuntimeSnapshotError('RUNTIME_SNAPSHOT_INVALID_VALUE', `${path}.title must be a string`);
   }
@@ -626,6 +638,28 @@ function assertActiveSceneState(value: unknown, path: string): void {
     throw new RuntimeSnapshotError('RUNTIME_SNAPSHOT_INVALID_VALUE', `${path}.summary must be a string`);
   }
   assertSourceEventIds(value.sourceEventIds, `${path}.sourceEventIds`);
+
+  if (value.sceneId !== undefined) assertNonEmptyString(value.sceneId, `${path}.sceneId`);
+  if (value.locationId !== undefined) assertNonEmptyString(value.locationId, `${path}.locationId`);
+  if (value.participantCharacterIds !== undefined) {
+    assertSourceEventIds(value.participantCharacterIds, `${path}.participantCharacterIds`);
+  }
+  if (value.arcIds !== undefined) assertSourceEventIds(value.arcIds, `${path}.arcIds`);
+  if (value.status !== undefined) {
+    assertEnum(value.status, PUBLIC_ACTIVE_SCENE_STATUSES, `${path}.status`);
+  }
+  if (value.publicationStatus !== undefined) {
+    assertEnum(value.publicationStatus, PUBLIC_ACTIVE_SCENE_PUBLICATION_STATUSES, `${path}.publicationStatus`);
+  }
+  const startedAt = value.startedAt === undefined
+    ? null
+    : assertNonNegativeInteger(value.startedAt, `${path}.startedAt`);
+  const endedAt = value.endedAt === undefined
+    ? null
+    : assertNonNegativeInteger(value.endedAt, `${path}.endedAt`);
+  if (endedAt !== null && startedAt !== null && endedAt < startedAt) {
+    throw new RuntimeSnapshotError('RUNTIME_SNAPSHOT_INVALID_VALUE', `${path}.endedAt must not precede startedAt`);
+  }
 }
 
 /**

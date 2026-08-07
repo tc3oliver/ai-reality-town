@@ -34,6 +34,7 @@ export function CameraControls({
 }) {
   const locations = targets.filter((target) => target.kind === 'location');
   const characters = targets.filter((target) => target.kind === 'character');
+  const scenes = targets.filter((target) => target.kind === 'scene');
 
   return (
     <section className="live-camera-controls mt-3" aria-labelledby="live-camera-controls">
@@ -75,6 +76,16 @@ export function CameraControls({
         </button>
       </div>
 
+      {/* Scenes lead: FR-O003's whole point is that the active scene is what a viewer
+          wants to look at, and burying it under every location would bury the answer. */}
+      <FocusList
+        headingId="live-focus-scenes"
+        heading="聚焦場景"
+        targets={scenes}
+        mode={mode}
+        onModeChange={onModeChange}
+        emptyLabel="目前沒有可聚焦的場景。"
+      />
       <FocusList
         headingId="live-focus-locations"
         heading="聚焦地點"

@@ -129,17 +129,36 @@ to exercise made no request. Four independent gates instead:
   returning to the town view and toggling auto-follow produced **zero** requests. See the
   checklist below.
 
-## The scene-focus seam
+## Scene focus
 
-AC#3 asks for "focus an active scene". `PublicActiveScene` carries only `title`, `summary`
-and `sourceEventIds` — spatial scene data is FR-O003 (ART-122) and is deliberately not
-invented here, and `PUBLIC_ACTIVE_SCENE_FIELDS` is unchanged by this task.
+AC#3 asks for "focus an active scene", and since ART-122 (FR-O003) `PublicActiveScene`
+carries the `locationId` needed to do it. `focusTargetsFrom` emits one `kind: 'scene'` target
+per scene whose `locationId` resolves to a known map footprint, centred on the same point
+that location's own target uses. A scene with no matching footprint is **silently skipped**:
+a focus target is a promise that pressing it shows you something, and the alternative
+(centring at the origin) points the camera at the map's corner.
 
-Until it lands, the primary scene is derived from where the characters actually are:
-`primaryLocationId(motions)` returns the location holding the most of them, ties broken by
-ascending `locationId` so the result is deterministic. This is a named seam, not a
-placeholder — when ART-122 publishes a scene location, the replacement is a one-line change
-at the `nextCamera` call site and the camera model itself is unaffected.
+Scene focus is reachable from two places, both of which resolve to the same
+`FocusTarget` mechanism so they cannot disagree: the 聚焦場景 list in `CameraControls.tsx`,
+and the 聚焦此場景 button on each scene in `ActiveScenePanel.tsx`.
+
+Auto-follow points at:
+
+```ts
+primarySceneLocationId(scenes) ?? primaryLocationId(motions)
+```
+
+`primarySceneLocationId` prefers an `active` scene over the `ended` one AC#8 degrades to.
+
+`primaryLocationId(motions)` — the location holding the most characters, ties broken by
+ascending `locationId` — is **retained as a documented fallback**, not dead code. Two real
+cases still reach it: a world whose events name no location at all (so no scene is
+placeable), and a last-known-good payload persisted before ART-122, whose scenes carry no
+`locationId`. In both, guessing from character density beats pointing the camera at nothing.
+
+The camera memo depends on `projection.activeScenes`, never on the animation clock's `nowMs`
+— a fresh `targets` array per tick would restart the viewport tween thirty times a second and
+make the camera judder. See `docs/active-scene-presentation.md` for how a scene is derived.
 
 ## What the map draws
 

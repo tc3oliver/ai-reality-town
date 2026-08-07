@@ -39,7 +39,7 @@ import {
  * Bumped when a published field is added, removed or reinterpreted, so a client holding an
  * older payload can tell that it is reading a contract it does not fully understand.
  */
-export const PUBLIC_DYNAMIC_RUNTIME_VERSION = 2;
+export const PUBLIC_DYNAMIC_RUNTIME_VERSION = 3;
 
 /**
  * Why a character is where it is. `canon` is an accepted `character_location_changed` fact
@@ -84,14 +84,54 @@ export type PublicCharacterMotion = {
 };
 
 /**
- * The published half of an active scene. Spatial fields (location, participants, arcs) are
- * FR-O003 / ART-122's job and do not exist in reusable form yet, so they are absent rather
- * than invented.
+ * Whether a scene is the one happening now or the last one that happened (FR-O003 / ART-122).
+ * There is no third state: a scene the public can see is either current or finished, and
+ * "pending" is a producer-side idea the public contract has no room for.
+ */
+export const PUBLIC_ACTIVE_SCENE_STATUSES = ['active', 'ended'] as const;
+export type PublicActiveSceneStatus = (typeof PUBLIC_ACTIVE_SCENE_STATUSES)[number];
+
+/**
+ * A single-member union on purpose. Every scene reaching this contract has already passed
+ * the Canon-acceptance gate, so `published` is the only state expressible today; FR-P004
+ * (ART-132) owns the per-scene publication lifecycle and will widen this enum rather than
+ * making clients learn a field shape they have never seen.
+ */
+export const PUBLIC_ACTIVE_SCENE_PUBLICATION_STATUSES = ['published'] as const;
+export type PublicActiveScenePublicationStatus = (typeof PUBLIC_ACTIVE_SCENE_PUBLICATION_STATUSES)[number];
+
+/**
+ * The published half of an active scene (PRD 2.0 §14.6, FR-O003 / ART-122).
+ *
+ * Naming note: PRD 2.0 §14.6 calls the two text fields `publicTitle` / `publicSummary`.
+ * They are `title` / `summary` here because that is what this contract has published since
+ * ART-115 and what every existing consumer reads. Renaming them would break the Live view,
+ * the runtime snapshot and the client for no privacy gain — the values are identical either
+ * way, and what makes them public is the gate they passed, not the prefix on the key.
+ *
+ * Every spatial field is OPTIONAL, and that is load-bearing rather than lazy. Both
+ * {@link assertPublicDynamicProjection} and the runtime snapshot's validator refuse an
+ * unrecognised scene shape by throwing, and both run when a *stored* payload is read back.
+ * A required field would therefore make every row persisted before ART-122 — including the
+ * last-known-good version FR-O010 falls back to — fail on read and take the public map dark
+ * until the next rebuild.
  */
 export type PublicActiveScene = {
   title: string;
   summary: string;
   sourceEventIds: string[];
+  /** `${worldDay}:${timeSlot}:${locationId}` — derived, so an unchanged scene re-derives identically. */
+  sceneId?: string;
+  /** Omitted, never guessed, when the scene's events name no location: an unplaceable scene is unfocusable. */
+  locationId?: string;
+  participantCharacterIds?: string[];
+  arcIds?: string[];
+  status?: PublicActiveSceneStatus;
+  publicationStatus?: PublicActiveScenePublicationStatus;
+  /** Canon `acceptedAt` of the scene's first and last event. Never a clock read. */
+  startedAt?: number;
+  /** Present only on an `ended` scene; an active scene has no honest end. */
+  endedAt?: number;
 };
 
 export type PublicDynamicProjection = {
@@ -142,6 +182,15 @@ export const PUBLIC_MOTION_OPTIONAL_FIELDS = ['sourceEventIds'] as const;
 export const PUBLIC_ACTIVE_SCENE_FIELDS = ['title', 'summary', 'sourceEventIds'] as const;
 
 /**
+ * ART-122's widening, optional for the reason stated on {@link PublicActiveScene}: these
+ * names must be *accepted* on a stored payload without ever being *required* of one.
+ */
+export const PUBLIC_ACTIVE_SCENE_OPTIONAL_FIELDS = [
+  'sceneId', 'locationId', 'participantCharacterIds', 'arcIds',
+  'status', 'publicationStatus', 'startedAt', 'endedAt',
+] as const;
+
+/**
  * Field names that must never appear at any depth of a published payload. Two groups:
  * private Canon/LLM data (the §22 leakage boundary), and Visual Runtime planning detail
  * that is real but internal — publishing `waypoints` would leak the collision layer's
@@ -159,6 +208,11 @@ export const PUBLIC_DYNAMIC_FORBIDDEN_FIELDS = [
   'apiKey', 'token', 'privateProfile', 'privateGoal', 'fear', 'dialogue',
   // Runtime-only planning detail.
   'movementPhase', 'originLocationId', 'waypoints', 'problems',
+  // Scene-production vocabulary (ART-122). Nothing on this path produces these: the scene
+  // resolver reads accepted Canon events, and `GroupedScene` / `sceneSimulationRuns` — where
+  // these names live — are unreachable from `publicRead` by module boundary. Named anyway,
+  // because the cheapest moment to forbid a field is before anything can emit it.
+  'trigger', 'dramaticPressure', 'keyActions', 'dialogueHighlights', 'rumors',
 ] as const;
 
 export type PublicDynamicProjectionErrorCode =
@@ -312,12 +366,52 @@ export type PublicDynamicProjectionInput = {
   readonly seedPlacements: readonly SeedPlacement[];
   readonly acceptedEvents: readonly AcceptedEventLike[];
   readonly worldStatus: PublicWorldStatus;
-  readonly activeScenes: readonly {
-    readonly title: string;
-    readonly summary: string;
-    readonly sourceEventIds: readonly string[];
-  }[];
+  readonly activeScenes: readonly PublicActiveSceneInput[];
 };
+
+/** The read-only mirror of {@link PublicActiveScene}, as a producer supplies it. */
+export type PublicActiveSceneInput = {
+  readonly title: string;
+  readonly summary: string;
+  readonly sourceEventIds: readonly string[];
+  readonly sceneId?: string;
+  readonly locationId?: string;
+  readonly participantCharacterIds?: readonly string[];
+  readonly arcIds?: readonly string[];
+  readonly status?: PublicActiveSceneStatus;
+  readonly publicationStatus?: PublicActiveScenePublicationStatus;
+  readonly startedAt?: number;
+  readonly endedAt?: number;
+};
+
+/**
+ * Narrow one supplied scene to its published fields.
+ *
+ * Field by field rather than a spread, for the same reason
+ * {@link summarizeRuntimeProblems} constructs explicitly: a spread would silently publish
+ * whatever a future producer decided to attach, and the whole point of this module is that
+ * publishing is something someone has to do on purpose. An absent optional stays absent
+ * rather than becoming `undefined`, because a key with an `undefined` value survives
+ * `Object.keys` and would fail the allowlist check as an unknown field.
+ */
+export function toPublicActiveScene(scene: PublicActiveSceneInput): PublicActiveScene {
+  const published: PublicActiveScene = {
+    title: scene.title,
+    summary: scene.summary,
+    sourceEventIds: [...scene.sourceEventIds],
+  };
+  if (scene.sceneId !== undefined) published.sceneId = scene.sceneId;
+  if (scene.locationId !== undefined) published.locationId = scene.locationId;
+  if (scene.participantCharacterIds !== undefined) {
+    published.participantCharacterIds = [...scene.participantCharacterIds];
+  }
+  if (scene.arcIds !== undefined) published.arcIds = [...scene.arcIds];
+  if (scene.status !== undefined) published.status = scene.status;
+  if (scene.publicationStatus !== undefined) published.publicationStatus = scene.publicationStatus;
+  if (scene.startedAt !== undefined) published.startedAt = scene.startedAt;
+  if (scene.endedAt !== undefined) published.endedAt = scene.endedAt;
+  return published;
+}
 
 /**
  * How many planning problems the runtime reported, and of which kinds.
@@ -429,11 +523,7 @@ export function buildPublicDynamicProjectionResult(
     updatedAt: lastEvent ? lastEvent.acceptedAt : 0,
     worldStatus: input.worldStatus,
     characters,
-    activeScenes: input.activeScenes.map((scene) => ({
-      title: scene.title,
-      summary: scene.summary,
-      sourceEventIds: [...scene.sourceEventIds],
-    })),
+    activeScenes: input.activeScenes.map(toPublicActiveScene),
   };
   if (lastEvent) {
     projection.worldDay = lastEvent.worldDay;
@@ -544,11 +634,31 @@ function assertCharacterMotion(value: unknown, path: string): void {
   }
 }
 
+/**
+ * Sorted and duplicate-free, not merely well-typed. The order is part of the contract: an
+ * id list that arrived in Convex row order would change the payload's `contentHash` between
+ * two rebuilds of an unchanged world and append a version row every time.
+ */
+function assertSortedUniqueIds(value: unknown, path: string): void {
+  if (!Array.isArray(value)) {
+    throw new PublicDynamicProjectionError('PUBLIC_DYNAMIC_INVALID_SHAPE', `${path} must be an array`);
+  }
+  const ids = value.map((entry, index) => assertNonEmptyString(entry, `${path}[${index}]`));
+  for (let index = 1; index < ids.length; index += 1) {
+    if (ids[index - 1].localeCompare(ids[index]) >= 0) {
+      throw new PublicDynamicProjectionError(
+        'PUBLIC_DYNAMIC_INVALID_VALUE',
+        `${path} must be sorted and free of duplicates`,
+      );
+    }
+  }
+}
+
 function assertActiveScene(value: unknown, path: string): void {
   if (!isPlainObject(value)) {
     throw new PublicDynamicProjectionError('PUBLIC_DYNAMIC_INVALID_SHAPE', `${path} must be an object`);
   }
-  assertExactFields(value, PUBLIC_ACTIVE_SCENE_FIELDS, [], path);
+  assertExactFields(value, PUBLIC_ACTIVE_SCENE_FIELDS, PUBLIC_ACTIVE_SCENE_OPTIONAL_FIELDS, path);
   if (typeof value.title !== 'string') {
     throw new PublicDynamicProjectionError('PUBLIC_DYNAMIC_INVALID_VALUE', `${path}.title must be a string`);
   }
@@ -556,6 +666,34 @@ function assertActiveScene(value: unknown, path: string): void {
     throw new PublicDynamicProjectionError('PUBLIC_DYNAMIC_INVALID_VALUE', `${path}.summary must be a string`);
   }
   assertSourceEventIds(value.sourceEventIds, `${path}.sourceEventIds`);
+
+  if (value.sceneId !== undefined) assertNonEmptyString(value.sceneId, `${path}.sceneId`);
+  if (value.locationId !== undefined) assertNonEmptyString(value.locationId, `${path}.locationId`);
+  if (value.participantCharacterIds !== undefined) {
+    assertSortedUniqueIds(value.participantCharacterIds, `${path}.participantCharacterIds`);
+  }
+  if (value.arcIds !== undefined) assertSortedUniqueIds(value.arcIds, `${path}.arcIds`);
+  if (value.status !== undefined) {
+    assertEnum(value.status, PUBLIC_ACTIVE_SCENE_STATUSES, `${path}.status`);
+  }
+  if (value.publicationStatus !== undefined) {
+    assertEnum(value.publicationStatus, PUBLIC_ACTIVE_SCENE_PUBLICATION_STATUSES, `${path}.publicationStatus`);
+  }
+  const startedAt = value.startedAt === undefined
+    ? null
+    : assertFiniteNumber(value.startedAt, `${path}.startedAt`);
+  const endedAt = value.endedAt === undefined
+    ? null
+    : assertFiniteNumber(value.endedAt, `${path}.endedAt`);
+  if (startedAt !== null && startedAt < 0) {
+    throw new PublicDynamicProjectionError('PUBLIC_DYNAMIC_INVALID_VALUE', `${path}.startedAt must not be negative`);
+  }
+  if (endedAt !== null && startedAt !== null && endedAt < startedAt) {
+    throw new PublicDynamicProjectionError(
+      'PUBLIC_DYNAMIC_INVALID_VALUE',
+      `${path}.endedAt must not precede startedAt`,
+    );
+  }
 }
 
 /**
