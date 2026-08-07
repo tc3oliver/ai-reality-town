@@ -34,6 +34,8 @@ import { composeLiveViewModel } from './liveRoute';
 import type { EpisodeListIndex } from './episodeListRoute';
 
 const WORLD_ID = 'mistwood';
+/** The deployment prefix Vite builds with (`vite.config.ts` sets `base: '/ai-town'`). */
+const BASE = '/ai-town/';
 
 // ---------------------------------------------------------------------------
 // Rendering helpers
@@ -156,6 +158,7 @@ function homeViewModel() {
     },
     world: { name: '霧林鎮', currentWorldDay: 5, currentTimeSlot: '午後' },
     live: { worldTime: { worldDay: 5, timeSlot: '午後' } },
+    base: BASE,
   });
 }
 
@@ -331,6 +334,7 @@ describe('P0 public experiences pass automated accessibility checks (NFR-009)', 
       summary: null,
       world: null,
       live: null,
+      base: BASE,
     });
     await expectAccessible(<HomepageView worldId={WORLD_ID} vm={vm} />);
   });
@@ -380,7 +384,7 @@ describe('P0 public experiences pass automated accessibility checks (NFR-009)', 
 
   test('watch-only help page (ART-113)', async () => {
     await expectAccessible(
-      <HelpView worldId={WORLD_ID} vm={composeHelpViewModel({ worldId: WORLD_ID })} />,
+      <HelpView worldId={WORLD_ID} vm={composeHelpViewModel({ worldId: WORLD_ID, base: BASE })} />,
     );
   });
 
@@ -500,10 +504,10 @@ describe('Live has an equivalent accessible non-map view (NFR-009 AC#3)', () => 
     // ART-113 AC#10: the fallback stays signposted while the map renderer is
     // introduced, so it is not silently orphaned before ART-135 replaces it.
     const container = render(
-      <HelpView worldId={WORLD_ID} vm={composeHelpViewModel({ worldId: WORLD_ID })} />,
+      <HelpView worldId={WORLD_ID} vm={composeHelpViewModel({ worldId: WORLD_ID, base: BASE })} />,
     );
     const live = Array.from(container.querySelectorAll('a[href]')).find(
-      (anchor) => anchor.getAttribute('href') === `#live/${WORLD_ID}`,
+      (anchor) => anchor.getAttribute('href') === `/ai-town/live/${WORLD_ID}/text`,
     );
     expect(live).toBeDefined();
     expect(accessibleName(live as Element)).not.toBe('');
@@ -512,10 +516,17 @@ describe('Live has an equivalent accessible non-map view (NFR-009 AC#3)', () => 
   test('the homepage links to the non-map live view', () => {
     const container = render(<HomepageView worldId={WORLD_ID} vm={homeViewModel()} />);
     const live = Array.from(container.querySelectorAll('a[href]')).find(
-      (anchor) => anchor.getAttribute('href') === `#live/${WORLD_ID}`,
+      (anchor) => anchor.getAttribute('href') === `/ai-town/live/${WORLD_ID}/text`,
     );
     expect(live).toBeDefined();
     expect(accessibleName(live as Element)).not.toBe('');
+    // ART-118 (FR-O001): the map is offered too, but never *instead* of the
+    // non-map view -- both entry points ship together.
+    const map = Array.from(container.querySelectorAll('a[href]')).find(
+      (anchor) => anchor.getAttribute('href') === `/ai-town/live/${WORLD_ID}`,
+    );
+    expect(map).toBeDefined();
+    expect(accessibleName(map as Element)).not.toBe('');
   });
 });
 

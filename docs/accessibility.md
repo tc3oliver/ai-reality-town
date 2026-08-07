@@ -3,7 +3,9 @@
 Owner task: **ART-93**. Requirement: **PRD 1.0 §14 NFR-009** (`backlog/docs/prd/ai-reality-town-prd-1.0/doc-1`).
 
 Scope: the **P0 public experiences** only — Homepage (`#home/<worldId>`), Live
-(`#live/<worldId>`), Episode list (`#episodes/<worldId>`), Episode detail
+(`<base>/live/<worldId>` for the map and `<base>/live/<worldId>/text` for the
+text view; the legacy `#live/<worldId>` hash redirects to the map since
+ART-118), Episode list (`#episodes/<worldId>`), Episode detail
 (`#episode/<worldId>/<worldDay>`), Character (`#character/<worldId>/<characterId>`)
 and Story Arc (`#arc/<worldId>/<arcId>`).
 
@@ -291,13 +293,43 @@ This matches the PRD's own P0 stance for FR-I002 — summary/essence only, no
 game-quality animation — so no separate "text mode" toggle is warranted: there
 is no non-text mode of the Live experience to toggle away from.
 
-**Known limitation (recorded, not fixed here):** the PixiJS map runtime keys off
-the AI Town world identifier from `api.world.defaultWorldStatus`, which is a
-different identifier namespace from the canon `worldId` the public routes use. A
-deep link from the map to `#live/<worldId>` is therefore not derivable on the
-client today. Bridging the two namespaces is a separate change and is not
-required by NFR-009, which asks for an equivalent accessible view — which
-exists, and is reachable from the public Homepage.
+**Closed by ART-118 (FR-O001).** The limitation recorded here — that the PixiJS
+map keyed off a different world-identifier namespace than the public routes, so
+a deep link from the map to the text view was not derivable on the client — no
+longer applies. The retired a16z runtime is gone (ART-112) and the live map is
+mounted on a canon `worldId` route, so the map and the text view are now
+siblings under one path: `<base>/live/<worldId>` and `<base>/live/<worldId>/text`.
+The map links to the text view directly, the Homepage links to both, the help
+page links to the text view, and the WebGL-unavailable page's only call to
+action is the text view.
+
+### 4.6 The live map's camera (ART-118 / FR-O005)
+
+A canvas is opaque to assistive technology, so none of the camera's affordances
+are on it. Pan, zoom, focus-a-location, focus-a-character, return-to-town and
+the auto-follow toggle are all real `<button>` elements beside the canvas, in
+`src/components/live/CameraControls.tsx`. They are therefore in the tab order by
+construction, carry visible Chinese labels as their accessible names, use
+`aria-pressed` to announce which focus and follow state is active, and take the
+shared `.public-tap` 44px target. `src/components/live/liveMap.a11y.test.tsx`
+asserts all of that plus an axe-clean pass, and additionally that no
+`[onclick]`/`role="button"` pseudo-control exists.
+
+Reduced Motion is honoured by the camera itself, not by the stylesheet: a
+pixi-viewport tween is a JavaScript animation on a canvas, and the
+`prefers-reduced-motion` CSS guard cannot reach it. `useReducedMotion` feeds the
+preference into the pure camera model, which resolves it to a transition of
+exactly zero milliseconds — the camera snaps and schedules no tween at all — and
+the viewport drops its inertia (`decelerate`) plugin and wheel smoothing. See
+[`live-view-navigation.md`](./live-view-navigation.md).
+
+**Outstanding manual check:** the map's *gestures* (drag, wheel, pinch) and the
+frame-by-frame transition timing were exercised in a real browser and recorded in
+the ART-118 implementation notes, but the automation browser throttled
+`requestAnimationFrame` to ~2 fps, so smoothness under Reduced Motion was verified
+at the plugin level rather than frame by frame. Screen-reader announcement of the
+camera controls falls under the same §4.4 manual gap as the rest of the public
+surface.
 
 ---
 

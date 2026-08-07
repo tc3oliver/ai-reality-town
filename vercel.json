@@ -2,6 +2,14 @@
   "framework": "vite",
   "rewrites": [
     {
+      "source": "/ai-town/live/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/live/:path*",
+      "destination": "/index.html"
+    },
+    {
       "source": "/ai-town/:match*",
       "destination": "/:match*"
     }

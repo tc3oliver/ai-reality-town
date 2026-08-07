@@ -18,6 +18,12 @@ const REQUIRED_MODULES = [
   // entry point and the shared buttons are inside the read-only boundary too, and
   // `clientProvider` isolates the one file that may construct a Convex client.
   'clientShell', 'clientProvider',
+  // ART-118 / FR-O001. `clientLive` owns the live map page and its camera chrome --
+  // the one client module that carries click handlers -- so "no camera operation can
+  // write" is a boundary the build checks rather than a review convention.
+  // `clientLiveRoute` is the pure URL module both it and the public pages link
+  // through, kept dependency-free so neither has to depend on the other.
+  'clientLive', 'clientLiveRoute',
 ];
 
 /** Convex registration helpers that publish a function to unauthenticated clients. */

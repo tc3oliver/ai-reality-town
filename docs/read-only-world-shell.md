@@ -15,12 +15,22 @@ enforced, so a later change cannot quietly reintroduce a write path.
 | `PixiStaticMap.tsx` | Blits the Mistwood tilemap (`data/mistwood.ts`, FR-N009) and its animated sprites. |
 | `Character.tsx` | One animated sprite with idle / walking / speaking / thinking states. |
 | `PixiViewport.tsx` | Drag, pinch and wheel camera. Camera state is local and never leaves the browser. |
+| `cameraModel.ts` | Pure. Where the camera looks, how far it zooms, how long the move takes. No DOM, no Pixi (ART-118). |
+| `CameraController.tsx` | Renders null. Applies a `CameraView` to the viewport. Data props only (ART-118). |
+| `MapZoneLayer.tsx` | The eight location footprints as labelled outlines, plus an optional collision tint (ART-118). |
+| `webglSupport.ts` | Pure probe: can this browser create a WebGL context (ART-118). |
 
 The shell takes an already-read view model. It issues no query itself, which makes "public
 reads never trigger generation" a property of composition rather than of this module's
-discipline. Producing the motion data is FR-N003/FR-N010; composing the shell onto a live
-page is FR-O001. Until then the shell renders the map with an empty character list, which
-is a valid frame.
+discipline. Producing the motion data is FR-N003/FR-N010.
+
+ART-118 (FR-O001) composed the shell onto a live page for the first time and added the
+camera. The camera *model* lives here because it produces nothing but view state; the
+buttons that choose a camera deliberately do not, because this module may not carry a
+handler — see [`live-view-navigation.md`](./live-view-navigation.md). Character sprites are
+still absent: no public query publishes a `characterId -> spriteKey` binding until FR-O002
+(ART-119), so the character layer is mounted and positioned but draws nothing, which is a
+valid frame.
 
 ## Why a viewer cannot write
 
@@ -28,19 +38,25 @@ is a valid frame.
    `useAction`, `useConvex`, `ConvexHttpClient`, or the retired a16z input helpers.
 2. **No heartbeat.** The hooks that kept the a16z engine alive were deleted with the engine
    (ART-112) and nothing replaced them. The shell schedules no backend work.
-3. **No pointer events.** The tile container and every character container are
-   `eventMode: 'none'` with `interactiveChildren: false`. A click on the map or on a sprite
-   is not delivered to anything, so it cannot set a destination -- there is no handler for
-   it to reach. Camera gestures are unaffected: the viewport handles its own.
+3. **No pointer events.** The tile container, the zone layer and every character container
+   are `eventMode: 'none'` with `interactiveChildren: false`. A click on the map, a zone or a
+   sprite is not delivered to anything, so it cannot set a destination -- there is no handler
+   for it to reach. Camera gestures are unaffected: the viewport handles its own.
 4. **No control affordances.** The Interact and Freeze buttons, the chat panel and the
-   conversation controls were removed with the engine and have no replacement.
+   conversation controls were removed with the engine and have no replacement. ART-118's
+   camera controls are DOM buttons in `src/components/live/`, outside this module on
+   purpose, precisely so this property survives click-to-focus.
 
 ## How it is enforced
 
-- `architecture/module-boundaries.json` declares `clientPublic` and `clientWorldReadOnly`
-  as modules that may depend only on `publicRead` and `shared` -- never Canon, Simulation,
-  Story, Editorial or Operations -- and adds `readOnlyClientBoundary`, a list of world-write
-  symbols that may not appear inside those roots.
+- `architecture/module-boundaries.json` declares `clientPublic`, `clientWorldReadOnly` and
+  (since ART-118) `clientLive` as modules that may depend only on `publicRead` and `shared`
+  -- never Canon, Simulation, Story, Editorial or Operations -- and adds
+  `readOnlyClientBoundary`, a list of world-write symbols that may not appear inside those
+  roots.
+- `src/components/live/liveMapSurface.test.ts` is the same kind of scan for the one client
+  module that *does* carry click handlers, and additionally proves the camera chrome names no
+  request API at all (ART-118 / FR-O001 AC#4).
 - `npm run check:architecture` fails the build on either violation;
   `npm run test:architecture` proves the policy rejects representative violations.
 - `src/components/world/readOnlyWorldSurface.test.ts` is the product-side acceptance
@@ -76,6 +92,9 @@ is possible any more, so the public surface no longer offers it:
   and grants no world-control capability, because the public surface has none to grant. It
   renders only when `VITE_CLERK_PUBLISHABLE_KEY` is set, since `Authenticated` /
   `Unauthenticated` throw outside a `ConvexProviderWithClerk`.
-- The text Live View (`#live/<worldId>`) stays routable and linked from both the homepage
-  and the help page. It is the non-map equivalent required by NFR-009 AC#3, and it must
-  remain reachable until ART-135 ships its replacement.
+- The text Live View stays routable and linked from the homepage, the help page and the map
+  itself. It is the non-map equivalent required by NFR-009 AC#3, and it must remain
+  reachable until ART-135 ships its replacement. ART-118 moved it from `#live/<worldId>` to
+  `<base>/live/<worldId>/text`, the map route's sibling; the legacy hash redirects to the map
+  with the world identifier preserved. See
+  [`live-view-navigation.md`](./live-view-navigation.md).

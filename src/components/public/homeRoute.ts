@@ -19,7 +19,14 @@
  * Pure module — no React, no Convex, no DOM, no clock, no randomness. The input
  * shapes mirror the published projection payloads (redeclared locally, as the
  * component does, to avoid importing Convex internals into the client bundle).
+ *
+ * The live hrefs are built here rather than in the component because they depend
+ * on the deployment base path, which is `import.meta.env.BASE_URL` — an
+ * expression Vite inlines at build time and Jest cannot see. Passing it in keeps
+ * the accessibility suite able to render the real markup (ART-118 / FR-O001 AC#8).
  */
+
+import { liveMapHref, textLiveHref } from '../live/liveMapRoute';
 
 /** Published onboarding summary (FR-H001) — fields the homepage reads. */
 export type HomeOnboardingSummary = {
@@ -80,6 +87,10 @@ export type HomepageViewModel = {
   recommendedEpisode: { episodeNumber: number; worldDay: number; href: string } | null;
   /** Live world time, or null when the live model is unpublished (AC#5). */
   live: { worldDay: number; timeSlot: string } | null;
+  /** The animated live map (FR-O001). */
+  liveMapHref: string;
+  /** Its non-map equivalent, which the homepage must also link (NFR-009 AC#3). */
+  textLiveHref: string;
   /** Voting is not yet an active capability (ART-45) — always false here (AC#5). */
   voteAvailable: boolean;
 };
@@ -99,6 +110,8 @@ export function composeHomepageViewModel(input: {
   summary: HomeOnboardingSummary | null;
   world: HomeWorldProjection | null;
   live: HomeLiveProjection | null;
+  /** Deployment path prefix (`import.meta.env.BASE_URL`). */
+  base: string;
 }): HomepageViewModel {
   const summary = input.summary;
   const structured = summary?.structured;
@@ -130,6 +143,8 @@ export function composeHomepageViewModel(input: {
     })),
     recommendedEpisode: recommended,
     live: liveTime ? { worldDay: liveTime.worldDay, timeSlot: liveTime.timeSlot } : null,
+    liveMapHref: liveMapHref(input.worldId, input.base),
+    textLiveHref: textLiveHref(input.worldId, input.base),
     voteAvailable: false,
   };
 }

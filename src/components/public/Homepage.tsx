@@ -61,6 +61,7 @@ export default function Homepage() {
     summary: (onboarding?.payload ?? null) as HomeOnboardingSummary | null,
     world: (world?.payload ?? null) as HomeWorldProjection | null,
     live: (live?.payload ?? null) as HomeLiveProjection | null,
+    base: import.meta.env.BASE_URL,
   });
 
   return <HomepageView worldId={worldId} vm={vm} />;
@@ -132,10 +133,13 @@ export function HomepageView({ worldId, vm }: { worldId: string; vm: HomepageVie
         ) : (
           <p className="public-muted">實況尚未開始。</p>
         )}
-        {/* NFR-009 AC#3: the text live view is the non-map equivalent of the
-            world's live state, and the homepage is its entry point. */}
+        {/* FR-O001: the animated live map is the primary live entry point... */}
         <p className="mt-1">
-          <a href={`#live/${worldId}`}>開啟文字實況(不需地圖)</a>
+          <a href={vm.liveMapHref}>開啟實況地圖</a>
+        </p>
+        {/* ...and NFR-009 AC#3: its non-map equivalent is always offered beside it. */}
+        <p className="mt-1">
+          <a href={vm.textLiveHref}>開啟文字實況(不需地圖)</a>
         </p>
         {/* ART-113 (FR-N002 AC#8): the watch-only guide replaces the retired
             "how to play" help. It describes watching and navigating, and
