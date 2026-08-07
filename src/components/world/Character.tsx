@@ -1,31 +1,49 @@
-import { BaseTexture, ISpritesheetData, Spritesheet } from 'pixi.js';
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { AnimatedSprite, Container, Graphics, Text } from '@pixi/react';
+import { ISpritesheetData, Spritesheet } from 'pixi.js';
+import { useState, useEffect, useRef } from 'react';
+import { AnimatedSprite, Container } from '@pixi/react';
 import * as PIXI from 'pixi.js';
 
+import { CharacterStateIndicator } from './CharacterStateIndicator';
+import { WALK_ANIMATION_SPEED } from './characterAnimation';
+import { loadSpriteSheet } from './spriteSheetCache';
+import type { PublicAnimationState } from './worldViewModel';
+
 /**
- * Read-only character sprite (ART-113 / FR-N002).
+ * Read-only character sprite (ART-113 / FR-N002, animated by ART-119 / FR-O002).
  *
  * The inherited a16z version took an `onClick` handler and made its container
  * `interactive` with a `pointerdown` binding, because clicking a character
  * opened the chat panel that could start a conversation. That write path was
- * retired with the engine (ART-112), so the sprite now accepts no callback and
- * takes no pointer events at all (AC#3/#4/#5): there is nothing a click on a
- * character could invoke.
+ * retired with the engine (ART-112), so the sprite accepts no callback and takes
+ * no pointer events at all (AC#3/#4/#5): there is nothing a click on a character
+ * could invoke.
+ *
+ * ART-119 made it move. Three changes:
+ *
+ * - the walk cycle plays only while `isMoving`, and picks its facing from
+ *   `orientation`, so a character walks in the direction it is actually
+ *   travelling (AC#4) and holds a still frame otherwise (AC#3);
+ * - the published `animationState` is passed through whole instead of being
+ *   flattened into two booleans, and the emoji `Text` overlays it used to drive
+ *   are replaced by {@link ./CharacterStateIndicator}'s drawn shapes — see that
+ *   module for why emoji could not stay (AC#5);
+ * - the spritesheet comes from {@link ./spriteSheetCache} rather than being
+ *   parsed per instance, so twelve residents share eight parses instead of
+ *   starting twelve.
  */
 export const Character = ({
+  spriteKey,
   textureUrl,
   spritesheetData,
   x,
   y,
   orientation,
   isMoving = false,
-  isThinking = false,
-  isSpeaking = false,
-  emoji = '',
-  isViewer = false,
-  speed = 0.1,
+  animationState = 'idle',
+  speed = WALK_ANIMATION_SPEED,
 }: {
+  /** Asset key; the spritesheet cache key, since all eight base sprites share one URL. */
+  spriteKey: string;
   // Path to the texture packed image.
   textureUrl: string;
   // The data for the spritesheet.
@@ -35,30 +53,21 @@ export const Character = ({
   y: number;
   orientation: number;
   isMoving?: boolean;
-  // Shows a thought bubble if true.
-  isThinking?: boolean;
-  // Shows a speech bubble if true.
-  isSpeaking?: boolean;
-  emoji?: string;
-  // Highlights the player.
-  isViewer?: boolean;
+  /** The published state. Drives the indicator above the sprite. */
+  animationState?: PublicAnimationState;
   // The speed of the animation. Can be tuned depending on the side and speed of the NPC.
   speed?: number;
 }) => {
   const [spriteSheet, setSpriteSheet] = useState<Spritesheet>();
   useEffect(() => {
-    const parseSheet = async () => {
-      const sheet = new Spritesheet(
-        BaseTexture.from(textureUrl, {
-          scaleMode: PIXI.SCALE_MODES.NEAREST,
-        }),
-        spritesheetData,
-      );
-      await sheet.parse();
-      setSpriteSheet(sheet);
+    let mounted = true;
+    void loadSpriteSheet(spriteKey, textureUrl, spritesheetData).then((sheet) => {
+      if (mounted) setSpriteSheet(sheet);
+    });
+    return () => {
+      mounted = false;
     };
-    void parseSheet();
-  }, []);
+  }, [spriteKey, textureUrl, spritesheetData]);
 
   // The first "left" is "right" but reflected.
   const roundedOrientation = Math.floor(orientation / 90);
@@ -75,54 +84,17 @@ export const Character = ({
 
   if (!spriteSheet) return null;
 
-  let blockOffset = { x: 0, y: 0 };
-  switch (roundedOrientation) {
-    case 2:
-      blockOffset = { x: -20, y: 0 };
-      break;
-    case 0:
-      blockOffset = { x: 20, y: 0 };
-      break;
-    case 3:
-      blockOffset = { x: 0, y: -20 };
-      break;
-    case 1:
-      blockOffset = { x: 0, y: 20 };
-      break;
-  }
-
   return (
     <Container x={x} y={y} eventMode="none" interactiveChildren={false}>
-      {isThinking && (
-        // TODO: We'll eventually have separate assets for thinking and speech animations.
-        <Text x={-20} y={-10} scale={{ x: -0.8, y: 0.8 }} text={'💭'} anchor={{ x: 0.5, y: 0.5 }} />
-      )}
-      {isSpeaking && (
-        // TODO: We'll eventually have separate assets for thinking and speech animations.
-        <Text x={18} y={-10} scale={0.8} text={'💬'} anchor={{ x: 0.5, y: 0.5 }} />
-      )}
-      {isViewer && <ViewerIndicator />}
+      <CharacterStateIndicator animationState={animationState} />
       <AnimatedSprite
         ref={ref}
         isPlaying={isMoving}
         textures={spriteSheet.animations[direction]}
         animationSpeed={speed}
         anchor={{ x: 0.5, y: 0.5 }}
+        eventMode="none"
       />
-      {emoji && (
-        <Text x={0} y={-24} scale={{ x: -0.8, y: 0.8 }} text={emoji} anchor={{ x: 0.5, y: 0.5 }} />
-      )}
     </Container>
   );
 };
-
-function ViewerIndicator() {
-  const draw = useCallback((g: PIXI.Graphics) => {
-    g.clear();
-    g.beginFill(0xffff0b, 0.5);
-    g.drawRoundedRect(-10, 10, 20, 10, 100);
-    g.endFill();
-  }, []);
-
-  return <Graphics draw={draw} />;
-}

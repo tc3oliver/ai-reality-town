@@ -90,10 +90,10 @@ const NO_COLLISION: readonly (readonly number[])[] = [];
  * returns -- which is how "renders the Mistwood map and character sprites" and
  * "carries no callback anywhere in the tree" are asserted rather than assumed.
  *
- * The three named layers are drawn back to front. `character-layer` exists and
- * is positioned even while it is empty: character sprites need a published
- * `spriteKey`, which is FR-O002 (ART-119)'s job, and a layer that appears only
- * once it has contents is a layer whose z-order was never tested.
+ * The three named layers are drawn back to front. `character-layer` was mounted
+ * and positioned while it was still empty, because a layer that appears only
+ * once it has contents is a layer whose z-order was never tested; ART-119
+ * (FR-O002) supplied the sprite bindings that fill it.
  */
 export function ReadOnlyWorldScene({
   app,
@@ -138,14 +138,14 @@ export function ReadOnlyWorldScene({
           return (
             <Character
               key={character.characterId}
+              spriteKey={character.spriteKey}
               textureUrl={asset.textureUrl}
               spritesheetData={asset.spritesheetData}
               x={character.x}
               y={character.y}
               orientation={character.orientation}
               isMoving={character.isMoving}
-              isSpeaking={character.isSpeaking}
-              isThinking={character.isThinking}
+              animationState={character.animationState}
             />
           );
         })}
