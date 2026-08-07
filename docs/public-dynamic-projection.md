@@ -28,16 +28,23 @@ validated payload. No `ctx`, no database handle, no clock.
 | `updatedAt` | Last accepted event's `acceptedAt`, or `0`. **Not a clock read** — see below. |
 | `worldStatus` | `running` \| `paused` \| `unknown`. The raw `worldSchedules.status`, nothing more. |
 | `characters` | One `PublicCharacterMotion` per publishable character, sorted by `characterId`. |
-| `activeScenes` | The published episode's key scenes: `title`, `summary`, `sourceEventIds`. |
+| `activeScenes` | One `PublicActiveScene` per scene the map should show, newest activity first. Required: `title`, `summary`, `sourceEventIds`. *Optional (ART-122):* `sceneId`, `locationId`, `participantCharacterIds`, `arcIds`, `status`, `publicationStatus`, `startedAt`, `endedAt`. See `docs/active-scene-presentation.md`. |
 | `worldDay` | *Optional.* Last accepted event's Canon day. Absent for a world with no history. Seeds the client's ambient derivation (FR-O011). |
 | `timeSlot` | *Optional.* Last accepted event's Canon slot. Absent for a world with no history. Drives the day/night wash (FR-O012). |
 
-`runtimeVersion` is **2** as of ART-120, which added those two optional fields.
+`runtimeVersion` is **3** as of ART-122, which widened `PublicActiveScene` with the spatial
+fields listed above; ART-120 (version 2) added the two optional root fields.
 
-They are optional and not required on purpose. `selectPublicDynamicProjection` re-validates the
-stored payload on every read, so a required field would reject every payload persisted before
-ART-120 — including the last-known-good version FR-O010 falls back to — and blank the live map
-for every viewer until the next Canon commit rebuilt it, which is hours.
+Every one of those additions is optional and not required, on purpose.
+`selectPublicDynamicProjection` re-validates the stored payload on every read, so a required
+field would reject every payload persisted before the change — including the last-known-good
+version FR-O010 falls back to — and blank the live map for every viewer until the next Canon
+commit rebuilt it, which is hours. ART-122 inherits exactly this constraint: see
+`docs/active-scene-presentation.md` §5.
+
+Since ART-122 the scenes are derived from accepted Canon events grouped by
+`(worldDay, timeSlot, locationId)` rather than from the day's episode, so the map has a scene
+on every slot instead of only after the episode is narrated (FR-O003 AC#7).
 
 `timeSlot` is validated as a non-empty string rather than as an enum. Pinning Canon's five-slot
 vocabulary into the public contract would turn "Canon grew a sixth slot" into a blank live map;

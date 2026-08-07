@@ -20,6 +20,7 @@ import { rowToAcceptedEvent } from '../canon/serialize';
 import { parseArcProjectionFields } from '../story/projection';
 import { detectUnboundCharacters } from '../visualRuntime/characterBindings';
 import { mistwoodRuntimeContext, type VisualRuntimeContext } from '../visualRuntime/mistwoodRuntime';
+import { buildActiveScenePresentations, type SceneArcMembership } from './activeScenePresentation';
 import { detectLocationMismatches } from './canonRuntimeMismatch';
 import { toIncident, type DynamicViewIncident } from './dynamicViewMetrics';
 import { commitDynamicViewMetrics, dynamicViewMetricsWriteStore } from './dynamicViewMetricsFunctions';
@@ -27,6 +28,7 @@ import { commitReadModelVersion, serveReadModel } from './readModel';
 import { readStore, writeStore } from './readModelFunctions';
 import {
   buildPublicDynamicProjectionResult,
+  excludedCharacterIds,
   seedPlacementsFromCharacterRows,
   selectPublicDynamicProjection,
   type AttributedRuntimeProblem,
@@ -47,6 +49,9 @@ import {
 
 type ArcLifecycleRow = { arcId: string; status: string };
 type ArcProjectionEventRow = { arcId: string; revision: number; fields: unknown };
+type ArcClassificationRow = { sourceEventSequenceNumber: number; memberships?: unknown };
+/** `memberships` is `v.any()` in the schema, so it is read as untyped storage. */
+type ClassificationMembership = { arcId?: unknown };
 type DailyEpisodeRow = {
   status: string;
   worldDay: number;
@@ -137,13 +142,18 @@ export const rebuildLiveProjection = internalMutation({
       throw new Error('LIVE_STATE_INVALID');
     }
 
-    const [canonRows, lifecycleRows, projectionRows, episodeRows, characterRows, scheduleRow] = await Promise.all([
+    const [
+      canonRows, lifecycleRows, projectionRows, episodeRows, characterRows, scheduleRow, classificationRows,
+    ] = await Promise.all([
       ctx.db.query('canonEvents').withIndex('by_world_and_sequence', (q) => q.eq('worldId', args.worldId)).collect(),
       ctx.db.query('storyArcLifecycles').withIndex('by_world_and_arc', (q) => q.eq('worldId', args.worldId)).collect(),
       ctx.db.query('storyArcProjectionEvents').withIndex('by_world_arc_and_revision', (q) => q.eq('worldId', args.worldId)).collect(),
       ctx.db.query('dailyEpisodes').withIndex('by_world_and_day', (q) => q.eq('worldId', args.worldId)).collect(),
       ctx.db.query('worldCharacters').withIndex('by_world_id', (q) => q.eq('worldId', args.worldId)).collect(),
       ctx.db.query('worldSchedules').withIndex('by_world_id', (q) => q.eq('worldId', args.worldId)).unique(),
+      // The arc membership of each event (FR-O003 AC#6). `publicRead` already depends on
+      // `story`, so this is a seventh parallel read rather than a new module dependency.
+      ctx.db.query('storyArcEventClassifications').withIndex('by_world', (q) => q.eq('worldId', args.worldId)).collect(),
     ]);
 
     const acceptedEvents = canonRows.map(rowToAcceptedEvent);
@@ -180,6 +190,30 @@ export const rebuildLiveProjection = internalMutation({
       };
     })();
 
+    // Read defensively rather than through `parseArcEventClassification`, matching the three
+    // sibling projections in this directory: the strict parser throws on a malformed row,
+    // and a classification nobody can parse must cost this rebuild an arc label, not the
+    // whole public read path (the same isolation `canonCharacterLocations` states above).
+    const arcMemberships: SceneArcMembership[] = (classificationRows as ArcClassificationRow[]).flatMap((row) => {
+      const memberships = row.memberships as ClassificationMembership[] | undefined;
+      if (!Array.isArray(memberships)) return [];
+      const arcIds = memberships
+        .map((membership) => membership.arcId)
+        .filter((arcId): arcId is string => typeof arcId === 'string' && arcId.length > 0);
+      return arcIds.length > 0
+        ? [{ sourceEventSequenceNumber: row.sourceEventSequenceNumber, arcIds }]
+        : [];
+    });
+
+    // Derived once and published to both the map's projection and the text Live view, so the
+    // two can never disagree about which scene is current (FR-O003 AC#7).
+    const presentation = buildActiveScenePresentations({
+      acceptedEvents,
+      arcMemberships,
+      publishedEpisodeScenes: publishedEpisode?.keyScenes ?? [],
+      excludedCharacterIds: excludedCharacterIds(acceptedEvents),
+    });
+
     const runtime = visualRuntimeForWorld(args.worldId);
     const worldStatus: PublicWorldStatus = scheduleRow?.status ?? 'unknown';
     const derived = runtime
@@ -190,7 +224,7 @@ export const rebuildLiveProjection = internalMutation({
           seedPlacements: seedPlacementsFromCharacterRows(characterRows),
           acceptedEvents,
           worldStatus,
-          activeScenes: publishedEpisode?.keyScenes ?? [],
+          activeScenes: presentation.scenes,
         })
       : null;
     const dynamic = derived?.projection ?? null;
@@ -200,6 +234,7 @@ export const rebuildLiveProjection = internalMutation({
       acceptedEvents,
       arcs,
       publishedEpisode,
+      activeScenes: presentation.scenes,
       recentEventCount: args.recentEventCount ?? LIVE_RECENT_EVENT_DEFAULT,
       dynamic,
     });
@@ -259,6 +294,11 @@ export const rebuildLiveProjection = internalMutation({
       version: result.version,
       deduplicated: result.deduplicated,
       dynamicCharacterCount: dynamic?.characters.length ?? 0,
+      // Which scene producer answered, without anyone having to read the payload to find
+      // out (FR-O003 AC#7/#8). `degraded` for a run of rebuilds means the world has stopped
+      // producing placeable events; `none` means it never has.
+      activeSceneCount: presentation.scenes.length,
+      activeSceneMode: presentation.mode,
       snapshotSequence: snapshot?.snapshotSequence ?? null,
       dynamicProblemCount: derived?.problems.total ?? 0,
       dynamicProblemsByCode: derived?.problems.byCode ?? {},

@@ -191,6 +191,25 @@ describe('the live map surface (FR-O001 AC#4)', () => {
     expect(controls).not.toMatch(/\bhref\s*=/);
   });
 
+  test('the active scene panel can issue no request either (FR-O003 / ART-122 AC#3)', () => {
+    // ART-122 added a second interactive surface to this module, so it needs the same proof
+    // CameraControls carries: focusing a scene is a `useState` setter one component up, and
+    // looking at a scene must never be able to make the world produce one.
+    const panel = fileNamed('ActiveScenePanel.tsx');
+    expect(REQUEST_APIS.filter((api) => new RegExp(`\\b${api}\\b`).test(panel))).toEqual([]);
+    expect(panel).toContain('onModeChange');
+    // Unlike CameraControls it does carry an `href` — the Episode deep link AC#5 asks for.
+    // That is an ordinary same-origin navigation, not a request this page issues.
+    expect(panel).toMatch(/href=\{scene\.episodeHref\}/);
+  });
+
+  test('the scene panel model is pure: no React, no clock, no network', () => {
+    const model = fileNamed('activeSceneModel.ts');
+    expect(REQUEST_APIS.filter((api) => new RegExp(`\\b${api}\\b`).test(model))).toEqual([]);
+    expect(model).not.toContain('Date.now');
+    expect(model).not.toContain('from \'react\'');
+  });
+
   test('reading is confined to the page, and to one public query', () => {
     const page = fileNamed('LiveMapPage.tsx');
     expect(page).toContain('useQuery');

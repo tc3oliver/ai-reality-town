@@ -42,7 +42,10 @@ export default function LiveView({ worldId }: { worldId: string }) {
     );
   }
 
-  const vm = composeLiveViewModel({ live: (result?.payload ?? null) as LiveProjection | null });
+  const vm = composeLiveViewModel({
+    live: (result?.payload ?? null) as LiveProjection | null,
+    worldId,
+  });
 
   return <LiveViewBody worldId={worldId} vm={vm} />;
 }
@@ -115,8 +118,25 @@ export function LiveViewBody({ worldId, vm }: { worldId: string; vm: LiveViewMod
         {vm.activeScenes.length > 0 ? (
           vm.activeScenes.map((scene, index) => (
             <article key={index} className="mt-1">
-              <h3 className="font-medium">{scene.title}</h3>
+              <h3 className="font-medium">
+                {scene.title}
+                {scene.ended && <span className="public-muted text-sm">(已結束)</span>}
+              </h3>
+              {scene.locationLabel !== null && (
+                <p className="text-sm public-muted">地點:{scene.locationLabel}</p>
+              )}
               <p className="text-sm public-muted">{scene.summary}</p>
+              {scene.participantCharacterIds.length > 0 && (
+                <p className="text-sm">登場角色:{scene.participantCharacterIds.join('、')}</p>
+              )}
+              {scene.arcIds.length > 0 && (
+                <p className="text-sm">相關故事線:{scene.arcIds.join('、')}</p>
+              )}
+              {scene.episodeHref !== null && (
+                <p className="text-sm">
+                  <a href={scene.episodeHref}>閱讀當日 Episode</a>
+                </p>
+              )}
             </article>
           ))
         ) : (

@@ -50,10 +50,27 @@ export const publicCharacterMotionValidator = v.object({
   sourceEventIds: v.optional(v.array(v.string())),
 });
 
+export const publicActiveSceneStatusValidator = v.union(
+  v.literal('active'), v.literal('ended'),
+);
+
+/** Single-member today; FR-P004 (ART-132) widens it. `v.union` of one is not expressible. */
+export const publicActiveScenePublicationStatusValidator = v.literal('published');
+
 export const publicActiveSceneValidator = v.object({
   title: v.string(),
   summary: v.string(),
   sourceEventIds: v.array(v.string()),
+  // ART-122 (FR-O003). Optional for the same reason the hand-written assertion makes them
+  // optional: a scene persisted before these fields existed still has to serve.
+  sceneId: v.optional(v.string()),
+  locationId: v.optional(v.string()),
+  participantCharacterIds: v.optional(v.array(v.string())),
+  arcIds: v.optional(v.array(v.string())),
+  status: v.optional(publicActiveSceneStatusValidator),
+  publicationStatus: v.optional(publicActiveScenePublicationStatusValidator),
+  startedAt: v.optional(v.number()),
+  endedAt: v.optional(v.number()),
 });
 
 export const publicDynamicProjectionValidator = v.object({

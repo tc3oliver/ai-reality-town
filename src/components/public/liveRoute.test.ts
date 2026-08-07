@@ -41,7 +41,10 @@ describe('composeLiveViewModel', () => {
     expect(vm.hasContent).toBe(true);
     expect(vm.worldTime).toEqual({ worldDay: 7, timeSlot: 'evening' });
     expect(vm.locations).toHaveLength(2);
-    expect(vm.activeScenes).toEqual([{ title: '簽約', summary: '眾人見證休戰。' }]);
+    expect(vm.activeScenes).toEqual([{
+      title: '簽約', summary: '眾人見證休戰。', locationLabel: null,
+      participantCharacterIds: [], arcIds: [], ended: false, episodeHref: null,
+    }]);
     expect(vm.activeArcs).toHaveLength(1);
   });
 
@@ -62,10 +65,16 @@ describe('composeLiveViewModel', () => {
     expect(byId.wanderer.locationLabel).toBe('未知位置');
   });
 
-  it('keeps active scenes as summaries only (AC#2)', () => {
+  it('publishes exactly the scene fields the contract names, and no others (AC#2)', () => {
+    // ART-122 widened a scene from two text fields to a placed, peopled one. The guard is
+    // still an exact key list rather than a "does not contain" check, so a field that the
+    // public scene contract never named cannot arrive here unnoticed.
     const vm = composeLiveViewModel({ live: fixture() });
     const scene = vm.activeScenes[0];
-    expect(Object.keys(scene).sort()).toEqual(['summary', 'title']);
+    expect(Object.keys(scene).sort()).toEqual([
+      'arcIds', 'ended', 'episodeHref', 'locationLabel',
+      'participantCharacterIds', 'summary', 'title',
+    ]);
   });
 
   it('fills a null event summary with a placeholder so the list never shows raw ids alone', () => {

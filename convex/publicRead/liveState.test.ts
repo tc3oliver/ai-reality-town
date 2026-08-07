@@ -151,7 +151,7 @@ describe('buildLiveProjection (AC#1 — derived from accepted events + published
       'publishedEpisodeStatus', 'recentEvents', 'schemaVersion', 'worldId', 'worldTime',
     ]);
     expect(payload.dynamic).toBeNull();
-    expect(payload.schemaVersion).toBe(2);
+    expect(payload.schemaVersion).toBe(LIVE_PROJECTION_SCHEMA_VERSION);
   });
 
   it('nests a supplied dynamic projection without disturbing the semantic character list', () => {

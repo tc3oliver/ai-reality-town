@@ -169,6 +169,47 @@ describe('AC#1 — snapshots carry a sequence number and a timestamp', () => {
     expect(() => assertPublicRuntimeSnapshot(candidate)).toThrow(RuntimeSnapshotError);
   });
 
+  // ART-122 widened `PublicActiveScene` with eight spatial fields. Every one is optional,
+  // and these two tests are what that decision buys: a row written before ART-122 and a row
+  // written after it must both validate. If any new field were required, the first case
+  // would throw — and because `serveRuntimeSnapshot` asserts on the way OUT, every snapshot
+  // already in `publicRuntimeSnapshots` would become unreadable, taking the public map dark
+  // with no way to rewrite the rows.
+  it('still validates a scene persisted before ART-122, carrying none of the new fields', () => {
+    const valid = buildRuntimeSnapshot({
+      worldId: WORLD_ID, dynamic: singleMove, worldStatus: 'running', snapshotSequence: 1, now: T0,
+    });
+    const legacy = {
+      ...valid,
+      activeSceneStates: [{ title: '簽約', summary: '眾人見證休戰。', sourceEventIds: ['evt-1'] }],
+    };
+    expect(() => assertPublicRuntimeSnapshot(legacy)).not.toThrow();
+  });
+
+  it('validates a scene carrying every ART-122 field', () => {
+    const valid = buildRuntimeSnapshot({
+      worldId: WORLD_ID, dynamic: singleMove, worldStatus: 'running', snapshotSequence: 1, now: T0,
+    });
+    const widened = {
+      ...valid,
+      activeSceneStates: [{
+        title: '簽約', summary: '眾人見證休戰。', sourceEventIds: ['evt-1'],
+        sceneId: '3:evening:mistwood-hall', locationId: 'mistwood-hall',
+        participantCharacterIds: ['cassia', 'rowan'], arcIds: ['arc-truce'],
+        status: 'ended', publicationStatus: 'published', startedAt: 100, endedAt: 200,
+      }],
+    };
+    expect(() => assertPublicRuntimeSnapshot(widened)).not.toThrow();
+    expect(() => assertPublicRuntimeSnapshot({
+      ...widened,
+      activeSceneStates: [{ ...widened.activeSceneStates[0], endedAt: 50 }],
+    })).toThrow(/must not precede startedAt/);
+    expect(() => assertPublicRuntimeSnapshot({
+      ...widened,
+      activeSceneStates: [{ ...widened.activeSceneStates[0], status: 'pending' }],
+    })).toThrow(RuntimeSnapshotError);
+  });
+
   it('rejects a snapshot carrying a field the contract does not publish', () => {
     const valid = buildRuntimeSnapshot({
       worldId: WORLD_ID, dynamic: singleMove, worldStatus: 'running', snapshotSequence: 1, now: T0,

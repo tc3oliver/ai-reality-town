@@ -37,12 +37,42 @@ export type LiveProjection = {
     timeSlot: string;
   }>;
   activeArcs: Array<{ arcId: string; title: string; currentQuestion: string; status: string }>;
-  activeScenes: Array<{ title: string; summary: string }>;
+  activeScenes: Array<LiveProjectionScene>;
   publishedEpisodeStatus: string;
+};
+
+/**
+ * A published scene (FR-O003 / ART-122). Everything past `title` / `summary` is optional
+ * because the payload's is: a `liveState` version persisted before ART-122 carries none of
+ * it, and the text view has to keep rendering that rather than blanking.
+ */
+export type LiveProjectionScene = {
+  title: string;
+  summary: string;
+  sceneId?: string;
+  locationId?: string;
+  participantCharacterIds?: string[];
+  arcIds?: string[];
+  status?: 'active' | 'ended';
 };
 
 const UNKNOWN_LOCATION = '未知位置';
 const NO_SUMMARY = '(無摘要)';
+
+/**
+ * The world day a scene belongs to, read off its `sceneId`.
+ *
+ * `sceneId` is `${worldDay}:${timeSlot}:${locationId}` by construction (see
+ * `convex/publicRead/activeScenePresentation.ts`), so the day is already in the payload.
+ * Re-derived here rather than shared with the map's equivalent because the `clientPublic`
+ * module may not depend on `clientLive`; three lines of duplication is the cheaper half of
+ * that trade.
+ */
+function sceneWorldDay(sceneId: string | undefined): number | null {
+  if (sceneId === undefined) return null;
+  const parsed = Number(sceneId.split(':')[0]);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+}
 
 export type LiveViewModel = {
   /** True when any live content exists — the page is browsable even while false (AC#4). */
@@ -58,8 +88,23 @@ export type LiveViewModel = {
   }>;
   /** Character positions with location resolved to a readable label (AC#1). */
   characterPositions: Array<{ characterId: string; locationLabel: string; alive: boolean }>;
-  /** Active scenes as summaries only (AC#2). */
-  activeScenes: Array<{ title: string; summary: string }>;
+  /**
+   * Active scenes (FR-I002 AC#2, widened by FR-O003 AC#2/#5).
+   *
+   * The non-map equivalent required by NFR-009: the same title, summary, participants, story
+   * arcs and Episode entry point the map's panel shows, as text. `locationLabel` is resolved
+   * against the projection's own location list, so the reader sees the same name the map's
+   * label does rather than a slug.
+   */
+  activeScenes: Array<{
+    title: string;
+    summary: string;
+    locationLabel: string | null;
+    participantCharacterIds: string[];
+    arcIds: string[];
+    ended: boolean;
+    episodeHref: string | null;
+  }>;
   /** Recent events (newest first), summaries only. */
   recentEvents: Array<{ eventId: string; summary: string; worldDay: number; timeSlot: string }>;
   activeArcs: Array<{ arcId: string; title: string; currentQuestion: string; status: string }>;
@@ -71,7 +116,11 @@ export type LiveViewModel = {
  * when the projection is null or empty, and the page still renders. Character
  * positions are joined to their location name so the list reads as text (AC#1).
  */
-export function composeLiveViewModel(input: { live: LiveProjection | null }): LiveViewModel {
+export function composeLiveViewModel(input: {
+  live: LiveProjection | null;
+  /** Needed only for the world-scoped Episode deep link; omitted yields no link. */
+  worldId?: string;
+}): LiveViewModel {
   const live = input.live;
   const locations = live?.locations ?? [];
   const locationNameById = new Map(locations.map((location) => [location.locationId, location.name]));
@@ -96,10 +145,24 @@ export function composeLiveViewModel(input: { live: LiveProjection | null }): Li
         : UNKNOWN_LOCATION,
       alive: character.alive,
     })),
-    activeScenes: (live?.activeScenes ?? []).map((scene) => ({
-      title: scene.title,
-      summary: scene.summary,
-    })),
+    activeScenes: (live?.activeScenes ?? []).map((scene) => {
+      const worldDay = sceneWorldDay(scene.sceneId);
+      return {
+        title: scene.title,
+        summary: scene.summary,
+        locationLabel: scene.locationId
+          ? (locationNameById.get(scene.locationId) ?? scene.locationId)
+          : null,
+        participantCharacterIds: [...(scene.participantCharacterIds ?? [])],
+        arcIds: [...(scene.arcIds ?? [])],
+        ended: scene.status === 'ended',
+        // Only an ended scene links onward (FR-O003 AC#5): the day an active scene belongs
+        // to has not been narrated yet, so the link would land on an empty Episode.
+        episodeHref: scene.status === 'ended' && worldDay !== null && input.worldId
+          ? `#episode/${encodeURIComponent(input.worldId)}/${worldDay}`
+          : null,
+      };
+    }),
     recentEvents: (live?.recentEvents ?? []).map((event) => ({
       eventId: event.eventId,
       summary: event.summary ?? NO_SUMMARY,
