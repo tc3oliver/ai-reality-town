@@ -406,6 +406,68 @@ test('the read-only boundary now covers the whole shipped client', () => {
   );
 });
 
+test('the live map module is inside every client boundary it needs to be', () => {
+  // ART-118 / FR-O001 AC#4. `src/components/live/` is the one client module with
+  // click handlers, so it is also the one where "a camera operation cannot write"
+  // has to be enforced rather than reviewed.
+  assert.equal(moduleForPath('src/components/live/CameraControls.tsx', policy), 'clientLive');
+  // The pure route module is its own owner, so the public pages can link through
+  // it without `clientPublic` having to depend on the whole live map.
+  assert.equal(moduleForPath('src/components/live/liveMapRoute.ts', policy), 'clientLiveRoute');
+  assert.deepEqual(
+    validateImport({
+      sourcePath: 'src/components/public/helpRoute.ts',
+      specifier: '../live/liveMapRoute',
+      policy,
+    }),
+    [],
+  );
+  // ...and not through anything else in the live module.
+  assert.match(
+    validateImport({
+      sourcePath: 'src/components/public/Homepage.tsx',
+      specifier: '../live/LiveMapPage',
+      policy,
+    })[0],
+    /clientPublic may not depend on clientLive/,
+  );
+  // The camera cannot reach the simulation, Canon, or a write API.
+  assert.match(
+    validateImport({
+      sourcePath: 'src/components/live/LiveMapPage.tsx',
+      specifier: '../../../convex/simulation/workflow',
+      policy,
+    })[0],
+    /clientLive may not depend on simulation/,
+  );
+  assert.match(
+    validateReadOnlyClientSource({
+      sourcePath: 'src/components/live/CameraControls.tsx',
+      source: 'const focus = useMutation(ref);',
+      policy,
+    })[0],
+    /may not reference world-write API 'useMutation'/,
+  );
+  // The pure route module may depend on nothing at all.
+  assert.match(
+    validateImport({
+      sourcePath: 'src/components/live/liveMapRoute.ts',
+      specifier: '../public/PublicPageFrame',
+      policy,
+    })[0],
+    /clientLiveRoute may not depend on clientPublic/,
+  );
+  // Reading the published projection is exactly what it is allowed to do.
+  assert.deepEqual(
+    validateImport({
+      sourcePath: 'src/components/live/publicDynamicRef.ts',
+      specifier: '../../../convex/publicRead/liveStateFunctions',
+      policy,
+    }),
+    [],
+  );
+});
+
 test('the client provider may construct a client but still may not write', () => {
   const provider = 'src/components/ConvexClientProvider.tsx';
   assert.deepEqual(

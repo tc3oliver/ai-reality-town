@@ -9,6 +9,8 @@
 import { composeHelpViewModel, parseHelpRoute } from './helpRoute';
 
 const WORLD_ID = 'mistwood';
+/** The deployment prefix Vite builds with (`vite.config.ts` sets `base: '/ai-town'`). */
+const BASE = '/ai-town/';
 
 describe('parseHelpRoute', () => {
   test('accepts the help route with and without a world', () => {
@@ -25,7 +27,7 @@ describe('parseHelpRoute', () => {
 });
 
 describe('composeHelpViewModel', () => {
-  const vm = composeHelpViewModel({ worldId: WORLD_ID });
+  const vm = composeHelpViewModel({ worldId: WORLD_ID, base: BASE });
   const text = [
     vm.title,
     vm.intro,
@@ -57,9 +59,9 @@ describe('composeHelpViewModel', () => {
   });
 
   test('points at the text Live View as the non-map fallback', () => {
-    expect(vm.textLiveHref).toBe(`#live/${WORLD_ID}`);
+    expect(vm.textLiveHref).toBe(`/ai-town/live/${WORLD_ID}/text`);
     // Without a world in scope there is nothing to link to, and the page must
     // not render a broken href.
-    expect(composeHelpViewModel({ worldId: null }).textLiveHref).toBeNull();
+    expect(composeHelpViewModel({ worldId: null, base: BASE }).textLiveHref).toBeNull();
   });
 });

@@ -151,6 +151,20 @@ p[contenteditable='true']:empty::before {
   padding: 0 0.5rem;
 }
 
+/* Live map canvas (ART-118, FR-O001 AC#1). Sized in the stylesheet rather than
+ * with a fixed width so the same surface works on desktop and mobile; the Pixi
+ * stage reads the measured box through a ResizeObserver.
+ *
+ * `touch-action: none` is load-bearing: without it a mobile browser claims the
+ * drag as a page scroll before pixi-viewport sees it, and the map cannot be
+ * panned with a finger at all. */
+.live-map-canvas {
+  touch-action: none;
+  width: 100%;
+  height: min(70vh, 640px);
+  min-height: 280px;
+}
+
 /* Reduced motion (NFR-009). The P0 public pages declare no animation or
  * transition of their own — the only @keyframes in this stylesheet belongs to
  * the game runtime progress bar. This guard keeps the shared stylesheet

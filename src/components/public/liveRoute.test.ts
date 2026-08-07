@@ -1,15 +1,16 @@
 /**
  * Unit tests for the public live-view pure logic (ART-68, FR-I002). Covers
- * hash-route resolution and view-model composition — including the AC#4
- * browsability requirement (the page stays usable from the last-known-good
- * snapshot when the simulation is paused or the projection is empty/missing)
- * and the AC#1 text-list shape (character positions resolve to a readable
- * location label, no map/animation).
+ * view-model composition — including the AC#4 browsability requirement (the
+ * page stays usable from the last-known-good snapshot when the simulation is
+ * paused or the projection is empty/missing) and the AC#1 text-list shape
+ * (character positions resolve to a readable location label, no map/animation).
+ *
+ * Route resolution is `components/live/liveMapRoute.test.ts` since ART-118.
  *
  * Pure jest (no jsdom): the module under test has no React/Convex/DOM deps.
  */
 
-import { composeLiveViewModel, parseLiveRoute, type LiveProjection } from './liveRoute';
+import { composeLiveViewModel, type LiveProjection } from './liveRoute';
 
 function fixture(overrides: Partial<LiveProjection> = {}): LiveProjection {
   return {
@@ -33,23 +34,6 @@ function fixture(overrides: Partial<LiveProjection> = {}): LiveProjection {
     ...overrides,
   };
 }
-
-describe('parseLiveRoute', () => {
-  it('resolves a #live/<worldId> route', () => {
-    expect(parseLiveRoute('#live/mistwood')).toEqual({ worldId: 'mistwood' });
-  });
-  it('decodes an encoded worldId', () => {
-    expect(parseLiveRoute('#live/two%20words')).toEqual({ worldId: 'two words' });
-  });
-  it('returns null for a bare #live', () => {
-    expect(parseLiveRoute('#live')).toBeNull();
-    expect(parseLiveRoute('#live/')).toBeNull();
-  });
-  it('returns null for unrelated hashes', () => {
-    expect(parseLiveRoute('#home/mistwood')).toBeNull();
-    expect(parseLiveRoute('')).toBeNull();
-  });
-});
 
 describe('composeLiveViewModel', () => {
   it('composes the full view model from a published projection', () => {

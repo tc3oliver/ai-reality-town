@@ -39,6 +39,8 @@ function summary(overrides: Partial<HomeOnboardingSummary> = {}): HomeOnboarding
   };
 }
 
+/** The deployment prefix Vite builds with (`vite.config.ts` sets `base: '/ai-town'`). */
+const BASE = '/ai-town/';
 const world: HomeWorldProjection = { name: '迷霧鎮', currentWorldDay: 7, currentTimeSlot: 'evening' };
 const live: HomeLiveProjection = { worldTime: { worldDay: 7, timeSlot: 'evening' } };
 
@@ -65,7 +67,7 @@ describe('parseHomeRoute', () => {
 
 describe('composeHomepageViewModel', () => {
   it('composes the full view model from published projections', () => {
-    const vm = composeHomepageViewModel({ worldId: 'mistwood', summary: summary(), world, live });
+    const vm = composeHomepageViewModel({ worldId: 'mistwood', summary: summary(), world, live, base: BASE });
     expect(vm.worldName).toBe('迷霧鎮');
     expect(vm.worldDay).toBe('7');
     expect(vm.timeSlot).toBe('evening');
@@ -80,7 +82,7 @@ describe('composeHomepageViewModel', () => {
   });
 
   it('prioritises the major event as a discrete field (UX-001/AC#2)', () => {
-    const vm = composeHomepageViewModel({ worldId: 'w', summary: summary(), world, live });
+    const vm = composeHomepageViewModel({ worldId: 'w', summary: summary(), world, live, base: BASE });
     expect(vm.majorEvent).not.toBeNull();
   });
 
@@ -91,7 +93,7 @@ describe('composeHomepageViewModel', () => {
         characters: Array.from({ length: 8 }, (_, i) => ({ characterId: `c${i}`, name: `角色${i}` })),
       },
     });
-    const vm = composeHomepageViewModel({ worldId: 'w', summary: many, world, live });
+    const vm = composeHomepageViewModel({ worldId: 'w', summary: many, world, live, base: BASE });
     expect(vm.characters).toHaveLength(HOME_MAX_CHARACTERS);
     expect(HOME_MAX_CHARACTERS).toBe(4);
   });
@@ -103,18 +105,18 @@ describe('composeHomepageViewModel', () => {
         facts: Array.from({ length: 6 }, (_, i) => ({ factId: `f${i}`, predicate: `p${i}`, value: i })),
       },
     });
-    const vm = composeHomepageViewModel({ worldId: 'w', summary: many, world, live });
+    const vm = composeHomepageViewModel({ worldId: 'w', summary: many, world, live, base: BASE });
     expect(vm.facts).toHaveLength(HOME_MAX_FACTS);
     expect(HOME_MAX_FACTS).toBe(3);
   });
 
   it('votes are always unavailable (ART-45 not built) without blocking (AC#5)', () => {
-    const vm = composeHomepageViewModel({ worldId: 'w', summary: summary(), world, live });
+    const vm = composeHomepageViewModel({ worldId: 'w', summary: summary(), world, live, base: BASE });
     expect(vm.voteAvailable).toBe(false);
   });
 
   it('degrades gracefully when the onboarding summary is missing (AC#5)', () => {
-    const vm = composeHomepageViewModel({ worldId: 'w', summary: null, world, live });
+    const vm = composeHomepageViewModel({ worldId: 'w', summary: null, world, live, base: BASE });
     expect(vm.majorEvent).toBeNull();
     expect(vm.currentSituation).toBe('摘要尚不可用。');
     expect(vm.characters).toEqual([]);
@@ -123,25 +125,25 @@ describe('composeHomepageViewModel', () => {
   });
 
   it('degrades gracefully when the world projection is missing (AC#5)', () => {
-    const vm = composeHomepageViewModel({ worldId: 'w', summary: summary(), world: null, live });
+    const vm = composeHomepageViewModel({ worldId: 'w', summary: summary(), world: null, live, base: BASE });
     expect(vm.worldName).toBe('這個世界');
     expect(vm.worldDay).toBe('—');
     expect(vm.timeSlot).toBe('—');
   });
 
   it('degrades gracefully when the live projection is missing (AC#5)', () => {
-    const vm = composeHomepageViewModel({ worldId: 'w', summary: summary(), world, live: null });
+    const vm = composeHomepageViewModel({ worldId: 'w', summary: summary(), world, live: null, base: BASE });
     expect(vm.live).toBeNull();
   });
 
   it('omits a recommended-episode link when none is published', () => {
     const noRec = summary({ structured: { ...summary().structured, recommendedEpisode: null } });
-    const vm = composeHomepageViewModel({ worldId: 'w', summary: noRec, world, live });
+    const vm = composeHomepageViewModel({ worldId: 'w', summary: noRec, world, live, base: BASE });
     expect(vm.recommendedEpisode).toBeNull();
   });
 
   it('renders safely with every projection missing', () => {
-    const vm = composeHomepageViewModel({ worldId: 'w', summary: null, world: null, live: null });
+    const vm = composeHomepageViewModel({ worldId: 'w', summary: null, world: null, live: null, base: BASE });
     expect(vm.worldName).toBe('這個世界');
     expect(vm.majorEvent).toBeNull();
     expect(vm.live).toBeNull();

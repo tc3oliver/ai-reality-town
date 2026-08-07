@@ -100,7 +100,7 @@ export function motionProgress(motion: PublicCharacterMotion, nowMs: number): nu
  * highest `motionSequence` wins so the render order cannot depend on array
  * order. Ties keep the first entry, which keeps the function total.
  */
-function latestMotionPerCharacter(
+export function latestMotionPerCharacter(
   motions: readonly PublicCharacterMotion[],
 ): PublicCharacterMotion[] {
   const latest = new Map<string, PublicCharacterMotion>();

@@ -78,22 +78,22 @@ FR-O010（動態畫面降級）Disposition 為 **New**，擁有專屬 Task **ART
 
 ### 3.2 Epic O — Dynamic Live Town
 
-| Requirement | Disposition | Task | Delivery State | Release Criticality | Dependencies |
-|---|---|---|---|---|---|
-| FR-O001 動態 2D 地圖 | New | ART-118 | To Do | P0 | ART-113, ART-115 |
-| FR-O002 Canon-driven 移動與動畫 | New | ART-119 | **To Do；production validation blocked by ART-141**（ART-139 schemaVersion／sceneId 契約層已修復） | P0 | ART-118, ART-117 |
-| FR-O003 活躍場景視覺化 | New | ART-122 | To Do | P0 | ART-118 |
-| FR-O004 公開交談與活動提示 | New | ART-123 | To Do | P0 | ART-119 |
-| FR-O005 鏡頭與導航 | New | ART-118（共用） | To Do | P0 | ART-113, ART-115 |
-| FR-O006 公開角色卡 | New | ART-124 | To Do | P0 | ART-118, ART-111 |
-| FR-O007 Live Story Overlay | New | ART-125 | To Do | P0 | ART-118 |
-| FR-O008 響應式觀看體驗 | New | ART-126 | To Do | P0 | ART-125, ART-124 |
+| Requirement | Disposition | Task | Delivery State | Release Criticality | 重用證據 | Dependencies |
+|---|---|---|---|---|---|---|
+| FR-O001 動態 2D 地圖 | New | ART-118 | **Done** | P0 | `src/components/live/`（新 `clientLive` 模組）＋ `src/components/world/cameraModel.ts`：純鏡頭模型（`fitScale`／`clampScale`／`focusTargetsFrom`／`nextCamera`，NaN／Infinity 皆為全函式），鏡頭操作全部是 DOM `<button>` 而非 canvas pointer handler——因此 ART-113 的「renderer 內無任何 handler」結構性證明維持不變，且聚焦控制天生可鍵盤操作（NFR2-006）。AC#4 由四道獨立閘門保證：`clientLive` 模組邊界、涵蓋整個 `src` 的 `readOnlyClientBoundary` write-symbol 閘、`liveMapSurface.test.ts`（`CameraControls.tsx` 不得出現任何 request API，全模組僅一個 `useQuery`）、以及實測瀏覽器 Network 面板在拖曳／縮放／聚焦／回全鎮／切換跟隨期間 **零** 請求。路由改為真實路徑 `<base>/live/<worldId>`（文字版為 `/text` 手足），舊 `#live/<worldId>` 以 `location.replace` 保留 worldId 轉址,`vercel.json` 新增 SPA rewrite（須排在 `/ai-town/:match*` 之前）。同時修復兩個因「從未被掛載到任何路由」而潛伏的缺陷:`PixiViewport` 繼承自 a16z 的 `.setZoom(-10)`（負縮放,畫面鏡像放大十倍）與 clamp 只在 create 計算一次；以及 `pixi-viewport` 於 `@pixi/react` 銷毀 Application 後才解除 wheel listener 造成離開地圖時整個 app 白屏（`detachViewportFromDom`）。WebGL 不可用時為資訊性 fallback 而非 Canvas renderer——Pixi 7 未內建 canvas renderer,且文字實況已完整涵蓋同樣世界狀態（見 `docs/live-view-navigation.md`）。場景聚焦以 `primaryLocationId` 決定性啟發式作為 seam,FR-O003／ART-122 落地後一行替換；角色 sprite 屬 FR-O002／ART-119,character layer 已掛載定位但不繪製 | ART-113, ART-115 |
+| FR-O002 Canon-driven 移動與動畫 | New | ART-119 | **To Do；production validation blocked by ART-141**（ART-139 schemaVersion／sceneId 契約層已修復） | P0 | — | ART-118, ART-117 |
+| FR-O003 活躍場景視覺化 | New | ART-122 | To Do | P0 | — | ART-118 |
+| FR-O004 公開交談與活動提示 | New | ART-123 | To Do | P0 | — | ART-119 |
+| FR-O005 鏡頭與導航 | New | ART-118（共用） | **Done** | P0 | 同上：pan／zoom／pinch／聚焦角色／聚焦地點／回到全鎮視角／自動跟隨可關閉，皆為純客戶端 view state；Reduced Motion 解析為 `transitionMs === 0`（直接 snap，不排程 tween）並移除 `decelerate` 慣性外掛；`clampScale`／`clampZoomStep`／viewport `clampZoom([fitScale, 3])` 三層防暴走縮放，實測連按 23 次拉近與 80 次滾輪縮放皆停在 3.0，連續滾輪縮小停在 fitScale 0.41667，平移飽和於地圖邊界內（見 `docs/live-view-navigation.md`） | ART-113, ART-115 |
+| FR-O006 公開角色卡 | New | ART-124 | To Do | P0 | — | ART-118, ART-111 |
+| FR-O007 Live Story Overlay | New | ART-125 | To Do | P0 | — | ART-118 |
+| FR-O008 響應式觀看體驗 | New | ART-126 | To Do | P0 | — | ART-125, ART-124 |
 | FR-O009 公開只讀保證 | New | ART-128 | **Done** | P0 | 保證成立且已機器強制：公開瀏覽結構上無法寫入或觸發生成。修復兩個 Critical：`convex/init.ts` 原以 `mutation`（非 `internalMutation`）匯出，任何匿名 client 皆可呼叫**且成功**，違反 §18.1「成功公開 mutation 為零」；`POST /replicate_webhook`（`convex/music.ts` 的 `httpAction`）無簽章驗證，匿名 POST 即造成伺服器 `fetch()` 攻擊者可控 URL、儲存無上限 blob 並寫入資料列——該模組為完全無呼叫者的死碼，故整組刪除（含 `MusicButton.tsx`、`replicate` 依賴；`music` 表比照 ADR-0004 留為 inert）。新增第三道邊界 `publicFunctionSurface`（`architecture/module-boundaries.json`）掃描 `convex/**` 的 `query`／`mutation`／`action`／`httpAction` 註冊並與 allowlist 雙向 diff，`httpAction` 一律禁止、公開 mutation 必須 operator-gated——此閘門先於修復落地並實際紅燈抓出上述兩個缺陷（證據見文件 §7）。另修復 `getPublicRuntimeSnapshot` 可由呼叫端偽造 `nowMs` 時鐘以偽造 freshness（GAP 6），並將 `readOnlyClientBoundary` 由兩個元件目錄擴及整個 `src`（GAP 3）。安全套件 `convex/publicRead/publicReadOnlyGuarantee.test.ts`（31 tests）以列舉、對抗式呼叫（throwing-db proxy 證明拒絕發生在讀取任何資料列之前）與缺席證明覆蓋全部 8 條 AC，並經三個 mutant 反證確有效力（見 `docs/public-read-only-guarantee.md`） | ART-113, ART-115 |
-| FR-O010 動態畫面降級 | New | ART-127 | To Do | P0 | ART-116, ART-118 |
-| FR-O011 Ambient Movement | New | ART-120 | To Do | P0 | ART-114, ART-110 |
-| FR-O012 Environmental Animation | New | ART-120（共用） | To Do | P0 | ART-114, ART-110 |
-| FR-O013 Visual Replay | New | ART-121 | To Do | P0 | ART-119 |
-| FR-O014 時間狀態標示 | New | ART-121（共用） | To Do | P0 | ART-119 |
+| FR-O010 動態畫面降級 | New | ART-127 | To Do | P0 | — | ART-116, ART-118 |
+| FR-O011 Ambient Movement | New | ART-120 | To Do | P0 | — | ART-114, ART-110 |
+| FR-O012 Environmental Animation | New | ART-120（共用） | To Do | P0 | — | ART-114, ART-110 |
+| FR-O013 Visual Replay | New | ART-121 | To Do | P0 | — | ART-119 |
+| FR-O014 時間狀態標示 | New | ART-121（共用） | To Do | P0 | — | ART-119 |
 
 ### 3.3 Epic P — Editorial Viewing Integration
 

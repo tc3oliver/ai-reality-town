@@ -12,7 +12,12 @@ import { composeHelpViewModel, parseHelpRoute, type HelpViewModel } from './help
 export default function HelpPage() {
   const route = typeof window === 'undefined' ? null : parseHelpRoute(window.location.hash);
   const worldId = route?.worldId ?? null;
-  return <HelpView worldId={worldId} vm={composeHelpViewModel({ worldId })} />;
+  return (
+    <HelpView
+      worldId={worldId}
+      vm={composeHelpViewModel({ worldId, base: import.meta.env.BASE_URL })}
+    />
+  );
 }
 
 /**

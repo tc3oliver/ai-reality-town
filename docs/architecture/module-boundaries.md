@@ -21,8 +21,10 @@ representative reverse dependencies and provider leakage. Both run in `npm run c
 | Safety | `convex/safety/` | Shared | Trust & Safety Engineering |
 | Observability | `convex/observability/` | Shared | Reliability Engineering |
 | Shared | `convex/shared/` | None | Architecture Engineering |
-| Public Client | `src/components/public/` | Public Read Model, Shared | Public Platform Engineering |
+| Public Client | `src/components/public/` | Public Read Model, Shared, Live Route | Public Platform Engineering |
 | Read-only World Client | `src/components/world/` | Public Read Model, Shared | Public Platform Engineering |
+| Live Map Client | `src/components/live/` | Public Client, Read-only World Client, Live Route, Public Read Model, Shared | Public Platform Engineering |
+| Live Route | `src/components/live/liveMapRoute.ts` | None | Public Platform Engineering |
 
 Roots may be absent until their first Backlog task implements them; the boundary already
 applies as soon as a source file is added. `convex/agent/` no longer exists (ART-112 /
@@ -58,6 +60,25 @@ The interactive Game components the boundary used to separate the renderer from 
 exist -- ART-112 retired them with the engine. Re-introducing any world-write capability
 therefore means adding a new module outside these roots and declaring its edge here first,
 not relaxing the symbol list. See [`read-only-world-shell.md`](../read-only-world-shell.md).
+
+## Live Map Client (ART-118 / FR-O001)
+
+`clientLive` is the one client module that deliberately carries click handlers: the live
+map's camera has to be pan-able, zoom-able and focusable. Those affordances are DOM
+`<button>` elements rather than Pixi pointer handlers, which is what lets
+`clientWorldReadOnly` stay structurally handler-free while click-to-focus exists at all --
+and what makes the controls keyboard-reachable.
+
+Because `readOnlyClientBoundary` already covers the whole of `src`, the new directory is
+inside the write-symbol gate with no new enforcement code. The product-side counterpart is
+`src/components/live/liveMapSurface.test.ts`, which additionally proves the camera chrome
+names no request API of any kind (FR-O001 AC#4).
+
+`clientLiveRoute` owns a single file, `liveMapRoute.ts`, and may depend on nothing. Both the
+live map and the public pages link through it, so scoping it separately keeps
+`clientPublic -> clientLive` out of the policy -- the public pages need the URLs, not the
+map. `clientProvider` is the same single-file pattern one layer down.
+See [`live-view-navigation.md`](../live-view-navigation.md).
 
 ## Public function surface
 

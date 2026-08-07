@@ -1,21 +1,30 @@
-import { Stage, useApp } from '@pixi/react';
+import { Container, Stage, useApp } from '@pixi/react';
 import type { Application } from 'pixi.js';
+import type { Viewport } from 'pixi-viewport';
+import type { MutableRefObject } from 'react';
 
+import type { MistwoodLocationFootprint } from '../../../data/mistwood';
+import { CameraController } from './CameraController';
 import { Character } from './Character';
+import { MapZoneLayer } from './MapZoneLayer';
 import { PixiStaticMap } from './PixiStaticMap';
 import PixiViewport from './PixiViewport';
+import type { CameraView } from './cameraModel';
 import type { ReadOnlySpriteAsset, ReadOnlyWorldViewModel } from './worldViewModel';
 
 /**
- * The read-only Pixi world shell (ART-113 / FR-N002).
+ * The read-only Pixi world shell (ART-113 / FR-N002, extended by ART-118 / FR-O001).
  *
  * This is the whole public renderer: a Pixi stage, a pan/zoom viewport, the
- * Mistwood tilemap and one sprite per published character motion. It is
- * deliberately structurally incapable of writing to the world:
+ * Mistwood tilemap, the location/collision overlay and one sprite per published
+ * character motion. It is deliberately structurally incapable of writing to the
+ * world:
  *
  * - It takes data props only. There is no callback, no handler and no `on*`
  *   prop anywhere in the tree, so nothing a viewer does can invoke anything
- *   (AC#3/#4/#5).
+ *   (AC#3/#4/#5). The camera is passed *in* as a already-computed
+ *   {@link CameraView}; the buttons that choose one are DOM elements in
+ *   `components/live/`, outside this module on purpose.
  * - It mounts no world heartbeat and runs no timer that touches the backend.
  *   The a16z heartbeat, input and server-game hooks that used to drive the
  *   interactive game were deleted with the engine (ART-112) and this module
@@ -35,41 +44,43 @@ import type { ReadOnlySpriteAsset, ReadOnlyWorldViewModel } from './worldViewMod
  * (`components/public/LiveView.tsx`, NFR-009 AC#3), which every page linking to
  * this shell must also link to. ART-135 owns the full alternative view.
  */
-export function ReadOnlyWorld({
-  viewModel,
-  spriteAssets,
-  screenWidth,
-  screenHeight,
-}: {
-  viewModel: ReadOnlyWorldViewModel;
-  /** `spriteKey -> sheet`, resolved from the FR-N004 character visual binding. */
-  spriteAssets: Readonly<Record<string, ReadOnlySpriteAsset>>;
-  screenWidth: number;
-  screenHeight: number;
-}) {
+export function ReadOnlyWorld(props: ReadOnlyWorldProps) {
   return (
-    <Stage width={screenWidth} height={screenHeight} options={{ backgroundColor: 0x7ab5ff }}>
-      <StageContents
-        viewModel={viewModel}
-        spriteAssets={spriteAssets}
-        screenWidth={screenWidth}
-        screenHeight={screenHeight}
-      />
+    <Stage
+      width={props.screenWidth}
+      height={props.screenHeight}
+      options={{ backgroundColor: 0x7ab5ff }}
+    >
+      <StageContents {...props} />
     </Stage>
   );
 }
 
 /** Bridges the Pixi application into the scene; `useApp` only works inside `Stage`. */
-function StageContents(props: ReadOnlyWorldSceneProps) {
+function StageContents(props: ReadOnlyWorldProps) {
   return <ReadOnlyWorldScene app={useApp()} {...props} />;
 }
 
-interface ReadOnlyWorldSceneProps {
+export interface ReadOnlyWorldProps {
   viewModel: ReadOnlyWorldViewModel;
+  /** `spriteKey -> sheet`, resolved from the FR-N004 character visual binding. */
   spriteAssets: Readonly<Record<string, ReadOnlySpriteAsset>>;
   screenWidth: number;
   screenHeight: number;
+  /** Handed to the viewport on creation so the camera controller can drive it. */
+  viewportRef?: MutableRefObject<Viewport | undefined>;
+  /** The frame to show. Omitted means "leave the camera wherever the viewer left it". */
+  camera?: CameraView;
+  reducedMotion?: boolean;
+  /** Canonical location footprints drawn as labelled outlines (FR-O001 AC#2). */
+  zones?: readonly MistwoodLocationFootprint[];
+  collision?: readonly (readonly number[])[];
+  showCollision?: boolean;
 }
+
+/** Stable empty defaults, so an omitted overlay prop does not force a redraw every frame. */
+const NO_ZONES: readonly MistwoodLocationFootprint[] = [];
+const NO_COLLISION: readonly (readonly number[])[] = [];
 
 /**
  * Scene contents: the whole thing this shell draws.
@@ -78,6 +89,11 @@ interface ReadOnlyWorldSceneProps {
  * `readOnlyWorld.dom.test.tsx` can call it and inspect the element tree it
  * returns -- which is how "renders the Mistwood map and character sprites" and
  * "carries no callback anywhere in the tree" are asserted rather than assumed.
+ *
+ * The three named layers are drawn back to front. `character-layer` exists and
+ * is positioned even while it is empty: character sprites need a published
+ * `spriteKey`, which is FR-O002 (ART-119)'s job, and a layer that appears only
+ * once it has contents is a layer whose z-order was never tested.
  */
 export function ReadOnlyWorldScene({
   app,
@@ -85,35 +101,58 @@ export function ReadOnlyWorldScene({
   spriteAssets,
   screenWidth,
   screenHeight,
-}: ReadOnlyWorldSceneProps & { app: Application }) {
+  viewportRef,
+  camera,
+  reducedMotion = false,
+  zones = NO_ZONES,
+  collision = NO_COLLISION,
+  showCollision = false,
+}: ReadOnlyWorldProps & { app: Application }) {
   return (
     <PixiViewport
       app={app}
+      viewportRef={viewportRef}
       screenWidth={screenWidth}
       screenHeight={screenHeight}
       worldWidth={viewModel.worldWidth}
       worldHeight={viewModel.worldHeight}
+      reducedMotion={reducedMotion}
     >
-      <PixiStaticMap map={viewModel.map} />
-      {viewModel.characters.map((character) => {
-        const asset = spriteAssets[character.spriteKey];
-        // An unbound sprite key draws nothing rather than falling back to some
-        // other character's art (FR-N004 AC#6).
-        if (asset === undefined) return null;
-        return (
-          <Character
-            key={character.characterId}
-            textureUrl={asset.textureUrl}
-            spritesheetData={asset.spritesheetData}
-            x={character.x}
-            y={character.y}
-            orientation={character.orientation}
-            isMoving={character.isMoving}
-            isSpeaking={character.isSpeaking}
-            isThinking={character.isThinking}
-          />
-        );
-      })}
+      <Container name="tilemap-layer" eventMode="none" interactiveChildren={false}>
+        <PixiStaticMap map={viewModel.map} />
+      </Container>
+      <Container name="zone-layer" eventMode="none" interactiveChildren={false}>
+        <MapZoneLayer
+          footprints={zones}
+          collision={collision}
+          tileDim={viewModel.map.tileDim}
+          showCollision={showCollision}
+        />
+      </Container>
+      <Container name="character-layer" eventMode="none" interactiveChildren={false}>
+        {viewModel.characters.map((character) => {
+          const asset = spriteAssets[character.spriteKey];
+          // An unbound sprite key draws nothing rather than falling back to some
+          // other character's art (FR-N004 AC#6).
+          if (asset === undefined) return null;
+          return (
+            <Character
+              key={character.characterId}
+              textureUrl={asset.textureUrl}
+              spritesheetData={asset.spritesheetData}
+              x={character.x}
+              y={character.y}
+              orientation={character.orientation}
+              isMoving={character.isMoving}
+              isSpeaking={character.isSpeaking}
+              isThinking={character.isThinking}
+            />
+          );
+        })}
+      </Container>
+      {camera !== undefined && viewportRef !== undefined && (
+        <CameraController viewportRef={viewportRef} camera={camera} />
+      )}
     </PixiViewport>
   );
 }

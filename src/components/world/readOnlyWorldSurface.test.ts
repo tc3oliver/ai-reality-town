@@ -18,7 +18,17 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { extname, join } from 'node:path';
 
+import {
+  liveMapHref,
+  parseLiveMapPath,
+  redirectForLegacyHash,
+  textLiveHref,
+} from '../live/liveMapRoute';
+import { composeHelpViewModel } from '../public/helpRoute';
+
 const ROOT = process.cwd();
+/** What Vite exposes as `import.meta.env.BASE_URL` for `base: '/ai-town'`. */
+const BASE = '/ai-town/';
 /**
  * ART-128 (FR-O009) widened this from the two component directories to the whole of
  * `src`, matching `readOnlyClientBoundary` in the boundary policy. Checking only the
@@ -136,11 +146,35 @@ describe('read-only public surface', () => {
     // NFR-009 AC#3 / ART-113 AC#10: the accessible equivalent of the map must
     // stay routable and linked while the renderer is refactored, so ART-135
     // extends a working baseline instead of filling a gap.
+    //
+    // ART-118 (FR-O001 AC#8) moved it from `#live/<worldId>` to
+    // `<base>/live/<worldId>/text`, the map route's sibling. The assertions are
+    // re-pointed rather than dropped, and the legacy hash gains its own test
+    // below -- the guarantee gets stronger, not weaker.
     const app = readFileSync(join(ROOT, 'src/App.tsx'), 'utf8');
-    expect(app).toContain("startsWith('#live/')");
-    expect(app).toContain('<LiveView />');
+    expect(app).toContain('parseLiveMapPath');
+    expect(app).toMatch(/liveRoute\.view === 'text'/);
+    expect(app).toContain('<LiveView worldId=');
 
     const homepage = readFileSync(join(ROOT, 'src/components/public/Homepage.tsx'), 'utf8');
-    expect(homepage).toContain('#live/${worldId}');
+    expect(homepage).toContain('vm.textLiveHref');
+    expect(composeHelpViewModel({ worldId: 'mistwood', base: BASE }).textLiveHref).toBe(
+      textLiveHref('mistwood', BASE),
+    );
+  });
+
+  test('the retired hash route still lands a viewer on the live world', () => {
+    // FR-O001 AC#8. Every link ever shared, bookmarked or printed used
+    // `#live/<worldId>`; the route may move, but those must not break, and the
+    // world identifier must survive the move.
+    const app = readFileSync(join(ROOT, 'src/App.tsx'), 'utf8');
+    expect(app).toContain('redirectForLegacyHash');
+    expect(app).toContain('window.location.replace');
+
+    const target = redirectForLegacyHash('#live/mistwood', BASE);
+    expect(target).toBe(liveMapHref('mistwood', BASE));
+    expect(parseLiveMapPath(target!, BASE)).toEqual({ worldId: 'mistwood', view: 'map' });
+    // Unrelated hashes are untouched, so the redirect cannot swallow another route.
+    expect(redirectForLegacyHash('#episodes/mistwood', BASE)).toBeNull();
   });
 });
