@@ -23,7 +23,11 @@
  *    every time the projection was rebuilt.
  */
 
-import type { MovementTrajectory } from '../visualRuntime/motion';
+import type {
+  MovementTrajectory,
+  VisualRuntimeProblem,
+  VisualRuntimeProblemCode,
+} from '../visualRuntime/motion';
 import type { SeedPlacement } from '../visualRuntime/seedBootstrap';
 import {
   planCharacterTrajectories,
@@ -290,6 +294,39 @@ export type PublicDynamicProjectionInput = {
 };
 
 /**
+ * How many planning problems the runtime reported, and of which kinds.
+ *
+ * A *sibling* of the projection, never a field of it: `problems` is named in
+ * {@link PUBLIC_DYNAMIC_FORBIDDEN_FIELDS} and PRD 2.0 §10.4 has no room for it. A viewer has
+ * nothing to do with the fact that a location is unbound; an operator has everything to do
+ * with it, and until now the runtime computed these and dropped them on the floor, so a
+ * character vanishing from the map left no trace anywhere.
+ *
+ * Counts rather than the problems themselves: the individual records name `characterId`s,
+ * and this value travels back through a mutation result that is easier to keep dull than to
+ * keep private.
+ */
+export type RuntimeProblemSummary = {
+  readonly total: number;
+  readonly byCode: Readonly<Partial<Record<VisualRuntimeProblemCode, number>>>;
+};
+
+export type PublicDynamicProjectionResult = {
+  readonly projection: PublicDynamicProjection;
+  readonly problems: RuntimeProblemSummary;
+};
+
+export function summarizeRuntimeProblems(
+  problems: readonly VisualRuntimeProblem[],
+): RuntimeProblemSummary {
+  const byCode: Partial<Record<VisualRuntimeProblemCode, number>> = {};
+  for (const problem of problems) {
+    byCode[problem.code] = (byCode[problem.code] ?? 0) + 1;
+  }
+  return { total: problems.length, byCode };
+}
+
+/**
  * Derive the public projection for a world.
  *
  * Seed-vs-event precedence is *not* implemented here — {@link planCharacterTrajectories} is
@@ -305,6 +342,17 @@ export type PublicDynamicProjectionInput = {
 export function buildPublicDynamicProjection(
   input: PublicDynamicProjectionInput,
 ): PublicDynamicProjection {
+  return buildPublicDynamicProjectionResult(input).projection;
+}
+
+/**
+ * The same derivation as {@link buildPublicDynamicProjection}, returning the runtime's
+ * problem summary alongside the payload. Callers that publish (and only they) should use
+ * this one, so a character the runtime could not place is counted somewhere.
+ */
+export function buildPublicDynamicProjectionResult(
+  input: PublicDynamicProjectionInput,
+): PublicDynamicProjectionResult {
   if (input.worldId.trim().length === 0) {
     throw new PublicDynamicProjectionError('PUBLIC_DYNAMIC_INVALID_SHAPE', 'worldId must be non-empty');
   }
@@ -346,7 +394,7 @@ export function buildPublicDynamicProjection(
     })),
   };
   assertPublicDynamicProjection(projection);
-  return projection;
+  return { projection, problems: summarizeRuntimeProblems(snapshot.problems) };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
