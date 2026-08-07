@@ -1,7 +1,7 @@
 ---
 id: ART-114
 title: Build the lightweight Visual Runtime and movement trajectory planner
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-04 15:58'
