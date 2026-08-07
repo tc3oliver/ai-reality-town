@@ -25,6 +25,8 @@ import {
   type PublicWorldStatus,
 } from './publicDynamicProjection';
 import { publicDynamicProjectionValidator } from './publicDynamicProjectionValidators';
+import { commitRuntimeSnapshot } from './runtimeSnapshot';
+import { runtimeSnapshotWriteStore } from './runtimeSnapshotFunctions';
 import {
   LIVE_MODEL_KIND,
   LIVE_RECENT_EVENT_DEFAULT,
@@ -138,6 +140,19 @@ export const rebuildLiveProjection = internalMutation({
       status: 'published',
       now: args.now,
     });
+    // Capture the durable runtime snapshot (FR-N007) by a direct call inside THIS
+    // transaction, not by dispatching a separate mutation: a snapshot failure then rolls the
+    // whole rebuild back atomically instead of leaving a published projection with no
+    // snapshot behind it. Canon is unaffected either way — this transaction writes no Canon.
+    const snapshot = dynamic
+      ? await commitRuntimeSnapshot(runtimeSnapshotWriteStore(ctx.db), {
+          worldId: args.worldId,
+          dynamic,
+          worldStatus,
+          now: args.now,
+        })
+      : null;
+
     // `dynamicProblem*` is the operator-facing half of the rebuild (FR-N006 / ART-117): a
     // character the Visual Runtime could not place is omitted from the payload rather than
     // guessed at, which is correct but silent. Counted here so the omission is reachable
@@ -147,6 +162,7 @@ export const rebuildLiveProjection = internalMutation({
       version: result.version,
       deduplicated: result.deduplicated,
       dynamicCharacterCount: dynamic?.characters.length ?? 0,
+      snapshotSequence: snapshot?.snapshotSequence ?? null,
       dynamicProblemCount: derived?.problems.total ?? 0,
       dynamicProblemsByCode: derived?.problems.byCode ?? {},
     };
