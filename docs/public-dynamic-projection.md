@@ -189,7 +189,7 @@ widen it rather than redefining it.
 
 | Not built | Task |
 |---|---|
-| Snapshot lifecycle and staleness classification (`worldStatus` is the raw schedule status) | FR-N007 / ART-116 |
+| Snapshot lifecycle and staleness classification (`worldStatus` is the raw schedule status) — built in `docs/public-runtime-snapshot.md`, where this projection's `snapshotSequence` is persisted as `sourceRuntimeSequence` and the snapshot table keeps a separate counter of its own | FR-N007 / ART-116 |
 | Replay payloads — `motionType: 'replay'` validates, but is never produced | FR-O013 / ART-121 |
 | Incremental updates — `rebuildLiveProjection` stays a full rebuild | FR-Q003 / ART-100 |
 | Ambient movement semantics — `motionType: 'ambient'` validates, but is never produced | FR-O011 / ART-120 |
