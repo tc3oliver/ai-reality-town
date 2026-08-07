@@ -213,7 +213,11 @@ other value is fixed, so a fixture planned twice produces the same bytes.
 
 ## Out of scope
 
-The published projection contract (FR-N003 / ART-115), the Canon–Runtime sync state machine
+The published projection contract has since landed — see `docs/public-dynamic-projection.md`
+(FR-N003 / ART-115) for the field whitelist that narrows a `MovementTrajectory` down to the
+PRD 2.0 §10.4 `PublicCharacterMotion` this module's output is published as.
+
+Still out of scope here: the Canon–Runtime sync state machine
 (FR-N006 / ART-117), ambient behaviour semantics beyond anchor *selection* (FR-O011 / ART-120),
 client interpolation and rendering (FR-O002 / ART-119) and Visual Replay (ART-121). No trajectory
 table is persisted: trajectories are computed on read, which avoids both a second stale source of

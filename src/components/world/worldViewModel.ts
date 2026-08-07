@@ -21,26 +21,19 @@ import type { ISpritesheetData } from 'pixi.js';
 
 import type { SerializedWorldMap } from '../../../convex/aiTown/worldMap';
 
-export type PublicMotionType = 'canon' | 'ambient' | 'idle' | 'replay';
+// Re-exported from the producer rather than redeclared, so consumer and publisher cannot
+// drift apart. FR-N003 (ART-115) publishes exactly these types.
+export type {
+  PublicAnimationState,
+  PublicCharacterMotion,
+  PublicDirection,
+  PublicMotionType,
+} from '../../../convex/publicRead/publicDynamicProjection';
 
-export type PublicAnimationState = 'idle' | 'walking' | 'speaking' | 'thinking' | 'activity';
-
-export type PublicDirection = 'up' | 'down' | 'left' | 'right';
-
-/** A published motion unit (PRD 2.0 §10.4). Positions are in map tiles. */
-export interface PublicCharacterMotion {
-  characterId: string;
-  semanticLocationId: string;
-  motionType: PublicMotionType;
-  motionSequence: number;
-  from: { x: number; y: number };
-  to: { x: number; y: number };
-  startedAt: number;
-  arriveAt: number;
-  animationState: PublicAnimationState;
-  direction: PublicDirection;
-  sourceEventIds?: string[];
-}
+import type {
+  PublicCharacterMotion,
+  PublicDirection,
+} from '../../../convex/publicRead/publicDynamicProjection';
 
 /**
  * The sprite sheet a character draws with. Resolved by the caller from the

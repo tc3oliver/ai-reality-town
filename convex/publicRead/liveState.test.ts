@@ -139,6 +139,43 @@ describe('buildLiveProjection (AC#1 — derived from accepted events + published
     expect(buildLiveProjection(input)).toEqual(buildLiveProjection(input));
   });
 
+  it('keeps every pre-existing field and defaults dynamic to null when none is supplied (ART-115)', () => {
+    const payload = buildLiveProjection({
+      worldId: 'w1',
+      acceptedEvents: [liveEvent({ sequenceNumber: 1, stateChanges: [move('char-a', 'loc-1')] })],
+      arcs: [{ arcId: 'arc-1', title: 'T', currentQuestion: 'Q?', status: 'active' }],
+      publishedEpisode: { status: 'ready', keyScenes: [{ title: 't', summary: 's', sourceEventIds: ['evt-1'] }] },
+    });
+    expect(Object.keys(payload).sort()).toEqual([
+      'activeArcs', 'activeScenes', 'characters', 'dynamic', 'locations',
+      'publishedEpisodeStatus', 'recentEvents', 'schemaVersion', 'worldId', 'worldTime',
+    ]);
+    expect(payload.dynamic).toBeNull();
+    expect(payload.schemaVersion).toBe(2);
+  });
+
+  it('nests a supplied dynamic projection without disturbing the semantic character list', () => {
+    const dynamic = {
+      worldId: 'w1', mapId: 'map-1', runtimeVersion: 1, snapshotSequence: 2, updatedAt: 10,
+      worldStatus: 'running' as const,
+      characters: [{
+        characterId: 'char-a', semanticLocationId: 'loc-1', motionType: 'canon' as const,
+        motionSequence: 2, from: { x: 0, y: 0 }, to: { x: 1, y: 1 },
+        startedAt: 10, arriveAt: 20, animationState: 'walking' as const, direction: 'right' as const,
+      }],
+      activeScenes: [],
+    };
+    const payload = buildLiveProjection({
+      worldId: 'w1',
+      acceptedEvents: [liveEvent({ sequenceNumber: 1, stateChanges: [move('char-a', 'loc-1')] })],
+      arcs: [],
+      publishedEpisode: null,
+      dynamic,
+    });
+    expect(payload.dynamic).toEqual(dynamic);
+    expect(payload.characters).toEqual([{ characterId: 'char-a', locationId: 'loc-1', alive: true }]);
+  });
+
   it('rejects an accepted event whose worldId does not match', () => {
     const foreign = { ...liveEvent({ sequenceNumber: 1 }), worldId: 'other' } as unknown as AcceptedEvent;
     expect(() => buildLiveProjection({ worldId: 'w1', acceptedEvents: [foreign], arcs: [], publishedEpisode: null })).toThrow();

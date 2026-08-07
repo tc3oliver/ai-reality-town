@@ -79,6 +79,8 @@ import type * as publicRead_liveState from "../publicRead/liveState.js";
 import type * as publicRead_liveStateFunctions from "../publicRead/liveStateFunctions.js";
 import type * as publicRead_onboardingSummary from "../publicRead/onboardingSummary.js";
 import type * as publicRead_onboardingSummaryFunctions from "../publicRead/onboardingSummaryFunctions.js";
+import type * as publicRead_publicDynamicProjection from "../publicRead/publicDynamicProjection.js";
+import type * as publicRead_publicDynamicProjectionValidators from "../publicRead/publicDynamicProjectionValidators.js";
 import type * as publicRead_readModel from "../publicRead/readModel.js";
 import type * as publicRead_readModelFunctions from "../publicRead/readModelFunctions.js";
 import type * as publicRead_relationshipArcProjection from "../publicRead/relationshipArcProjection.js";
@@ -247,6 +249,8 @@ declare const fullApi: ApiFromModules<{
   "publicRead/liveStateFunctions": typeof publicRead_liveStateFunctions;
   "publicRead/onboardingSummary": typeof publicRead_onboardingSummary;
   "publicRead/onboardingSummaryFunctions": typeof publicRead_onboardingSummaryFunctions;
+  "publicRead/publicDynamicProjection": typeof publicRead_publicDynamicProjection;
+  "publicRead/publicDynamicProjectionValidators": typeof publicRead_publicDynamicProjectionValidators;
   "publicRead/readModel": typeof publicRead_readModel;
   "publicRead/readModelFunctions": typeof publicRead_readModelFunctions;
   "publicRead/relationshipArcProjection": typeof publicRead_relationshipArcProjection;
