@@ -120,10 +120,12 @@ to exercise made no request. Four independent gates instead:
   so the new directory is inside it with no new enforcement code: naming `useMutation`,
   `useAction`, `useConvex` or any Convex client constructor fails `npm run check:architecture`.
 - **Surface scan.** `components/live/liveMapSurface.test.ts` reads every shipped file in the
-  module and asserts that `CameraControls.tsx` names no request API at all (`fetch`,
-  `XMLHttpRequest`, `sendBeacon`, `WebSocket`, `EventSource`, `useQuery`), that exactly one
-  `useQuery` call exists in the whole module, that no file mounts a polling timer, and that
-  nothing passes a handler into the renderer.
+  module and asserts that `CameraControls.tsx` and `ReplayControls.tsx` name no request API at all
+  (`fetch`, `XMLHttpRequest`, `sendBeacon`, `WebSocket`, `EventSource`, `useQuery`), that exactly
+  two named `useQuery` calls exist in the whole module — the live projection and, since ART-121
+  (FR-O013), the visual replay, kept as a separate failure-isolated read rather than folded into
+  the projection payload — that no file mounts a polling timer, and that nothing passes a handler
+  into the renderer.
 - **Runtime observation.** A recorded browser pass with the DevTools protocol's network
   domain attached: dragging, wheel-zooming, focusing a location, zooming with the buttons,
   returning to the town view and toggling auto-follow produced **zero** requests. See the
@@ -159,6 +161,29 @@ placeable), and a last-known-good payload persisted before ART-122, whose scenes
 The camera memo depends on `projection.activeScenes`, never on the animation clock's `nowMs`
 — a fresh `targets` array per tick would restart the viewport tween thirty times a second and
 make the camera judder. See `docs/active-scene-presentation.md` for how a scene is derived.
+
+## Replay controls and the camera during playback (FR-O013, ART-121)
+
+`ReplayControls.tsx` adds two real `<button>`s beside the camera controls, following
+`CameraControls.tsx`'s pattern for the same reasons given above: keyboard reachability, no
+canvas handler, and each button a `useState` setter one component up. Only one is shown at a
+time — "跳過重播" while a replay is playing, "重播今日事件" otherwise — and the manual trigger stays
+available in every other state, including after auto-play has already fired once this session and
+including under Reduced Motion. Full design of what a replay is and how it is built lives in
+[`visual-replay.md`](./visual-replay.md).
+
+**The camera does not gain a new mode for this.** While a replay frame is active,
+`LiveMapPage.tsx` passes the replay's current scene location as `primaryLocationId` in place of
+the live projection's answer — playback owns the camera for exactly as long as it runs, because a
+replay whose scene the viewer cannot see on screen is not a replay. The moment the frame ends
+(skip or natural completion), `primaryLocationId` reverts to the live answer automatically; there
+is no separate teardown path, because the substitution is a plain value swap evaluated fresh on
+every render rather than a mode the camera has to be told to exit.
+
+Replay playback advances on the **same** `useMotionClock` tick that already drives live-motion
+interpolation — no second timer, no polling — so a replay in flight does not change any of the
+"no request on any camera or playback interaction" guarantees described below; `advanceReplay` and
+`replayFrame` are pure functions over `nowMs`, exactly like the camera model itself.
 
 ## What the map draws
 

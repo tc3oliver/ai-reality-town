@@ -105,6 +105,19 @@ is a compile error here rather than a silent fallthrough.
 | `ambient` | `ambient` |
 | `replay` | `replay` |
 
+`replay` is produced **client-side only**, by `src/components/live/replayPlayback.ts`
+(FR-O013 / ART-121) — never by this module or by `planCharacterTrajectories()`. The client
+synthesises `PublicCharacterMotion`-shaped units locally from a separate, text-free `VisualReplay`
+payload (`docs/visual-replay.md`) and feeds them through the same `composeReadOnlyWorldViewModel`
+this projection's own `characters` array is drawn with, in place of the live motions for as long
+as playback runs. Publishing replay positions into *this* module's `characters` array was
+considered and rejected: that contract enforces one motion per character where a replay needs
+several over time, uses absolute timestamps where a replay's timing is relative to a per-viewer
+playback start, and putting historical positions into the array a client draws as "now" is
+precisely the RISK2-009 failure the feature exists to avoid. `motionType: 'replay'` has therefore
+validated in this contract since it was declared, and remains unreachable from
+`getPublicDynamicProjection` by construction.
+
 To a viewer, a character who has never moved and one who has finished moving are both
 standing still. "Bootstrap" is an implementation word the public contract has no room for.
 
@@ -220,7 +233,7 @@ widen it rather than redefining it.
 | Not built | Task |
 |---|---|
 | Snapshot lifecycle and staleness classification (`worldStatus` is the raw schedule status) — built in `docs/public-runtime-snapshot.md`, where this projection's `snapshotSequence` is persisted as `sourceRuntimeSequence` and the snapshot table keeps a separate counter of its own | FR-N007 / ART-116 |
-| Replay payloads — `motionType: 'replay'` validates, but is never produced | FR-O013 / ART-121 |
+| Replay payloads — built as a separate read model (`docs/visual-replay.md`); `motionType: 'replay'` remains declared-but-unreachable in *this* contract, produced only client-side | FR-O013 / ART-121 |
 | Incremental updates — `rebuildLiveProjection` stays a full rebuild | FR-Q003 / ART-100 |
 | Scene spatial fields beyond `title`/`summary`/`sourceEventIds` | FR-O003 / ART-122 |
 
