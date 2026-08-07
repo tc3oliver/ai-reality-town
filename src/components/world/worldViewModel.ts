@@ -28,11 +28,15 @@ export type {
   PublicCharacterMotion,
   PublicDirection,
   PublicMotionType,
+  PublicPoint,
 } from '../../../convex/publicRead/publicDynamicProjection';
 
 import type {
+  PublicAnimationState,
   PublicCharacterMotion,
   PublicDirection,
+  PublicMotionType,
+  PublicPoint,
 } from '../../../convex/publicRead/publicDynamicProjection';
 
 /**
@@ -49,14 +53,37 @@ export interface ReadOnlySpriteAsset {
 export interface ReadOnlyWorldCharacter {
   characterId: string;
   spriteKey: string;
+  /**
+   * Where the character *is*, as Canon sees it.
+   *
+   * Carried through unchanged from the projection and never derived from
+   * `nowMs`, which is what makes FR-O002 AC#7 hold: the animation clock can tick
+   * at 60Hz or at 1Hz and this field is the same either way. Only `x`/`y` are
+   * clock-derived.
+   */
+  semanticLocationId: string;
   /** Pixel position on the map canvas. */
   x: number;
   y: number;
   /** Degrees, in the `right/down/left/up` order the sprite sheets are packed in. */
   orientation: number;
+  /**
+   * The published state, forwarded rather than flattened into booleans.
+   *
+   * Two of the five are produced today (`idle` and `walking`, the only values
+   * `convex/visualRuntime/motion.ts` can emit); `speaking`, `thinking` and
+   * `activity` render but stay dormant until FR-O004 (ART-123) produces them.
+   * Keeping the union means the renderer's mapping is total by construction.
+   */
+  animationState: PublicAnimationState;
+  /**
+   * Why the character is where it is. `ambient` (FR-O011) and `replay` (FR-O013)
+   * are forwarded but not yet produced, and this task renders them identically
+   * to `canon` on purpose.
+   */
+  motionType: PublicMotionType;
+  /** Walking *and* still under way, so an arrived walk stops its animation. */
   isMoving: boolean;
-  isSpeaking: boolean;
-  isThinking: boolean;
 }
 
 export interface ReadOnlyWorldViewModel {
@@ -92,6 +119,55 @@ function clamp(value: number, min: number, max: number): number {
 export function motionProgress(motion: PublicCharacterMotion, nowMs: number): number {
   if (motion.arriveAt <= motion.startedAt) return 1;
   return clamp((nowMs - motion.startedAt) / (motion.arriveAt - motion.startedAt), 0, 1);
+}
+
+/**
+ * Where a motion has the character standing at `nowMs`, in tile coordinates.
+ *
+ * Tile coordinates, not pixels: an anchor is a tile *centre* (`tile + 0.5`, see
+ * `convex/visualRuntime/motion.ts`), and rounding that to pixels is the
+ * renderer's job, not the interpolator's.
+ *
+ * A straight line between `from` and `to`. The planner's collision-aware route
+ * is deliberately not published — `waypoints` would leak the shape of the
+ * collision layer — so the client walks the chord of a path whose *duration* was
+ * computed from the real route. See `docs/character-motion-rendering.md`.
+ */
+export function interpolatedTile(motion: PublicCharacterMotion, nowMs: number): PublicPoint {
+  const progress = motionProgress(motion, nowMs);
+  return {
+    x: motion.from.x + (motion.to.x - motion.from.x) * progress,
+    y: motion.from.y + (motion.to.y - motion.from.y) * progress,
+  };
+}
+
+/** Tolerance for "on the segment", in tiles. Well under a pixel at 32px tiles. */
+const SEGMENT_EPSILON = 1e-9;
+
+/**
+ * Whether `point` lies on the closed segment from `motion.from` to `motion.to`.
+ *
+ * The predicate behind AC#6 ("characters never teleport"): a sampled position
+ * that satisfies this at every tick cannot have jumped off the published route,
+ * whatever rate the clock ran at. A zero-length motion degenerates to "is this
+ * the one legal point", which is the correct answer for a standing character.
+ */
+export function isWithinSegment(motion: PublicCharacterMotion, point: PublicPoint): boolean {
+  if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return false;
+  const dx = motion.to.x - motion.from.x;
+  const dy = motion.to.y - motion.from.y;
+  const px = point.x - motion.from.x;
+  const py = point.y - motion.from.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared === 0) {
+    return Math.abs(px) <= SEGMENT_EPSILON && Math.abs(py) <= SEGMENT_EPSILON;
+  }
+  // Off-axis distance first, then the parameter along the segment: a point can
+  // be the right distance along and still be beside the line.
+  const cross = px * dy - py * dx;
+  if (Math.abs(cross) > SEGMENT_EPSILON * Math.sqrt(lengthSquared)) return false;
+  const along = (px * dx + py * dy) / lengthSquared;
+  return along >= -SEGMENT_EPSILON && along <= 1 + SEGMENT_EPSILON;
 }
 
 /**
@@ -132,26 +208,23 @@ export function composeReadOnlyWorldViewModel({
     // silently reskinned.
     .filter((motion) => spriteKeys[motion.characterId] !== undefined)
     .map((motion) => {
-      const progress = motionProgress(motion, nowMs);
-      const tileX = clamp(
-        motion.from.x + (motion.to.x - motion.from.x) * progress,
-        0,
-        Math.max(map.width - 1, 0),
-      );
-      const tileY = clamp(
-        motion.from.y + (motion.to.y - motion.from.y) * progress,
-        0,
-        Math.max(map.height - 1, 0),
-      );
+      const tile = interpolatedTile(motion, nowMs);
+      // Bound by the map's tile *count*, not by its last tile index: a character
+      // stands at a tile centre, so the rightmost legal anchor on a 48-wide map
+      // is 47.5. Clamping to 47 silently shoved every character on the last
+      // column half a tile inwards.
+      const tileX = clamp(tile.x, 0, Math.max(map.width, 0));
+      const tileY = clamp(tile.y, 0, Math.max(map.height, 0));
       return {
         characterId: motion.characterId,
         spriteKey: spriteKeys[motion.characterId],
+        semanticLocationId: motion.semanticLocationId,
         x: tileX * map.tileDim,
         y: tileY * map.tileDim,
         orientation: ORIENTATION_DEGREES[motion.direction],
-        isMoving: motion.animationState === 'walking' && progress < 1,
-        isSpeaking: motion.animationState === 'speaking',
-        isThinking: motion.animationState === 'thinking',
+        animationState: motion.animationState,
+        motionType: motion.motionType,
+        isMoving: motion.animationState === 'walking' && motionProgress(motion, nowMs) < 1,
       };
     })
     // Painter's order: lower on the map draws in front. `characterId` breaks
