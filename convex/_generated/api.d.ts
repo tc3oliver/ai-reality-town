@@ -69,6 +69,7 @@ import type * as operations_postCommitOrchestrationFunctions from "../operations
 import type * as operations_proposalReview from "../operations/proposalReview.js";
 import type * as operations_proposalReviewFunctions from "../operations/proposalReviewFunctions.js";
 import type * as operations_proposalReviewStore from "../operations/proposalReviewStore.js";
+import type * as publicRead_activeScenePresentation from "../publicRead/activeScenePresentation.js";
 import type * as publicRead_arcPrimer from "../publicRead/arcPrimer.js";
 import type * as publicRead_arcPrimerFunctions from "../publicRead/arcPrimerFunctions.js";
 import type * as publicRead_canonRuntimeMismatch from "../publicRead/canonRuntimeMismatch.js";
@@ -246,6 +247,7 @@ declare const fullApi: ApiFromModules<{
   "operations/proposalReview": typeof operations_proposalReview;
   "operations/proposalReviewFunctions": typeof operations_proposalReviewFunctions;
   "operations/proposalReviewStore": typeof operations_proposalReviewStore;
+  "publicRead/activeScenePresentation": typeof publicRead_activeScenePresentation;
   "publicRead/arcPrimer": typeof publicRead_arcPrimer;
   "publicRead/arcPrimerFunctions": typeof publicRead_arcPrimerFunctions;
   "publicRead/canonRuntimeMismatch": typeof publicRead_canonRuntimeMismatch;

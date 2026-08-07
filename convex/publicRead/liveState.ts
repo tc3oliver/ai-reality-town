@@ -13,15 +13,25 @@
  */
 
 import type { AcceptedEvent, TimeSlot } from '../canon/model';
-import type { PublicDynamicProjection } from './publicDynamicProjection';
+import { toPublicActiveScene } from './publicDynamicProjection';
+import type {
+  PublicActiveSceneInput,
+  PublicActiveScenePublicationStatus,
+  PublicActiveSceneStatus,
+  PublicDynamicProjection,
+} from './publicDynamicProjection';
 
 /**
  * Version 2 adds the nested `dynamic` field (FR-N003 / ART-115). It is nested rather than
  * merged into the root `characters` list because `LiveCharacter` is a different, semantic
  * shape — location ids and aliveness — and collapsing the two would force every existing
  * consumer to care about motion.
+ *
+ * Version 3 widens `activeScenes` with the spatial fields of FR-O003 / ART-122 and lets them
+ * be supplied independently of the daily episode, so the Live view has scenes on every slot
+ * rather than only after the day's episode is narrated.
  */
-export const LIVE_PROJECTION_SCHEMA_VERSION = 2;
+export const LIVE_PROJECTION_SCHEMA_VERSION = 3;
 export const LIVE_MODEL_KIND = 'liveState' as const;
 export const LIVE_RECENT_EVENT_DEFAULT = 20;
 
@@ -35,7 +45,24 @@ export type LiveLocation = {
 export type LiveCharacter = { characterId: string; locationId: string | null; alive: boolean };
 export type LiveRecentEvent = { eventId: string; summary: string | null; worldDay: number; timeSlot: TimeSlot };
 export type LiveActiveArc = { arcId: string; title: string; currentQuestion: string; status: string };
-export type LiveScene = { title: string; summary: string; sourceEventIds: string[] };
+/**
+ * The Live view's scene, the same shape the map's {@link PublicActiveScene} publishes and
+ * for the same reason its spatial half is optional: a payload persisted before ART-122 must
+ * still render rather than being rejected as a contract nobody understands.
+ */
+export type LiveScene = {
+  title: string;
+  summary: string;
+  sourceEventIds: string[];
+  sceneId?: string;
+  locationId?: string;
+  participantCharacterIds?: string[];
+  arcIds?: string[];
+  status?: PublicActiveSceneStatus;
+  publicationStatus?: PublicActiveScenePublicationStatus;
+  startedAt?: number;
+  endedAt?: number;
+};
 
 export type LiveProjectionPayload = {
   schemaVersion: typeof LIVE_PROJECTION_SCHEMA_VERSION;
@@ -78,6 +105,14 @@ export function buildLiveProjection(input: {
   acceptedEvents: readonly AcceptedEvent[];
   arcs: readonly LiveArcInput[];
   publishedEpisode: LivePublishedEpisodeInput | null;
+  /**
+   * Scenes derived from accepted Canon (FR-O003 / ART-122). Supplied separately from
+   * `publishedEpisode` rather than through it, because the two answer different questions:
+   * `publishedEpisodeStatus` reports whether the day has been narrated, which stays true
+   * even on the four slots out of five where no episode exists but scenes do. Omitted falls
+   * back to the episode's key scenes, which is what every caller predating ART-122 relies on.
+   */
+  activeScenes?: readonly PublicActiveSceneInput[];
   recentEventCount?: number;
   dynamic?: PublicDynamicProjection | null;
 }): LiveProjectionPayload {
@@ -136,11 +171,8 @@ export function buildLiveProjection(input: {
     .map((arc) => ({ arcId: arc.arcId, title: arc.title, currentQuestion: arc.currentQuestion, status: arc.status }))
     .sort((a, b) => a.arcId.localeCompare(b.arcId));
 
-  const activeScenes: LiveScene[] = input.publishedEpisode
-    ? input.publishedEpisode.keyScenes.map((scene) => ({
-        title: scene.title, summary: scene.summary, sourceEventIds: [...scene.sourceEventIds],
-      }))
-    : [];
+  const activeScenes: LiveScene[] = (input.activeScenes ?? input.publishedEpisode?.keyScenes ?? [])
+    .map(toPublicActiveScene);
 
   return {
     schemaVersion: LIVE_PROJECTION_SCHEMA_VERSION,

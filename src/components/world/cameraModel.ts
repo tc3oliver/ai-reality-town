@@ -49,7 +49,21 @@ export interface CameraView {
   transitionMs: number;
 }
 
-export type FocusTargetKind = 'town' | 'character' | 'location';
+export type FocusTargetKind = 'town' | 'character' | 'location' | 'scene';
+
+/**
+ * The published active scene, as the camera reads it (FR-O003 / ART-122).
+ *
+ * Every field is optional because the payload's are: a projection persisted before ART-122,
+ * or a scene whose events named no location, carries no `locationId`, and the camera's job
+ * is to skip that scene rather than to point somewhere.
+ */
+export interface SceneFocusInput {
+  sceneId?: string;
+  locationId?: string;
+  title?: string;
+  status?: 'active' | 'ended';
+}
 
 export interface FocusTarget {
   kind: FocusTargetKind;
@@ -81,6 +95,10 @@ export function locationTargetId(locationId: string): string {
 
 export function characterTargetId(characterId: string): string {
   return `character:${characterId}`;
+}
+
+export function sceneTargetId(sceneId: string): string {
+  return `scene:${sceneId}`;
 }
 
 /** The default camera: whole town, following the primary scene, no zoom offset. */
@@ -171,21 +189,29 @@ function rectCenter(
 
 /**
  * Every place the camera can be pointed at: the town, each Mistwood location,
- * and each published character.
+ * each published character, and each published active scene.
  *
  * Characters are keyed by their latest motion, so a projection carrying an
  * in-flight walk plus the idle that follows it yields one target, not two.
+ *
+ * A scene resolves to the centre of its location's footprint -- the same point a
+ * location target uses, because a scene *is* somewhere rather than being its own
+ * geometry. A scene whose `locationId` matches no authored footprint is skipped
+ * in silence: a target is a promise that pressing it shows you something, and
+ * the alternative (centring at the origin) points the camera at the map's corner.
  */
 export function focusTargetsFrom({
   motions,
   footprints,
   map,
   nowMs,
+  scenes = [],
 }: {
   motions: readonly PublicCharacterMotion[];
   footprints: readonly MistwoodLocationFootprint[];
   map: { width: number; height: number; tileDim: number };
   nowMs: number;
+  scenes?: readonly SceneFocusInput[];
 }): FocusTarget[] {
   const worldWidth = map.width * map.tileDim;
   const worldHeight = map.height * map.tileDim;
@@ -218,18 +244,50 @@ export function focusTargetsFrom({
     })
     .sort((a, b) => a.id.localeCompare(b.id));
 
-  return [town, ...locations, ...characters];
+  const footprintById = new Map(footprints.map((footprint) => [footprint.id, footprint]));
+  const sceneTargets = scenes.flatMap<FocusTarget>((scene) => {
+    if (scene.sceneId === undefined || scene.locationId === undefined) return [];
+    const footprint = footprintById.get(scene.locationId);
+    if (footprint === undefined) return [];
+    return [{
+      kind: 'scene',
+      id: sceneTargetId(scene.sceneId),
+      label: scene.title && scene.title.length > 0 ? scene.title : footprint.name,
+      point: rectCenter(footprint.rect, map.tileDim),
+    }];
+  });
+
+  return [town, ...locations, ...characters, ...sceneTargets];
 }
 
 /**
- * The location the world's attention is on, as the stand-in for "the active scene".
+ * Where the published active scene is (FR-O003 / ART-122) -- what auto-follow
+ * should actually point at.
  *
- * `PublicActiveScene` carries no location today -- spatial scene data is FR-O003
- * (ART-122) and is deliberately not invented here. Until it lands, the primary
- * scene is derived from where the characters actually are: the location holding
- * the most of them, ties broken by ascending `locationId` so the result is
- * deterministic. Replacing this with the published scene location is a one-line
- * change at the call site.
+ * An `active` scene wins over an `ended` one, and the payload's own order decides
+ * between two active scenes (the producer sorts them by descending latest Canon
+ * sequence, so the first is the most recent activity). Returns null when no scene
+ * resolves to a location, which is the caller's cue to fall back to
+ * {@link primaryLocationId}.
+ */
+export function primarySceneLocationId(scenes: readonly SceneFocusInput[]): string | null {
+  const placed = scenes.filter((scene) => scene.locationId !== undefined);
+  const active = placed.find((scene) => scene.status === 'active');
+  return (active ?? placed[0])?.locationId ?? null;
+}
+
+/**
+ * The location the world's attention is on, inferred from where the characters
+ * are: the location holding the most of them, ties broken by ascending
+ * `locationId` so the result is deterministic.
+ *
+ * This was the stand-in for "the active scene" before FR-O003 published one, and
+ * it remains the documented FALLBACK rather than dead code, because two real
+ * cases still reach it: a world whose events name no location (so no scene is
+ * placeable at all), and a last-known-good payload persisted before ART-122,
+ * which carries scenes with no `locationId`. In both, guessing from character
+ * density is better than pointing the camera at nothing. See
+ * {@link primarySceneLocationId} for the preferred source.
  */
 export function primaryLocationId(motions: readonly PublicCharacterMotion[]): string | null {
   const counts = new Map<string, number>();

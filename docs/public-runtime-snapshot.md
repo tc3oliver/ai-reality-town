@@ -31,7 +31,7 @@ verdict is reproducible and a test can sit at any instant.
 | `status` | `live` \| `paused`. **Only these two.** See below. |
 | `mapId` | Which map the carried coordinates are measured against. |
 | `characterStates` | ART-115's `PublicCharacterMotion[]`, carried verbatim. |
-| `activeSceneStates` | ART-115's `PublicActiveScene[]` — `title`, `summary`, `sourceEventIds`. |
+| `activeSceneStates` | ART-115's `PublicActiveScene[]`, widened by ART-122 — `title`, `summary`, `sourceEventIds`, plus the optional spatial fields (`sceneId`, `locationId`, `participantCharacterIds`, `arcIds`, `status`, `publicationStatus`, `startedAt`, `endedAt`). |
 | `contentUpdatedAt` | The source projection's `updatedAt` — the last accepted event's `acceptedAt`. Canon-derived, **not** a clock read. |
 | `contentHash` | Digest of `(sourceRuntimeSequence, status, mapId, characterStates, activeSceneStates)`. Timestamps excluded. |
 | `createdAt` | When this row was captured. |
@@ -41,9 +41,19 @@ verdict is reproducible and a test can sit at any instant.
 Indexes: `by_world_and_current [worldId, isCurrent]` (the read path) and
 `by_world_and_sequence [worldId, snapshotSequence]` (history).
 
-The snapshot contents inherit ART-115's field whitelist unchanged. Nothing is added to
-`characterStates` or `activeSceneStates` here; spatial scene fields remain FR-O003 / ART-122's
-job.
+The snapshot contents inherit ART-115's field whitelist rather than restating it —
+`assertActiveSceneState` validates against `PUBLIC_ACTIVE_SCENE_FIELDS` and
+`PUBLIC_ACTIVE_SCENE_OPTIONAL_FIELDS` directly, and `buildRuntimeSnapshot` narrows scenes
+with ART-115's own `toPublicActiveScene`, so the two contracts cannot drift apart.
+
+**The optional-field back-compat guarantee.** ART-122 (FR-O003) added eight scene fields, and
+every one is optional because `assertPublicRuntimeSnapshot` runs on the way **out**:
+`serveRuntimeSnapshot` throws rather than degrading, so a required field would make every row
+already in `publicRuntimeSnapshots` unreadable and take the public map dark with no way to
+rewrite them. For the same reason `RUNTIME_SNAPSHOT_SCHEMA_VERSION` is deliberately **not**
+bumped — optional fields do not require it, and a bump would hard-fail every existing row.
+Two tests pin both directions: a pre-ART-122 scene shape still validates, and a
+fully-populated one does too.
 
 ## Freshness is derived, never stored
 
