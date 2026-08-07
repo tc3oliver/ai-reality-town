@@ -88,11 +88,27 @@ export type MovementTrajectory = {
   readonly sourceEventIds: readonly string[];
 };
 
-export type VisualRuntimeProblemCode =
-  /** A Canon location with no active Location Visual Binding cannot be drawn at all. */
-  | 'VISUAL_RUNTIME_UNBOUND_LOCATION'
-  /** The collision layer offers no walkable route, so the walk was degraded, not faked. */
-  | 'VISUAL_RUNTIME_NO_PATH';
+/**
+ * Every way the runtime can fail to draw something, as a value rather than a bare type
+ * union. Downstream modules that persist or aggregate these (ART-133's metric registry)
+ * build their own contracts from this array, so adding a code here propagates instead of
+ * being silently ignored by a hand-copied list.
+ *
+ * - `VISUAL_RUNTIME_UNBOUND_LOCATION` — a Canon location with no active Location Visual
+ *   Binding cannot be drawn at all.
+ * - `VISUAL_RUNTIME_NO_PATH` — the collision layer offers no walkable route, so the walk
+ *   was degraded, not faked.
+ * - `VISUAL_RUNTIME_UNBOUND_CHARACTER` — the character has a position but no sprite, so
+ *   the renderer has nothing to put there. Detected separately from planning; see
+ *   `./characterBindings.ts`.
+ */
+export const VISUAL_RUNTIME_PROBLEM_CODES = [
+  'VISUAL_RUNTIME_UNBOUND_LOCATION',
+  'VISUAL_RUNTIME_NO_PATH',
+  'VISUAL_RUNTIME_UNBOUND_CHARACTER',
+] as const;
+
+export type VisualRuntimeProblemCode = (typeof VISUAL_RUNTIME_PROBLEM_CODES)[number];
 
 export type VisualRuntimeProblem = {
   readonly code: VisualRuntimeProblemCode;

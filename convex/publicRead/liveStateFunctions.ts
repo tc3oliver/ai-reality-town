@@ -12,16 +12,25 @@
 
 import { v } from 'convex/values';
 import { internalMutation, query } from '../_generated/server';
+import type { AcceptedEvent } from '../canon/model';
+import { emptyProjection } from '../canon/model';
 import { MISTWOOD_PUBLIC_WORLD_ID } from '../canon/mistwoodSeed';
+import { replayWorldEvents } from '../canon/replay';
 import { rowToAcceptedEvent } from '../canon/serialize';
 import { parseArcProjectionFields } from '../story/projection';
+import { detectUnboundCharacters } from '../visualRuntime/characterBindings';
 import { mistwoodRuntimeContext, type VisualRuntimeContext } from '../visualRuntime/mistwoodRuntime';
+import { detectLocationMismatches } from './canonRuntimeMismatch';
+import { toIncident, type DynamicViewIncident } from './dynamicViewMetrics';
+import { commitDynamicViewMetrics, dynamicViewMetricsWriteStore } from './dynamicViewMetricsFunctions';
 import { commitReadModelVersion, serveReadModel } from './readModel';
 import { readStore, writeStore } from './readModelFunctions';
 import {
   buildPublicDynamicProjectionResult,
   seedPlacementsFromCharacterRows,
   selectPublicDynamicProjection,
+  type AttributedRuntimeProblem,
+  type PublicDynamicProjection,
   type PublicWorldStatus,
 } from './publicDynamicProjection';
 import { publicDynamicProjectionValidator } from './publicDynamicProjectionValidators';
@@ -51,6 +60,70 @@ type DailyEpisodeRow = {
  */
 function visualRuntimeForWorld(worldId: string): VisualRuntimeContext | null {
   return worldId === MISTWOOD_PUBLIC_WORLD_ID ? mistwoodRuntimeContext() : null;
+}
+
+/**
+ * Canon's own answer to "where is everyone", folded independently of the Visual Runtime so
+ * the two can be compared (FR-Q001 AC#4). Costs no extra database read — `canonRows` is
+ * already collected above — only an O(events) pure fold.
+ *
+ * A fold that throws yields `null` rather than propagating. `replayWorldEvents` fails hard
+ * on a sequence gap or duplicate, which is correct for Canon but must not take the PUBLIC
+ * READ PATH down with it: a projection nobody can compare against Canon is still a
+ * projection worth serving, and public read availability is isolated from simulation
+ * failure by design. The consequence is stated rather than hidden — mismatch detection is
+ * skipped for this pass, and `canonComparable` in the mutation's result says so.
+ */
+export function canonCharacterLocations(
+  worldId: string,
+  acceptedEvents: readonly AcceptedEvent[],
+): Record<string, string> | null {
+  try {
+    return replayWorldEvents(emptyProjection(worldId), [...acceptedEvents]).characterLocations;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Everything wrong with this rebuild, attributed.
+ *
+ * Three independent detectors, deliberately not merged into one pass: the runtime's own
+ * problems come from planning, the mismatch comes from comparing two derivations, and the
+ * missing sprite comes from the binding set the planner never consults. Each answers a
+ * different question, and folding them together would make a single detector's failure
+ * look like a clean world.
+ */
+export function collectIncidents(args: {
+  readonly dynamic: PublicDynamicProjection;
+  readonly runtime: VisualRuntimeContext;
+  readonly problems: readonly AttributedRuntimeProblem[];
+  readonly canonLocations: Record<string, string> | null;
+}): DynamicViewIncident[] {
+  const { dynamic, runtime, problems, canonLocations } = args;
+  const motionSequences = new Map(dynamic.characters.map((motion) => [motion.characterId, motion.motionSequence]));
+
+  const planningIncidents = problems.map((problem) =>
+    toIncident(problem, dynamic.snapshotSequence, motionSequences.get(problem.characterId)));
+
+  const unboundCharacters = detectUnboundCharacters(
+    dynamic.characters.map((motion) => ({
+      characterId: motion.characterId,
+      locationId: motion.semanticLocationId,
+    })),
+    runtime.characterBindings,
+  ).map((problem) =>
+    toIncident(problem, dynamic.snapshotSequence, motionSequences.get(problem.characterId)));
+
+  const mismatches = canonLocations
+    ? detectLocationMismatches({
+      characters: dynamic.characters,
+      canonLocations,
+      snapshotSequence: dynamic.snapshotSequence,
+    })
+    : [];
+
+  return [...planningIncidents, ...unboundCharacters, ...mismatches];
 }
 
 /**
@@ -153,10 +226,34 @@ export const rebuildLiveProjection = internalMutation({
         })
       : null;
 
+    // FR-Q001 metrics ride in the SAME transaction, for the reason stated above the
+    // snapshot: a rebuild that published a projection but lost the record of what was
+    // wrong with it is worse than a rebuild that failed. `updatedAt` is the last accepted
+    // event's `acceptedAt`, so this latency is end-to-end — Canon fact to public
+    // projection — not the handler's own duration. A world with no history has
+    // `snapshotSequence === 0` and no fact to measure from, so it records 0 rather than
+    // the distance to the Unix epoch.
+    const canonLocations = dynamic ? canonCharacterLocations(args.worldId, acceptedEvents) : null;
+    const incidents = dynamic && runtime
+      ? collectIncidents({ dynamic, runtime, problems: derived?.problems.records ?? [], canonLocations })
+      : [];
+    const latencyMs = dynamic && dynamic.snapshotSequence > 0 ? Math.max(0, args.now - dynamic.updatedAt) : 0;
+    if (dynamic && runtime) {
+      await commitDynamicViewMetrics(dynamicViewMetricsWriteStore(ctx.db), {
+        worldId: args.worldId,
+        incidents,
+        latencyMs,
+        snapshotSequence: dynamic.snapshotSequence,
+        now: args.now,
+      });
+    }
+    const countOf = (code: DynamicViewIncident['code']): number =>
+      incidents.filter((incident) => incident.code === code).length;
+
     // `dynamicProblem*` is the operator-facing half of the rebuild (FR-N006 / ART-117): a
     // character the Visual Runtime could not place is omitted from the payload rather than
     // guessed at, which is correct but silent. Counted here so the omission is reachable
-    // from outside; ART-133's metrics dashboard is the intended consumer.
+    // from outside; the attributed rows are in `dynamicViewIncidents` (FR-Q001).
     return {
       modelRef: `live:${args.worldId}`,
       version: result.version,
@@ -165,6 +262,10 @@ export const rebuildLiveProjection = internalMutation({
       snapshotSequence: snapshot?.snapshotSequence ?? null,
       dynamicProblemCount: derived?.problems.total ?? 0,
       dynamicProblemsByCode: derived?.problems.byCode ?? {},
+      latencyMs,
+      mismatchCount: countOf('CANON_RUNTIME_LOCATION_MISMATCH'),
+      unboundCharacterCount: countOf('VISUAL_RUNTIME_UNBOUND_CHARACTER'),
+      canonComparable: canonLocations !== null,
     };
   },
 });

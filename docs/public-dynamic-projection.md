@@ -127,6 +127,15 @@ boundary) and the Visual Runtime planning detail that is real but internal:
 | `problems` | Operator diagnostics. A viewer is not an operator. |
 | per-motion `mapId` | Legal once at the root, never repeated per character. |
 
+`problems` stays forbidden, but it now has an **attributed sibling on the operator side**.
+`RuntimeProblemSummary` carries a `records` array — each problem's `code`, `characterId` and
+`locationId`, with the free-text `message` dropped — which `rebuildLiveProjection` persists to
+`dynamicViewIncidents` and `inspectDynamicViewMetrics` serves to an authorized operator
+(FR-Q001 / ART-133, see `docs/dynamic-view-observability.md`). None of it reaches the public
+payload: `'problems'` is on this list, and `assertPublicDynamicProjection()` refuses unknown
+root fields regardless. A regression test asserts the published payload is unchanged, and
+still deduplicates, when incidents are present.
+
 Publication is by **allowlist, not redaction**: every published field is named in a constant
 and re-checked by `assertPublicDynamicProjection()` before the payload is written and again
 when it is read back. A field added to `MovementTrajectory` tomorrow is invisible to the

@@ -41,10 +41,15 @@ const IMPORT_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
   // is what keeps the planner's own closure free of the Canon seed these bindings read.
   'mistwoodRuntime.ts': [
     '../../data/mistwood',
+    '../visual/characterVisualBinding',
     '../visual/locationVisualBinding',
     '../visual/mistwoodLocationBindings',
+    '../visual/mistwoodVisualBindings',
     './walkableGrid',
   ],
+  // ART-133: a pure second pass over the planner's output. `visual` only, so it inherits
+  // the same closure the planner has.
+  'characterBindings.ts': ['../visual/characterVisualBinding', './motion'],
   'fixtures.ts': ['./mistwoodRuntime', './seedBootstrap', './visualSyncPlanner'],
 };
 
