@@ -109,6 +109,45 @@ export function assertSanitizedSummaryFidelity(original: PostGenerationCandidate
   }
 }
 
+/** One appended operator revision of a classification's label (FR-P004 / ART-132). */
+export type SafetyStatusOverrideLike = {
+  readonly label: PostGenerationLabel;
+  readonly createdAt: number;
+};
+
+/** Whether a label permits public text. The two withholding labels are the same gate. */
+export function isPubliclyShowable(label: PostGenerationLabel): boolean {
+  return label === 'allow' || label === 'allow_with_warning';
+}
+
+/**
+ * The label that governs content NOW: the newest operator override, or the classifier's own
+ * verdict when none has been appended (FR-P004 / ART-132).
+ *
+ * Pure, and the single definition of "latest wins" — the ledger is append-only, so an override
+ * never replaces an earlier row, and a reader that took the first, the last, or any row at all
+ * would sometimes publish a label an operator had already revoked.
+ *
+ * TIES RESOLVE TO THE LAST ROW SUPPLIED, and callers must supply rows in ledger order. Two
+ * overrides can share a `createdAt` — the console's clock has millisecond resolution and an
+ * operator can correct themselves inside one — and the row inserted second is the later
+ * decision. That is also exactly what `by_world_source_and_created` returns last, so a caller
+ * reading the newest row with `.order('desc').take(1)` and a caller folding the whole ledger
+ * through this function reach the SAME verdict on a tie. They must: one of those callers is
+ * the rebuild's gate and the other is the override command's verification, and a disagreement
+ * between them would mean the command reported a state the projection did not implement.
+ */
+export function resolveEffectiveSafetyLabel(
+  classification: Pick<PostGenerationClassification, 'label'>,
+  overrides: readonly SafetyStatusOverrideLike[],
+): PostGenerationLabel {
+  let latest: SafetyStatusOverrideLike | undefined;
+  for (const override of overrides) {
+    if (latest === undefined || override.createdAt >= latest.createdAt) latest = override;
+  }
+  return latest?.label ?? classification.label;
+}
+
 export type PublicationGateResult = {
   publishable: boolean;
   classification: PostGenerationClassification;

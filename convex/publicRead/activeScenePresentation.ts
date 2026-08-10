@@ -45,6 +45,30 @@ import type {
 } from './publicDynamicProjection';
 
 /**
+ * The post-generation safety verdict governing a scene (FR-P004 / ART-132).
+ *
+ * Declared structurally rather than imported from `convex/safety/postGeneration`, for the same
+ * reason {@link SceneEventLike} is: FR-O013's replay builder pins this module's whole
+ * dependency closure and refuses anything under `convex/safety/`, so importing the alias — even
+ * as a type — would fail that boundary. `PostGenerationLabel` is assignable to this without
+ * either module knowing about the other, and `liveStateFunctions` is where the two meet.
+ */
+export type SceneSafetyLabel = 'allow' | 'allow_with_warning' | 'withhold' | 'human_review_required';
+
+/**
+ * What a viewer sees in place of text the safety gate refuses to publish.
+ *
+ * Traditional Chinese, matching every other public string this surface carries, and
+ * deliberately saying nothing about the scene: a placeholder that hinted at why a scene was
+ * withheld would be a smaller version of the leak it exists to prevent. The summary is empty
+ * rather than a second sentence, because the empty summary is already what this module
+ * publishes for a scene with no public text (see {@link presentGroup}) and the client already
+ * renders it.
+ */
+export const WITHHELD_SCENE_TITLE = '內容審核中';
+export const WITHHELD_SCENE_SUMMARY = '';
+
+/**
  * One accepted Canon event, as this module reads it.
  *
  * Declared structurally rather than imported from `convex/canon/model`, the same way
@@ -63,6 +87,14 @@ export type SceneEventLike = {
   readonly participantIds: readonly string[];
   readonly publicSummary?: string;
   readonly stateChanges: readonly SceneStateChangeLike[];
+  /**
+   * The simulated Scene this event was proposed from (FR-P004 / ART-132), which is what the
+   * post-generation safety classification is keyed on. Optional, and absent means "no
+   * classifier ever saw this": Canon carries system, seed and remediation events that no LLM
+   * wrote, and they are shown. The caller lifts it out of the accepted event's private extras
+   * — it is an identifier, never text.
+   */
+  readonly sceneId?: string;
 };
 
 /** Only the movement destination is read; every other change variant contributes nothing. */
@@ -128,6 +160,13 @@ export type BuildActiveScenePresentationsInput = {
   readonly publishedEpisodeScenes: readonly PublishedKeyScene[];
   /** Characters the map already refuses to draw — the dead and the deactivated. */
   readonly excludedCharacterIds: ReadonlySet<string>;
+  /**
+   * The effective safety label of each Scene id named by the events, as of NOW (FR-P004 /
+   * ART-132) — the classifier's verdict as revised by any operator override. Optional so
+   * every existing caller keeps working; an absent map means nothing is withheld, which is
+   * the pre-ART-132 behaviour exactly.
+   */
+  readonly sceneSafetyLabels?: ReadonlyMap<string, SceneSafetyLabel>;
 };
 
 /** The separator is `\0` (NUL) because no Canon id may contain it, so a key cannot collide. */
@@ -289,6 +328,30 @@ export function narrationForEvents(
 }
 
 /**
+ * Whether a scene group's text must be withheld (FR-P004 / ART-132).
+ *
+ * FAIL CLOSED ON A VERDICT, OPEN ON SILENCE. A group is withheld when ANY of its events names
+ * a Scene the safety gate currently refuses. It is shown when its events name no Scene at all,
+ * or name Scenes with no verdict: Canon carries seed, system and remediation events that no
+ * post-generation classifier ever examined, and reading their silence as a refusal would blank
+ * the map for content that was never in question. So an absent verdict shows, and a present
+ * refusal withholds — even where a group spans two Scenes and only one was refused, because
+ * publishing the joined summaries of a group half of which is refused would publish the
+ * refused half.
+ */
+function isGroupWithheld(
+  group: SceneGroup,
+  labels: ReadonlyMap<string, SceneSafetyLabel> | undefined,
+): boolean {
+  if (!labels || labels.size === 0) return false;
+  return group.events.some((event) => {
+    if (typeof event.sceneId !== 'string' || event.sceneId.length === 0) return false;
+    const label = labels.get(event.sceneId);
+    return label === 'withhold' || label === 'human_review_required';
+  });
+}
+
+/**
  * Compose one group into the published shape.
  *
  * `summary` falls back to the empty string rather than to any other field on the event. An
@@ -302,21 +365,27 @@ function presentGroup(args: {
   readonly status: PublicActiveSceneStatus;
   readonly spatials: SceneSpatials;
   readonly narration: PublishedKeyScene | undefined;
+  readonly withheld: boolean;
 }): PublicActiveSceneInput {
-  const { group, status, spatials, narration } = args;
+  const { group, status, spatials, narration, withheld } = args;
   const publicSummaries = [...group.events]
     .sort((left, right) => left.sequenceNumber - right.sequenceNumber)
     .map((event) => event.publicSummary)
     .filter((summary): summary is string => typeof summary === 'string' && summary.length > 0);
 
   return {
-    title: narration?.title ?? `${group.locationId} · ${group.timeSlot}`,
-    summary: narration?.summary ?? publicSummaries.join(' '),
+    // FR-P004 AC#2: a withheld scene keeps its place on the map and loses its words. The
+    // substitution happens HERE, before the text ever reaches the public contract, so there is
+    // no downstream stage that could be skipped and no redaction that could be partial.
+    title: withheld ? WITHHELD_SCENE_TITLE : narration?.title ?? `${group.locationId} · ${group.timeSlot}`,
+    summary: withheld ? WITHHELD_SCENE_SUMMARY : narration?.summary ?? publicSummaries.join(' '),
+    // Kept even when withheld: AC#5 requires every public string to be traceable to accepted
+    // events, and the placeholder is a public string. The ids name events, never their text.
     sourceEventIds: spatials.sourceEventIds,
     sceneId: `${group.worldDay}:${group.timeSlot}:${group.locationId}`,
     locationId: group.locationId,
     status,
-    publicationStatus: 'published',
+    publicationStatus: withheld ? 'withheld' : 'published',
     startedAt: spatials.startedAt,
     // Empty lists are omitted rather than published as `[]`, matching how a motion omits
     // `sourceEventIds` it does not have: absent reads as "none", `[]` reads as "we looked
@@ -362,7 +431,13 @@ export function buildActiveScenePresentations(
   const present = (group: SceneGroup, status: PublicActiveSceneStatus) => {
     const spatials = resolveSceneSpatials(group.events, resolveOptions);
     const narration = narrationForEvents(new Set(spatials.sourceEventIds), input.publishedEpisodeScenes);
-    return { scene: presentGroup({ group, status, spatials, narration }), narrated: narration !== undefined };
+    const withheld = isGroupWithheld(group, input.sceneSafetyLabels);
+    return {
+      scene: presentGroup({ group, status, spatials, narration, withheld }),
+      // A withheld scene never counts as narrated: its text came from this module's placeholder,
+      // not from the episode, and reporting `episode` would attribute words nobody published.
+      narrated: narration !== undefined && !withheld,
+    };
   };
 
   const active = groups

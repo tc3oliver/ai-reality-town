@@ -73,6 +73,11 @@ export const OPS_CAPABILITIES = [
   'canon.correct',
   'canon.compensate',
   'canon.retcon',
+  // FR-P004 / ART-132. Revising a post-generation safety label decides whether already
+  // published text stays visible, so it is its own capability rather than folded into an
+  // existing one: an operator trusted to pause a world is not thereby trusted to un-withhold
+  // content the safety classifier refused.
+  'safety.override',
 ] as const;
 export type OpsCapability = (typeof OPS_CAPABILITIES)[number];
 
@@ -103,6 +108,10 @@ const CAPABILITY_MINIMUM_ROLE: Readonly<Record<OpsCapability, OperatorRole>> = {
   'canon.correct': 'admin',
   'canon.compensate': 'admin',
   'canon.retcon': 'admin',
+  // FR-P004. Releasing content the safety classifier withheld is the highest-consequence
+  // publication decision in the system, so it is `admin` for the same reason the remediations
+  // are.
+  'safety.override': 'admin',
 };
 
 /** Capabilities that only ever read; used to keep read entry points side-effect free. */

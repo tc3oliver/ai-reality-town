@@ -92,12 +92,18 @@ export const PUBLIC_ACTIVE_SCENE_STATUSES = ['active', 'ended'] as const;
 export type PublicActiveSceneStatus = (typeof PUBLIC_ACTIVE_SCENE_STATUSES)[number];
 
 /**
- * A single-member union on purpose. Every scene reaching this contract has already passed
- * the Canon-acceptance gate, so `published` is the only state expressible today; FR-P004
- * (ART-132) owns the per-scene publication lifecycle and will widen this enum rather than
- * making clients learn a field shape they have never seen.
+ * Whether a scene's text is the real thing or a placeholder standing in for text the safety
+ * gate refuses to publish (FR-P004 / ART-132).
+ *
+ * `withheld` was added by ART-132, which owns the per-scene publication lifecycle ART-122
+ * anticipated here. A withheld scene is still PRESENT in the payload — with its spatial
+ * fields, its `sourceEventIds` and a generic title — rather than being dropped, because the
+ * map's job is to show where the world is, and a scene vanishing from a location the
+ * characters are visibly standing in would be a worse lie than saying "this text is under
+ * review". What it does not carry is the withheld text: the producer replaces `title` and
+ * `summary` before they reach this contract, so there is nothing here to leak.
  */
-export const PUBLIC_ACTIVE_SCENE_PUBLICATION_STATUSES = ['published'] as const;
+export const PUBLIC_ACTIVE_SCENE_PUBLICATION_STATUSES = ['published', 'withheld'] as const;
 export type PublicActiveScenePublicationStatus = (typeof PUBLIC_ACTIVE_SCENE_PUBLICATION_STATUSES)[number];
 
 /**

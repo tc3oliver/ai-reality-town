@@ -33,6 +33,7 @@ import {
   generateCharacterIntent,
   isTravelScene,
   withArrivalStateChanges,
+  withSceneProvenance,
   worldDayRunId,
   MAX_SLOTS_WITHOUT_APPEARANCE,
   MAX_TRAVEL_SCENES_PER_SLOT,
@@ -551,5 +552,72 @@ describe('FR-C002 neglected-character reachability (ART-101)', () => {
     const result = finalizeWholeSceneOutput('sim', scene, parseWholeSceneOutput(narrateGroupedScene(scene), scene), 1,
       { provider: 'fake', model: 'fake-whole-scene-v1', inputTokens: 1, outputTokens: 1, latencyMs: 0, retryCount: 0 });
     expect(withArrivalStateChanges(result, port.lastSnapshot())).toBe(result);
+  });
+
+  /**
+   * FR-P004 / ART-132. Without this stamp, an accepted event carries no link back to the Scene
+   * whose post-generation safety classification governs its public text, and the public
+   * projection has nothing to ask about. `simulate_scenes` is the last stage where the Scene
+   * and its proposals are co-located — `validate_structured_output` flattens the proposals and
+   * discards the Scene — so a regression here is silent everywhere else.
+   */
+  it('stamps the Scene id onto every proposal before the Scene link is discarded', () => {
+    const scene: GroupedScene = {
+      schemaVersion: 1, sceneId: 'grouping:mistwood:0:morning:scene:1', groupingRunId: 'grouping:mistwood:0:morning',
+      directorRunId: directorRunId(slotOf('morning')), worldId: WORLD_ID, worldDay: 0, timeSlot: 'morning',
+      locationId: 'mistwood-mill', participantIds: ['he-jun', 'zhao-ming'], sourceIntentIds: ['i1', 'i2'],
+      arcIds: [], trigger: 'The refinancing deadline lands', dramaticPressure: 'The audit is not finished',
+    };
+    const result = finalizeWholeSceneOutput('sim', scene, parseWholeSceneOutput(narrateGroupedScene(scene), scene), 1,
+      { provider: 'fake', model: 'fake-whole-scene-v1', inputTokens: 1, outputTokens: 1, latencyMs: 0, retryCount: 0 });
+
+    const stamped = withSceneProvenance(result);
+    expect(stamped.output.proposedEvents.length).toBeGreaterThan(0);
+    for (const proposed of stamped.output.proposedEvents) {
+      expect(proposed.metadata?.sceneId).toBe(scene.sceneId);
+    }
+    // The Scene itself is untouched, and so is the rest of every proposal: this adds one key.
+    expect(stamped.scene).toEqual(result.scene);
+    const withoutMetadata = (result: SceneSimulationResult) =>
+      result.output.proposedEvents.map((proposed) => ({ ...proposed, metadata: null }));
+    expect(withoutMetadata(stamped)).toEqual(withoutMetadata(result));
+  });
+
+  it('leaves any other metadata a proposal already carried in place', () => {
+    const scene: GroupedScene = {
+      schemaVersion: 1, sceneId: 'grouping:mistwood:0:noon:scene:1', groupingRunId: 'grouping:mistwood:0:noon',
+      directorRunId: directorRunId(slotOf('noon')), worldId: WORLD_ID, worldDay: 0, timeSlot: 'noon',
+      locationId: 'mistwood-mill', participantIds: ['he-jun', 'zhao-ming'], sourceIntentIds: ['i1', 'i2'],
+      arcIds: [], trigger: 'A ledger goes missing', dramaticPressure: 'The auditor is waiting',
+    };
+    const base = finalizeWholeSceneOutput('sim', scene, parseWholeSceneOutput(narrateGroupedScene(scene), scene), 1,
+      { provider: 'fake', model: 'fake-whole-scene-v1', inputTokens: 1, outputTokens: 1, latencyMs: 0, retryCount: 0 });
+    const withExtra = {
+      ...base,
+      output: {
+        ...base.output,
+        proposedEvents: base.output.proposedEvents.map((proposed) => ({
+          ...proposed, metadata: { remediation: 'ops-1' },
+        })),
+      },
+    };
+    const stamped = withSceneProvenance(withExtra);
+    expect(stamped.output.proposedEvents[0].metadata)
+      .toEqual({ remediation: 'ops-1', sceneId: scene.sceneId });
+  });
+});
+
+describe('FR-P004 — the deterministic fake narrator stamps the same provenance', () => {
+  it('carries metadata.sceneId on the Proposed Event it builds', () => {
+    const scene: GroupedScene = {
+      schemaVersion: 1, sceneId: 'grouping:mistwood:0:evening:scene:1', groupingRunId: 'grouping:mistwood:0:evening',
+      directorRunId: directorRunId(slotOf('evening')), worldId: WORLD_ID, worldDay: 0, timeSlot: 'evening',
+      locationId: 'mistwood-mill', participantIds: ['he-jun', 'zhao-ming'], sourceIntentIds: ['i1', 'i2'],
+      arcIds: [], trigger: 'The mill wheel is repaired', dramaticPressure: 'The debt is still owed',
+    };
+    // The fixture path must exercise the same shape the live orchestrator produces, or every
+    // test downstream of it would be testing a world where no event has provenance.
+    const output = parseWholeSceneOutput(narrateGroupedScene(scene), scene);
+    expect(output.proposedEvents.every((proposed) => proposed.metadata?.sceneId === scene.sceneId)).toBe(true);
   });
 });

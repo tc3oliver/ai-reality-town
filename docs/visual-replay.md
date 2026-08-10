@@ -226,6 +226,20 @@ vocabulary.
 
 ## What ART-132 still has to build
 
+> **Status: delivered.** ART-132 landed the safety half of this list, though not in the shape
+> sketched below. Rather than filtering at read time, `rebuildLiveProjection` now drops the
+> `publicSummary` of every event whose Scene the safety gate refuses
+> (`redactWithheldSummaries`) *before* it builds either read model — so a withheld sentence is
+> never written into `recentEvents`, and the `canonEventSummary` reference that pinned it stops
+> resolving through the same absence path a withheld episode already used. That placement
+> matters: a read-time filter would have had to reach into `canonEvents` to learn which Scene an
+> event came from (a public read touching the simulation's tables, ruled out above) and would
+> have left the refused sentence in the published payload, where the last-known-good fallback
+> would go on serving it. The operator-facing half is
+> `overridePostGenerationSafetyLabel`, which appends to the `safetyStatusOverrides` ledger and
+> runs the rebuild in the same transaction. `CANON_EVENT_SUMMARY_VERSION` is still a hardcoded
+> `1` — withholding is per Scene, not per sentence. See `docs/dynamic-safety-filtering.md`.
+
 This task ships the replay schema, its construction, and its playback mechanics — the reference
 shape and the version gate that make invalidation *possible*. It deliberately does not build:
 

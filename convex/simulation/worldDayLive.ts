@@ -564,6 +564,36 @@ export function withArrivalStateChanges(
   };
 }
 
+// --- scene provenance -------------------------------------------------------
+
+/**
+ * Stamp the Scene a proposal came from onto the proposal itself (FR-P004 / ART-132).
+ *
+ * A Scene's public text is classified once, at generation time, by
+ * `postGenerationSafetyClassifications` keyed on the Scene id. The events that Scene produced
+ * carry no link back to it, so the public projection had no way to ask "may this text still be
+ * shown". This is the LAST point where a {@link SceneSimulationResult}'s scene and its proposed
+ * events are co-located — `validate_structured_output` immediately flattens the proposals and
+ * drops the scene — so the link is recorded here, in `metadata`, which Canon carries verbatim
+ * and never interprets.
+ *
+ * `metadata` and not a new top-level field: the Canon event contract is fixed by FR-B001 and a
+ * new column would have to be back-filled onto every accepted event ever committed, whereas an
+ * absent `metadata.sceneId` already has a defined meaning downstream (unclassified, shown).
+ */
+export function withSceneProvenance(result: SceneSimulationResult): SceneSimulationResult {
+  return {
+    ...result,
+    output: {
+      ...result.output,
+      proposedEvents: result.output.proposedEvents.map((proposed) => ({
+        ...proposed,
+        metadata: { ...proposed.metadata, sceneId: result.scene.sceneId },
+      })),
+    },
+  };
+}
+
 // --- stage artifacts --------------------------------------------------------
 
 export type WorldStateArtifact = { snapshot: LiveWorldSnapshot };
@@ -722,7 +752,9 @@ export function createWorldDayStageHandlers(
         await port.persistSceneSimulation(grouping.groupingRunId, result);
         // FR-C005 AC#5: high-risk output goes to safety review instead of Canon.
         if (result.reviewStatus === 'required') withheldSceneIds.push(scene.sceneId);
-        else results.push(withArrivalStateChanges(result, snapshot));
+        // FR-P004 AC#1: every event committed from here carries the Scene whose safety
+        // classification governs whether its text may be shown.
+        else results.push(withSceneProvenance(withArrivalStateChanges(result, snapshot)));
       }
       return { results, withheldSceneIds };
     },
