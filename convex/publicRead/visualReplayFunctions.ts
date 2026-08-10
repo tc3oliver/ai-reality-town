@@ -10,10 +10,22 @@
  * episode has since been withheld, superseded or re-versioned therefore resolves to nothing:
  * the reference is simply absent from `texts`, and the client renders its own placeholder.
  *
- * That absence is the mechanism FR-P004 / ART-132 will build invalidation on. ART-132 owns
- * detecting a status change and rebuilding or invalidating the stored replay; what this task
- * owes it is the guarantee that until it does, no retracted sentence can be served — which
- * is a property of the version gate below, not of anything ART-132 has to build first.
+ * That absence is the mechanism FR-P004 / ART-132 builds its invalidation on, for BOTH kinds
+ * of reference:
+ *
+ *  - `episodeScene` — gated here, by the publication record's version and status.
+ *  - `canonEventSummary` — gated UPSTREAM, at rebuild time. `rebuildLiveProjection` drops the
+ *    `publicSummary` of every event whose Scene the safety gate refuses
+ *    (`redactWithheldSummaries`) before it builds either read model, so a withheld sentence is
+ *    never written into `recentEvents` and the lookup below finds nothing. An operator
+ *    override runs that rebuild, which is what makes a withhold take effect at once.
+ *
+ * That placement is deliberate rather than incidental. A read-time safety filter here would
+ * have to reach into `canonEvents` to learn which Scene an event came from — a public read
+ * touching the simulation's own tables, which the paragraph below rules out — and it would
+ * leave the refused sentence sitting in the published payload, where the last-known-good
+ * fallback would keep serving it. Redacting at the producer means there is nothing left to
+ * filter.
  *
  * The read path touches `publishedReadModels`, `publicationRecords` and `dailyEpisodes`, all
  * by index and all point reads. There is no Canon table scan: a `canonEventSummary` reference

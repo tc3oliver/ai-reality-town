@@ -104,6 +104,10 @@ function sceneProposedEvent(scene: GroupedScene, summary: string): ProposedEvent
     causedByEventIds: [],
     publicSummary: summary,
     stateChanges,
+    // FR-P004 / ART-132: the Scene whose post-generation safety classification governs this
+    // event's public text. The live orchestrator stamps the same key on every real proposal;
+    // it is set here too so the deterministic fixture path exercises the identical shape.
+    metadata: { sceneId: scene.sceneId },
   };
 }
 

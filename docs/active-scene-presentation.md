@@ -130,6 +130,17 @@ this read path. `publicationStatus` ships as a single-member union (`'published'
 widens an enum the client already understands rather than introducing a field shape it has
 never seen.
 
+> **Delivered (ART-132).** That widening happened: `publicationStatus` is now
+> `'published' | 'withheld'`, `buildActiveScenePresentations` takes an optional
+> `sceneSafetyLabels` map, and a scene group whose events name a Scene the safety gate refuses
+> is presented with a generic placeholder title, an empty summary and
+> `publicationStatus: 'withheld'` — keeping its `sourceEventIds` and every spatial field, so it
+> stays on the map and stays traceable. The join that made this possible is
+> `metadata.sceneId`, stamped onto every proposal by `simulate_scenes`; see
+> `docs/dynamic-safety-filtering.md`. Gate 1 above is still true and still the primary defence
+> — a scene the classifier refuses at generation time never commits at all — what ART-132 adds
+> is the ability to change that verdict *after* the fact.
+
 ---
 
 ## 5. Back-compatibility: why every new field is optional

@@ -1,15 +1,23 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { MISTWOOD_SEED_PLACEMENTS } from '../visualRuntime/fixtures';
+import { mistwoodRuntimeContext } from '../visualRuntime/mistwoodRuntime';
 import {
   buildActiveScenePresentations,
   eventLocationId,
   resolveSceneSpatials,
+  WITHHELD_SCENE_TITLE,
   type PublishedKeyScene,
   type SceneArcMembership,
   type SceneEventLike,
+  type SceneSafetyLabel,
 } from './activeScenePresentation';
-import { assertPublicDynamicProjection, toPublicActiveScene } from './publicDynamicProjection';
+import {
+  assertPublicDynamicProjection,
+  buildPublicDynamicProjection,
+  toPublicActiveScene,
+} from './publicDynamicProjection';
 
 const HALL = 'mistwood-hall';
 const MARKET = 'mistwood-market';
@@ -38,12 +46,14 @@ function build(input: {
   arcMemberships?: readonly SceneArcMembership[];
   publishedEpisodeScenes?: readonly PublishedKeyScene[];
   excludedCharacterIds?: ReadonlySet<string>;
+  sceneSafetyLabels?: ReadonlyMap<string, SceneSafetyLabel>;
 }) {
   return buildActiveScenePresentations({
     acceptedEvents: input.acceptedEvents,
     arcMemberships: input.arcMemberships ?? [],
     publishedEpisodeScenes: input.publishedEpisodeScenes ?? [],
     excludedCharacterIds: input.excludedCharacterIds ?? NO_EXCLUSIONS,
+    ...(input.sceneSafetyLabels === undefined ? {} : { sceneSafetyLabels: input.sceneSafetyLabels }),
   });
 }
 
@@ -254,5 +264,191 @@ describe('the published shape survives the public contract’s own validation', 
       updatedAt: 1_001, worldStatus: 'running', characters: [],
       activeScenes: result.scenes.map(toPublicActiveScene),
     })).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FR-P004 / ART-132 — the safety gate
+// ---------------------------------------------------------------------------
+
+describe('FR-P004 AC#1/#2 — only publicly permitted text reaches the overlay', () => {
+  const SCENE_A = 'mistwood:3:evening:grouping:scene:1';
+  const SCENE_B = 'mistwood:3:evening:grouping:scene:2';
+  const REFUSED = '這段內容不得公開。';
+
+  const labels = (entries: readonly [string, SceneSafetyLabel][]) =>
+    new Map<string, SceneSafetyLabel>(entries);
+
+  const oneRefusedScene = (label: SceneSafetyLabel) => build({
+    acceptedEvents: [
+      event({ sequenceNumber: 1, locationId: HALL, participantIds: ['rowan', 'cassia'], publicSummary: REFUSED, sceneId: SCENE_A }),
+    ],
+    arcMemberships: [{ sourceEventSequenceNumber: 1, arcIds: ['arc-truce'] }],
+    sceneSafetyLabels: labels([[SCENE_A, label]]),
+  });
+
+  it.each(['withhold', 'human_review_required'] as const)(
+    'replaces a %s scene’s text with a generic placeholder and marks it withheld',
+    (label) => {
+      const [scene] = oneRefusedScene(label).scenes;
+      expect(scene.title).toBe(WITHHELD_SCENE_TITLE);
+      expect(scene.summary).toBe('');
+      expect(scene.publicationStatus).toBe('withheld');
+      // The refused sentence is absent from the whole payload, not merely from `summary`:
+      // a partial redaction that left it in some other field would be the same leak.
+      expect(JSON.stringify(scene)).not.toContain(REFUSED);
+      // The placeholder says nothing about the scene either — no location name, no
+      // participant, no hint of why it was refused.
+      expect(WITHHELD_SCENE_TITLE).not.toContain(HALL);
+    },
+  );
+
+  it.each(['allow', 'allow_with_warning'] as const)('publishes a %s scene unchanged', (label) => {
+    const [scene] = oneRefusedScene(label).scenes;
+    expect(scene.title).toBe(`${HALL} · evening`);
+    expect(scene.summary).toBe(REFUSED);
+    expect(scene.publicationStatus).toBe('published');
+  });
+
+  it('withholds a scene even when a published episode narrated it', () => {
+    // The episode's own text passed the EDITORIAL classification; the scene's did not pass the
+    // post-generation one. A scene under review must not be able to borrow approved words and
+    // present itself as published.
+    const result = build({
+      acceptedEvents: [event({ sequenceNumber: 1, locationId: HALL, publicSummary: REFUSED, sceneId: SCENE_A })],
+      publishedEpisodeScenes: [{ title: '簽約', summary: '眾人見證休戰。', sourceEventIds: ['evt-1'] }],
+      sceneSafetyLabels: labels([[SCENE_A, 'withhold']]),
+    });
+    expect(result.scenes[0].title).toBe(WITHHELD_SCENE_TITLE);
+    expect(result.mode).toBe('canon');
+  });
+
+  it('keeps showing a scene whose events carry no Scene id, and one with no verdict', () => {
+    // Seed, system and remediation events were never seen by a post-generation classifier.
+    // Reading their silence as a refusal would blank the map for content never in question.
+    const unstamped = build({
+      acceptedEvents: [event({ sequenceNumber: 1, locationId: HALL, publicSummary: '公開摘要。' })],
+      sceneSafetyLabels: labels([[SCENE_A, 'withhold']]),
+    });
+    expect(unstamped.scenes[0].publicationStatus).toBe('published');
+    expect(unstamped.scenes[0].summary).toBe('公開摘要。');
+
+    const unjudged = build({
+      acceptedEvents: [event({ sequenceNumber: 1, locationId: HALL, publicSummary: '公開摘要。', sceneId: SCENE_B })],
+      sceneSafetyLabels: labels([[SCENE_A, 'withhold']]),
+    });
+    expect(unjudged.scenes[0].publicationStatus).toBe('published');
+  });
+
+  it('behaves exactly as it did before ART-132 when no labels are supplied at all', () => {
+    const result = build({
+      acceptedEvents: [event({ sequenceNumber: 1, locationId: HALL, publicSummary: '公開摘要。', sceneId: SCENE_A })],
+    });
+    expect(result.scenes[0]).toEqual(build({
+      acceptedEvents: [event({ sequenceNumber: 1, locationId: HALL, publicSummary: '公開摘要。' })],
+    }).scenes[0]);
+  });
+
+  it('withholds a co-located group when only ONE of its Scenes was refused', () => {
+    // Two Scenes can share a (worldDay, timeSlot, locationId) and therefore one group. The
+    // group publishes their summaries JOINED, so publishing it would publish the refused half.
+    const result = build({
+      acceptedEvents: [
+        event({ sequenceNumber: 1, locationId: HALL, publicSummary: '無害的摘要。', sceneId: SCENE_B }),
+        event({ sequenceNumber: 2, locationId: HALL, publicSummary: REFUSED, sceneId: SCENE_A }),
+      ],
+      sceneSafetyLabels: labels([[SCENE_A, 'withhold'], [SCENE_B, 'allow']]),
+    });
+    expect(result.scenes).toHaveLength(1);
+    expect(result.scenes[0].publicationStatus).toBe('withheld');
+    expect(JSON.stringify(result.scenes)).not.toContain(REFUSED);
+    expect(JSON.stringify(result.scenes)).not.toContain('無害的摘要。');
+  });
+
+  it('withholds a degraded (AC#8) stand-in scene too', () => {
+    const result = build({
+      acceptedEvents: [
+        event({ sequenceNumber: 1, worldDay: 2, timeSlot: 'noon', locationId: HALL, publicSummary: REFUSED, sceneId: SCENE_A }),
+        // A later, unplaceable event moves "now" past the scene without producing one.
+        event({ sequenceNumber: 2, worldDay: 3, timeSlot: 'evening' }),
+      ],
+      sceneSafetyLabels: labels([[SCENE_A, 'withhold']]),
+    });
+    expect(result.mode).toBe('degraded');
+    expect(result.scenes[0].status).toBe('ended');
+    expect(result.scenes[0].publicationStatus).toBe('withheld');
+    expect(JSON.stringify(result.scenes)).not.toContain(REFUSED);
+  });
+});
+
+describe('FR-P004 AC#5 — a withheld scene stays traceable, and stays a legal payload', () => {
+  const SCENE_A = 'mistwood:3:evening:grouping:scene:1';
+
+  const withheld = build({
+    acceptedEvents: [
+      event({ sequenceNumber: 1, locationId: HALL, participantIds: ['cassia', 'rowan'], publicSummary: '祕密。', sceneId: SCENE_A }),
+      event({ sequenceNumber: 2, locationId: HALL, participantIds: ['rowan'], publicSummary: '更多祕密。', sceneId: SCENE_A }),
+    ],
+    arcMemberships: [{ sourceEventSequenceNumber: 1, arcIds: ['arc-truce'] }],
+    sceneSafetyLabels: new Map<string, SceneSafetyLabel>([[SCENE_A, 'withhold']]),
+  });
+
+  it('still names the accepted events it was derived from', () => {
+    // AC#5 applies to the placeholder as much as to real text: a public string with no
+    // provenance is exactly what the criterion forbids, whatever the string says.
+    expect(withheld.scenes[0].sourceEventIds).toEqual(['evt-1', 'evt-2']);
+    expect(withheld.scenes[0].sceneId).toBe(`3:evening:${HALL}`);
+    expect(withheld.scenes[0].locationId).toBe(HALL);
+    expect(withheld.scenes[0].participantCharacterIds).toEqual(['cassia', 'rowan']);
+    expect(withheld.scenes[0].arcIds).toEqual(['arc-truce']);
+    expect(withheld.scenes[0].startedAt).toBe(1_001);
+  });
+
+  it('passes the public contract’s own validation with publicationStatus "withheld"', () => {
+    expect(() => assertPublicDynamicProjection({
+      worldId: 'mistwood', mapId: 'mistwood-v1', runtimeVersion: 3, snapshotSequence: 3,
+      updatedAt: 1_002, worldStatus: 'running', characters: [],
+      activeScenes: withheld.scenes.map(toPublicActiveScene),
+    })).not.toThrow();
+  });
+});
+
+describe('FR-P004 AC#4 — withholding text does not move a single character', () => {
+  const SCENE_A = 'mistwood:3:evening:grouping:scene:1';
+  const EVENTS = [
+    event({ sequenceNumber: 1, locationId: HALL, participantIds: ['rowan'], publicSummary: '祕密。', sceneId: SCENE_A }),
+  ];
+
+  /**
+   * The whole public payload, built the way `rebuildLiveProjection` builds it: the scene
+   * presentation is derived first and handed to the projection as `activeScenes`. Character
+   * motion is planned from the accepted events and the seed placements alone — which is the
+   * claim, and a claim worth a test rather than an assumption, because "the two code paths are
+   * separate" is exactly the kind of property a later refactor dissolves silently.
+   */
+  const projectWith = (sceneSafetyLabels?: ReadonlyMap<string, SceneSafetyLabel>) => {
+    const runtime = mistwoodRuntimeContext();
+    return buildPublicDynamicProjection({
+      worldId: 'mistwood',
+      nowMs: 2_000,
+      runtime: { mapId: runtime.mapId, grid: runtime.grid, bindings: runtime.bindings },
+      seedPlacements: MISTWOOD_SEED_PLACEMENTS,
+      acceptedEvents: EVENTS,
+      worldStatus: 'running',
+      activeScenes: build({ acceptedEvents: EVENTS, ...(sceneSafetyLabels === undefined ? {} : { sceneSafetyLabels }) }).scenes,
+    });
+  };
+
+  it('produces byte-identical character motion whether or not the scene is withheld', () => {
+    const shown = projectWith();
+    const hidden = projectWith(new Map<string, SceneSafetyLabel>([[SCENE_A, 'withhold']]));
+
+    expect(hidden.activeScenes[0].publicationStatus).toBe('withheld');
+    expect(shown.activeScenes[0].publicationStatus).toBe('published');
+    expect(shown.characters.length).toBeGreaterThan(0);
+    expect(JSON.stringify(hidden.characters)).toBe(JSON.stringify(shown.characters));
+    // And nothing else about the world moved either: the payload differs in the scene text
+    // and in nothing more.
+    expect({ ...hidden, activeScenes: [] }).toEqual({ ...shown, activeScenes: [] });
   });
 });

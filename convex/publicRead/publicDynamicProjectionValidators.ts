@@ -54,8 +54,14 @@ export const publicActiveSceneStatusValidator = v.union(
   v.literal('active'), v.literal('ended'),
 );
 
-/** Single-member today; FR-P004 (ART-132) widens it. `v.union` of one is not expressible. */
-export const publicActiveScenePublicationStatusValidator = v.literal('published');
+/**
+ * FR-P004 (ART-132) widened this from the single `published` literal ART-122 shipped.
+ * `withheld` is a scene whose text the safety gate refuses; the payload still carries the
+ * scene, with a generic placeholder title in place of the refused words.
+ */
+export const publicActiveScenePublicationStatusValidator = v.union(
+  v.literal('published'), v.literal('withheld'),
+);
 
 export const publicActiveSceneValidator = v.object({
   title: v.string(),

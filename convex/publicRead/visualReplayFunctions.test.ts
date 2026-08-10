@@ -18,10 +18,18 @@
  * not make them.
  */
 
+import type { AcceptedEvent } from '../canon/model';
 import { MISTWOOD_PUBLIC_WORLD_ID } from '../canon/mistwoodSeed';
 import { FIXTURE_ACCEPTED_AT_MS } from '../visualRuntime/fixtures';
 import { mistwoodRuntimeContext } from '../visualRuntime/mistwoodRuntime';
-import { LIVE_MODEL_KIND } from './liveState';
+import type { SceneSafetyLabel } from './activeScenePresentation';
+import { LIVE_MODEL_KIND, buildLiveProjection } from './liveState';
+import {
+  redactWithheldNarration,
+  redactWithheldSummaries,
+  sceneEventRows,
+  withheldEventIds,
+} from './liveStateFunctions';
 import {
   commitReadModelVersion,
   serveReadModel,
@@ -387,5 +395,267 @@ describe('AC#4 — publishing a replay adds no Canon event and no LLM trace', ()
     // The private-field strip the read model applies on both sides left the payload intact,
     // which is the check that no replay field collides with a private-key pattern.
     expect(JSON.stringify(replay)).toBe(JSON.stringify(selectVisualReplay(served?.payload)));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FR-P004 / ART-132 AC#6 — a withheld Scene's sentence stops resolving
+// ---------------------------------------------------------------------------
+
+/**
+ * The `canonEventSummary` half of the safety gate, end to end.
+ *
+ * The gate is applied by the PRODUCER (`redactWithheldSummaries` inside
+ * `rebuildLiveProjection`) rather than by this resolver, so the honest test runs the producer
+ * and then the resolver: an override flips a Scene's effective label, the rebuild drops that
+ * Scene's events' summaries before either read model is built, and the replay reference that
+ * pinned one of those sentences resolves to nothing. That placement is the point — a read-time
+ * filter would leave the refused sentence sitting in the published payload, where the
+ * last-known-good fallback would go on serving it.
+ */
+describe('AC#6 — a withheld Scene’s canon-event reference drops its text', () => {
+  const SCENE_ID = 'mistwood:1:noon:grouping:scene:1';
+  const REFUSED = MILL_SUMMARY;
+
+  const canonEvent = (over: {
+    sequenceNumber: number;
+    worldDay: number;
+    timeSlot: string;
+    locationId: string;
+    publicSummary?: string;
+    sceneId?: string;
+  }): AcceptedEvent => ({
+    schemaVersion: 1,
+    worldId: WORLD_ID,
+    idempotencyKey: `key-${over.sequenceNumber}`,
+    proposedBy: { type: 'director', id: 'director-1' },
+    worldDay: over.worldDay,
+    timeSlot: over.timeSlot as AcceptedEvent['timeSlot'],
+    eventType: 'conversation',
+    locationId: over.locationId,
+    participantIds: ['wu-zhen'],
+    causedByEventIds: [],
+    ...(over.publicSummary === undefined ? {} : { publicSummary: over.publicSummary }),
+    stateChanges: [],
+    ...(over.sceneId === undefined ? {} : { metadata: { sceneId: over.sceneId } }),
+    eventId: `mistwood#event#${over.sequenceNumber}`,
+    acceptedAt: FIXTURE_ACCEPTED_AT_MS + over.sequenceNumber,
+    sequenceNumber: over.sequenceNumber,
+    validationVersion: 'canon-v1',
+    traceId: 'trace-1',
+  });
+
+  const CANON_EVENTS: readonly AcceptedEvent[] = [
+    canonEvent({ sequenceNumber: 1, worldDay: 1, timeSlot: 'morning', locationId: HALL, publicSummary: 'x' }),
+    canonEvent({ sequenceNumber: 2, worldDay: 1, timeSlot: 'noon', locationId: MILL, publicSummary: REFUSED, sceneId: SCENE_ID }),
+  ];
+
+  /**
+   * The `liveState` payload a rebuild would publish, given the Scenes currently refused.
+   *
+   * `refused` carries ONLY refused Scenes — that is the contract `readWithheldSceneLabels`
+   * produces and the whole gate consumes. A Scene absent from it is showable, so the allowed
+   * case below passes an empty map rather than one mapping the Scene to `'allow'`.
+   */
+  function liveRowFor(refused: ReadonlyMap<string, SceneSafetyLabel>): Row {
+    const withheld = withheldEventIds(sceneEventRows(CANON_EVENTS), refused);
+    const payload = buildLiveProjection({
+      worldId: WORLD_ID,
+      acceptedEvents: redactWithheldSummaries(CANON_EVENTS, withheld),
+      arcs: [],
+      publishedEpisode: null,
+    });
+    return { ...liveStateRow(), payload: payload as unknown as Row };
+  }
+
+  function textsFor(refused: ReadonlyMap<string, SceneSafetyLabel>) {
+    const db = memoryDb({
+      publicationRecords: [publicationRow({ version: 2, status: 'published' })],
+      dailyEpisodes: [episodeRow()],
+      publishedReadModels: [liveRowFor(refused)],
+    });
+    return resolveReplayTexts(db, WORLD_ID, buildFixtureReplay(PUBLISHED_AT_V2));
+  }
+
+  it('still resolves the sentence while the Scene is allowed', async () => {
+    const texts = await textsFor(new Map<string, SceneSafetyLabel>());
+    expect(texts.find((entry) => entry.publicSummaryId === 'canonEvent:mistwood#event#2')?.text)
+      .toBe(REFUSED);
+  });
+
+  it.each(['withhold', 'human_review_required'] as const)(
+    'drops it silently once the Scene resolves to %s',
+    async (label) => {
+      const texts = await textsFor(new Map<string, SceneSafetyLabel>([[SCENE_ID, label]]));
+      // Silently: no error, no placeholder, no stale copy — the reference is simply absent,
+      // exactly as it is for an episode whose publication record has been withheld.
+      expect(texts.map((entry) => entry.publicSummaryId)).not.toContain('canonEvent:mistwood#event#2');
+      expect(texts.every((entry) => entry.text !== REFUSED)).toBe(true);
+      // The unrelated event in the same replay keeps resolving: a withhold removes one
+      // Scene's text, not the whole replay.
+      expect(texts.some((entry) => entry.publicSummaryId === episodeSceneSummaryId(WORLD_ID, 1, 0))).toBe(true);
+    },
+  );
+
+  it('leaves an event with no Scene provenance alone', () => {
+    // `mistwood#event#1` carries no `metadata.sceneId`, so no classification governs it and a
+    // label for another Scene cannot reach it.
+    const payload = liveRowFor(new Map<string, SceneSafetyLabel>([[SCENE_ID, 'withhold']])).payload as {
+      recentEvents: { eventId: string; summary: string | null }[];
+    };
+    expect(payload.recentEvents.find((entry) => entry.eventId === 'mistwood#event#1')?.summary).toBe('x');
+    expect(payload.recentEvents.find((entry) => entry.eventId === 'mistwood#event#2')?.summary).toBeNull();
+  });
+
+  it('treats a non-string metadata.sceneId as absent rather than trusting it', () => {
+    // `metadata` is untyped storage. A number, an object or a blank string is not a Scene id,
+    // and coercing one would key the safety lookup on a value no classification can match.
+    for (const sceneId of [42, '', null, { sceneId: 'x' }, ['a']]) {
+      const [row] = sceneEventRows([
+        { ...CANON_EVENTS[0], metadata: { sceneId } } as unknown as AcceptedEvent,
+      ]);
+      expect(row.sceneId).toBeUndefined();
+    }
+    expect(sceneEventRows([CANON_EVENTS[1]])[0].sceneId).toBe(SCENE_ID);
+  });
+
+  it('does not alter Canon: the source events are byte-identical after a rebuild', async () => {
+    const before = JSON.stringify(CANON_EVENTS);
+    await textsFor(new Map<string, SceneSafetyLabel>([[SCENE_ID, 'withhold']]));
+    expect(JSON.stringify(CANON_EVENTS)).toBe(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FR-P004 / ART-132 AC#6 — the `episodeScene` branch, which PREFERS episode narration
+// ---------------------------------------------------------------------------
+
+/**
+ * The half of AC#6 that redacting event summaries alone does not close.
+ *
+ * `resolveEventCardStep` prefers a published episode's narration over an event's own
+ * `publicSummary`, and that branch is gated on the episode's publication version and status —
+ * which know nothing about scene-level safety. So on any world day with a published episode
+ * covering a withheld scene, the overlay would show the safe placeholder while the replay
+ * narrated the withheld content, for the same scene, at the same moment.
+ *
+ * The first test below builds the replay WITHOUT the narration redaction and asserts the leak
+ * is real — a regression test is worth nothing if it would pass against the broken version.
+ */
+describe('AC#6 — a withheld Scene’s EPISODE narration is unreachable too', () => {
+  const SCENE_ID = 'mistwood:1:noon:grouping:scene:1';
+  const HALL_EPISODE_TEXT = '眾人在鎮公所見證了休戰協議。';
+  const MILL_EPISODE_TEXT = '磨坊裡發生了不該公開的事。';
+
+  const replayEvent = (over: {
+    sequenceNumber: number;
+    worldDay: number;
+    timeSlot: string;
+    locationId: string;
+    publicSummary?: string;
+    sceneId?: string;
+  }): ReplayEventLike => ({
+    eventId: `mistwood#event#${over.sequenceNumber}`,
+    sequenceNumber: over.sequenceNumber,
+    worldDay: over.worldDay,
+    timeSlot: over.timeSlot,
+    acceptedAt: FIXTURE_ACCEPTED_AT_MS + over.sequenceNumber,
+    locationId: over.locationId,
+    participantIds: ['wu-zhen'],
+    ...(over.publicSummary === undefined ? {} : { publicSummary: over.publicSummary }),
+    ...(over.sceneId === undefined ? {} : { sceneId: over.sceneId }),
+    stateChanges: [{ type: 'character_location_changed', characterId: 'wu-zhen', toLocationId: over.locationId }],
+  });
+
+  // A third event in a LATER slot, so both day-1 groups count as completed and are eligible
+  // for replay — `buildVisualReplay` always excludes the slot currently under way.
+  const NARRATED_EVENTS: readonly ReplayEventLike[] = [
+    replayEvent({ sequenceNumber: 1, worldDay: 1, timeSlot: 'morning', locationId: HALL, publicSummary: 'x' }),
+    replayEvent({ sequenceNumber: 2, worldDay: 1, timeSlot: 'noon', locationId: MILL, publicSummary: '磨坊摘要。', sceneId: SCENE_ID }),
+    replayEvent({ sequenceNumber: 3, worldDay: 2, timeSlot: 'morning', locationId: SQUARE, publicSummary: 'y' }),
+  ];
+
+  /** Both day-1 events are narrated by the day's episode; index 1 covers the withheld Scene. */
+  const NARRATED_KEY_SCENES = [
+    { title: '休戰之日', summary: HALL_EPISODE_TEXT, sourceEventIds: ['mistwood#event#1'] },
+    { title: '磨坊之夜', summary: MILL_EPISODE_TEXT, sourceEventIds: ['mistwood#event#2'] },
+  ];
+
+  function buildReplay(withheld: ReadonlySet<string>): VisualReplay {
+    const replay = buildVisualReplay({
+      worldId: WORLD_ID,
+      acceptedEvents: redactWithheldSummaries(
+        NARRATED_EVENTS as unknown as readonly AcceptedEvent[],
+        withheld,
+      ) as unknown as readonly ReplayEventLike[],
+      arcMemberships: [
+        { sourceEventSequenceNumber: 1, arcIds: ['arc-truce'], importance: 0.9 },
+        { sourceEventSequenceNumber: 2, arcIds: ['arc-mill'], importance: 0.8 },
+      ],
+      excludedCharacterIds: new Set<string>(),
+      runtime: mistwoodRuntimeContext(),
+      episodes: [{
+        worldDay: 1,
+        status: 'ready',
+        keyScenes: redactWithheldNarration(NARRATED_KEY_SCENES, withheld),
+      }],
+      publicationRecords: PUBLISHED_AT_V2,
+    });
+    if (!replay) throw new Error('fixture produced no replay');
+    return replay;
+  }
+
+  /** The read-time database still holds the REAL, unredacted episode row — as production does. */
+  function narratedDb() {
+    return memoryDb({
+      publicationRecords: [publicationRow({ version: 2, status: 'published' })],
+      dailyEpisodes: [{
+        worldId: WORLD_ID,
+        worldDay: 1,
+        status: 'ready',
+        episode: { keyScenes: NARRATED_KEY_SCENES },
+      }],
+      publishedReadModels: [liveStateRow()],
+    });
+  }
+
+  const WITHHELD = new Set(['mistwood#event#2']);
+  const NOTHING_WITHHELD: ReadonlySet<string> = new Set<string>();
+
+  it('would leak the narration without the gate — the failure this test exists to catch', async () => {
+    const texts = await resolveReplayTexts(narratedDb(), WORLD_ID, buildReplay(NOTHING_WITHHELD));
+    expect(texts.map((entry) => entry.text)).toContain(MILL_EPISODE_TEXT);
+    // Specifically via the episodeScene branch, not the event's own summary.
+    expect(texts.map((entry) => entry.publicSummaryId)).toContain(episodeSceneSummaryId(WORLD_ID, 1, 1));
+  });
+
+  it('resolves no text at all for the withheld Scene once the gate is applied', async () => {
+    const texts = await resolveReplayTexts(narratedDb(), WORLD_ID, buildReplay(WITHHELD));
+    expect(texts.every((entry) => entry.text !== MILL_EPISODE_TEXT)).toBe(true);
+    expect(texts.map((entry) => entry.publicSummaryId)).not.toContain(episodeSceneSummaryId(WORLD_ID, 1, 1));
+    // Not via a fallback to the event's own summary either: that was redacted in the same pass.
+    expect(texts.map((entry) => entry.publicSummaryId)).not.toContain('canonEvent:mistwood#event#2');
+    expect(JSON.stringify(texts)).not.toContain('磨坊');
+  });
+
+  it('leaves the neighbouring key scene addressable at its original index', async () => {
+    // The withheld entry is NEUTRALISED IN PLACE rather than removed. Removing it would shift
+    // index 1 down to 0, and the read-time resolver looks the summary up by index in the real
+    // episode row — every later scene would then serve under the wrong address.
+    const texts = await resolveReplayTexts(narratedDb(), WORLD_ID, buildReplay(WITHHELD));
+    const hall = texts.find((entry) => entry.publicSummaryId === episodeSceneSummaryId(WORLD_ID, 1, 0));
+    expect(hall?.text).toBe(HALL_EPISODE_TEXT);
+  });
+
+  it('neutralises a key scene that narrates a withheld event ALONGSIDE an allowed one', () => {
+    // The summary is a joint narration of both events. Publishing it because one contributor
+    // was allowed would publish the other, refused, contributor.
+    const joint = [{ title: '合併', summary: '兩件事一起說。', sourceEventIds: ['mistwood#event#1', 'mistwood#event#2'] }];
+    expect(redactWithheldNarration(joint, WITHHELD)).toEqual([
+      { title: '', summary: '', sourceEventIds: [] },
+    ]);
+    // And an untouched scene is returned by identity, so an unchanged world re-derives an
+    // identical payload and the read model's contentHash dedup keeps working.
+    expect(redactWithheldNarration(NARRATED_KEY_SCENES, NOTHING_WITHHELD)[0]).toBe(NARRATED_KEY_SCENES[0]);
   });
 });
