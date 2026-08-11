@@ -206,6 +206,32 @@ p[contenteditable='true']:empty::before {
   font-weight: 600;
 }
 
+/* Live Story Overlay (ART-125, FR-O007). Despite the name it is NOT a layer over
+ * the map: AC#5 requires it never to obscure the canvas, and the cheapest way to
+ * guarantee that is to make obscuring structurally impossible — an ordinary block
+ * sibling of `.live-map-canvas` in normal flow. `position: static` is declared
+ * explicitly, and asserted by `liveMap.a11y.test.tsx`, so a later hover card or
+ * sticky-header edit cannot quietly turn this into an overlay.
+ *
+ * The collapse is a native <details>/<summary>, so the disclosure triangle, the
+ * keyboard behaviour and the expanded/collapsed state come from the user agent. */
+.live-story-overlay {
+  position: static;
+  border-width: 1px;
+  border-style: solid;
+  border-color: currentColor;
+  padding: 0.5rem;
+}
+
+/* WCAG 2.5.8: the summary is the panel's only control, so it carries the same
+ * target height the standalone controls do. `list-item` is kept (rather than
+ * `list-style: none`) so the browser's own disclosure marker still renders. */
+.live-story-overlay-summary {
+  display: list-item;
+  min-height: 44px;
+  cursor: pointer;
+}
+
 /* Public character card (ART-124, FR-O006). A block in the page flow rather than
  * an overlay: the card is about a character the viewer can see on the canvas, so
  * covering the canvas would hide the thing it describes. The border is what tells

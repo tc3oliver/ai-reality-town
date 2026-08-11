@@ -15,6 +15,8 @@
  * scene builder the rebuild uses, and asserts the scene is now a placeholder.
  */
 
+import { getFunctionName } from 'convex/server';
+
 import { readEffectiveSafetyLabels } from '../safety/effectiveSafetyLabels';
 import {
   buildActiveScenePresentations,
@@ -124,8 +126,14 @@ function operatorCtx(tables: Tables, rebuildResult: Row = {}) {
   const ctx = {
     auth: { getUserIdentity: () => Promise.resolve(null) },
     db: fakeDb(tables),
-    runMutation: (_ref: unknown, args: Row) => {
-      rebuilds.push(args);
+    runMutation: (ref: unknown, args: Row) => {
+      // Recorded WITH the function it targets, since ART-125 the override refreshes two
+      // independent read models and "a rebuild ran" is no longer the same claim as "both did".
+      const target = getFunctionName(ref as Parameters<typeof getFunctionName>[0]);
+      rebuilds.push({ target, ...args });
+      if (target.includes('rebuildOnboardingSummary')) {
+        return Promise.resolve({ modelRef: `onboarding:${WORLD_ID}`, version: 3, deduplicated: false });
+      }
       return Promise.resolve({
         modelRef: `live:${WORLD_ID}`,
         version: 7,
@@ -263,6 +271,9 @@ describe('overridePostGenerationSafetyLabel — the ledger is additive and audit
       correlatedEventCount: 1,
       createdAt: NOW,
       refresh: { modelRef: `live:${WORLD_ID}`, version: 7 },
+      // ART-125: the onboarding summary is the SECOND cached public text surface built from the
+      // same Canon summaries. Reported separately so an operator can see both were re-derived.
+      onboardingRefresh: { modelRef: `onboarding:${WORLD_ID}`, version: 3 },
     });
 
     expect(tables.operatorAuditLog).toHaveLength(1);
@@ -277,9 +288,21 @@ describe('overridePostGenerationSafetyLabel — the ledger is additive and audit
       resultCode: 'SAFETY_LABEL_ALLOW',
       at: NOW,
     });
-    // AC#3: the public projection is rebuilt in the same call, not at some later commit, and
-    // it is told which Scene to report correlation for.
-    expect(rebuilds).toEqual([{ worldId: WORLD_ID, now: NOW, correlateSceneId: SCENE_ID }]);
+    // AC#3: the public projections are rebuilt in the same call, not at some later commit, and
+    // the dynamic one is told which Scene to report correlation for. BOTH cached public text
+    // surfaces are refreshed (ART-125): rebuilding only the live projection would leave the
+    // world's own introduction quoting the withheld sentence until the next Canon commit —
+    // which on a paused or finished world never comes.
+    expect(rebuilds).toEqual([
+      {
+        target: 'publicRead/liveStateFunctions:rebuildLiveProjection',
+        worldId: WORLD_ID, now: NOW, correlateSceneId: SCENE_ID,
+      },
+      {
+        target: 'publicRead/onboardingSummaryFunctions:rebuildOnboardingSummary',
+        worldId: WORLD_ID, now: NOW,
+      },
+    ]);
   });
 
   it('appends a second override rather than replacing the first', async () => {

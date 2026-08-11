@@ -10,6 +10,11 @@ import { getPublishedReadModelRef } from '../public/publicReadModelRef';
 import type { CharacterProjection, CharacterRecentEvent } from '../public/characterRoute';
 import { composeActiveScenePanel, type ActiveSceneInput } from './activeSceneModel';
 import { composeCharacterCardViewModel } from './characterCardModel';
+import {
+  composeStoryOverlayViewModel,
+  type StoryOverlayArcInput,
+  type StoryOverlaySummaryInput,
+} from './storyOverlayModel';
 import { detectRenderQualityTierFromNavigator, updateIntervalMs } from '../world/renderQuality';
 import { detectWebGLSupport } from '../world/webglSupport';
 import { composeReadOnlyWorldViewModel, latestMotionPerCharacter } from '../world/worldViewModel';
@@ -40,6 +45,9 @@ type TimelinePayload = {
   }>;
 };
 
+/** The `live:<worldId>` projection, as the story overlay reads it (ART-125 / FR-O007). */
+type LiveStatePayload = { activeArcs: StoryOverlayArcInput[] };
+
 /**
  * The live map route's data layer (ART-118 / FR-O001, animated by ART-119 / FR-O002,
  * replayed by ART-121 / FR-O013).
@@ -50,10 +58,16 @@ type TimelinePayload = {
  * of AC#4; the structural half is `liveMapSurface.test.ts` plus the `clientLive` module
  * boundary.
  *
- * Two of the four fire on mount. The other two -- the character projection and the world
+ * Four of the six fire on mount. The other two -- the character projection and the world
  * timeline behind the character card (FR-O006 / ART-124) -- are `'skip'`ped until a viewer
- * opens a card, so watching the map still costs exactly the two reads it always did, and both
- * are the same failure-isolated `getPublishedReadModel` the public pages already read through.
+ * opens a card, and all four of the non-projection reads are the same failure-isolated
+ * `getPublishedReadModel` the public pages already read through.
+ *
+ * The two that ART-125 (FR-O007) added -- the onboarding summary and the Live projection behind
+ * the story overlay -- are deliberately NOT skip-gated: PRD 2.0 UX2-004 asks for narrative
+ * context to be permanently available beside the map, so the overlay is always present and only
+ * visually collapsible. Both are precomputed on Canon commit and served from the read-model
+ * cache, so mounting them can never cause a summary to be generated (FR-O007 AC#6).
  *
  * The second query is the replay (FR-O013). It is a *separate* read rather than a field on
  * the projection because the two change on entirely different cadences and are allowed to
@@ -64,8 +78,9 @@ type TimelinePayload = {
  * {@link ./useMotionClock}. Before it, the interpolation was memoised on the projection
  * alone, so a character teleported to wherever the next projection put it instead of walking
  * there. The clock is purely local -- it reads `Date.now()` and re-runs a pure function, and
- * takes no network action -- so animating at 60Hz still issues exactly the two queries this
- * page issues on mount. It is also what advances replay playback: there is no second timer.
+ * takes no network action -- so animating at 60Hz still issues exactly the queries this page
+ * issues on mount and no more. It is also what advances replay playback: there is no second
+ * timer.
  *
  * The sprite bindings arrive as a compile-time constant from `data/`, not from a query. They
  * are deterministic per deploy (FR-N004 AC#2), so a per-viewer round trip would buy nothing;
@@ -100,6 +115,19 @@ export default function LiveMapPage({ worldId, base }: { worldId: string; base: 
       ? 'skip'
       : { worldId, modelKind: 'timeline', modelRef: `timeline:${worldId}` },
   );
+  // The story overlay's two reads (FR-O007 / ART-125), on mount rather than skip-gated: the
+  // overlay is always present. Both are cached published models rebuilt on Canon commit -- the
+  // same two the homepage reads -- so neither can trigger generation on a public view (AC#6).
+  const onboardingResult = useQuery(getPublishedReadModelRef, {
+    worldId,
+    modelKind: 'world',
+    modelRef: `onboarding:${worldId}`,
+  });
+  const liveStateResult = useQuery(getPublishedReadModelRef, {
+    worldId,
+    modelKind: 'liveState',
+    modelRef: `live:${worldId}`,
+  });
   // Probed once per mount: each of these creates a canvas or reads `navigator`, and doing
   // that per render would be a per-frame cost for an answer that cannot change while the
   // page is open.
@@ -263,6 +291,27 @@ export default function LiveMapPage({ worldId, base }: { worldId: string; base: 
     });
   }, [selectedCharacterId, characterResult, timelineResult, motions, scenes, worldId]);
 
+  // The story overlay (FR-O007 / ART-125). Half of it needs no read at all: the day, the slot and
+  // the scenes are the ones the canvas beside it is already drawing, so the overlay and the map
+  // cannot disagree about the world state (AC#4). `undefined` and `null` are kept apart for both
+  // published models, for the reason `composeCharacterCardViewModel` records.
+  const storyOverlay = useMemo(
+    () =>
+      composeStoryOverlayViewModel({
+        worldId,
+        summary: onboardingResult === undefined
+          ? undefined
+          : ((onboardingResult?.payload ?? null) as StoryOverlaySummaryInput | null),
+        activeArcs: liveStateResult === undefined
+          ? undefined
+          : (((liveStateResult?.payload ?? null) as LiveStatePayload | null)?.activeArcs ?? null),
+        worldDay: projection?.worldDay,
+        timeSlot: projection?.timeSlot,
+        scenes,
+      }),
+    [worldId, onboardingResult, liveStateResult, projection?.worldDay, projection?.timeSlot, scenes],
+  );
+
   return (
     <LiveMapView
       worldId={worldId}
@@ -273,6 +322,7 @@ export default function LiveMapPage({ worldId, base }: { worldId: string; base: 
       // is not a replay. It reverts to the live answer the moment the frame goes away.
       primaryLocationId={frame ? frame.locationId : camera.primaryLocationId}
       scenePanel={scenePanel}
+      storyOverlay={storyOverlay}
       timeSlot={projection?.timeSlot}
       timeStateBadges={timeStateBadges}
       replayAvailable={replay !== null}

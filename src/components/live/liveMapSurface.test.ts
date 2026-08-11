@@ -109,7 +109,35 @@ describe('the live map surface (FR-O001 AC#4)', () => {
     // behind it. Named here so the sweeps below visibly cover them.
     expect(paths).toContain(`${LIVE_ROOT}/CharacterCard.tsx`);
     expect(paths).toContain(`${LIVE_ROOT}/characterCardModel.ts`);
+    // ART-125 (FR-O007) added the story overlay: a collapsible narrative panel and the pure
+    // model behind it. Named here so the sweeps below visibly cover them.
+    expect(paths).toContain(`${LIVE_ROOT}/StoryOverlay.tsx`);
+    expect(paths).toContain(`${LIVE_ROOT}/storyOverlayModel.ts`);
   });
+
+  test('the story overlay is a render layer over a pure model (FR-O007 / ART-125)', () => {
+    // AC#3/#6. The overlay is the surface that shows the most NARRATIVE payload on the live map —
+    // summaries whose production is expensive — so the claim that looking at it can never make
+    // the world produce one gets the same structural proof the other panels carry: it names no
+    // way to talk to anything, and every value it renders arrives as a prop from the page.
+    const overlay = fileNamed('StoryOverlay.tsx');
+    expect(REQUEST_APIS.filter((api) => new RegExp(`\\b${api}\\b`).test(overlay))).toEqual([]);
+    expect(overlay).toContain('viewModel');
+    // Collapsible by the element the browser already ships, so there is no state to get wrong.
+    expect(overlay).toContain('<details');
+    expect(overlay).toContain('<summary');
+    // The model itself is pure: no React, no clock, no network.
+    const model = fileNamed('storyOverlayModel.ts');
+    expect(REQUEST_APIS.filter((api) => new RegExp(`\\b${api}\\b`).test(model))).toEqual([]);
+    expect(model).not.toContain('Date.now');
+    expect(model).not.toContain("from 'react'");
+  });
+
+  // AC#5's "does not obscure the map" is deliberately NOT asserted here. A source-text sweep can
+  // be made to agree with almost any arrangement of the same identifiers, and it cannot see a
+  // Tailwind `className` at all. It is proven on the mounted tree in
+  // `storyOverlayLayout.dom.test.tsx` — siblinghood, document order, no positioning class on any
+  // rendered node — and against the stylesheet in `liveMap.a11y.test.tsx`.
 
   test('the character card is a render layer over a pure model (FR-O006 / ART-124)', () => {
     // The card shows the most privacy-sensitive payload on the live map, so it gets the same
@@ -268,7 +296,7 @@ describe('the live map surface (FR-O001 AC#4)', () => {
     expect(model).not.toContain('from \'react\'');
   });
 
-  test('reading is confined to the page, and to four named public queries', () => {
+  test('reading is confined to the page, and to six named public queries', () => {
     const page = fileNamed('LiveMapPage.tsx');
     expect(page).toContain('useQuery');
     // Every read is named explicitly rather than counted loosely: the count is what stops a
@@ -280,13 +308,20 @@ describe('the live map surface (FR-O001 AC#4)', () => {
     expect(page).toContain('getPublicVisualReplayRef');
     // ART-124 (FR-O006) added two more, both through the SAME generic, failure-isolated
     // `getPublishedReadModel` the public pages read through — no new backend surface — and both
-    // `'skip'`ped until a viewer opens a character card, so the map still costs two reads to
-    // watch. The skip is asserted here because "four queries" and "four queries on mount" are
-    // very different claims about a public page.
+    // `'skip'`ped until a viewer opens a character card, so opening a card is the only thing that
+    // costs them.
     expect(page).toContain('getPublishedReadModelRef');
     expect(page).toContain("modelRef: `character:${selectedCharacterId}`");
     expect(page).toContain('modelRef: `timeline:${worldId}`');
-    expect(page.match(/\buseQuery\(/g)).toHaveLength(4);
+    // ART-125 (FR-O007) added the last two, through the same generic read. Unlike the card's,
+    // these are NOT skip-gated: the story overlay is permanently present per PRD 2.0 UX2-004, so
+    // the map now costs four reads to watch. Both are cached models rebuilt on Canon commit — the
+    // same two the homepage reads — so mounting them cannot trigger generation (AC#6).
+    expect(page).toContain('modelRef: `onboarding:${worldId}`');
+    expect(page).toContain('modelRef: `live:${worldId}`');
+    expect(page.match(/\buseQuery\(/g)).toHaveLength(6);
+    // Still two, not four: the count is what says which of the six fire on mount, and "six
+    // queries" and "four queries on mount" are very different claims about a public page.
     expect(page.match(/\? 'skip'/g)).toHaveLength(2);
 
     // No other file in the module reads anything at all.

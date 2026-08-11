@@ -29,6 +29,15 @@
  * dynamic surface against the new effective label — so a withhold removes the affected text
  * from the published projection immediately rather than at the next Canon commit. Canon is
  * untouched on this path: nothing here reads or writes `canonEvents`.
+ *
+ * `rebuildOnboardingSummary` runs beside it (ART-125). The onboarding summary is a SECOND cached
+ * public text surface built from the same Canon summaries and the same episode narration, and it
+ * is served to every first-time visitor on the homepage and — since FR-O007 — on the live map's
+ * story overlay. Gating its rebuild without re-running it here would leave the refused sentence
+ * published until the next natural Canon commit, which on a paused or finished world is never:
+ * the operator would see the dynamic surface go clean while the world's own introduction kept
+ * quoting the text they withheld. Both run in this transaction, so either both take effect or
+ * the override row itself is rolled back.
  */
 
 import { mutation } from '../_generated/server';
@@ -37,11 +46,15 @@ import { v } from 'convex/values';
 import { POST_GENERATION_LABELS } from '../safety/postGeneration';
 import { readEffectiveSafetyLabel } from '../safety/effectiveSafetyLabels';
 import type { rebuildLiveProjection as rebuildLiveProjectionExport } from '../publicRead/liveStateFunctions';
+import type { rebuildOnboardingSummary as rebuildOnboardingSummaryExport } from '../publicRead/onboardingSummaryFunctions';
 import { internalFunctionRef } from '../shared/internalFunctionRef';
 import { commandArgs, operatorNow, recordAudit, requireOperator } from './opsConsoleFunctions';
 
 const rebuildLiveProjectionRef = internalFunctionRef<typeof rebuildLiveProjectionExport>(
   'publicRead/liveStateFunctions:rebuildLiveProjection',
+);
+const rebuildOnboardingSummaryRef = internalFunctionRef<typeof rebuildOnboardingSummaryExport>(
+  'publicRead/onboardingSummaryFunctions:rebuildOnboardingSummary',
 );
 
 export class SafetyOverrideError extends Error {
@@ -70,6 +83,14 @@ export type SafetyOverrideResult = {
    */
   correlatedEventCount: number;
   refresh: { modelRef: string; version: number };
+  /**
+   * The onboarding summary rebuilt in the same transaction (ART-125).
+   *
+   * Reported separately rather than folded into `refresh`, because they are two independent
+   * read models: an operator who withholds a Scene needs to see that BOTH public text surfaces
+   * were re-derived, not just the one this command originally refreshed.
+   */
+  onboardingRefresh: { modelRef: string; version: number };
 };
 
 /**
@@ -159,6 +180,15 @@ export const overridePostGenerationSafetyLabel = mutation({
       correlateSceneId: classification.sourceId,
     });
     const correlatedEventCount = refresh.correlatedEventCount ?? 0;
+    // The second cached public text surface built from the same summaries and the same episode
+    // narration (ART-125). Not folded into the live rebuild: the two are independent read models
+    // with independent rebuild entry points, and a projection that still quoted withheld text
+    // after the ledger said otherwise is the exact failure FR-P004 exists to prevent — on the
+    // world's introduction just as much as on its map.
+    const onboardingRefresh = await ctx.runMutation(rebuildOnboardingSummaryRef, {
+      worldId: args.worldId,
+      now: at,
+    });
 
     // Audited AFTER the rebuild so the durable record carries whether the decision reached any
     // content at all. An override that correlates to nothing is not a failure — it is a
@@ -185,6 +215,10 @@ export const overridePostGenerationSafetyLabel = mutation({
       correlatedEventCount,
       createdAt: at,
       refresh: { modelRef: refresh.modelRef, version: refresh.version },
+      onboardingRefresh: {
+        modelRef: onboardingRefresh.modelRef,
+        version: onboardingRefresh.version,
+      },
     };
   },
 });
