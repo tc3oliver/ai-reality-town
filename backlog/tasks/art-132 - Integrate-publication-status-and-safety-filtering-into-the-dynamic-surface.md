@@ -1,11 +1,11 @@
 ---
 id: ART-132
 title: Integrate publication status and safety filtering into the dynamic surface
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-04 15:59'
-updated_date: '2026-08-10 11:29'
+updated_date: '2026-08-11 09:24'
 labels:
   - prd-2.0
   - v2-h
@@ -77,8 +77,8 @@ ordinal: 132000
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -147,6 +147,8 @@ Defect found and fixed while testing: the ledger row was inserted before recordA
 6. **Uncorrelated overrides no longer report a blank success.** `rebuildLiveProjection` takes an optional `correlateSceneId` and returns `correlatedEventCount` (costs no read — the scene events are already in hand). The mutation surfaces it and audits `outcome: 'no_op'` with a `..._UNCORRELATED` result code when it is zero, so an operator overriding a scene that correlates to nothing gets a truthful signal. No backfill migration for pre-ART-132 events, documented as a deliberate limitation in docs/dynamic-safety-filtering.md.
 
 `npm run check` clean after the fixes: 137 suites, 2073 passed, 5 skipped, build OK.
+
+PR #183 opened and auto-merge enabled (merge + delete-branch on green CI): https://github.com/tc3oliver/ai-reality-town/pull/183 -- merged into main at dd6c371.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
