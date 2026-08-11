@@ -1,11 +1,11 @@
 ---
 id: ART-124
 title: Build the public character card
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-04 15:59'
-updated_date: '2026-08-11 10:33'
+updated_date: '2026-08-11 10:34'
 labels:
   - prd-2.0
   - v2-f
@@ -74,8 +74,8 @@ ordinal: 124000
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -131,6 +131,8 @@ Mounting the live map in jsdom needs no stubs, and that is a property of the com
 Both halves mutation-checked: deleting `cardRef.current?.focus()` fails only the open test; deleting `trigger?.focus()` fails only the close test. Neither assertion is vacuous.
 
 Verification: npm run check EXIT=0 — 141 suites, 2134 passed, 5 skipped (pre-existing ART60_LONG_RUN gates), build clean.
+
+PR #185 opened and auto-merge enabled (merge + delete-branch on green CI): https://github.com/tc3oliver/ai-reality-town/pull/185
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
