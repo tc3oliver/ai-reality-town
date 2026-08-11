@@ -1,7 +1,7 @@
 ---
 id: ART-125
 title: Build the Live Story Overlay
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-04 15:59'
@@ -73,8 +73,8 @@ ordinal: 125000
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -115,6 +115,8 @@ AC#5. Native <details>/<summary>, open by default; zero <button> and zero `aria-
 Files — new: `src/components/live/storyOverlayModel.ts`, `StoryOverlay.tsx`, `storyOverlayModel.test.ts`, `storyOverlayLayout.dom.test.tsx`, `convex/publicRead/onboardingSummaryFunctions.test.ts`, `docs/live-story-overlay.md`. Modified: `LiveMapPage.tsx`, `LiveMapView.tsx`, `src/index.css`, `liveMapSurface.test.ts`, `liveMap.a11y.test.tsx`, `convex/publicRead/onboardingSummaryFunctions.ts`, `convex/operations/safetyOverrideFunctions.ts` (+ its test), `docs/dynamic-safety-filtering.md` (§3, new §4b), `docs/prd-2.0-requirement-matrix.md` (FR-O007).
 
 Verification: `npm run check` clean — architecture, asset licenses, typecheck, lint, 2185 tests passed across 144 suites (5 skipped are the pre-existing ART60_LONG_RUN env-gated 30-day cases), build OK.
+
+PR #186 opened and auto-merge enabled (merge + delete-branch on green CI): https://github.com/tc3oliver/ai-reality-town/pull/186
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
