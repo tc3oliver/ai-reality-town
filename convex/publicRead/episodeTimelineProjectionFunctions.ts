@@ -10,7 +10,9 @@ import { v } from 'convex/values';
 import { internalMutation } from '../_generated/server';
 import type { DailyEpisode } from '../editorial/episode';
 import { rowToAcceptedEvent } from '../canon/serialize';
+import { readWithheldSceneLabels } from '../safety/effectiveSafetyLabels';
 import { EpisodeTimelineError, buildEpisodeProjection, buildTimelineProjection, EPISODE_MODEL_KIND, TIMELINE_MODEL_KIND, type TimelineEntryInput } from './episodeTimelineProjection';
+import { sceneEventRows, withheldEventIds } from './liveStateFunctions';
 import { commitReadModelVersion } from './readModel';
 import { writeStore } from './readModelFunctions';
 
@@ -39,17 +41,39 @@ export const rebuildEpisodeProjection = internalMutation({
   },
 });
 
-/** Rebuild and publish the major-event Timeline projection for a world (AC#2/#3). */
+/**
+ * Rebuild and publish the major-event Timeline projection for a world (AC#2/#3).
+ *
+ * SAFETY GATE (FR-P004 / ART-132, extended by ART-124). This projection is a public TEXT surface:
+ * every entry carries the accepted event's `publicSummary`, and it is read by the character page
+ * and — since ART-124 — by the character card's "recent major events" list on the live map. It
+ * had no safety gate at all, so a Scene an operator withheld went on narrating itself here long
+ * after `rebuildLiveProjection` had removed the same sentence from the dynamic surface.
+ *
+ * Closed with ART-132's own machinery rather than a second copy of it: the bounded
+ * `readWithheldSceneLabels` sweep, then `sceneEventRows` + `withheldEventIds` — the exact
+ * functions `rebuildLiveProjection` uses, imported rather than re-implemented, so the two
+ * surfaces cannot come to disagree about which events are refused.
+ *
+ * A refused entry is KEPT and loses only its `publicSummary`, matching `redactWithheldSummaries`:
+ * the event happened, its participants and arc membership are structural facts the timeline is
+ * about, and dropping the row would silently renumber a public history. `publicSummary: null` is
+ * an existing, already-handled state on both consumers — the character page prints `(無摘要)`
+ * and the card does the same — so no client change is needed.
+ */
 export const rebuildTimelineProjection = internalMutation({
   args: { worldId: v.string(), now: v.number() },
   handler: async (ctx, args) => {
     if (args.worldId.trim().length === 0 || !Number.isFinite(args.now)) {
       throw new EpisodeTimelineError('TIMELINE_INVALID', 'worldId and a finite now are required');
     }
-    const [canonRows, classificationRows, episodeRows] = await Promise.all([
+    const [canonRows, classificationRows, episodeRows, withheldSceneLabels] = await Promise.all([
       ctx.db.query('canonEvents').withIndex('by_world_and_sequence', (q) => q.eq('worldId', args.worldId)).collect(),
       ctx.db.query('storyArcEventClassifications').withIndex('by_world', (q) => q.eq('worldId', args.worldId)).collect(),
       ctx.db.query('dailyEpisodes').withIndex('by_world_and_day', (q) => q.eq('worldId', args.worldId)).collect(),
+      // The inverted, history-independent question. See `effectiveSafetyLabels.ts` on why a
+      // rebuild must never ask this Scene by Scene.
+      readWithheldSceneLabels(ctx.db, args.worldId),
     ]);
 
     const membershipsBySequence = new Map<number, ClassificationMembership[]>();
@@ -62,8 +86,17 @@ export const rebuildTimelineProjection = internalMutation({
       if (row.episode) episodeNumberByDay.set(row.worldDay, row.episodeNumber);
     }
 
-    const entries: TimelineEntryInput[] = canonRows.map((row) => {
-      const event = rowToAcceptedEvent(row);
+    const acceptedEvents = canonRows.map(rowToAcceptedEvent);
+    // Keyed on the EVENT ID, never on a position in a parallel array — the reason
+    // `withheldEventIds` returns ids at all. Index correlation works today and would start
+    // redacting events against their neighbour's verdict the day anyone filters upstream.
+    const withheldEvents = withheldEventIds(
+      sceneEventRows(acceptedEvents),
+      new Map(Object.entries(withheldSceneLabels)),
+    );
+
+    const entries: TimelineEntryInput[] = canonRows.map((row, index) => {
+      const event = acceptedEvents[index];
       const memberships = membershipsBySequence.get(row.sequenceNumber) ?? [];
       const importance = memberships.reduce((max, membership) => Math.max(max, membership.importance), 0);
       return {
@@ -71,7 +104,7 @@ export const rebuildTimelineProjection = internalMutation({
         worldDay: event.worldDay,
         timeSlot: event.timeSlot,
         eventType: event.eventType,
-        publicSummary: event.publicSummary ?? null,
+        publicSummary: withheldEvents.has(event.eventId) ? null : (event.publicSummary ?? null),
         importance,
         arcIds: memberships.map((membership) => membership.arcId),
         characterIds: [...event.participantIds],

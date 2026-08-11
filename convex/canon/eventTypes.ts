@@ -87,6 +87,43 @@ export const CHARACTER_STATE_FIELDS = [
 ] as const;
 export type CharacterStateField = (typeof CHARACTER_STATE_FIELDS)[number];
 
+/**
+ * The character state fields whose value is public NARRATIVE TEXT (ART-124).
+ *
+ * A strict subset of {@link CHARACTER_STATE_FIELDS}, and the distinction is load-bearing in two
+ * directions:
+ *
+ * - `organization_memberships` and `availability` are accepted by Canon but are projected to no
+ *   public field at all (`CHARACTER_STATE_FIELD_MAP` in
+ *   `convex/publicRead/worldCharacterProjectionFunctions.ts` maps neither). Feeding them to the
+ *   post-generation safety classifier would let a string that was never going to be shown
+ *   trigger a `withhold` — and a `withhold` drops the ENTIRE scene from Canon, taking its
+ *   unrelated location changes, relationship updates and memories with it. Over-scanning here is
+ *   not a conservative choice; it destroys content.
+ * - `active` IS projected, but it is existence rather than text: a boolean nobody reads as prose.
+ *   It is excluded so that neither the classifier nor the projection-side gate ever treats a
+ *   deactivation as a sentence under review. See `EXISTENCE_CHARACTER_STATE_FIELDS`.
+ *
+ * Declared in `canon` because it is the one module both `simulation` (which classifies) and
+ * `publicRead` (which projects) may depend on. `worldCharacterProjection.test.ts` pins it against
+ * `CHARACTER_STATE_FIELD_MAP` so the two cannot drift.
+ */
+export const PUBLIC_TEXT_CHARACTER_STATE_FIELDS = [
+  'health', 'emotion', 'finance', 'occupation',
+] as const;
+export type PublicTextCharacterStateField = (typeof PUBLIC_TEXT_CHARACTER_STATE_FIELDS)[number];
+
+/**
+ * Character state fields that assert EXISTENCE rather than describe it (ART-124).
+ *
+ * Never gated by the safety filter, for exactly the reason `character_life_changed` is not:
+ * withholding a deactivation would resurrect a character who has left the world because a
+ * sentence about them was under review. `convex/publicRead/publicDynamicProjection.ts`'s
+ * `excludedCharacterIds` already reads this field as existence on the motion path; this constant
+ * is what keeps the character projection agreeing with it.
+ */
+export const EXISTENCE_CHARACTER_STATE_FIELDS = ['active'] as const;
+
 const TIME_SLOT_SET = new Set<string>(TIME_SLOTS);
 const EVENT_TYPE_SET = new Set<string>(EVENT_TYPES);
 const REMEDIATION_EVENT_TYPE_SET = new Set<string>(REMEDIATION_EVENT_TYPES);

@@ -6,10 +6,13 @@ import { mistwoodAmbientAnchorsByLocationId } from '../../../data/mistwoodAmbien
 import { mistwoodLocationFootprints, mistwoodWorldMap } from '../../../data/mistwood';
 import { focusTargetsFrom, primaryLocationId, primarySceneLocationId } from '../world/cameraModel';
 import type { SceneFocusInput } from '../world/cameraModel';
+import { getPublishedReadModelRef } from '../public/publicReadModelRef';
+import type { CharacterProjection, CharacterRecentEvent } from '../public/characterRoute';
 import { composeActiveScenePanel, type ActiveSceneInput } from './activeSceneModel';
+import { composeCharacterCardViewModel } from './characterCardModel';
 import { detectRenderQualityTierFromNavigator, updateIntervalMs } from '../world/renderQuality';
 import { detectWebGLSupport } from '../world/webglSupport';
-import { composeReadOnlyWorldViewModel } from '../world/worldViewModel';
+import { composeReadOnlyWorldViewModel, latestMotionPerCharacter } from '../world/worldViewModel';
 import type { PublicCharacterMotion } from '../world/worldViewModel';
 import { LiveMapView } from './LiveMapView';
 import { getPublicDynamicProjectionRef } from './publicDynamicRef';
@@ -29,15 +32,28 @@ import { useReducedMotion } from './useReducedMotion';
 const NO_MOTIONS: readonly PublicCharacterMotion[] = [];
 const NO_SCENES: readonly ActiveSceneInput[] = [];
 
+/** The `timeline:<worldId>` read model, as the character card reads it (ART-124 / FR-O006). */
+type TimelinePayload = {
+  entries: Array<{
+    eventId: string; worldDay: number; timeSlot: string;
+    publicSummary: string | null; characterIds: string[]; episodeNumber: number | null;
+  }>;
+};
+
 /**
  * The live map route's data layer (ART-118 / FR-O001, animated by ART-119 / FR-O002,
  * replayed by ART-121 / FR-O013).
  *
- * Two public queries, read-only, and nothing else -- no mutation, no action, no client
+ * Public queries, read-only, and nothing else -- no mutation, no action, no client
  * construction. Panning, zooming, focusing, skipping a replay and asking for another all
  * happen entirely inside React state and issue no request at all, which is the runtime half
  * of AC#4; the structural half is `liveMapSurface.test.ts` plus the `clientLive` module
  * boundary.
+ *
+ * Two of the four fire on mount. The other two -- the character projection and the world
+ * timeline behind the character card (FR-O006 / ART-124) -- are `'skip'`ped until a viewer
+ * opens a card, so watching the map still costs exactly the two reads it always did, and both
+ * are the same failure-isolated `getPublishedReadModel` the public pages already read through.
  *
  * The second query is the replay (FR-O013). It is a *separate* read rather than a field on
  * the projection because the two change on entirely different cadences and are allowed to
@@ -62,8 +78,28 @@ const NO_SCENES: readonly ActiveSceneInput[] = [];
  * it, or an unavailable backend blanks the page instead of degrading it.
  */
 export default function LiveMapPage({ worldId, base }: { worldId: string; base: string }) {
+  // Which character's card is open (FR-O006 / ART-124). It is state on the DATA layer rather
+  // than on the view, because it parameterises a read: the card's identity fields come from the
+  // published `character:<id>` projection, and every read this feature makes has to be here.
+  const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
+
   const projection = useQuery(getPublicDynamicProjectionRef, { worldId });
   const replayResponse = useQuery(getPublicVisualReplayRef, { worldId });
+  // Both card reads are skipped until a card is actually opened, so watching the map costs the
+  // same two queries it always did. They are the same failure-isolated public read the character
+  // page uses -- no new backend surface, and no generation on read.
+  const characterResult = useQuery(
+    getPublishedReadModelRef,
+    selectedCharacterId === null
+      ? 'skip'
+      : { worldId, modelKind: 'character', modelRef: `character:${selectedCharacterId}` },
+  );
+  const timelineResult = useQuery(
+    getPublishedReadModelRef,
+    selectedCharacterId === null
+      ? 'skip'
+      : { worldId, modelKind: 'timeline', modelRef: `timeline:${worldId}` },
+  );
   // Probed once per mount: each of these creates a canvas or reads `navigator`, and doing
   // that per render would be a per-frame cost for an answer that cannot change while the
   // page is open.
@@ -192,6 +228,41 @@ export default function LiveMapPage({ worldId, base }: { worldId: string; base: 
     return match?.text ?? null;
   }, [frame, replayResponse]);
 
+  // The open card (FR-O006 / ART-124). Nothing here is a new read: identity comes from the
+  // `character:<id>` projection, location and activity from the motion the map is already
+  // drawing, the active arc from `activeScenes`, and the recent events from the world timeline
+  // filtered by `characterIds` -- the same filter `CharacterPage.tsx` applies.
+  const characterCard = useMemo(() => {
+    if (selectedCharacterId === null) return null;
+    const timeline = (timelineResult?.payload ?? null) as TimelinePayload | null;
+    const recentEvents: CharacterRecentEvent[] | null = timeline
+      ? timeline.entries
+          .filter((entry) => entry.characterIds.includes(selectedCharacterId))
+          .map((entry) => ({
+            eventId: entry.eventId, worldDay: entry.worldDay, timeSlot: entry.timeSlot,
+            publicSummary: entry.publicSummary, episodeNumber: entry.episodeNumber,
+          }))
+      : null;
+    return composeCharacterCardViewModel({
+      worldId,
+      characterId: selectedCharacterId,
+      // `undefined` (read in flight) and `null` (read completed, no model published) are kept
+      // apart deliberately: collapsing them shows "loading…" forever for a character whose
+      // projection has never been built. `CharacterPage.tsx` draws the same distinction.
+      character: characterResult === undefined
+        ? undefined
+        : ((characterResult?.payload ?? null) as CharacterProjection | null),
+      // Read off the same array the canvas renders, so a card opened during a replay describes
+      // the frame on screen rather than a live position the viewer cannot see.
+      motion: latestMotionPerCharacter(motions)
+        .find((motion) => motion.characterId === selectedCharacterId) ?? null,
+      scenes,
+      recentEvents,
+      spriteKeys: mistwoodCharacterSpriteKeys,
+      footprints: mistwoodLocationFootprints,
+    });
+  }, [selectedCharacterId, characterResult, timelineResult, motions, scenes, worldId]);
+
   return (
     <LiveMapView
       worldId={worldId}
@@ -209,6 +280,9 @@ export default function LiveMapPage({ worldId, base }: { worldId: string; base: 
       replayText={replayText}
       onSkipReplay={() => setPlayback(skipReplay)}
       onReplay={() => replay && setPlayback(beginReplay(replay, Date.now()))}
+      characterCard={characterCard}
+      onOpenCharacterCard={setSelectedCharacterId}
+      onCloseCharacterCard={() => setSelectedCharacterId(null)}
       reducedMotion={reducedMotion}
       webglSupported={webglSupported}
       loading={projection === undefined}

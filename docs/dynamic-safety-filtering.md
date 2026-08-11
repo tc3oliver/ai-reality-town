@@ -6,6 +6,10 @@ Modules: `convex/safety/schema.ts` (the `safetyStatusOverrides` ledger),
 `convex/operations/safetyOverrideFunctions.ts` (the operator command),
 `convex/publicRead/activeScenePresentation.ts` (the scene-card gate),
 `convex/publicRead/liveStateFunctions.ts` (where the gate is applied at rebuild time),
+`convex/publicRead/worldCharacterProjectionFunctions.ts` (the character-fact gate, ART-124),
+`convex/publicRead/episodeTimelineProjectionFunctions.ts` (the timeline gate, ART-124),
+`convex/simulation/sceneSimulation.ts` (what the classifier examines),
+`convex/canon/eventTypes.ts` (`PUBLIC_TEXT_CHARACTER_STATE_FIELDS` / `EXISTENCE_CHARACTER_STATE_FIELDS`),
 `convex/simulation/worldDayLive.ts` and `convex/simulation/fakeSceneNarrator.ts` (the provenance
 stamp the gate depends on).
 
@@ -192,6 +196,97 @@ exactly as a withheld episode's `episodeScene` reference already does.
 a safety label; they read accepted events and seed placements. AC#4 is therefore true by
 construction — and locked by a regression test that builds the whole projection twice, with and
 without a withheld scene, and asserts the `characters` array is byte-identical.
+
+## 4a. The gate also covers character-fact text (ART-124)
+
+ART-132 gated a scene's NARRATIVE text. It did not gate the text a scene writes into a
+character's **biography**, and that was a real hole rather than a theoretical one: `publicProfile`,
+`publicGoal`, `personality`, `values`, `fear`, `behaviorRules` and `occupation` are all
+LLM-writable after world creation, through the generic `fact_created` (on `subjectType:
+'character'`) and `character_state_changed` state changes a scene proposes. They land verbatim on
+the public character page and, since ART-124, on the character card. A scene classified `withhold`
+had its summary suppressed while the biography it wrote in the same breath stayed fully public.
+
+ART-124 closes it with this machinery rather than a second one, in two places:
+
+- **Generation.** `publicText()` in `convex/simulation/sceneSimulation.ts` now also concatenates
+  the string `value` of every public-facing `fact_created` on a character and the string `toValue`
+  of every `character_state_changed` **whose field actually reaches a public projection field**,
+  so the scene's single existing `classifyPostGeneration` call examines them. A `private` fact and
+  a non-character subject stay out of scope. This is a widening of the classifier's INPUT, not a
+  second classification: there is still exactly one verdict per scene, keyed on the same
+  `sceneId`, so an operator override keeps governing the scene as a unit.
+- **Projection.** `characterSourceFrom` in `convex/publicRead/worldCharacterProjectionFunctions.ts`
+  is where it is enforced. `rebuildCharacterProjection` calls the same bounded
+  `readWithheldSceneLabels` sweep the live rebuild uses and passes the refused scene ids into the
+  fold; a `fact_created` or narrative `character_state_changed` whose event's `metadata.sceneId`
+  is refused is skipped as if it had never been accepted, so the field keeps its last known good
+  value — or is absent, where the refused event was the first to write it.
+
+### Which `character_state_changed` fields, and why the answer is not "all of them"
+
+`CHARACTER_STATE_FIELDS` has seven members; `CHARACTER_STATE_FIELD_MAP` publishes five of them.
+The gate and the classifier both read a narrower list still —
+`PUBLIC_TEXT_CHARACTER_STATE_FIELDS` in `convex/canon/eventTypes.ts`, which is `health`,
+`emotion`, `finance` and `occupation`. Two exclusions, for two different reasons:
+
+- `organization_memberships` and `availability` are accepted by Canon and projected **nowhere**.
+  Scanning them is not a conservative choice, it is a destructive one: a `withhold` verdict sets
+  `reviewStatus: 'required'`, which keeps the ENTIRE scene out of Canon, so a false positive on a
+  string no viewer was ever going to see would throw away that scene's unrelated location changes,
+  relationship updates and memories with it. (`organization_memberships` is additionally
+  constrained by `validators.ts` to an array of references, so it cannot carry prose at all;
+  `availability` is free text and is the live risk.)
+- `active` **is** published, but it asserts existence rather than describing it. Gating it would
+  let a withheld scene RESURRECT a deactivated character — the fold would skip the deactivation,
+  the field would keep its previous `true`, and the character projection would contradict
+  `excludedCharacterIds`, which reads the same change on the motion path and has no safety input
+  at all. It is listed in `EXISTENCE_CHARACTER_STATE_FIELDS` and never gated, exactly as
+  `character_location_changed` and `character_life_changed` are never gated: withholding them
+  would move a character on the map, or bring one back from the dead, because a sentence about
+  them was under review.
+
+Those constants live in `canon` because it is the one module both `simulation` (which classifies)
+and `publicRead` (which projects) may depend on; `worldCharacterProjection.test.ts` pins them
+against `CHARACTER_STATE_FIELD_MAP` so the two sides cannot drift.
+
+### The timeline surface
+
+`rebuildTimelineProjection` (`convex/publicRead/episodeTimelineProjectionFunctions.ts`) had no
+gate either, and it is a public text surface: every entry carries an accepted event's
+`publicSummary`, and it is read by the character page's "recent major events" list and by the
+character card. A scene an operator withheld went on narrating itself there after
+`rebuildLiveProjection` had already removed the same sentence from the dynamic surface. It now
+runs the same `readWithheldSceneLabels` sweep and reuses `sceneEventRows` + `withheldEventIds` —
+imported from `liveStateFunctions.ts` rather than re-implemented, so the two surfaces cannot
+disagree about which events are refused. A refused entry is KEPT and loses only its
+`publicSummary` (matching `redactWithheldSummaries`): the event happened, its participants and arc
+membership are structural facts the timeline is about, and dropping the row would silently
+renumber a public history. `publicSummary: null` was already a handled state on both consumers.
+
+The two conventions above hold unchanged across all three surfaces. An event with no resolvable
+`metadata.sceneId` (seed, system and remediation events, plus everything accepted before ART-132
+stamped provenance) is not withheld — silence from the classifier means "never in scope", not
+"refused". And the gate runs at rebuild time, so the refused text is never written into the
+published payload for the last-known-good fallback to keep serving; a later override that releases
+the scene republishes the value on the next rebuild without anything being re-simulated.
+
+### Not yet covered by this gate
+
+Three consumers of the same class remain ungated. They are pre-existing rather than introduced by
+ART-124, and they are recorded here so a future task can pick them up rather than rediscover them:
+
+- `relationshipArcProjectionFunctions.ts` and `onboardingSummaryFunctions.ts` also publish
+  character-derived text without consulting the safety labels;
+- `worldCharacterProjection.ts`'s `publicFacts` carries `fact_created` values for **non-character**
+  subjects (world, location, item), which the widened classifier scan does not examine and the
+  projection gate does not filter.
+
+Note also that `overridePostGenerationSafetyLabel` refreshes only `rebuildLiveProjection`. The
+character and timeline projections pick the new verdict up on their next rebuild — which the
+post-commit orchestrator runs on the next accepted event — rather than within the override's own
+transaction. Fanning the override out to a per-character rebuild would make an admin mutation's
+cost scale with the cast, so it was left to the existing rebuild cadence deliberately.
 
 ## 5. Traceability (AC#5)
 

@@ -104,6 +104,108 @@ describe('FR-C005 whole-scene simulation', () => {
     expect(service).not.toMatch(/commitProposedEvent|insert\(['"]canonEvents|reduceWorldEvent/);
   });
 
+  /**
+   * ART-124 (FR-O006) widened what the scene's single post-generation classification examines.
+   *
+   * A scene does not only narrate. Through `fact_created` on a character and through
+   * `character_state_changed`, it also WRITES that character's public biography —
+   * `publicProfile`, `publicGoal`, `personality`, `occupation` — straight into the public
+   * Character projection, where it is read on the character page and the character card. Until
+   * ART-124 the classifier never saw those strings, so a scene could be classified `allow` on a
+   * bland summary while proposing a biography the same classifier would have refused.
+   *
+   * The fix is to widen the classifier's INPUT, not to add a second classification: there is
+   * still exactly one verdict per scene, so an operator override keeps governing the scene as a
+   * unit and the projection-side gate reads the same label it always did.
+   */
+  describe('ART-124 — character-fact text is classified too, not just narration', () => {
+    function withCharacterFact(change: Record<string, unknown>): unknown {
+      const payload = output() as Record<string, unknown>;
+      payload.proposedEvents = [{
+        ...proposal(),
+        stateChanges: [change],
+      }];
+      return payload;
+    }
+
+    it('withholds a scene whose narration is bland but whose character fact is not', async () => {
+      const provider = new SequenceProvider([withCharacterFact({
+        type: 'fact_created', subjectType: 'character', subjectId: 'lin-yingxue',
+        predicate: 'publicProfile', value: 'Her past is a record of graphic torture.',
+        visibility: 'public',
+      })]);
+      const result = await simulateWholeScene(provider, 'simulation-fact-risk', scene);
+      expect(result).toMatchObject({
+        reviewStatus: 'required',
+        safety: { label: 'withhold', reasonCodes: ['EXTREME_VIOLENCE_DETAIL'] },
+      });
+    });
+
+    it('classifies a character_state_changed value the same way', async () => {
+      // `character_state_changed` carries no `visibility`: every accepted one is public-facing
+      // by construction, since `CHARACTER_STATE_FIELD_MAP` folds it into the public projection.
+      const provider = new SequenceProvider([withCharacterFact({
+        type: 'character_state_changed', characterId: 'lin-yingxue', field: 'occupation',
+        toValue: 'Keeper of graphic torture records', reason: 'the scene revealed it',
+      })]);
+      const result = await simulateWholeScene(provider, 'simulation-state-risk', scene);
+      expect(result.safety.label).toBe('withhold');
+    });
+
+    it('does NOT scan `availability`, which accepts prose but reaches no public field', async () => {
+      // The over-scan this guards against is not merely over-cautious, it is destructive: a
+      // `withhold` sets `reviewStatus: 'required'`, which keeps the WHOLE scene out of Canon. A
+      // false positive on `availability` — which `CHARACTER_STATE_FIELD_MAP` publishes nowhere —
+      // would therefore throw away that scene's unrelated location changes, relationship updates
+      // and memories along with a string no viewer was ever going to see.
+      //
+      // `availability` is the sharp case because Canon validates it as a free non-empty string.
+      // `organization_memberships` is validated as an array of REFERENCES
+      // (`validators.ts` → `isReference`), so it cannot carry prose in the first place and is
+      // excluded here for tidiness rather than as the live risk.
+      const provider = new SequenceProvider([withCharacterFact({
+        type: 'character_state_changed', characterId: 'lin-yingxue', field: 'availability',
+        toValue: 'Available except during graphic torture', reason: 'the scene revealed it',
+      })]);
+      const result = await simulateWholeScene(provider, 'simulation-unpublished-availability', scene);
+      expect(result.safety.label).toBe('allow');
+      expect(result.reviewStatus).toBe('not_required');
+    });
+
+    it('does not let a boolean `active` change reach the classifier at all', async () => {
+      const provider = new SequenceProvider([withCharacterFact({
+        type: 'character_state_changed', characterId: 'lin-yingxue', field: 'active',
+        toValue: false, reason: 'left the town',
+      })]);
+      expect((await simulateWholeScene(provider, 'simulation-active', scene)).safety.label).toBe('allow');
+    });
+
+    it('leaves a private fact and a non-character subject out of scope', async () => {
+      // A `private` fact never reaches a public surface, and a world or location fact is not
+      // this gate's business — `publicSummary` already covers what a viewer would read of it.
+      const privateFact = new SequenceProvider([withCharacterFact({
+        type: 'fact_created', subjectType: 'character', subjectId: 'lin-yingxue',
+        predicate: 'privateGoal', value: 'A plan involving graphic torture.', visibility: 'private',
+      })]);
+      expect((await simulateWholeScene(privateFact, 'simulation-private', scene)).safety.label).toBe('allow');
+
+      const locationFact = new SequenceProvider([withCharacterFact({
+        type: 'fact_created', subjectType: 'location', subjectId: 'mistwood-station',
+        predicate: 'condition', value: 'lockerOpened', visibility: 'public',
+      })]);
+      expect((await simulateWholeScene(locationFact, 'simulation-location', scene)).safety.label).toBe('allow');
+    });
+
+    it('still classifies an ordinary scene as allow, so the widening is not a blanket refusal', async () => {
+      const provider = new SequenceProvider([withCharacterFact({
+        type: 'fact_created', subjectType: 'character', subjectId: 'lin-yingxue',
+        predicate: 'publicProfile', value: 'The station clerk, careful with other people’s letters.',
+        visibility: 'public',
+      })]);
+      expect((await simulateWholeScene(provider, 'simulation-ok', scene)).safety.label).toBe('allow');
+    });
+  });
+
   it('rejects invalid Scene provenance and unlinked changes with stable validation errors', () => {
     expect(() => parseWholeSceneOutput({ ...(output() as Record<string, unknown>), sceneId: 'other' }, scene))
       .toThrow(SceneSimulationError);

@@ -15,6 +15,8 @@ import type { ReadOnlyWorldViewModel } from '../world/worldViewModel';
 import { ActiveScenePanel } from './ActiveScenePanel';
 import type { ActiveScenePanelModel } from './activeSceneModel';
 import { CameraControls } from './CameraControls';
+import { CharacterCard } from './CharacterCard';
+import type { CharacterCardViewModel } from './characterCardModel';
 import { LiveMapFallback } from './LiveMapFallback';
 import { textLiveHref } from './liveMapRoute';
 import { ReplayControls } from './ReplayControls';
@@ -51,6 +53,16 @@ export interface LiveMapViewProps {
   replayText?: string | null;
   onSkipReplay?: () => void;
   onReplay?: () => void;
+  /**
+   * The open character card (FR-O006 / ART-124), or null when none is open.
+   *
+   * Composed by {@link ./LiveMapPage} rather than here, because the card's identity fields come
+   * from a `character:<id>` read that only the page may issue -- which is also why the selection
+   * itself lives up there, beside the query it parameterises, instead of as local state here.
+   */
+  characterCard?: CharacterCardViewModel | null;
+  onOpenCharacterCard?: (characterId: string) => void;
+  onCloseCharacterCard?: () => void;
   /**
    * The viewer's Reduced Motion preference, decided by the caller (ART-120).
    *
@@ -92,6 +104,9 @@ export function LiveMapView({
   replayText = null,
   onSkipReplay = () => undefined,
   onReplay = () => undefined,
+  characterCard = null,
+  onOpenCharacterCard,
+  onCloseCharacterCard = () => undefined,
   reducedMotion: reducedMotionProp,
   webglSupported,
   loading,
@@ -100,6 +115,16 @@ export function LiveMapView({
   const reducedMotion = reducedMotionProp ?? observed;
   const spriteAssets = useSpriteAssets();
   const viewportRef = useRef<Viewport | undefined>(undefined);
+  /**
+   * The control that opened the character card, so closing it returns focus there (NFR-009).
+   *
+   * Captured from `document.activeElement` at open time rather than plumbed down as a ref,
+   * because the trigger is one of N per-character buttons inside `CameraControls` and threading
+   * a ref per row would put focus bookkeeping into a component whose entire contract is that it
+   * only calls state setters. Without this, closing drops focus on `<body>` and a keyboard user
+   * restarts from the top of the page.
+   */
+  const cardTriggerRef = useRef<HTMLElement | null>(null);
   const { ref, size } = useElementSize();
   const [mode, setMode] = useState<CameraMode>(INITIAL_CAMERA_MODE);
   const [camera, setCamera] = useState<CameraView | null>(null);
@@ -166,13 +191,50 @@ export function LiveMapView({
         onReplay={onReplay}
       />
 
+      {/* Between the scene panel and the camera chrome, and never over the canvas: the card is
+          about a character the viewer can see, so covering them would hide the answer (FR-O006). */}
+      {characterCard !== null && (
+        <CharacterCard
+          viewModel={characterCard}
+          spriteAsset={
+            characterCard.spriteAssetKey === null
+              ? undefined
+              : spriteAssets[characterCard.spriteAssetKey]
+          }
+          onClose={() => {
+            onCloseCharacterCard();
+            // After the card unmounts. Focus goes back to the button that opened it, not to
+            // `<body>`; if that button has since gone (the character left the projection), the
+            // optional chain simply does nothing and the browser keeps its own fallback.
+            const trigger = cardTriggerRef.current;
+            cardTriggerRef.current = null;
+            trigger?.focus();
+          }}
+        />
+      )}
+
       <ActiveScenePanel
         model={scenePanel ?? EMPTY_SCENE_PANEL}
         mode={mode}
         onModeChange={setMode}
       />
 
-      <CameraControls targets={targets} mode={mode} onModeChange={setMode} />
+      <CameraControls
+        targets={targets}
+        mode={mode}
+        onModeChange={setMode}
+        onOpenCharacterCard={
+          onOpenCharacterCard === undefined
+            ? undefined
+            : (characterId) => {
+                // Recorded before the state change, while the pressed button is still the
+                // active element. `CharacterCard` takes focus from here on mount.
+                const active = typeof document === 'undefined' ? null : document.activeElement;
+                cardTriggerRef.current = active instanceof HTMLElement ? active : null;
+                onOpenCharacterCard(characterId);
+              }
+        }
+      />
 
       <p className="mt-3 text-sm">
         {/* NFR-009 AC#3: the map always signposts its non-map equivalent. */}
