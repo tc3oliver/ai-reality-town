@@ -20,6 +20,8 @@ import type { CharacterCardViewModel } from './characterCardModel';
 import { LiveMapFallback } from './LiveMapFallback';
 import { textLiveHref } from './liveMapRoute';
 import { ReplayControls } from './ReplayControls';
+import { StoryOverlay } from './StoryOverlay';
+import type { StoryOverlayViewModel } from './storyOverlayModel';
 import { TimeStateBanner } from './TimeStateBanner';
 import type { TimeStateBadge } from './timeStateLabel';
 import { useElementSize } from './useElementSize';
@@ -38,6 +40,11 @@ export interface LiveMapViewProps {
   primaryLocationId: string | null;
   /** Display data for the active scene panel. Omitted renders the panel's empty state. */
   scenePanel?: ActiveScenePanelModel;
+  /**
+   * The story overlay's content (FR-O007 / ART-125). Omitted renders no overlay at all rather
+   * than an empty one, so a caller that has not adopted it is unchanged.
+   */
+  storyOverlay?: StoryOverlayViewModel;
   /** The Canon slot of the last accepted event, driving the day/night wash (FR-O012). */
   timeSlot?: string;
   /** The replay/earlier/now rows (FR-O014 / ART-121 AC#9). Empty renders no banner. */
@@ -82,8 +89,8 @@ export interface LiveMapViewProps {
  * Holds the entire camera state of the feature -- the viewer's mode and the
  * frame it resolves to -- as React state that never leaves the browser. There
  * is no effect here that talks to the network: the only data this component
- * sees arrives as props from {@link ./LiveMapPage}, which reads one public
- * query and nothing else.
+ * sees arrives as props from {@link ./LiveMapPage}, which is the one file in
+ * this module allowed to read anything at all.
  *
  * The canvas is deliberately mute. Every affordance is a DOM button in
  * {@link ./CameraControls}, sitting beside the canvas rather than on it, so the
@@ -97,6 +104,7 @@ export function LiveMapView({
   targets,
   primaryLocationId,
   scenePanel,
+  storyOverlay,
   timeSlot,
   timeStateBadges = NO_TIME_STATE_BADGES,
   replayAvailable = false,
@@ -160,6 +168,11 @@ export function LiveMapView({
       {/* Above the canvas on purpose: "what am I looking at" has to be answerable before a
           viewer looks, not after they scroll past the map to find out (FR-O014 AC#9). */}
       {timeStateBadges.length > 0 && <TimeStateBanner badges={timeStateBadges} />}
+
+      {/* Before the canvas, and a block sibling of it rather than a layer over it (FR-O007
+          AC#5): "why does this matter" is what a viewer needs before they look at the map, and a
+          block above it structurally cannot obscure it. */}
+      {storyOverlay !== undefined && <StoryOverlay viewModel={storyOverlay} />}
 
       <div ref={ref} className="live-map-canvas mt-3">
         {size.width > 0 && size.height > 0 && (

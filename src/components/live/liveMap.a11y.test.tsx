@@ -13,6 +13,8 @@
  * recorded manual browser pass in `docs/live-view-navigation.md`.
  */
 
+import { readFileSync } from 'node:fs';
+
 import type { ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import jestAxe from 'jest-axe';
@@ -32,6 +34,8 @@ import { CharacterCard } from './CharacterCard';
 import { composeCharacterCardViewModel } from './characterCardModel';
 import { LiveMapFallback } from './LiveMapFallback';
 import { ReplayControls } from './ReplayControls';
+import { StoryOverlay } from './StoryOverlay';
+import { composeStoryOverlayViewModel } from './storyOverlayModel';
 import { TimeStateBanner } from './TimeStateBanner';
 import { composeTimeStateBadges } from './timeStateLabel';
 
@@ -541,5 +545,189 @@ describe('TimeStateBanner (FR-O014 / ART-121 AC#9)', () => {
       const announcement = row.querySelector('.sr-only')?.textContent ?? '';
       expect(announcement.length).toBeGreaterThan(0);
     }
+  });
+});
+
+/**
+ * The Live Story Overlay (FR-O007 / ART-125).
+ *
+ * Two claims need real markup rather than a model assertion.
+ *
+ * **AC#5 — collapsible, and never obscuring the map.** The collapse is a native
+ * `<details>`/`<summary>`, so what is asserted here is that the element really is that (the
+ * browser then supplies the keyboard behaviour, the disclosure marker and the expanded state for
+ * free) and that it renders OPEN by default, since PRD 2.0 UX2-004 asks for the context to be
+ * permanently available. "Does not obscure the map" is proven structurally rather than
+ * visually: `liveMapSurface.test.ts` asserts the overlay is a block sibling rendered before
+ * `.live-map-canvas`, and the stylesheet assertion below asserts it is never lifted out of flow.
+ * jsdom applies no CSS, so a rendered overlap test would prove nothing here.
+ *
+ * **AC#1/#2 — the content contract.** Every field the overlay promises is checked as text in the
+ * rendered DOM, including the three degraded states (loading, unavailable, empty).
+ */
+describe('the Live Story Overlay (FR-O007 / ART-125)', () => {
+  /** Comments are stripped so prose about CSS is never mistaken for CSS. */
+  const INDEX_CSS = readFileSync(new URL('../../index.css', import.meta.url), 'utf8').replace(
+    /\/\*[\s\S]*?\*\//g,
+    '',
+  );
+
+  function overlay(
+    overrides: Partial<Parameters<typeof composeStoryOverlayViewModel>[0]> = {},
+  ) {
+    return composeStoryOverlayViewModel({
+      worldId: WORLD_ID,
+      summary: {
+        summaryText: '近期大事:兩派在鎮公所簽下休戰。',
+        structured: {
+          majorEvent: { eventId: 'e-42', publicSummary: '兩派在鎮公所簽下休戰。' },
+          recommendedEpisode: { episodeNumber: 3, worldDay: 7 },
+        },
+      },
+      activeArcs: [
+        { arcId: 'arc-truce', title: '休戰協議', currentQuestion: '休戰能撐過冬天嗎?', status: 'climax' },
+        { arcId: 'arc-mill', title: '磨坊', currentQuestion: '水車修得好嗎?', status: 'resolving' },
+      ],
+      worldDay: 7,
+      timeSlot: 'evening',
+      scenes: [{ title: '簽約', status: 'active' }],
+      ...overrides,
+    });
+  }
+
+  test('renders every AC#1/#2 answer as real markup, and is axe-clean', async () => {
+    const container = render(<StoryOverlay viewModel={overlay()} />);
+    expect(await jestAxe.axe(container)).toHaveNoViolations();
+    const text = container.textContent ?? '';
+    for (const fragment of [
+      '第 7 天', 'evening', // world day and time slot
+      '近期大事:兩派在鎮公所簽下休戰。', // current situation
+      '休戰協議', '高潮', '休戰能撐過冬天嗎?', // the PRIMARY arc — the climax one, not the first
+      '1 個場景', '簽約', // active scenes
+      '兩派在鎮公所簽下休戰。', // latest major event
+    ]) {
+      expect(text).toContain(fragment);
+    }
+    // AC#2 — the recommended entry point, in the shape every other page links Episodes with.
+    expect(container.querySelector(`a[href="#episode/${WORLD_ID}/7"]`)).not.toBeNull();
+    // The section names itself, so a screen reader can reach it as a landmark.
+    expect(container.querySelector('section[aria-labelledby="live-story-overlay"]')).not.toBeNull();
+    expect(container.querySelector('#live-story-overlay')?.tagName).toBe('H2');
+  });
+
+  test('AC#5 — it is a native disclosure, open by default, with a named toggle', () => {
+    const container = render(<StoryOverlay viewModel={overlay()} />);
+    const details = container.querySelector('details');
+    expect(details).not.toBeNull();
+    // Open by default: the context is meant to be permanently available (PRD 2.0 UX2-004), and
+    // collapsing it is the viewer's choice on a small screen.
+    expect(details?.hasAttribute('open')).toBe(true);
+    const toggle = details?.querySelector('summary');
+    expect(toggle).not.toBeNull();
+    expect(accessibleName(toggle as Element)).toContain('故事資訊');
+    // The world clock lives in the toggle, so collapsing never costs the viewer "when is this".
+    expect(toggle?.textContent).toContain('第 7 天');
+    // No hand-rolled disclosure beside the real one, which would be a second, inconsistent state.
+    expect(container.querySelectorAll('[aria-expanded]')).toHaveLength(0);
+  });
+
+  test('AC#5 — the stylesheet never lifts it out of normal flow', () => {
+    // ONE of three halves. The composition (block sibling of the canvas, first in document
+    // order, no positioning utility class on any rendered node) is proven on the mounted tree in
+    // `storyOverlayLayout.dom.test.tsx`, which is the half a stylesheet sweep structurally
+    // cannot reach in a Tailwind project. This is the stylesheet half: a later edit that made
+    // the panel `position: absolute` would put it over the map without changing a line of markup.
+    const block = INDEX_CSS.match(/\.live-story-overlay\s*\{([^}]*)\}/);
+    expect(block).not.toBeNull();
+    expect((block as RegExpMatchArray)[1]).toContain('position: static');
+    for (const rule of [...INDEX_CSS.matchAll(/(\.live-story-overlay[\w-]*)\s*\{([^}]*)\}/g)]) {
+      expect(rule[2]).not.toMatch(/position\s*:\s*(absolute|fixed|sticky)/);
+      expect(rule[2]).not.toMatch(/\bz-index\b/);
+    }
+  });
+
+  test('says it is loading rather than rendering blanks while the reads are in flight', async () => {
+    const container = render(
+      <StoryOverlay viewModel={overlay({ summary: undefined, activeArcs: undefined })} />,
+    );
+    expect(await jestAxe.axe(container)).toHaveNoViolations();
+    const text = container.textContent ?? '';
+    expect(text).toContain('載入目前情勢中…');
+    expect(text).toContain('載入故事線中…');
+    expect(text).toContain('載入近期大事中…');
+    // AND NOTHING ELSE. A spinner rendered above 「目前沒有可顯示的近期大事。」 is two
+    // contradictory statements at once, which is what one panel-wide status produced.
+    expect(text).not.toContain('目前沒有可顯示的近期大事。');
+    expect(text).not.toContain('目前沒有進行中的主線故事。');
+    // The map half is there regardless — it never needed either read.
+    expect(text).toContain('第 7 天');
+  });
+
+  test('a section never claims "there is none" for a read that never landed', async () => {
+    const container = render(
+      <StoryOverlay viewModel={overlay({ summary: null, activeArcs: null })} />,
+    );
+    expect(await jestAxe.axe(container)).toHaveNoViolations();
+    const text = container.textContent ?? '';
+    expect(text).not.toContain('載入');
+    expect(text).toContain('這個世界的故事摘要尚未建立');
+    expect(text).toContain('故事線資料尚未建立。');
+    expect(text).toContain('近期大事尚未建立。');
+    // "Never built" is not the same sentence as "there genuinely is none", and only the second
+    // is a claim about the world.
+    expect(text).not.toContain('目前沒有可顯示的近期大事。');
+    expect(text).not.toContain('目前沒有進行中的主線故事。');
+    expect(text).toContain('第 7 天');
+  });
+
+  test('the two sources degrade independently, so one failing hides nothing of the other', async () => {
+    // The case a single combined status got wrong: a summary that was never built beside a
+    // healthy arc list read `ready`, suppressed the "unavailable" notice entirely, and then
+    // asserted 「目前沒有可顯示的近期大事。」 as if it were a confirmed fact.
+    const container = render(<StoryOverlay viewModel={overlay({ summary: null })} />);
+    expect(await jestAxe.axe(container)).toHaveNoViolations();
+    const text = container.textContent ?? '';
+    expect(text).toContain('這個世界的故事摘要尚未建立');
+    expect(text).toContain('近期大事尚未建立。');
+    expect(text).not.toContain('目前沒有可顯示的近期大事。');
+    // ...while the arc, from the other read, is shown in full.
+    expect(text).toContain('休戰協議');
+    expect(text).toContain('高潮');
+
+    // And the mirror image: a healthy summary beside an arc read that is still in flight keeps
+    // AC#2's way out on screen, which is when a viewer most needs it.
+    const arcsPending = render(<StoryOverlay viewModel={overlay({ activeArcs: undefined })} />);
+    const pendingText = arcsPending.textContent ?? '';
+    expect(pendingText).toContain('載入故事線中…');
+    expect(pendingText).not.toContain('目前沒有進行中的主線故事。');
+    expect(pendingText).toContain('近期大事:兩派在鎮公所簽下休戰。');
+    expect(arcsPending.querySelector(`a[href="#episode/${WORLD_ID}/7"]`)).not.toBeNull();
+  });
+
+  test('an empty arc list is a fact about the world, not a failed read', async () => {
+    const container = render(<StoryOverlay viewModel={overlay({ activeArcs: [] })} />);
+    expect(await jestAxe.axe(container)).toHaveNoViolations();
+    const text = container.textContent ?? '';
+    expect(text).toContain('目前沒有進行中的主線故事。');
+    expect(text).not.toContain('故事線資料尚未建立。');
+    expect(text).not.toContain('載入故事線中…');
+  });
+
+  test('the empty-scene state is a sentence too', () => {
+    const container = render(<StoryOverlay viewModel={overlay({ scenes: [] })} />);
+    expect(container.textContent).toContain('目前沒有進行中的場景。');
+  });
+
+  test('it offers no control that could ask the world for anything', () => {
+    // AC#3/#6 at the render layer: the only interactive things in the overlay are the disclosure
+    // toggle and an ordinary same-origin Episode link. `liveMapSurface.test.ts` proves the file
+    // names no request API; this proves the rendered surface offers no affordance either.
+    const container = render(<StoryOverlay viewModel={overlay()} />);
+    expect(container.querySelectorAll('button')).toHaveLength(0);
+    expect(container.querySelectorAll('form')).toHaveLength(0);
+    const links = Array.from(container.querySelectorAll('a[href]')).map((anchor) =>
+      anchor.getAttribute('href'),
+    );
+    expect(links).toEqual([`#episode/${WORLD_ID}/7`]);
   });
 });

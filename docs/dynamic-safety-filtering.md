@@ -109,10 +109,11 @@ publication decision in the system, and an operator trusted to pause a world is 
 trusted to make it.
 
 The handler validates the reason, refuses a classification that does not exist, resolves the
-classification's `sourceId`, appends the override row, and runs `rebuildLiveProjection` for the
-world. The refresh is what makes AC#3 true: a withhold removes the affected text from the
-published projection immediately, not at the next Canon commit. One `operatorAuditLog` entry is
-written in the same transaction (capability `safety.override`, target = the scene id).
+classification's `sourceId`, appends the override row, and runs `rebuildLiveProjection` and —
+since ART-125 — `rebuildOnboardingSummary` for the world. The refresh is what makes AC#3 true: a
+withhold removes the affected text from both published surfaces immediately, not at the next
+Canon commit. One `operatorAuditLog` entry is written in the same transaction (capability
+`safety.override`, target = the scene id).
 
 **It re-reads, it never echoes.** `createdAt` comes from the caller's `now`, and "latest wins" is
 decided by `createdAt`, so a backdated or replayed `now` appends a row that loses the comparison
@@ -271,22 +272,59 @@ stamped provenance) is not withheld — silence from the classifier means "never
 published payload for the last-known-good fallback to keep serving; a later override that releases
 the scene republishes the value on the next rebuild without anything being re-simulated.
 
+## 4b. The gate also covers the onboarding summary (ART-125)
+
+`rebuildOnboardingSummary` (`convex/publicRead/onboardingSummaryFunctions.ts`) was the third
+instance of the same gap, found when FR-O007 routed the `onboarding:<worldId>` model onto the
+live map's story overlay. It is a public text surface built from three ungated inputs, all of
+which land in `summaryText`: `publicSummary` read straight off `canonEvents`, `fact_created`
+predicates and values harvested off their `stateChanges`, and the day's narration copied straight
+off `dailyEpisodes.keyScenes`. A scene an operator had withheld therefore went on introducing the
+world with its own refused sentence, to every first-time visitor, on the homepage as well as the
+map.
+
+It now runs the same `readWithheldSceneLabels` sweep and reuses `sceneEventRows`,
+`withheldEventIds`, `redactWithheldSummaries` and `redactWithheldNarration` — imported from
+`liveStateFunctions.ts`, never re-implemented.
+
+| Field | How it is gated |
+| --- | --- |
+| `majorEvent` | picked from the redacted event array, so a refused event carries no summary and the pick falls through to the next showable one |
+| `facts` | events whose scene is refused are skipped outright — `redactWithheldSummaries` drops only `publicSummary`, and §4a is why a fact's predicate and value are classifier-visible text |
+| `scene` | `redactWithheldNarration` neutralises a key scene narrating a refused event, and the pick falls through to the next non-empty scene |
+
+Unlike the timeline, this surface **skips and re-picks** rather than keeping the entry and nulling
+its text. The timeline is a public history where dropping a row silently renumbers it; this is a
+"here is one event worth knowing about" pick with no positions and no addressing, and leading the
+world's introduction with `(無摘要)` would be strictly worse than leading with the best showable
+event.
+
+**The override now refreshes it too.** `overridePostGenerationSafetyLabel` runs
+`rebuildOnboardingSummary` beside `rebuildLiveProjection`, in the same transaction, and reports
+both refreshes in its result. Gating the rebuild alone would have left the refused sentence
+published until the next natural Canon commit — which on a paused or finished world never comes,
+so the operator would watch the dynamic surface go clean while the world's own introduction kept
+quoting the text they had just withheld.
+
 ### Not yet covered by this gate
 
-Three consumers of the same class remain ungated. They are pre-existing rather than introduced by
-ART-124, and they are recorded here so a future task can pick them up rather than rediscover them:
+Two consumers of the same class remain ungated. They are pre-existing rather than introduced by
+ART-124 or ART-125, and they are recorded here so a future task can pick them up rather than
+rediscover them:
 
-- `relationshipArcProjectionFunctions.ts` and `onboardingSummaryFunctions.ts` also publish
-  character-derived text without consulting the safety labels;
+- `relationshipArcProjectionFunctions.ts` also publishes character-derived text without consulting
+  the safety labels;
 - `worldCharacterProjection.ts`'s `publicFacts` carries `fact_created` values for **non-character**
   subjects (world, location, item), which the widened classifier scan does not examine and the
   projection gate does not filter.
 
-Note also that `overridePostGenerationSafetyLabel` refreshes only `rebuildLiveProjection`. The
-character and timeline projections pick the new verdict up on their next rebuild — which the
-post-commit orchestrator runs on the next accepted event — rather than within the override's own
-transaction. Fanning the override out to a per-character rebuild would make an admin mutation's
-cost scale with the cast, so it was left to the existing rebuild cadence deliberately.
+Note also that `overridePostGenerationSafetyLabel` refreshes `rebuildLiveProjection` and
+`rebuildOnboardingSummary` only. The character and timeline projections pick the new verdict up on
+their next rebuild — which the post-commit orchestrator runs on the next accepted event — rather
+than within the override's own transaction. Fanning the override out to a per-character rebuild
+would make an admin mutation's cost scale with the cast, so it was left to the existing rebuild
+cadence deliberately. The onboarding summary is a single, world-scoped, bounded rebuild, which is
+why it could join the transaction where the per-character ones could not.
 
 ## 5. Traceability (AC#5)
 
