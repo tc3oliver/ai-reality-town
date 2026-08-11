@@ -24,9 +24,12 @@ import {
   locationTargetId,
   type CameraMode,
 } from '../world/cameraModel';
+import { mistwoodCharacterSpriteKeys } from '../../../data/mistwoodCharacters';
 import { ActiveScenePanel } from './ActiveScenePanel';
 import { composeActiveScenePanel } from './activeSceneModel';
 import { CameraControls } from './CameraControls';
+import { CharacterCard } from './CharacterCard';
+import { composeCharacterCardViewModel } from './characterCardModel';
 import { LiveMapFallback } from './LiveMapFallback';
 import { ReplayControls } from './ReplayControls';
 import { TimeStateBanner } from './TimeStateBanner';
@@ -162,6 +165,179 @@ describe('the WebGL-unavailable page (FR-O001 AC#7)', () => {
     expect(crashed).not.toBe(noWebgl);
     // Neither wording implies the world stopped -- it did not.
     for (const text of [noWebgl, crashed]) expect(text).toContain('世界仍在運作');
+  });
+});
+
+/**
+ * The public character card (FR-O006 / ART-124).
+ *
+ * The card's open affordance is the reason this suite matters more than usual for it: clicking a
+ * character is the natural gesture, and the natural implementation — a pointer handler on the
+ * Pixi sprite — is unreachable by keyboard and invisible to assistive technology, as well as
+ * being structurally forbidden by `readOnlyWorldSurface.test.ts`. What replaces it is asserted
+ * here: a real, individually named `<button>` per character, in the camera chrome.
+ */
+describe('the character card (FR-O006 / ART-124)', () => {
+  const CHARACTER_ID = 'he-jun';
+
+  function card(overrides: Partial<Parameters<typeof composeCharacterCardViewModel>[0]> = {}) {
+    return composeCharacterCardViewModel({
+      worldId: WORLD_ID,
+      characterId: CHARACTER_ID,
+      character: {
+        id: CHARACTER_ID, worldId: WORLD_ID, name: '何俊', age: 38, occupation: '磨坊工',
+        publicProfile: '北水磨坊的工頭。', personality: '沉穩', values: '守信',
+        publicGoal: '修好水車', fear: '洪水', currentLocationId: 'mistwood-mill',
+        healthState: '健康', emotionalState: '平靜', financialState: '拮据', alive: true, active: true,
+      },
+      motion: {
+        characterId: CHARACTER_ID, semanticLocationId: 'mistwood-mill',
+        animationState: 'idle', motionType: 'idle',
+      },
+      scenes: [{
+        title: '修水車', sceneId: '7:evening:mistwood-mill', status: 'active',
+        participantCharacterIds: [CHARACTER_ID], arcIds: ['arc-mill'],
+      }],
+      recentEvents: [
+        { eventId: 'e1', worldDay: 3, timeSlot: 'noon', publicSummary: '簽下休戰。', episodeNumber: 3 },
+      ],
+      spriteKeys: mistwoodCharacterSpriteKeys,
+      footprints: mistwoodLocationFootprints,
+      ...overrides,
+    });
+  }
+
+  test('renders every AC#1-#4 field as real markup, and is axe-clean', async () => {
+    const container = render(<CharacterCard viewModel={card()} onClose={() => {}} />);
+    expect(await jestAxe.axe(container)).toHaveNoViolations();
+    const text = container.textContent ?? '';
+    for (const fragment of [
+      '何俊', '磨坊工', '北水磨坊的工頭。', // AC#1
+      'Northwater Mill', '停留原地', '待著', // AC#2
+      '修好水車', 'arc-mill', '簽下休戰。', // AC#3
+    ]) {
+      expect(text).toContain(fragment);
+    }
+    // AC#4 — the link out to the full character page.
+    expect(container.querySelector(`a[href="#character/${WORLD_ID}/${CHARACTER_ID}"]`)).not.toBeNull();
+    // The section names itself, so a screen reader can reach it as a landmark.
+    expect(container.querySelector('section[aria-labelledby="live-character-card"]')).not.toBeNull();
+  });
+
+  test('AC#5 — a view model carrying private fields still renders none of them', () => {
+    // `characterCardModel.test.ts` proves the composer never puts them there. This is the other
+    // half: the component prints named fields only, so even a view model that somehow carried
+    // them — a future edit, a stale cache, a hand-built object — renders nothing of them. The
+    // two together mean there is no single place where adding a spread would leak a secret.
+    const poisoned = {
+      ...card(),
+      privateProfile: '不該外洩的私事',
+      privateGoal: '秘密目標',
+      knowledge: { secret: '未揭露的秘密' },
+      memory: ['私人記憶'],
+      prompt: 'system prompt',
+      rawModelOutput: 'raw model output',
+      adminNotes: 'operator annotation',
+    } as unknown as ReturnType<typeof card>;
+    const container = render(<CharacterCard viewModel={poisoned} onClose={() => {}} />);
+    const markup = container.innerHTML;
+    for (const forbidden of [
+      'privateProfile', 'privateGoal', 'knowledge', 'memory', 'prompt', 'rawModelOutput', 'adminNotes',
+      '不該外洩的私事', '秘密目標', '未揭露的秘密', '私人記憶', 'system prompt', 'operator annotation',
+    ]) {
+      expect(markup).not.toContain(forbidden);
+    }
+    // Nor `fear`, which is server-allowlisted but is not a card field: the card shows the
+    // fields AC#1-#3 name and stops there.
+    expect(container.textContent).not.toContain('洪水');
+    // ...and it did render, so this is not passing by rendering nothing.
+    expect(container.textContent).toContain('北水磨坊的工頭。');
+  });
+
+  test('is closable, and the close control says what it closes', () => {
+    const container = render(<CharacterCard viewModel={card()} onClose={() => {}} />);
+    const close = Array.from(container.querySelectorAll('button'))
+      .find((button) => accessibleName(button).includes('關閉'));
+    expect(close).toBeDefined();
+    expect(close?.getAttribute('type')).toBe('button');
+    // Named per character, since the page can carry other "close" controls in future.
+    expect(accessibleName(close as Element)).toBe('關閉 何俊 的角色卡');
+  });
+
+  test('says it is loading rather than rendering blanks while the read is in flight', async () => {
+    const container = render(
+      <CharacterCard
+        viewModel={card({ character: undefined, motion: null, scenes: null, recentEvents: null })}
+        onClose={() => {}}
+      />,
+    );
+    expect(await jestAxe.axe(container)).toHaveNoViolations();
+    expect(container.textContent).toContain('載入角色資料中…');
+  });
+
+  test('degrades to the live motion, not to a permanent spinner, for an unbuilt projection', async () => {
+    // `serveReadModel` returns `null` for a character whose model has never been published.
+    // Rendering "loading…" there waits forever for something that is not coming.
+    const container = render(
+      <CharacterCard viewModel={card({ character: null })} onClose={() => {}} />,
+    );
+    expect(await jestAxe.axe(container)).toHaveNoViolations();
+    const text = container.textContent ?? '';
+    expect(text).not.toContain('載入角色資料中…');
+    expect(text).toContain('這個角色的公開資料尚未建立');
+    // The half that does not need the projection is still there...
+    expect(text).toContain('Northwater Mill');
+    // ...and so is the way out, which is when a viewer most needs it.
+    expect(container.querySelector(`a[href="#character/${WORLD_ID}/${CHARACTER_ID}"]`)).not.toBeNull();
+  });
+
+  test('is focusable on open and announces itself, so opening it is not silent', async () => {
+    // The card renders BELOW the button that opens it, so without this a keyboard or
+    // screen-reader user presses "角色卡" and the new content is behind them in the tab order.
+    // The effect that calls `.focus()` needs a mounted tree; what static markup can prove is
+    // that the target is focusable at all and that the announcement exists.
+    const container = render(<CharacterCard viewModel={card()} onClose={() => {}} />);
+    const section = container.querySelector('section[aria-labelledby="live-character-card"]');
+    expect(section).not.toBeNull();
+    // Programmatically focusable, but never a tab stop of its own.
+    expect(section?.getAttribute('tabindex')).toBe('-1');
+    const status = container.querySelector('[role="status"]');
+    expect(status?.getAttribute('aria-live')).toBe('polite');
+    expect(status?.textContent).toContain('何俊');
+    // Announced without being shown twice.
+    expect(status?.classList.contains('sr-only')).toBe(true);
+    expect(await jestAxe.axe(container)).toHaveNoViolations();
+  });
+
+  test('the open affordance is a named DOM button per character, never a canvas hit test', async () => {
+    const container = render(
+      <CameraControls
+        targets={targets()}
+        mode={INITIAL_CAMERA_MODE}
+        onModeChange={() => undefined}
+        onOpenCharacterCard={() => undefined}
+      />,
+    );
+    expect(await jestAxe.axe(container)).toHaveNoViolations();
+    const names = Array.from(container.querySelectorAll('button')).map(accessibleName);
+    // One per published character, individually named — not a repeated bare "角色卡".
+    expect(names).toContain('查看 he-jun 的角色卡');
+    // Locations and the town get no card button: only characters have cards.
+    expect(names.filter((name) => name.includes('的角色卡'))).toHaveLength(1);
+    expect(container.querySelector('canvas')).toBeNull();
+  });
+
+  test('without the handler, the character list is exactly what it was before ART-124', () => {
+    const before = render(controls()).querySelectorAll('button').length;
+    const after = render(
+      <CameraControls
+        targets={targets()}
+        mode={INITIAL_CAMERA_MODE}
+        onModeChange={() => undefined}
+        onOpenCharacterCard={() => undefined}
+      />,
+    ).querySelectorAll('button').length;
+    expect(after).toBe(before + 1);
   });
 });
 

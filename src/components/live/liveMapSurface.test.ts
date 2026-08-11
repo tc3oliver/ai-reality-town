@@ -105,6 +105,24 @@ describe('the live map surface (FR-O001 AC#4)', () => {
     expect(paths).toContain(`${LIVE_ROOT}/ReplayControls.tsx`);
     expect(paths).toContain(`${LIVE_ROOT}/TimeStateBanner.tsx`);
     expect(paths).toContain(`${LIVE_ROOT}/timeStateLabel.ts`);
+    // ART-124 (FR-O006) added the character card: a new interactive surface and the pure model
+    // behind it. Named here so the sweeps below visibly cover them.
+    expect(paths).toContain(`${LIVE_ROOT}/CharacterCard.tsx`);
+    expect(paths).toContain(`${LIVE_ROOT}/characterCardModel.ts`);
+  });
+
+  test('the character card is a render layer over a pure model (FR-O006 / ART-124)', () => {
+    // The card shows the most privacy-sensitive payload on the live map, so it gets the same
+    // proof the other three interactive surfaces carry: it names no way to talk to anything,
+    // and every value it renders arrives as a prop from the page.
+    const card = fileNamed('CharacterCard.tsx');
+    expect(REQUEST_APIS.filter((api) => new RegExp(`\\b${api}\\b`).test(card))).toEqual([]);
+    expect(card).toContain('viewModel');
+    // The model itself is pure: no React, no clock, no network.
+    const model = fileNamed('characterCardModel.ts');
+    expect(REQUEST_APIS.filter((api) => new RegExp(`\\b${api}\\b`).test(model))).toEqual([]);
+    expect(model).not.toContain('Date.now');
+    expect(model).not.toContain("from 'react'");
   });
 
   test('the replay chrome is a local state change too (FR-O013 AC#6/#8)', () => {
@@ -250,17 +268,26 @@ describe('the live map surface (FR-O001 AC#4)', () => {
     expect(model).not.toContain('from \'react\'');
   });
 
-  test('reading is confined to the page, and to two named public queries', () => {
+  test('reading is confined to the page, and to four named public queries', () => {
     const page = fileNamed('LiveMapPage.tsx');
     expect(page).toContain('useQuery');
-    // Both reads are named explicitly rather than counted loosely: the count is what stops a
-    // third read appearing, and the names are what stop one of these two being swapped for
+    // Every read is named explicitly rather than counted loosely: the count is what stops a
+    // further read appearing, and the names are what stop one of these being swapped for
     // something else while the count stays right. ART-121 (FR-O013) added the replay read as
     // a second query on purpose — it is failure-isolated from the projection, so folding it
     // into that payload would let a replay-build failure blank the live map.
     expect(page).toContain('getPublicDynamicProjectionRef');
     expect(page).toContain('getPublicVisualReplayRef');
-    expect(page.match(/\buseQuery\(/g)).toHaveLength(2);
+    // ART-124 (FR-O006) added two more, both through the SAME generic, failure-isolated
+    // `getPublishedReadModel` the public pages read through — no new backend surface — and both
+    // `'skip'`ped until a viewer opens a character card, so the map still costs two reads to
+    // watch. The skip is asserted here because "four queries" and "four queries on mount" are
+    // very different claims about a public page.
+    expect(page).toContain('getPublishedReadModelRef');
+    expect(page).toContain("modelRef: `character:${selectedCharacterId}`");
+    expect(page).toContain('modelRef: `timeline:${worldId}`');
+    expect(page.match(/\buseQuery\(/g)).toHaveLength(4);
+    expect(page.match(/\? 'skip'/g)).toHaveLength(2);
 
     // No other file in the module reads anything at all.
     const readers = surface

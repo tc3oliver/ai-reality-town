@@ -1,4 +1,9 @@
 import {
+  CHARACTER_STATE_FIELDS,
+  EXISTENCE_CHARACTER_STATE_FIELDS,
+  PUBLIC_TEXT_CHARACTER_STATE_FIELDS,
+} from '../canon/eventTypes';
+import {
   assertNoForbiddenCharacterFields,
   buildCharacterProjection,
   buildWorldProjection,
@@ -8,6 +13,7 @@ import {
   WORLD_ALLOWED_FIELDS,
   type PublicFact,
 } from './worldCharacterProjection';
+import { CHARACTER_STATE_FIELD_MAP } from './worldCharacterProjectionFunctions';
 
 describe('buildWorldProjection (AC#1 — publication-safe day/time/environment/public facts)', () => {
   it('projects only allowed World fields and attaches public facts', () => {
@@ -118,5 +124,48 @@ describe('buildCharacterProjection (AC#2 — every allowed field in, every forbi
       'emotionalState', 'financialState', 'alive', 'active',
     ]);
     expect(CHARACTER_FORBIDDEN_FIELDS).toEqual(['privateProfile', 'privateGoal', 'knowledge', 'memory']);
+  });
+});
+
+/**
+ * The cross-module pin ART-124 depends on.
+ *
+ * The safety classifier lives in `simulation` and the projection lives in `publicRead`, and
+ * `simulation` may not depend on `publicRead` — so the two share `canon`'s
+ * `PUBLIC_TEXT_CHARACTER_STATE_FIELDS` / `EXISTENCE_CHARACTER_STATE_FIELDS`, and nothing but a
+ * test can stop those drifting from what this module actually publishes.
+ *
+ * The drift matters in both directions. A field that becomes public without joining the text
+ * list would be published unclassified and ungated. A field on the text list that publishes
+ * nothing would let a false positive on an invisible string `withhold` — and therefore DESTROY —
+ * an entire scene, since `reviewStatus: 'required'` keeps the whole scene out of Canon.
+ */
+describe('the character state field vocabulary agrees across canon, simulation and publicRead (ART-124)', () => {
+  it('publishes exactly the public-text fields plus the existence fields, and nothing else', () => {
+    expect(Object.keys(CHARACTER_STATE_FIELD_MAP).sort()).toEqual(
+      [...PUBLIC_TEXT_CHARACTER_STATE_FIELDS, ...EXISTENCE_CHARACTER_STATE_FIELDS].sort(),
+    );
+  });
+
+  it('keeps the two lists disjoint, so no field is both prose and existence', () => {
+    const text = new Set<string>(PUBLIC_TEXT_CHARACTER_STATE_FIELDS);
+    expect(EXISTENCE_CHARACTER_STATE_FIELDS.filter((field) => text.has(field))).toEqual([]);
+  });
+
+  it('names only fields Canon actually accepts', () => {
+    const canonFields = new Set<string>(CHARACTER_STATE_FIELDS);
+    for (const field of [...PUBLIC_TEXT_CHARACTER_STATE_FIELDS, ...EXISTENCE_CHARACTER_STATE_FIELDS]) {
+      expect(canonFields.has(field)).toBe(true);
+    }
+  });
+
+  it('leaves organization_memberships and availability unpublished, and therefore unscanned', () => {
+    // The regression this pin exists for: both are accepted by Canon and projected nowhere, so
+    // the classifier must never see them. Stated as an explicit expectation rather than left to
+    // follow from the set comparison above, because it is the case a future edit would break.
+    for (const field of ['organization_memberships', 'availability']) {
+      expect(CHARACTER_STATE_FIELD_MAP[field]).toBeUndefined();
+      expect((PUBLIC_TEXT_CHARACTER_STATE_FIELDS as readonly string[])).not.toContain(field);
+    }
   });
 });

@@ -12,9 +12,16 @@ import type { JestConfigWithTsJest } from 'ts-jest';
  * - `dom` (ART-113 / FR-N002) is the second narrow exception, for `*.dom.test.tsx`.
  *   The PixiJS world shell cannot even be *imported* without a DOM global
  *   (`pixi-viewport` touches `window` at module load), and what its components
- *   return has to be checked by calling them. These specs still mount nothing
- *   and render no markup, so the "we do not render components" convention holds
- *   everywhere outside `a11y`.
+ *   return has to be checked by calling them. These specs overwhelmingly mount
+ *   nothing: they call a component as a function and inspect the element tree.
+ *
+ *   ART-124 added the ONE exception, `characterCardFocus.dom.test.tsx`, which
+ *   mounts through `react-dom/client` and dispatches a real click. It exists
+ *   because focus management is the one claim neither other harness can reach:
+ *   `a11y` renders through `renderToStaticMarkup`, which runs no effect and
+ *   delivers no event, so it can prove the card is *focusable* but never that
+ *   focus *moves*. Mount only when the assertion is genuinely about what the
+ *   browser does after an interaction — everything else stays a pure call.
  *
  * The `unit` project ignores both `.a11y.test.tsx` and `.dom.test.tsx`.
  */

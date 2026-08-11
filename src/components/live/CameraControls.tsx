@@ -5,6 +5,7 @@ import {
   type CameraMode,
   type FocusTarget,
 } from '../world/cameraModel';
+import { characterIdFromFocusTargetId } from './characterCardModel';
 
 /**
  * The camera chrome (ART-118 / FR-O005 AC#3/#5).
@@ -18,19 +19,28 @@ import {
  *    renderer. Clicking the canvas still reaches nothing at all.
  * 2. Focus is keyboard-reachable and screen-reader-announceable for free
  *    (NFR2-006). A canvas hit test is neither.
- * 3. Every handler below is a call to `onModeChange`, which is a React
- *    `useState` setter one component up. No handler here can reach the network:
- *    `liveMapSurface.test.ts` asserts this file names no request API at all,
- *    and the `clientLive` boundary forbids the write symbols outright (AC#4).
+ * 3. Every handler below is a call to `onModeChange` or `onOpenCharacterCard`,
+ *    each of which is a React `useState` setter one component up. No handler
+ *    here can reach the network: `liveMapSurface.test.ts` asserts this file
+ *    names no request API at all, and the `clientLive` boundary forbids the
+ *    write symbols outright (AC#4).
+ *
+ * ART-124 (FR-O006) added the second action per character — "open this
+ * character's card". It belongs here, beside the focus button, for reason 1
+ * above: a card opened by clicking the sprite would mean a pointer handler on
+ * the canvas, which `readOnlyWorldSurface.test.ts` refuses structurally.
  */
 export function CameraControls({
   targets,
   mode,
   onModeChange,
+  onOpenCharacterCard,
 }: {
   targets: readonly FocusTarget[];
   mode: CameraMode;
   onModeChange: (mode: CameraMode) => void;
+  /** Omitted renders the character list exactly as it was before ART-124. */
+  onOpenCharacterCard?: (characterId: string) => void;
 }) {
   const locations = targets.filter((target) => target.kind === 'location');
   const characters = targets.filter((target) => target.kind === 'character');
@@ -101,6 +111,7 @@ export function CameraControls({
         mode={mode}
         onModeChange={onModeChange}
         emptyLabel="目前沒有已發布的角色動態。"
+        onOpenCharacterCard={onOpenCharacterCard}
       />
     </section>
   );
@@ -113,6 +124,7 @@ function FocusList({
   mode,
   onModeChange,
   emptyLabel,
+  onOpenCharacterCard,
 }: {
   headingId: string;
   heading: string;
@@ -120,6 +132,7 @@ function FocusList({
   mode: CameraMode;
   onModeChange: (mode: CameraMode) => void;
   emptyLabel: string;
+  onOpenCharacterCard?: (characterId: string) => void;
 }) {
   return (
     <div className="mt-2">
@@ -130,25 +143,42 @@ function FocusList({
         <p className="public-muted text-sm">{emptyLabel}</p>
       ) : (
         <ul className="flex flex-wrap gap-2" aria-labelledby={headingId}>
-          {targets.map((target) => (
-            <li key={target.id}>
-              <button
-                type="button"
-                className="public-tap"
-                aria-pressed={mode.focusId === target.id}
-                // Focusing is an explicit choice, so it overrides auto-follow
-                // until the viewer turns follow back on or returns to the town.
-                onClick={() =>
-                  onModeChange({
-                    ...mode,
-                    focusId: target.id === TOWN_TARGET_ID ? null : target.id,
-                  })
-                }
-              >
-                {target.label}
-              </button>
-            </li>
-          ))}
+          {targets.map((target) => {
+            const characterId = onOpenCharacterCard === undefined
+              ? null
+              : characterIdFromFocusTargetId(target.id);
+            return (
+              <li key={target.id} className="flex gap-1">
+                <button
+                  type="button"
+                  className="public-tap"
+                  aria-pressed={mode.focusId === target.id}
+                  // Focusing is an explicit choice, so it overrides auto-follow
+                  // until the viewer turns follow back on or returns to the town.
+                  onClick={() =>
+                    onModeChange({
+                      ...mode,
+                      focusId: target.id === TOWN_TARGET_ID ? null : target.id,
+                    })
+                  }
+                >
+                  {target.label}
+                </button>
+                {characterId !== null && (
+                  <button
+                    type="button"
+                    className="public-tap"
+                    // Every row renders the same visible text, so the accessible
+                    // name carries which character it opens (WCAG 2.4.4).
+                    aria-label={`查看 ${target.label} 的角色卡`}
+                    onClick={() => onOpenCharacterCard?.(characterId)}
+                  >
+                    角色卡
+                  </button>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

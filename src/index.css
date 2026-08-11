@@ -206,6 +206,30 @@ p[contenteditable='true']:empty::before {
   font-weight: 600;
 }
 
+/* Public character card (ART-124, FR-O006). A block in the page flow rather than
+ * an overlay: the card is about a character the viewer can see on the canvas, so
+ * covering the canvas would hide the thing it describes. The border is what tells
+ * it apart from the panels above and below it without relying on colour. */
+.live-character-card {
+  border-width: 1px;
+  border-style: solid;
+  border-color: currentColor;
+  padding: 0.5rem;
+}
+
+/* The character's own sprite frame, cut out of the shared 384x256 texture by
+ * background-position. `pixelated` is load-bearing: the source is 32x32 pixel art
+ * and a smoothed upscale would make the card and the Pixi canvas — which samples
+ * the same texture with nearest-neighbour — show visibly different characters. */
+.live-character-portrait {
+  display: inline-block;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+
 /* Reduced motion (NFR-009). The P0 public pages declare no animation or
  * transition of their own — the only @keyframes in this stylesheet belongs to
  * the game runtime progress bar. This guard keeps the shared stylesheet

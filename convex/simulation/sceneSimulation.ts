@@ -1,7 +1,8 @@
 import { normalizeProposedEventOutput } from '../canon/proposedEvent';
 import {
   CHARACTER_STATE_FIELDS, EVENT_TYPES, FACT_SUBJECT_TYPES, FACT_VISIBILITIES, KNOWLEDGE_SHAREABILITIES,
-  KNOWLEDGE_SOURCE_TYPES, KNOWLEDGE_TRUTH_STATUSES, PROPOSED_BY_TYPES, TIME_SLOTS,
+  KNOWLEDGE_SOURCE_TYPES, KNOWLEDGE_TRUTH_STATUSES, PROPOSED_BY_TYPES,
+  PUBLIC_TEXT_CHARACTER_STATE_FIELDS, TIME_SLOTS,
 } from '../canon/eventTypes';
 import type { ProposedEvent } from '../canon/model';
 import { classifyPostGeneration, type PostGenerationClassification } from '../safety/postGeneration';
@@ -255,11 +256,64 @@ export const wholeSceneSystemPrompt = (scene: GroupedScene): string => {
   ].join(' ');
 };
 
+/**
+ * The character text a scene proposes as FACT rather than as narration (ART-124).
+ *
+ * A scene's `publicSummary` fields are not the only public strings it writes. A `fact_created`
+ * on a character, or a `character_state_changed`, carries model-written prose straight into the
+ * public Character projection (`publicProfile`, `publicGoal`, `personality`, `occupation`, …),
+ * where a viewer reads it on the character page and the character card. Until ART-124 the
+ * post-generation classifier never saw those strings: {@link publicText} concatenated the
+ * narrative fields and each event's `publicSummary`, and nothing else. A scene could therefore
+ * be classified `allow` on a bland summary while proposing a biography the same classifier
+ * would have refused.
+ *
+ * Widening the classifier's INPUT is the whole fix — there is still exactly one classification
+ * per scene, keyed on the same `sceneId`, so an operator override keeps governing the scene as
+ * a unit and the projection-side gate in `worldCharacterProjectionFunctions.ts` reads the same
+ * verdict it always did.
+ *
+ * `fact_created` is filtered to public-facing visibilities and to character subjects: a
+ * `private` fact never reaches a public surface, and a world or location fact is not this
+ * gate's business.
+ *
+ * `character_state_changed` carries no `visibility`, so it is filtered by FIELD instead —
+ * {@link PUBLIC_TEXT_CHARACTER_STATE_FIELDS}, which is `health`, `emotion`, `finance` and
+ * `occupation`. Scanning the whole union would be actively harmful rather than merely
+ * over-cautious: `organization_memberships` and `availability` reach no public field at all, and
+ * `active` is a boolean assertion about existence, yet a `withhold` verdict drops the ENTIRE
+ * scene from Canon (`reviewStatus: 'required'`). A false positive on a string nobody was ever
+ * going to read would therefore destroy that scene's unrelated location changes, relationship
+ * updates and memories along with it. Only text that can actually become public is worth that
+ * risk.
+ */
+function characterFactTexts(output: WholeSceneOutput): string[] {
+  const texts: string[] = [];
+  for (const event of output.proposedEvents) {
+    for (const change of event.stateChanges) {
+      if (change.type === 'fact_created') {
+        if (change.subjectType === 'character'
+          && (change.visibility === 'public' || change.visibility === 'canon')
+          && typeof change.value === 'string') texts.push(change.value);
+      } else if (change.type === 'character_state_changed'
+        && (PUBLIC_TEXT_CHARACTER_STATE_FIELDS as readonly string[]).includes(change.field)) {
+        // `toValue` is `string | boolean | string[]`; only the strings carry text. Every field
+        // reaching here is projected as a single string, but the union is handled whole so a
+        // future array-valued public field cannot slip past unscanned.
+        for (const value of Array.isArray(change.toValue) ? change.toValue : [change.toValue]) {
+          if (typeof value === 'string') texts.push(value);
+        }
+      }
+    }
+  }
+  return texts;
+}
+
 function publicText(output: WholeSceneOutput): string {
   return [output.sceneSummary, ...output.keyActions.map(({ action }) => action), ...output.dialogueHighlights.map(({ text }) => text),
     ...output.relationshipChanges.map(({ summary }) => summary), ...output.knowledgeChanges.map(({ content }) => content),
     ...output.memories.map(({ content }) => content), ...output.rumors.map(({ content }) => content), ...output.continuityWarnings,
-    ...output.proposedEvents.map(({ publicSummary }) => publicSummary ?? '')].join(' ');
+    ...output.proposedEvents.map(({ publicSummary }) => publicSummary ?? ''), ...characterFactTexts(output)].join(' ');
 }
 
 export function finalizeWholeSceneOutput(simulationRunId: string, scene: GroupedScene, output: WholeSceneOutput,
