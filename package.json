@@ -65,6 +65,7 @@
     "usehooks-ts": "^2.9.1"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@flydotio/dockerfile": "^0.2.14",
     "@playwright/test": "^1.62.1",
     "@types/css-font-loading-module": "^0.0.8",

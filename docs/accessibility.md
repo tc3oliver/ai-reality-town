@@ -379,3 +379,52 @@ reach the network.
   a P0 public experience.
 - Production deployment.
 - The four human-in-the-loop checks in §4.1–§4.4, which remain open.
+
+---
+
+## 6. The dynamic surface (ART-135 / FR-Q004, realizing NFR2-006)
+
+The live map is the one P0 surface whose accessibility cannot be settled from markup. Its centre
+is a `<canvas>`, and every claim that matters is about what a browser does with one on the page:
+whether Tab really reaches the controls with a visible ring, whether Reduced Motion really stops
+the animation, whether the canvas is really inert to assistive technology, and whether axe passes
+on the page as it renders. jsdom has no layout, no focus ring and no animation, so it can prove
+the markup and nothing else.
+
+`e2e/liveAccessibility.spec.ts` (ART-137's Playwright harness) asserts that half, on desktop and
+mobile, against WCAG 2.1 A/AA tags — 15 tests per project. It deliberately does **not** restate
+what `liveMap.a11y.test.tsx` and `publicPages.a11y.test.tsx` already cover.
+
+| AC | Evidence in a real browser |
+| --- | --- |
+| #1 non-map equivalent | The map's signpost link is followed to `/live/<worldId>/text`, which renders **no canvas**, carries the world's characters, locations and scenes as text, and is axe-clean |
+| #2 keyboard operable | A control is reached **by key**, activated with **Enter**, focus moves *into* the card and returns to the trigger on close; 25 tabs run forward without a trap; the canvas has no `tabindex`, `role` or handler; the focus ring is measured as **painted** (`outlineStyle !== none`, ≥2px) |
+| #3 Reduced Motion | With the preference emulated: the replay does not auto-play, the manual control still works, and no element under `<main>` has a transition or animation ≥1ms |
+| #4 not colour-only | During playback all three time states are on screen with **distinct words, distinct computed `border-left-style`, and distinct `aria-hidden` glyphs** — read from the engine, which is the only place a `data-state` selector becomes a border |
+| #5 text alternative | Four residents with four `animationState`s produce four distinct card readings in words; the overlay's world clock survives collapse |
+
+### What Reduced Motion does and does not suppress
+
+**Ambient drift and environmental animation** are derived from a seed rather than from Canon, and
+are suppressed. **Canon-driven movement is not**, and that is deliberate: the character really did
+move, and hiding it would misrepresent the world. Replay *auto-play* is suppressed; the replay
+itself stays available on request, so nothing becomes unreachable.
+
+This is why the browser suite does **not** assert "the canvas stops changing". An earlier version
+did, and failed — correctly — because the fixture has one character mid-walk. A pixel comparison
+cannot tell ambient drift from Canon movement, so the suppression is proven where it can be
+isolated: `ambientMotion.test.ts` and `environmentAnimation.dom.test.tsx`, deterministically.
+
+### Two findings from writing it
+
+- **The text Live View rendered nothing** under the E2E fixture, because the fixture's
+  `live:<worldId>` payload carried only the arcs the story overlay reads. The map suite could
+  never have caught it — the map does not read `characters`, `locations` or `recentEvents`. The
+  non-map equivalent is a release gate, and it was the accessibility suite that exercised it.
+- **`test.use({ reducedMotion: 'reduce' })` did not reach the page.** The whole group was
+  asserting things about the ordinary page and passing for the wrong reason. It was caught only
+  because each test checks the emulation is real before concluding anything from it — a check
+  that stays in for exactly that reason.
+
+Still open, and unchanged by this task: the graph and timeline surfaces (**ART-94**), and the
+human-in-the-loop checks in §4.
