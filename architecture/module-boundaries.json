@@ -19,7 +19,8 @@
     "clientWorldReadOnly": { "roots": ["src/components/world"], "mayDependOn": ["publicRead", "visualRuntime", "shared", "clientProvider", "clientLiveRoute"] },
     "clientLive": { "roots": ["src/components/live"], "mayDependOn": ["clientPublic", "clientWorldReadOnly", "clientProvider", "clientLiveRoute", "publicRead", "shared"] },
     "clientLiveRoute": { "roots": ["src/components/live/liveMapRoute.ts"], "mayDependOn": [] },
-    "clientProvider": { "roots": ["src/components/ConvexClientProvider.tsx"], "mayDependOn": [] },
+    "clientProvider": { "roots": ["src/components/ConvexClientProvider.tsx"], "mayDependOn": ["clientE2EFixture"] },
+    "clientE2EFixture": { "roots": ["src/e2e"], "mayDependOn": ["publicRead", "shared"] },
     "clientShell": { "roots": ["src"], "mayDependOn": ["clientPublic", "clientWorldReadOnly", "clientLive", "clientLiveRoute", "clientProvider", "publicRead", "shared"] }
   },
   "readOnlyClientBoundary": {
