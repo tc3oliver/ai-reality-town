@@ -130,7 +130,16 @@ export function fixtureProjection(nowMs: number) {
     mapId: 'mistwood',
     runtimeVersion: 1,
     snapshotSequence: 1,
-    updatedAt: 1_000,
+    /**
+     * Two minutes ago, not a sentinel.
+     *
+     * It was `1_000` — an arbitrary small number that no assertion looked at until ART-127's
+     * ladder started rendering a relative age from it, at which point the live map cheerfully
+     * announced 「20689 天前更新」. The value was never wrong for what it was used for; it
+     * became wrong the moment something read it as a time. A fixture standing in for a real
+     * Canon `acceptedAt` should look like one.
+     */
+    updatedAt: Math.max(0, nowMs - 120_000),
     worldStatus: 'running' as const,
     characters: fixtureMotions(nowMs),
     activeScenes: fixtureScenes(),
@@ -320,7 +329,7 @@ export function fixtureReadModel(modelRef: string): { payload: unknown } | null 
 }
 
 /** A `live` runtime snapshot, so the homepage's freshness badge (ART-131 AC#3) has a verdict. */
-export function fixtureRuntimeSnapshot() {
+export function fixtureRuntimeSnapshot(nowMs: number) {
   return {
     worldId: FIXTURE_WORLD_ID,
     runtimeVersion: 1,
@@ -329,13 +338,20 @@ export function fixtureRuntimeSnapshot() {
     status: 'live' as const,
     freshness: 'live' as const,
     mapId: 'mistwood',
-    characterStates: [],
-    activeSceneStates: [],
-    contentUpdatedAt: 1_000,
-    createdAt: 1_000,
-    observedAt: 1_000,
-    contentAgeMs: 0,
-    observationAgeMs: 0,
+    /**
+     * Populated with ART-127. It was `[]`, which is not a plausible last-valid snapshot: the
+     * whole reason the table exists is to hold the world state when the projection cannot, and
+     * an empty one holds nothing. It went unnoticed because until the ladder wired rung 2 up,
+     * nothing on the live map read this at all — only the homepage's freshness chip did, and
+     * that reads no positions.
+     */
+    characterStates: fixtureMotions(nowMs),
+    activeSceneStates: fixtureScenes(),
+    contentUpdatedAt: Math.max(0, nowMs - 120_000),
+    createdAt: Math.max(0, nowMs - 120_000),
+    observedAt: Math.max(0, nowMs - 60_000),
+    contentAgeMs: 120_000,
+    observationAgeMs: 60_000,
     thresholds: { delayedMaxAgeMs: 1, observationMaxAgeMs: 1 },
   };
 }

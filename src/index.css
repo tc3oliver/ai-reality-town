@@ -657,3 +657,83 @@ p[contenteditable='true']:empty::before {
   background-repeat: no-repeat;
   image-rendering: pixelated;
 }
+
+/* ── Degradation ladder (FR-O010 / ART-127) ──────────────────────────────────────────────
+ *
+ * The stage keeps its shape at every rung. `.live-map-canvas` stays the first of the stage's
+ * exactly-two children whatever is inside it, so the responsive contract ART-126 proved — one
+ * column with the map leading below 64rem, two above, visual order equal to DOM order at both —
+ * is unchanged by degrading. What changes is only the content of that box.
+ *
+ * The two degraded rungs DO need the height rule relaxed. `clamp(200px, 60vh, 640px)` is right
+ * for a canvas that scales to its container and wrong for a floor plan plus a roster, which has
+ * an intrinsic height and would be cropped by a fixed one — and cropping the list of where
+ * everyone is, on the rung whose entire purpose is saying where everyone is, defeats the rung. */
+.live-map-canvas[data-rung='static-map'],
+.live-map-canvas[data-rung='informational'] {
+  height: auto;
+  min-height: 8rem;
+  /* The canvas needed `hidden` so the border radius clipped Pixi. A DOM rung has nothing to
+     clip and everything to lose by it: a roster taller than the box would simply vanish. */
+  overflow: visible;
+  padding: 0.75rem;
+}
+
+.degradation-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.75rem;
+}
+
+/* The floor plan. Sized by its own aspect ratio via the SVG's viewBox rather than by a fixed
+ * height, so it stays to scale at every viewport and never overflows its column horizontally
+ * (FR-O008 AC#4 applies to this rung too — a degraded view that breaks the layout is a second
+ * failure on top of the first). */
+.static-map-plan {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 60vh;
+  border: 1px solid var(--public-border);
+  border-radius: 6px;
+  background: var(--public-surface-sunken);
+}
+
+.static-map-room {
+  fill: var(--public-surface);
+  stroke: var(--public-border-strong);
+  stroke-width: 1;
+}
+
+.static-map-room-name {
+  fill: var(--public-muted);
+  font-size: 11px;
+}
+
+/* Not colour alone: the occupant marker is a filled dot WITH a name rendered beside it, and the
+ * roster below repeats every one of them in words. Removing the stylesheet leaves the roster,
+ * which is the whole content — see `StaticMapView` for why the plan is `aria-hidden`. */
+.static-map-occupant {
+  fill: var(--public-accent);
+  stroke: var(--public-surface);
+  stroke-width: 2;
+}
+
+.static-map-occupant-name {
+  fill: var(--public-text);
+  font-size: 12px;
+}
+
+.static-map-roster {
+  margin-top: 0.5rem;
+}
+
+.static-map-roster-room {
+  font-weight: 600;
+  margin-right: 0.5rem;
+}
+
+.live-informational {
+  padding: 0.5rem 0;
+}

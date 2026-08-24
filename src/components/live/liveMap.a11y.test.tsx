@@ -32,7 +32,16 @@ import { composeActiveScenePanel } from './activeSceneModel';
 import { CameraControls } from './CameraControls';
 import { CharacterCard } from './CharacterCard';
 import { composeCharacterCardViewModel } from './characterCardModel';
+import { composeReadOnlyWorldViewModel } from '../world/worldViewModel';
+import { DegradationNotice } from './DegradationNotice';
+import {
+  DEGRADATION_LEVELS,
+  degradationDescriptor,
+  resolveDegradationLevel,
+} from './degradationLadder';
 import { LiveMapFallback } from './LiveMapFallback';
+import { StaticMapView } from './StaticMapView';
+import { composeStaticMap } from './staticMapModel';
 import { ReplayControls } from './ReplayControls';
 import { StoryOverlay } from './StoryOverlay';
 import { composeStoryOverlayViewModel } from './storyOverlayModel';
@@ -729,5 +738,129 @@ describe('the Live Story Overlay (FR-O007 / ART-125)', () => {
       anchor.getAttribute('href'),
     );
     expect(links).toEqual([`#episode/${WORLD_ID}/7`]);
+  });
+});
+
+/**
+ * The degradation ladder's two new surfaces (FR-O010 / ART-127 AC#1, AC#3).
+ *
+ * The rungs a viewer is dropped onto are, by definition, the ones reached when something has
+ * already gone wrong — which is exactly when an inaccessible page is least forgivable and
+ * least likely to have been looked at. So both new surfaces get the same axe pass, the same
+ * non-colour requirement and the same "says it in words" requirement as the healthy page.
+ */
+describe('the degraded rungs (FR-O010 / ART-127)', () => {
+  const NOW = 1_700_000_000_000;
+
+  /**
+   * Both surfaces are page FRAGMENTS, and axe's `region` rule fails any content outside a
+   * landmark. On the real page they render inside `PublicPageFrame`'s `<main>`, so asserting
+   * against a bare fragment would be failing them for the harness rather than for anything a
+   * viewer would meet. Wrapped rather than the rule disabled: turning `region` off would also
+   * stop it catching a genuinely unlandmarked surface later.
+   */
+  const inMain = (element: ReactElement) => render(<main>{element}</main>);
+
+  function plan() {
+    return composeStaticMap({
+      viewModel: composeReadOnlyWorldViewModel({
+        map: mistwoodWorldMap,
+        motions: [
+          {
+            characterId: 'he-jun', semanticLocationId: 'mistwood-mill', motionType: 'canon',
+            motionSequence: 3, from: { x: 36, y: 18 }, to: { x: 36, y: 18 },
+            startedAt: 0, arriveAt: 0, animationState: 'idle', direction: 'down',
+          },
+        ],
+        spriteKeys: mistwoodCharacterSpriteKeys,
+        nowMs: 0,
+      }),
+      footprints: mistwoodLocationFootprints,
+      targets: targets(),
+      tileSize: mistwoodWorldMap.tileDim,
+    });
+  }
+
+  test('the static floor plan is axe-clean, and its roster is the accessible content', async () => {
+    const container = inMain(<StaticMapView model={plan()} />);
+    expect(await jestAxe.axe(container)).toHaveNoViolations();
+
+    // The SVG is decorative: the roster beside it already states every fact it draws, so
+    // announcing the plan as well would announce the same information twice. Same decision
+    // `CharacterSprite` (ART-129) took, for the same reason.
+    expect(container.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+
+    // And the roster is real text, so this rung degrades honestly one further step: with SVG
+    // off entirely, "where is everyone" still has a complete answer.
+    const roster = container.querySelector('.static-map-roster');
+    expect(roster?.getAttribute('aria-label')).toBe('最後已知位置');
+    // Read off the camera's OWN targets rather than hard-coded. `focusTargetsFrom` labels a
+    // character with their id today (the projection publishes no display name), so the plan
+    // does too — and that agreement is the property worth pinning. Hard-coding a name here
+    // would assert a nicety neither surface offers and hide the fact that they match.
+    const named = targets().find((target) => target.kind === 'character')?.label ?? '';
+    expect(named.length).toBeGreaterThan(0);
+    expect(roster?.textContent).toContain(named);
+    expect(roster?.textContent).toContain('Northwater Mill');
+  });
+
+  test('an empty plan says so in a sentence rather than rendering a bare frame', () => {
+    const container = inMain(
+      <StaticMapView model={{ width: 10, height: 10, rooms: [], occupants: [], roster: [] }} />,
+    );
+    expect(container.textContent).toContain('目前沒有已知的角色位置。');
+  });
+
+  test.each(DEGRADATION_LEVELS)('the %s rung’s notice is axe-clean and states its rung in words', async (level) => {
+    const verdict = resolveDegradationLevel({
+      loading: false,
+      streamContent: level === 'stream' || level === 'static-map',
+      snapshotContent: level === 'snapshot',
+      webglSupported: level !== 'static-map',
+      rendererFailed: false,
+      mapAvailable: true,
+    });
+    expect(verdict.level).toBe(level);
+
+    const container = inMain(
+      <DegradationNotice verdict={verdict} freshness="delayed" updatedAt={NOW - 60_000} nowMs={NOW} />,
+    );
+    expect(await jestAxe.axe(container)).toHaveNoViolations();
+
+    // AC#3 at every rung: the state and the age, both in words. Asserted on the text content
+    // with no reference to any class or colour, so the claim holds in greyscale.
+    const text = container.textContent ?? '';
+    expect(text).toContain(degradationDescriptor(level).label);
+    expect(text).toContain('1 分鐘前更新');
+  });
+
+  test('the notice tells the four rungs apart with the stylesheet and the glyphs stripped', () => {
+    // The strongest form of the non-colour requirement: remove every class, every data
+    // attribute and every decorative glyph, and the four rungs must still be four different
+    // things to read. This is the check ART-131 established for the freshness chips, applied
+    // to the vocabulary ART-127 adds rather than trusted to be similar.
+    const readings = DEGRADATION_LEVELS.map((level) => {
+      const container = render(
+        <DegradationNotice
+          verdict={resolveDegradationLevel({
+            loading: false,
+            streamContent: level === 'stream' || level === 'static-map',
+            snapshotContent: level === 'snapshot',
+            webglSupported: level !== 'static-map',
+            rendererFailed: false,
+            mapAvailable: true,
+          })}
+          nowMs={NOW}
+        />,
+      );
+      container.querySelectorAll('[aria-hidden="true"]').forEach((node) => node.remove());
+      container.querySelectorAll('*').forEach((node) => {
+        node.removeAttribute('class');
+        node.removeAttribute('data-state');
+        node.removeAttribute('data-level');
+      });
+      return (container.textContent ?? '').trim();
+    });
+    expect(new Set(readings).size).toBe(DEGRADATION_LEVELS.length);
   });
 });

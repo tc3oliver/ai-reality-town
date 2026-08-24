@@ -429,3 +429,115 @@ test.describe('the homepage first screen (FR-P001 / ART-129)', () => {
     expect(network.offSite).toEqual([]);
   });
 });
+
+/**
+ * The degradation ladder in a real browser (FR-O010 / ART-127).
+ *
+ * The rung that matters most here is the STATIC MAP, and it is the one no unit test can reach
+ * honestly: jsdom has no WebGL either, so every DOM-level assertion about "what happens when
+ * WebGL is missing" is made in an environment where WebGL was never present to begin with.
+ * Only a real engine can be given a working GPU and then have it taken away.
+ *
+ * The fault is injected through the BROWSER, not through a product flag. There is no
+ * `?degrade=` parameter and no test hook in the shipped bundle: `page.addInitScript` overrides
+ * `HTMLCanvasElement.prototype.getContext` before any application code runs, so what the page
+ * meets is indistinguishable from a browser that genuinely cannot make a WebGL context. A
+ * query-string switch would have been easier and would have tested the switch.
+ */
+test.describe('the degradation ladder (FR-O010 / ART-127)', () => {
+  /** Deny WebGL the way a real browser without it does: no context, for anyone who asks. */
+  async function withoutWebGL(page: Page) {
+    await page.addInitScript(() => {
+      const original = HTMLCanvasElement.prototype.getContext;
+      // 2D is left working on purpose. Denying everything would also break sprite decoding and
+      // turn "no WebGL" into "no canvas at all", which is a different and much rarer fault.
+      HTMLCanvasElement.prototype.getContext = function patched(
+        this: HTMLCanvasElement,
+        id: string,
+        ...rest: unknown[]
+      ) {
+        if (id === 'webgl' || id === 'webgl2' || id === 'experimental-webgl') return null;
+        return (original as unknown as (...args: unknown[]) => unknown).call(this, id, ...rest);
+      } as typeof HTMLCanvasElement.prototype.getContext;
+    });
+  }
+
+  test('AC#1/AC#3 — a browser without WebGL gets the static plan, labelled, not a blank page', async ({ page }) => {
+    await withoutWebGL(page);
+    await page.goto(LIVE);
+    await expect(page.locator('main')).toBeVisible();
+
+    // Rung 3, not rung 4 and not the old cliff. Before ART-127 this page was the standalone
+    // signpost and the two middle rungs were unreachable.
+    await expect(page.locator('.live-map-canvas[data-rung="static-map"]')).toHaveCount(1);
+    await expect(page.locator('.static-map-plan')).toBeVisible();
+    await expect(stage(page)).toHaveCount(0);
+
+    // AC#3 — the rung and the reason, both in words, above the fold.
+    const notice = page.locator('.degradation-notice');
+    await expect(notice).toHaveAttribute('data-level', 'static-map');
+    await expect(notice).toContainText('靜態地圖');
+    await expect(notice).toContainText('WebGL');
+  });
+
+  test('AC#1 — the plan actually places people, and the roster names the same ones', async ({ page }) => {
+    await withoutWebGL(page);
+    await page.goto(LIVE);
+    await expect(page.locator('.static-map-plan')).toBeVisible();
+
+    // Every published character is on the plan. The same standard AC#2 holds the animated map
+    // to: a character the projection published but the surface never drew is invisible in the
+    // sense that matters.
+    for (const characterId of FIXTURE_CHARACTER_IDS) {
+      await expect(page.locator(`.static-map-occupant[data-character="${characterId}"]`)).toHaveCount(1);
+    }
+    const roster = page.locator('.static-map-roster');
+    await expect(roster).toBeVisible();
+    for (const characterId of FIXTURE_CHARACTER_IDS) {
+      await expect(roster).toContainText(characterId);
+    }
+  });
+
+  test('AC#2 — Episode content is untouched by the ladder', async ({ page }) => {
+    // Read the Episode page WITH the renderer denied, then again with it working, and require
+    // the text to be identical. Degradation is about the live map; if an Episode page changed
+    // by one character because WebGL was missing, the ladder would have leaked out of it.
+    await withoutWebGL(page);
+    await page.goto(`${BASE}/#episode/${WORLD}/7`);
+    await expect(page.locator('main')).toBeVisible();
+    const degraded = await page.locator('main').innerText();
+
+    const healthy = await page.context().newPage();
+    await healthy.goto(`${BASE}/#episode/${WORLD}/7`);
+    await expect(healthy.locator('main')).toBeVisible();
+    const intact = await healthy.locator('main').innerText();
+    await healthy.close();
+
+    expect(degraded).toBe(intact);
+  });
+
+  test('AC#4 — a renderer that cannot start writes nothing and asks for no generation', async ({ page }) => {
+    const network = watchNetwork(page);
+    await withoutWebGL(page);
+    await page.goto(LIVE);
+    await expect(page.locator('.static-map-plan')).toBeVisible();
+    // Long enough for a retry loop to show itself. A boundary that re-mounted the renderer, or
+    // a level that re-subscribed its queries, would appear here as repeated traffic.
+    await page.waitForTimeout(3_000);
+
+    // Both observers, for the reason AC#10/#11 use both: the fixture transport is the thing
+    // being replaced, so it cannot be the only witness to its own guarantee.
+    expect((await recorder(page)).writes).toEqual([]);
+    expect(network.writes).toEqual([]);
+    expect(network.offSite).toEqual([]);
+  });
+
+  test('AC#3 — the healthy page is labelled too, so a missing notice never means "probably fine"', async ({ page }) => {
+    await openLive(page);
+    const notice = page.locator('.degradation-notice');
+    await expect(notice).toHaveAttribute('data-level', 'stream');
+    await expect(notice).toContainText('即時畫面');
+    // The top rung has nothing to explain, so it prints no reason sentence.
+    await expect(notice.locator('p')).toHaveCount(0);
+  });
+});

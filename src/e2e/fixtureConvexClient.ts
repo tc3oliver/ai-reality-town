@@ -49,7 +49,7 @@ export type E2ERecorder = {
 const FIXTURE_QUERY_HANDLERS: Record<string, (args: Record<string, unknown>) => unknown> = {
   'publicRead/liveStateFunctions:getPublicDynamicProjection': () => fixtureProjection(Date.now()),
   'publicRead/visualReplayFunctions:getPublicVisualReplay': () => fixtureReplay(),
-  'publicRead/runtimeSnapshotFunctions:getPublicRuntimeSnapshot': () => fixtureRuntimeSnapshot(),
+  'publicRead/runtimeSnapshotFunctions:getPublicRuntimeSnapshot': () => fixtureRuntimeSnapshot(Date.now()),
   'publicRead/readModelFunctions:getPublishedReadModel': (args) =>
     fixtureReadModel(String(args.modelRef ?? '')),
 };

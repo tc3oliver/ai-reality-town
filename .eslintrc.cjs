@@ -1,4 +1,10 @@
 module.exports = {
+  // Stop ESLint ascending past the project. Without this the lint result depends on what
+  // happens to sit in an ancestor directory, which is not a property a gate should have: a
+  // checkout nested inside another repository (a git worktree under `.claude/worktrees/`, for
+  // one) loads BOTH configs and fails with "couldn't determine the plugin @typescript-eslint
+  // uniquely" — an error about the checkout's location rather than about the code.
+  root: true,
   parser: '@typescript-eslint/parser', // Specifies the ESLint parser
   plugins: ['@typescript-eslint'],
   extends: [
