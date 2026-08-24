@@ -129,17 +129,24 @@ describe('the story overlay never covers the canvas (FR-O007 AC#5)', () => {
     expect(container.querySelector('details .live-map-canvas')).toBeNull();
   });
 
-  test('they are block siblings, with the overlay first', async () => {
+  test('they are block siblings inside the stage, with the map first (FR-O008 AC#2)', async () => {
     await mount(liveMap());
     const overlay = container.querySelector('.live-story-overlay')!;
     const canvas = container.querySelector('.live-map-canvas')!;
-    // Same parent, so neither can establish a containing block for the other.
+    // Same parent, so neither can establish a containing block for the other. That parent is the
+    // responsive stage ART-126 introduced, which decides how many columns they sit in.
     expect(overlay.parentElement).toBe(canvas.parentElement);
-    // ...and the overlay comes first in document order: "why does this matter" has to be
-    // answerable before a viewer looks at the map, not after they scroll past it.
+    expect(canvas.parentElement?.classList.contains('live-stage')).toBe(true);
+    // The MAP comes first in document order, and therefore in visual order at every width — one
+    // column stacks it above the overlay (mobile is map-first), two columns put it in the left
+    // track. ART-125 put the overlay first; FR-O008 AC#2 asks for the opposite and wins. AC#5,
+    // which this file is about, never asked for an order — only that the overlay not obscure the
+    // map, which every other assertion here still checks.
     // eslint-disable-next-line no-bitwise -- compareDocumentPosition returns a bitmask.
-    const canvasFollows = overlay.compareDocumentPosition(canvas) & Node.DOCUMENT_POSITION_FOLLOWING;
-    expect(Boolean(canvasFollows)).toBe(true);
+    const overlayFollows = canvas.compareDocumentPosition(overlay) & Node.DOCUMENT_POSITION_FOLLOWING;
+    expect(Boolean(overlayFollows)).toBe(true);
+    // Exactly two children, so nothing has been slipped between them that could cover the map.
+    expect(Array.from(canvas.parentElement!.children)).toEqual([canvas, overlay]);
   });
 
   test('no element in the rendered overlay is positioned or stacked', async () => {

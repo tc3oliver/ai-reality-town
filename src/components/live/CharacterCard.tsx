@@ -155,7 +155,9 @@ export function CharacterCard({
                       // the event it belongs to (WCAG 2.4.4).
                       <a
                         href={event.episodeHref}
-                        className="ml-2"
+                        // `public-tap` for the touch target (FR-O008 AC#3): it is a standalone
+                        // control at the end of a row, not a link inside a sentence.
+                        className="public-tap ml-2"
                         aria-label={`本日故事:${event.label}`}
                       >
                         本日故事
@@ -174,7 +176,9 @@ export function CharacterCard({
           is exactly when a viewer most needs the page that can. */}
       {viewModel.status !== 'loading' && (
         <p className="mt-2 text-sm">
-          <a href={viewModel.characterHref}>查看 {viewModel.name} 的完整角色頁</a>
+          <a className="public-tap" href={viewModel.characterHref}>
+            查看 {viewModel.name} 的完整角色頁
+          </a>
         </p>
       )}
     </section>
