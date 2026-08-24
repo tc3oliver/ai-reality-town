@@ -31,6 +31,12 @@ import { composeCharacterViewModel } from './characterRoute';
 import { composeHelpViewModel } from './helpRoute';
 import { composeHomepageViewModel } from './homeRoute';
 import { composeLiveViewModel } from './liveRoute';
+import { PublicStatusChips } from './PublicStatusChips';
+import {
+  PUBLIC_FRESHNESS_STATES,
+  freshnessDescriptor,
+  worldClockDescriptors,
+} from './publicStatusBadge';
 import type { EpisodeListIndex } from './episodeListRoute';
 
 const WORLD_ID = 'mistwood';
@@ -597,8 +603,8 @@ function contrastRatio(a: string, b: string): number {
   return (light + 0.05) / (dark + 0.05);
 }
 
-/** Read a declaration out of the first matching rule block in index.css. */
-function declaredValue(selector: string, property: string, from = INDEX_CSS): string {
+/** Read a declaration out of the first matching rule block in index.css, unresolved. */
+function rawDeclaredValue(selector: string, property: string, from = INDEX_CSS): string {
   const block = from.match(
     new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`),
   );
@@ -615,6 +621,10 @@ function declaredValue(selector: string, property: string, from = INDEX_CSS): st
  * `prefers-color-scheme: dark` block (the original one only redefines the body
  * custom properties), so select the block that actually carries the public
  * tokens rather than the first one in the file.
+ *
+ * ART-131 moved those tokens from a set of `.public-muted` / `.public-page a`
+ * overrides into custom properties on `.public-page`, so the block is now found
+ * by the token name rather than by the class it used to redefine.
  */
 function darkSchemeBlock(): string {
   const blocks = [
@@ -622,9 +632,35 @@ function darkSchemeBlock(): string {
       /@media \(prefers-color-scheme: dark\) \{((?:[^{}]*\{[^{}]*\})*[^{}]*)\}/g,
     ),
   ].map((match) => match[1]);
-  const publicBlock = blocks.find((block) => block.includes('.public-muted'));
+  const publicBlock = blocks.find((block) => block.includes('--public-muted'));
   expect(publicBlock).toBeDefined();
   return publicBlock as string;
+}
+
+/**
+ * ART-131 (FR-P003) expresses the palette as custom properties on `.public-page`, so a
+ * declaration now typically reads `color: var(--public-muted)` rather than a literal. This
+ * resolver follows one level of `var()` into the `.public-page` block of the given scope.
+ *
+ * It is what keeps the contrast claim honest AFTER tokenisation: without it these assertions
+ * would silently start comparing the string "var(--public-muted)" — which parses to NaN — and
+ * pass forever. `the token resolver actually resolves` below pins that both ways.
+ */
+function tokenValue(name: string, scope = INDEX_CSS): string {
+  const block = scope.match(/\.public-page\s*\{([^}]*)\}/);
+  expect(block).not.toBeNull();
+  const declaration = (block as RegExpMatchArray)[1].match(
+    new RegExp(`(?:^|;)\\s*${name}\\s*:\\s*([^;]+)`),
+  );
+  expect(declaration).not.toBeNull();
+  return (declaration as RegExpMatchArray)[1].trim();
+}
+
+/** A declaration with any `var(--token)` resolved against the given scope. */
+function declaredValue(selector: string, property: string, from = INDEX_CSS): string {
+  const value = rawDeclaredValue(selector, property, from === INDEX_CSS ? INDEX_CSS : from);
+  const reference = value.match(/^var\(\s*(--[\w-]+)\s*\)$/);
+  return reference === null ? value : tokenValue(reference[1], from);
 }
 
 describe('public stylesheet meets NFR-009 (AC#2)', () => {
@@ -635,28 +671,100 @@ describe('public stylesheet meets NFR-009 (AC#2)', () => {
   const DARK_BACKGROUND = '#000000';
   const AA_NORMAL_TEXT = 4.5;
 
-  test('light-scheme public text and links clear WCAG AA', () => {
+  /**
+   * Every ink token, against every background it can land on (ART-131 / FR-P003 AC#1).
+   *
+   * Before ART-131 there was ONE background — the body gradient — and these assertions measured
+   * against it alone. Cards introduced a second (`--public-surface`) and nested cards a third
+   * (`--public-surface-sunken`), so a token that cleared AA on the page and failed on a card
+   * would have been invisible to the old pair of tests. All three are checked now, in both
+   * schemes, which is 24 ratios rather than 6.
+   */
+  const INK_TOKENS = ['--public-text', '--public-muted', '--public-link', '--public-accent'];
+
+  function backgrounds(scope: string, body: string): Array<[string, string]> {
+    return [
+      ['body', body],
+      ['surface', tokenValue('--public-surface', scope)],
+      ['sunken', tokenValue('--public-surface-sunken', scope)],
+    ];
+  }
+
+  test('light-scheme ink clears WCAG AA on the page and on both card surfaces', () => {
     expect(contrastRatio('#000000', LIGHT_BACKGROUND)).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
-    expect(
-      contrastRatio(declaredValue('.public-muted', 'color'), LIGHT_BACKGROUND),
-    ).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
-    expect(
-      contrastRatio(declaredValue('.public-page a', 'color'), LIGHT_BACKGROUND),
-    ).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+    const failures: string[] = [];
+    for (const token of INK_TOKENS) {
+      for (const [name, background] of backgrounds(INDEX_CSS, LIGHT_BACKGROUND)) {
+        const ratio = contrastRatio(tokenValue(token, INDEX_CSS), background);
+        if (ratio < AA_NORMAL_TEXT) failures.push(`${token} on ${name}: ${ratio.toFixed(2)}`);
+      }
+    }
+    expect(failures).toEqual([]);
+    // The class the pages actually carry still points at the token, so tokenising did not leave
+    // `.public-muted` behind with a stale literal.
+    expect(declaredValue('.public-muted', 'color')).toBe(tokenValue('--public-muted'));
   });
 
-  test('dark-scheme public text and links clear WCAG AA', () => {
+  test('dark-scheme ink clears WCAG AA on the page and on both card surfaces', () => {
     const dark = darkSchemeBlock();
     expect(contrastRatio('#ffffff', DARK_BACKGROUND)).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
-    expect(
-      contrastRatio(declaredValue('.public-muted', 'color', dark), DARK_BACKGROUND),
-    ).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+    const failures: string[] = [];
+    for (const token of INK_TOKENS) {
+      for (const [name, background] of backgrounds(dark, DARK_BACKGROUND)) {
+        const ratio = contrastRatio(tokenValue(token, dark), background);
+        if (ratio < AA_NORMAL_TEXT) failures.push(`${token} on ${name}: ${ratio.toFixed(2)}`);
+      }
+    }
+    expect(failures).toEqual([]);
     // Regression guard: the user-agent default link colour (#0000EE) measures
     // ~2.2:1 here, which is what the pages shipped with before ART-93.
-    expect(
-      contrastRatio(declaredValue('.public-page a', 'color', dark), DARK_BACKGROUND),
-    ).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
     expect(contrastRatio('#0000EE', DARK_BACKGROUND)).toBeLessThan(AA_NORMAL_TEXT);
+  });
+
+  test('the token resolver actually resolves, so these ratios are not measuring NaN', () => {
+    // The failure mode this guards: `contrastRatio('var(--public-muted)', …)` parses to NaN, and
+    // every `toBeGreaterThanOrEqual` above would then be comparing NaN and passing nothing.
+    for (const token of INK_TOKENS) {
+      expect(tokenValue(token)).toMatch(/^#[0-9a-f]{6}$/i);
+      expect(tokenValue(token, darkSchemeBlock())).toMatch(/^#[0-9a-f]{6}$/i);
+    }
+    // ...and the two schemes really do differ, so the dark block is being read rather than the
+    // light one being returned twice.
+    expect(tokenValue('--public-surface')).not.toBe(tokenValue('--public-surface', darkSchemeBlock()));
+  });
+
+  test('a border that carries meaning meets the 3:1 non-text threshold', () => {
+    // Two border tokens exist because they do two different jobs. The hairline only separates a
+    // card from the page and is allowed to be faint — WCAG 1.4.11 applies to boundaries REQUIRED
+    // to identify a component, and nothing is identified by it. The strong token is used wherever
+    // a border IS a signal (the status chip's border-style), so it has to clear 3:1.
+    const AA_NON_TEXT = 3;
+    for (const [scope, background] of [
+      [INDEX_CSS, LIGHT_BACKGROUND],
+      [darkSchemeBlock(), DARK_BACKGROUND],
+    ] as Array<[string, string]>) {
+      const strong = tokenValue('--public-border-strong', scope);
+      expect(contrastRatio(strong, background)).toBeGreaterThanOrEqual(AA_NON_TEXT);
+      expect(contrastRatio(strong, tokenValue('--public-surface', scope)))
+        .toBeGreaterThanOrEqual(AA_NON_TEXT);
+      expect(contrastRatio(strong, tokenValue('--public-surface-sunken', scope)))
+        .toBeGreaterThanOrEqual(AA_NON_TEXT);
+    }
+    // And the chip — the one component whose border is a state signal — uses it.
+    expect(rawDeclaredValue('.public-chip', 'border-color')).toBe('var(--public-border-strong)');
+  });
+
+  test('the palette is not monochrome (AC#5)', () => {
+    // RISK2-006's failure in one sentence: "a plain monochrome document". A grey accent would
+    // satisfy every contrast assertion above and still leave the pages looking like an admin
+    // console, so the accent is required to actually be a colour — its channels must differ.
+    for (const scope of [INDEX_CSS, darkSchemeBlock()]) {
+      const accent = tokenValue('--public-accent', scope).slice(1);
+      const channels = [0, 2, 4].map((offset) => parseInt(accent.slice(offset, offset + 2), 16));
+      const spread = Math.max(...channels) - Math.min(...channels);
+      // A grey has a spread of 0. This threshold is well clear of "nearly grey".
+      expect(spread).toBeGreaterThan(48);
+    }
   });
 
   test('standalone controls declare a 44px minimum target', () => {
@@ -736,5 +844,244 @@ describe('public stylesheet meets NFR-009 (AC#2)', () => {
         expect(className).not.toMatch(/\b(animate-|transition|duration-|motion-safe:)/);
       }
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The public design system (ART-131 / FR-P003).
+//
+// Two halves, as with every visual claim in this repo. The rendered half is
+// what a page actually produces; the stylesheet half is what the tokens
+// declare. jsdom applies no CSS, so neither alone would mean anything — the
+// structural card rule could be perfect while no page rendered the shape it
+// keys off, or every page could render the shape while the rule was deleted.
+// ---------------------------------------------------------------------------
+
+describe('the public design system (FR-P003 / ART-131)', () => {
+  /** Every surface AC#4 names, rendered as its real markup. */
+  const surfaces: Array<[string, ReactElement]> = [
+    ['homepage', <HomepageView worldId={WORLD_ID} vm={homeViewModel()} />],
+    ['live', <LiveViewBody worldId={WORLD_ID} vm={liveViewModel()} />],
+    ['episode list', <EpisodeListView worldId={WORLD_ID} index={episodeListIndex()} />],
+    [
+      'episode detail',
+      <EpisodeDetailView
+        worldId={WORLD_ID}
+        worldDay={4}
+        episode={episodeProjection()}
+        onNavigate={() => undefined}
+      />,
+    ],
+    ['character', <CharacterPageView worldId={WORLD_ID} vm={characterViewModel()} />],
+    ['arc', <ArcDetailView worldId={WORLD_ID} vm={arcViewModel()} />],
+  ];
+
+  test('AC#2/#4 — every surface renders its regions as the shape the card rule keys off', () => {
+    // The card treatment is applied structurally (`.public-page main > section`) rather than by a
+    // class on every element, which is what keeps this task from having touched what any page
+    // SAYS. That only works if every page really does render `main > section`; a page that wrapped
+    // its regions in a `div` would silently opt out and look like the odd one, with no test
+    // failing anywhere. So the shape itself is what is asserted.
+    for (const [name, element] of surfaces) {
+      const container = render(element);
+      const main = container.querySelector('main');
+      expect(main).not.toBeNull();
+      const sections = (main as Element).querySelectorAll(':scope > section');
+      expect(`${name}: ${sections.length}`).not.toBe(`${name}: 0`);
+      // ...and no region is a bare div beside them, which is the opt-out this guards against.
+      for (const child of Array.from((main as Element).children)) {
+        expect(['SECTION', 'HEADER', 'P', 'H1', 'NAV', 'DIV', 'UL', 'ARTICLE']).toContain(
+          child.tagName,
+        );
+      }
+    }
+  });
+
+  test('AC#2 — the card treatment is declared for exactly that shape', () => {
+    // The stylesheet half. Together with the test above: the shape exists on every page, and the
+    // rule that styles the shape exists in the stylesheet.
+    const rule = INDEX_CSS.match(/\.public-page main > section,\s*\.public-card\s*\{([^}]*)\}/);
+    expect(rule).not.toBeNull();
+    const body = (rule as RegExpMatchArray)[1];
+    expect(body).toMatch(/background:\s*var\(--public-surface\)/);
+    expect(body).toMatch(/border:\s*1px solid var\(--public-border\)/);
+    expect(body).toMatch(/border-radius/);
+    expect(body).toMatch(/padding/);
+  });
+
+  test('AC#4 — the live surface is drawn from the same tokens, not from its own colours', () => {
+    // Before ART-131 the live panels used `border-color: currentColor`, which is not a shared
+    // decision — it is each element picking its own. The live map is one of the five surfaces
+    // AC#4 names, so it has to speak the same language as the four text pages.
+    for (const selector of ['.live-story-overlay', '.live-map-canvas']) {
+      const rule = INDEX_CSS.match(
+        new RegExp(`\\${selector}\\s*\\{([^}]*)\\}`),
+      );
+      expect(rule).not.toBeNull();
+      expect((rule as RegExpMatchArray)[1]).toMatch(/var\(--public-border\)/);
+    }
+    // Nothing in the live block reaches for `currentColor` as a border any more.
+    for (const rule of INDEX_CSS.matchAll(/\.live-[\w-]+\s*\{([^}]*)\}/g)) {
+      expect(rule[1]).not.toMatch(/border[\w-]*color:\s*currentColor/);
+    }
+  });
+
+  test('AC#5 — the pages are no longer set in the terminal face', () => {
+    // The single largest reason these surfaces read as an admin console: `.public-page` carried
+    // `font-body`, i.e. VCR OSD Mono — a monospace pixel face with no CJK coverage, so every
+    // Chinese glyph fell back to a generic monospace.
+    const frame = readFileSync(new URL('./PublicPageFrame.tsx', import.meta.url), 'utf8');
+    const className = frame.match(/className=\{`public-page[^`]*`\}/);
+    expect(className).not.toBeNull();
+    expect((className as RegExpMatchArray)[0]).not.toContain('font-body');
+    // ...and a real reading stack is what replaced it, applied through the token.
+    expect(declaredValue('.public-page', 'font-family')).toMatch(/system-ui/);
+    // The pixel face survives, but only on the chips, where it is a short numeric label rather
+    // than a paragraph of Chinese it cannot render.
+    expect(tokenValue('--public-font-chip')).toContain('VCR OSD Mono');
+    expect(rawDeclaredValue('.public-chip', 'font-family')).toBe('var(--public-font-chip)');
+  });
+
+  test('AC#5 — controls are drawn as controls', () => {
+    // Tailwind preflight strips the user agent's button styling, so before ART-131 every control
+    // on every public page rendered as bare text.
+    const rule = INDEX_CSS.match(/\.public-page button\.public-tap\s*\{([^}]*)\}/);
+    expect(rule).not.toBeNull();
+    expect((rule as RegExpMatchArray)[1]).toMatch(/border:/);
+    expect((rule as RegExpMatchArray)[1]).toMatch(/background:/);
+  });
+
+  test('AC#7 — a toggle’s pressed state is not signalled by colour alone', () => {
+    const rule = INDEX_CSS.match(
+      /\.public-page button\.public-tap\[aria-pressed='true'\]\s*\{([^}]*)\}/,
+    );
+    expect(rule).not.toBeNull();
+    const body = (rule as RegExpMatchArray)[1];
+    // Colour changes too, but weight and border-width are what survive greyscale.
+    expect(body).toMatch(/border-width:/);
+    expect(body).toMatch(/font-weight:/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Status chips (ART-131 AC#3, AC#7).
+// ---------------------------------------------------------------------------
+
+describe('the status chips (FR-P003 / ART-131 AC#3, AC#7)', () => {
+  function chipRow(states: readonly string[]) {
+    return (
+      <div className="public-page">
+        <PublicStatusChips
+          chips={states.map((state) => freshnessDescriptor(state)!)}
+          label="世界運作狀態"
+          live
+        />
+      </div>
+    );
+  }
+
+  test('every state renders a label, a decorative glyph and a spoken sentence', async () => {
+    const container = render(chipRow(PUBLIC_FRESHNESS_STATES));
+    expect(await jestAxe.axe(container)).toHaveNoViolations();
+    const chips = Array.from(container.querySelectorAll('.public-chip'));
+    expect(chips).toHaveLength(PUBLIC_FRESHNESS_STATES.length);
+    for (const chip of chips) {
+      // Signal 1: the visible label.
+      expect(chip.querySelector('.public-chip-label')?.textContent).toBeTruthy();
+      // Signal 2: a glyph, hidden from assistive tech because the label already says it in words.
+      const glyph = chip.querySelector('.public-chip-glyph');
+      expect(glyph?.getAttribute('aria-hidden')).toBe('true');
+      expect(glyph?.textContent).toBeTruthy();
+      // Signal 3: the attribute the stylesheet keys a distinct border-style off.
+      expect(chip.getAttribute('data-state')).toBeTruthy();
+      // ...and the sentence, for the case a fragment is not enough.
+      expect(chip.querySelector('.sr-only')?.textContent?.length ?? 0).toBeGreaterThan(2);
+    }
+  });
+
+  test('AC#7 — stripped of every class and attribute, the states are still told apart by text', () => {
+    // The strongest form of the claim: not "colour is not the only signal" but "with the entire
+    // stylesheet gone, and every hook a stylesheet could use gone with it, the four states are
+    // still distinguishable". Mirrors the proof `TimeStateBanner` carries for ART-121.
+    const container = render(chipRow(PUBLIC_FRESHNESS_STATES));
+    const chips = Array.from(container.querySelectorAll('.public-chip'));
+    for (const chip of chips) {
+      chip.removeAttribute('class');
+      chip.removeAttribute('data-state');
+      for (const child of Array.from(chip.querySelectorAll('[class]'))) child.removeAttribute('class');
+      for (const child of Array.from(chip.querySelectorAll('[aria-hidden]'))) {
+        child.removeAttribute('aria-hidden');
+      }
+    }
+    const texts = chips.map((chip) => (chip.textContent ?? '').trim());
+    expect(texts.every((text) => text.length > 0)).toBe(true);
+    expect(new Set(texts).size).toBe(texts.length);
+  });
+
+  test('one distinct border-style is declared per state', () => {
+    const styles = new Map<string, string>();
+    for (const rule of INDEX_CSS.matchAll(/\.public-chip\[data-state='([a-z]+)'\]\s*\{([^}]*)\}/g)) {
+      const style = rule[2].match(/border-style:\s*([a-z]+)/);
+      expect(style).not.toBeNull();
+      styles.set(rule[1], (style as RegExpMatchArray)[1]);
+    }
+    expect([...styles.keys()].sort()).toEqual([...PUBLIC_FRESHNESS_STATES].sort());
+    // Distinct, so the shape differs before the colour does.
+    expect(new Set(styles.values()).size).toBe(styles.size);
+  });
+
+  test('the world clock row does not announce itself, and the runtime row does', () => {
+    // A live region that fires for the world clock would interrupt a screen reader for something
+    // nobody asked to be told about; the runtime state changing under the viewer is exactly what
+    // they do want to hear.
+    const clock = render(
+      <div className="public-page">
+        <PublicStatusChips chips={worldClockDescriptors(7, 'evening')} label="世界時間" />
+      </div>,
+    );
+    expect(clock.querySelector('[role="status"]')).toBeNull();
+    expect(clock.querySelectorAll('.public-chip')).toHaveLength(2);
+    expect(clock.querySelector('.public-chip')?.hasAttribute('data-state')).toBe(false);
+
+    const runtime = render(chipRow(['live']));
+    expect(runtime.querySelector('[role="status"]')?.getAttribute('aria-live')).toBe('polite');
+  });
+
+  test('AC#6 — the chip renders named fields only, so it cannot leak a payload', () => {
+    // The visual layer must not alter Canon semantics, and the cheapest way to guarantee it is
+    // that the layer cannot carry anything but what it was handed. Mirrors the proof the
+    // character card carries: a descriptor poisoned with extra keys renders none of them.
+    const poisoned = {
+      ...freshnessDescriptor('live')!,
+      privateGoal: '秘密目標',
+      rawModelOutput: 'raw model output',
+      prompt: 'system prompt',
+    } as ReturnType<typeof freshnessDescriptor> & Record<string, unknown>;
+    const container = render(
+      <div className="public-page">
+        <PublicStatusChips chips={[poisoned!]} label="世界運作狀態" />
+      </div>,
+    );
+    for (const forbidden of ['秘密目標', 'raw model output', 'system prompt', 'privateGoal']) {
+      expect(container.innerHTML).not.toContain(forbidden);
+    }
+    // ...and it did render, so this is not passing by rendering nothing.
+    expect(container.textContent).toContain('直播中');
+  });
+
+  test('the homepage shows the badge only once the server has reached a verdict', () => {
+    // `undefined` (in flight) and `null` (never captured) must both render nothing: a state claim
+    // nobody has checked is worse than no claim at all.
+    for (const freshness of [null, undefined, 'unrecognised']) {
+      const container = render(
+        <HomepageView worldId={WORLD_ID} vm={homeViewModel()} freshness={freshness} />,
+      );
+      expect(container.querySelector('.public-chip[data-state]')).toBeNull();
+    }
+    const shown = render(
+      <HomepageView worldId={WORLD_ID} vm={homeViewModel()} freshness="paused" />,
+    );
+    expect(shown.querySelector('.public-chip[data-state="paused"]')).not.toBeNull();
+    expect(shown.textContent).toContain('已暫停');
   });
 });

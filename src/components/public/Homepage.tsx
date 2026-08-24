@@ -1,6 +1,9 @@
 import { useQuery } from 'convex/react';
 import { getPublishedReadModelRef } from './publicReadModelRef';
+import { getPublicRuntimeSnapshotRef } from './publicRuntimeSnapshotRef';
 import { PublicPageFrame } from './PublicPageFrame';
+import { PublicStatusChips } from './PublicStatusChips';
+import { freshnessDescriptor, worldClockDescriptors } from './publicStatusBadge';
 import {
   composeHomepageViewModel,
   parseHomeRoute,
@@ -44,6 +47,16 @@ export default function Homepage() {
     getPublishedReadModelRef,
     enabled ? { worldId, modelKind: 'liveState', modelRef: `live:${worldId}` } : 'skip',
   );
+  /**
+   * The runtime freshness verdict (ART-131 AC#3). A fourth read, and an anonymous `query` that
+   * was already on the public allowlist — reading it cannot ask the world for anything.
+   *
+   * On the homepage rather than only on the map because "is this thing actually running?" is a
+   * question a visitor has before they open the map, and answering it only after they have is
+   * answering it too late. `undefined` (in flight) and `null` (no capture yet) both render no
+   * badge rather than a guessed one: a wrong state claim is worse than none.
+   */
+  const runtime = useQuery(getPublicRuntimeSnapshotRef, enabled ? { worldId } : 'skip');
 
   if (!enabled) {
     return (
@@ -64,21 +77,35 @@ export default function Homepage() {
     base: import.meta.env.BASE_URL,
   });
 
-  return <HomepageView worldId={worldId} vm={vm} />;
+  return <HomepageView worldId={worldId} vm={vm} freshness={runtime?.freshness ?? null} />;
 }
 
 /**
  * Presentational homepage. Split out from the data-fetching default export so
  * the accessibility suite can render the real markup without a Convex client.
  */
-export function HomepageView({ worldId, vm }: { worldId: string; vm: HomepageViewModel }) {
+export function HomepageView({
+  worldId,
+  vm,
+  freshness = null,
+}: {
+  worldId: string;
+  vm: HomepageViewModel;
+  /**
+   * The runtime freshness verdict, or `null` when it is in flight, uncaptured, or unrecognised
+   * (ART-131 AC#3). Omitted renders no badge, so the accessibility suite and any caller that has
+   * not adopted it is unchanged.
+   */
+  freshness?: string | null;
+}) {
+  const runtimeChip = freshnessDescriptor(freshness);
   return (
     <PublicPageFrame worldId={worldId} showBackLink={false}>
       <header>
         <h1 className="text-3xl font-bold">{vm.worldName}</h1>
-        <p className="text-sm public-muted">
-          世界日 {vm.worldDay} · {vm.timeSlot}
-        </p>
+        {/* The world clock as chips rather than as a muted sentence (ART-131 AC#3): it is
+            metadata about what the viewer is looking at, and chips say so at a glance. */}
+        <PublicStatusChips chips={worldClockDescriptors(vm.worldDay, vm.timeSlot)} label="世界時間" />
       </header>
 
       {/* AC#2: first viewport prioritises the current major event. */}
@@ -102,13 +129,13 @@ export function HomepageView({ worldId, vm }: { worldId: string; vm: HomepageVie
         </h2>
         {/* AC#4: ≤4 core characters, three essential facts, one entry point. */}
         <h3 className="font-medium mt-2">核心角色</h3>
-        <ul>
+        <ul className="public-rows">
           {vm.characters.map((c) => (
             <li key={c.characterId}>{c.name}</li>
           ))}
         </ul>
         <h3 className="font-medium mt-2">必知事實</h3>
-        <ul>
+        <ul className="public-rows">
           {vm.facts.map((f) => (
             <li key={f.factId}>{f.label}</li>
           ))}
@@ -132,6 +159,12 @@ export function HomepageView({ worldId, vm }: { worldId: string; vm: HomepageVie
           </p>
         ) : (
           <p className="public-muted">實況尚未開始。</p>
+        )}
+        {/* AC#3. Rendered only when the server has actually reached a verdict: a state claim
+            nobody has checked is worse than no claim, which is also why `stale` is a state of its
+            own rather than being reported as `paused`. */}
+        {runtimeChip !== null && (
+          <PublicStatusChips chips={[runtimeChip]} label="世界運作狀態" live />
         )}
         {/* FR-O001: the animated live map is the primary live entry point... */}
         <p className="mt-1">

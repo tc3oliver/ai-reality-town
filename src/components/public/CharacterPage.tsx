@@ -108,7 +108,7 @@ export function CharacterPageView({ worldId, vm }: { worldId: string; vm: Charac
 
       <section className="character-state mt-4" aria-labelledby="character-state">
         <h2 id="character-state" className="text-xl font-semibold">目前狀態</h2>
-        <ul className="text-sm">
+        <ul className="public-rows text-sm">
           <li>健康:{vm.healthState}</li>
           <li>情緒:{vm.emotionalState}</li>
           <li>財務:{vm.financialState}</li>
@@ -132,7 +132,7 @@ export function CharacterPageView({ worldId, vm }: { worldId: string; vm: Charac
       <section className="character-recent mt-4" aria-labelledby="character-recent">
         <h2 id="character-recent" className="text-xl font-semibold">近期大事</h2>
         {vm.recentEvents.length > 0 ? (
-          <ul>
+          <ul className="public-rows">
             {vm.recentEvents.map((event) => (
               <li key={event.eventId} className="text-sm">
                 {event.label}

@@ -82,60 +82,269 @@ p[contenteditable='true']:empty::before {
   clip-path: polygon(0 0, 100% 0, 0 100%);
 }
 
-/* --------------------------------------------------------------------------
- * Public experience accessibility (ART-93, NFR-009).
+/* ==========================================================================
+ * PUBLIC DESIGN SYSTEM (ART-131 / FR-P003), on the accessibility floor ART-93
+ * (NFR-009) established.
  *
- * The P0 public pages (#home, #live, #episode(s), #character, #arc) render on
- * the shared body gradient, which is near-white in the light colour scheme and
- * black in the dark one. These tokens give them explicit, measured colours
- * instead of relying on the user agent defaults or on `opacity-*` utilities,
- * neither of which guarantees a contrast ratio.
+ * One visual language across #home, #live, #episode(s), #character and #arc.
+ * Everything below is expressed as tokens rather than as literals at the point
+ * of use, so a surface cannot quietly acquire a colour of its own, and so the
+ * contrast harness in `publicPages.a11y.test.tsx` can resolve every one of them
+ * and compute the ratio in CI rather than trusting a one-off measurement.
  *
- * Measured contrast against the worst-case body background of each scheme
- * (light #d6dbdc, dark #000000):
- *   body text        #000 / #fff        15.0:1 / 21.0:1
- *   .public-muted    #4a4a4a / #c9c9c9   6.3:1 / 12.7:1
- *   .public-page a   #0842a0 / #9ecbff   6.5:1 / 12.4:1
- * All exceed the WCAG 2.1 AA 4.5:1 threshold for normal text.
- * -------------------------------------------------------------------------- */
+ * TWO BACKGROUNDS, NOT ONE. Before ART-131 the pages rendered directly on the
+ * body gradient and every ratio was measured against it. Cards introduce a
+ * SECOND background — the surface — so each text token is now checked against
+ * both, and against the sunken variant nested blocks sit on. All three are
+ * asserted; a token that passed on the body and failed on a card would be a
+ * regression the old assertions could not see.
+ *
+ * Measured (WCAG 2.1 relative luminance), light / dark, against the worst case
+ * of body (#d6dbdc / #000000), surface and sunken:
+ *   --public-text     17.9 / 16.2   worst case
+ *   --public-muted     6.3 / 10.7
+ *   link               6.5 / 10.5
+ *   --public-accent    6.1 /  9.3
+ * All clear the AA 4.5:1 threshold for normal text.
+ *
+ * BORDERS CARRY TWO DIFFERENT JOBS, so there are two border tokens. The
+ * hairline `--public-border` only separates a card from the page and measures
+ * under 2:1 — which is fine, because WCAG 1.4.11's 3:1 applies to boundaries
+ * *required to identify a component*, and nothing is identified by it. Anything
+ * whose border carries MEANING — the status badge, whose border-style is one of
+ * its three non-colour state signals — uses `--public-border-strong` instead,
+ * which measures 5.5:1 / 6.1:1. The distinction is asserted, not merely
+ * intended.
+ * ========================================================================== */
 
-.public-muted {
-  color: #4a4a4a;
-}
-
-/* Blocking-overflow guard (FR-O008 / ART-126 AC#4).
- *
- * The public surfaces print raw identifiers the world generates — arc ids, participant character
- * ids joined with 、, event ids, scene keys of the form `7:evening:mistwood-mill`. None of them
- * contains a break opportunity, so a long one sets the minimum content width of its block and
- * pushes the whole page sideways on a narrow viewport: the horizontal scroll WCAG 1.4.10 and this
- * AC both forbid. `anywhere` rather than `break-word` because only `anywhere` also shrinks the
- * intrinsic min-content width, which is the half that actually stops the overflow. */
 .public-page {
+  /* Surfaces. The page keeps the shared body gradient behind it; cards are what
+     lift content off it, which is most of the difference between "a document"
+     and "a product". */
+  --public-surface: #ffffff;
+  --public-surface-sunken: #e9edef;
+  --public-border: #b3bcc2;
+  --public-border-strong: #5f6a72;
+
+  /* Ink. */
+  --public-text: #14181b;
+  --public-muted: #4a4a4a;
+  --public-link: #0842a0;
+  --public-link-hover: #062f73;
+
+  /* Accent. A warm amber-brown drawn from the same hue family as the world's
+     own pixel art and the `.game-title` gradient (#fec742 → #dd7c42), so the
+     public pages read as part of the same product rather than as its admin
+     console. Deliberately saturated: `publicPages.a11y.test.tsx` asserts the
+     palette is not monochrome, because "grey document" is the exact failure
+     RISK2-006 names. */
+  --public-accent: #7a3b12;
+  --public-accent-soft: #f7ecdd;
+
+  /* Type. The single largest reason these pages read as a terminal was that
+     they were set in VCR OSD Mono — a monospace pixel face whose CJK coverage
+     is nil, so every Chinese glyph fell back to a generic monospace. Narrative
+     text now uses a real reading stack. The pixel face is KEPT, but only where
+     it reads as world flavour rather than as a console: the numeric and status
+     chips below. */
+  --public-font-body: system-ui, -apple-system, 'Segoe UI', 'Noto Sans TC', 'PingFang TC',
+    'Hiragino Sans TC', 'Microsoft JhengHei', sans-serif;
+  --public-font-chip: 'VCR OSD Mono', ui-monospace, SFMono-Regular, monospace;
+
+  color: var(--public-text);
+  font-family: var(--public-font-body);
+  line-height: 1.65;
   overflow-wrap: anywhere;
 }
 
+@media (prefers-color-scheme: dark) {
+  .public-page {
+    --public-surface: #15191c;
+    --public-surface-sunken: #0b0e10;
+    --public-border: #39434a;
+    --public-border-strong: #8d99a1;
+
+    --public-text: #f2f5f7;
+    --public-muted: #c9c9c9;
+    --public-link: #9ecbff;
+    --public-link-hover: #cfe4ff;
+
+    --public-accent: #f0b060;
+    --public-accent-soft: #241a10;
+  }
+}
+
+.public-muted {
+  color: var(--public-muted);
+}
+
+/* `overflow-wrap: anywhere` is declared on `.public-page` above (FR-O008 / ART-126 AC#4): the
+ * public surfaces print raw identifiers the world generates — arc ids, participant character ids
+ * joined with 、, scene keys of the form `7:evening:mistwood-mill` — and none has a break
+ * opportunity, so a long one would set its block's min-content width and push the page sideways.
+ * `anywhere` rather than `break-word` because only `anywhere` also shrinks the intrinsic
+ * min-content width, which is the half that actually stops the overflow. */
+
 .public-page a {
-  color: #0842a0;
+  color: var(--public-link);
   text-decoration: underline;
 }
 
 .public-page a:hover {
-  color: #062f73;
+  color: var(--public-link-hover);
 }
 
-@media (prefers-color-scheme: dark) {
-  .public-muted {
-    color: #c9c9c9;
-  }
+/* --------------------------------------------------------------------------
+ * Type hierarchy (ART-131 AC#4). Declared once here rather than as a
+ * `text-*`/`font-*` utility repeated on every heading of every page, so the five
+ * surfaces cannot drift apart one edit at a time — which is how they got here.
+ * The utilities already on those headings remain harmless: these rules are more
+ * specific, so the scale is decided in one place.
+ * -------------------------------------------------------------------------- */
 
-  .public-page a {
-    color: #9ecbff;
-  }
+.public-page h1 {
+  font-size: 1.9rem;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+}
 
-  .public-page a:hover {
-    color: #cfe4ff;
-  }
+.public-page h2 {
+  font-size: 1.2rem;
+  font-weight: 650;
+  line-height: 1.35;
+  /* The accent rail. The one place the accent appears at full strength on every
+     page, which is what makes the five surfaces read as one product. Decorative
+     — the heading text is the actual label — so nothing is conveyed by it. */
+  border-left: 3px solid var(--public-accent);
+  padding-left: 0.5rem;
+}
+
+.public-page h3 {
+  font-size: 1rem;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+/* --------------------------------------------------------------------------
+ * Cards (ART-131 AC#2).
+ *
+ * Applied BY STRUCTURE, not by a class on every element. Every public page
+ * already renders its content as `<section class="… mt-4" aria-labelledby>`
+ * inside the single `<main>` — a shape ART-93 established for accessibility
+ * reasons — so the card treatment attaches to that shape directly. Two
+ * consequences worth stating: almost no page markup changed, so this task
+ * cannot have altered what any page SAYS (AC#6); and a section added later gets
+ * the treatment without anyone remembering to ask for it.
+ *
+ * `.public-card` is the same treatment for the nested cases the structural rule
+ * cannot reach — an Episode row, a character row, a scene inside a list.
+ * -------------------------------------------------------------------------- */
+
+.public-page main > section,
+.public-card {
+  background: var(--public-surface);
+  border: 1px solid var(--public-border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+}
+
+/* Nested cards sit ON a card, so they take the sunken variant — otherwise a
+   white block on a white block is invisible without a shadow. */
+.public-page main > section .public-card {
+  background: var(--public-surface-sunken);
+}
+
+/* The page header is not a card: it names the page rather than holding one of
+   its regions, and boxing it would put a card above the first real card. */
+.public-page main > header {
+  padding: 0 0.25rem;
+}
+
+/* A list that reads as content rather than as a bulleted outline: no marker, and
+ * rows separated by the hairline.
+ *
+ * OPT-IN rather than applied to every `ul` inside a card, and that is the whole
+ * point of the class existing. The live surface's camera chrome renders its
+ * focus targets as `<ul class="flex flex-wrap">` of buttons; a blanket
+ * `li + li { border-top }` would draw a line above every button in a wrapped
+ * row. A structural rule cannot tell those two lists apart, so the ones that
+ * want row treatment say so. */
+.public-rows {
+  list-style: none;
+  padding-left: 0;
+}
+
+.public-rows > li + li {
+  border-top: 1px solid var(--public-border);
+  padding-top: 0.4rem;
+  margin-top: 0.4rem;
+}
+
+/* --------------------------------------------------------------------------
+ * Status and metadata chips (ART-131 AC#3, AC#7).
+ *
+ * The world clock (day, time slot) and every runtime state render as chips in
+ * the pixel face — the one place VCR OSD Mono is kept, because on a short
+ * numeric label it reads as the world's own typography rather than as a
+ * console, and it is never asked to render a CJK glyph it does not have.
+ *
+ * EVERY STATE CARRIES THREE NON-COLOUR SIGNALS (AC#7), following the convention
+ * `TimeStateBanner` established in ART-121: a visible label, a distinct
+ * `aria-hidden` glyph, and a distinct border-style keyed off `data-state`. In
+ * greyscale, or with the stylesheet off entirely, the states remain
+ * distinguishable — asserted by stripping class and data attributes and
+ * checking the rendered text alone still tells them apart.
+ *
+ * The border here is `--public-border-strong`, not the hairline: it carries
+ * meaning, so it meets WCAG 1.4.11's 3:1 for non-text contrast.
+ * -------------------------------------------------------------------------- */
+
+.public-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-family: var(--public-font-chip);
+  font-size: 0.8rem;
+  line-height: 1;
+  padding: 0.3rem 0.5rem;
+  border-radius: 999px;
+  border-width: 2px;
+  border-color: var(--public-border-strong);
+  border-style: solid;
+  background: var(--public-surface-sunken);
+  white-space: nowrap;
+}
+
+.public-chip-glyph {
+  font-size: 1em;
+  line-height: 1;
+}
+
+/* One border-style per state, so the shape differs before the colour does. */
+.public-chip[data-state='live'] {
+  border-style: solid;
+  border-color: var(--public-accent);
+}
+
+.public-chip[data-state='delayed'] {
+  border-style: dashed;
+}
+
+.public-chip[data-state='paused'] {
+  border-style: double;
+  border-width: 4px;
+}
+
+.public-chip[data-state='stale'] {
+  border-style: dotted;
+}
+
+.public-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
 }
 
 /* Visible keyboard focus. Tailwind preflight neutralises the user agent focus
@@ -161,6 +370,36 @@ p[contenteditable='true']:empty::before {
   min-height: 44px;
   min-width: 44px;
   padding: 0 0.5rem;
+}
+
+/* ART-131 (AC#5). Tailwind's preflight strips the user agent's button styling,
+ * so before this every control on every public page rendered as bare text —
+ * which is most of what made these surfaces read as an unstyled document.
+ * Buttons now look like buttons; links are left looking like links, because
+ * turning them into buttons too would hide which ones navigate. */
+.public-page button.public-tap {
+  background: var(--public-surface-sunken);
+  border: 1px solid var(--public-border-strong);
+  border-radius: 6px;
+  font-family: var(--public-font-chip);
+  font-size: 0.85rem;
+  color: var(--public-text);
+  cursor: pointer;
+}
+
+.public-page button.public-tap:hover {
+  background: var(--public-accent-soft);
+}
+
+/* The selected state of a toggle (recap depth, camera focus, auto-follow).
+ * NOT signalled by colour alone (AC#7): the border thickens and the accent rail
+ * appears, so the difference survives greyscale — and `aria-pressed` carries it
+ * to assistive technology regardless, which is where it was already correct. */
+.public-page button.public-tap[aria-pressed='true'] {
+  background: var(--public-accent-soft);
+  border-width: 2px;
+  border-color: var(--public-accent);
+  font-weight: 700;
 }
 
 /* The responsive live stage (FR-O008 / ART-126 AC#1, AC#2).
@@ -215,6 +454,12 @@ p[contenteditable='true']:empty::before {
   width: 100%;
   height: clamp(200px, 60vh, 640px);
   height: clamp(200px, 60dvh, 640px);
+  /* ART-131 (AC#4): framed like every other surface, so the map is part of the
+     page rather than a bare rectangle dropped onto it. `overflow: hidden` is
+     what makes the radius actually clip the Pixi canvas inside. */
+  border: 1px solid var(--public-border);
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 /* A phone held sideways: wide, and shorter than anything else that reaches this stylesheet.
@@ -245,7 +490,10 @@ p[contenteditable='true']:empty::before {
   gap: 0.5rem;
   padding: 0.25rem 0.5rem;
   border-left-width: 4px;
-  border-left-color: currentColor;
+  /* ART-131: the shared strong-border token rather than `currentColor`. It is a
+     state signal, so it takes the token that meets WCAG 1.4.11's 3:1 for
+     non-text contrast rather than the decorative hairline. */
+  border-left-color: var(--public-border-strong);
 }
 
 .live-time-state-row[data-time-state='replay'] {
@@ -258,6 +506,9 @@ p[contenteditable='true']:empty::before {
 
 .live-time-state-row[data-time-state='now'] {
   border-left-style: solid;
+  /* "Now" is the state the product is about, so it takes the accent. Still not
+     colour-alone: the label, the glyph and the solid rail all differ too. */
+  border-left-color: var(--public-accent);
 }
 
 .live-time-state-glyph {
@@ -280,10 +531,16 @@ p[contenteditable='true']:empty::before {
  * keyboard behaviour and the expanded/collapsed state come from the user agent. */
 .live-story-overlay {
   position: static;
+  /* ART-131: the shared card treatment, so the live surface is not a
+     differently-drawn box beside four pages that agree with each other (AC#4).
+     It is `main > div > section` rather than `main > section`, so the structural
+     card rule does not reach it and the tokens are applied here by hand. */
+  background: var(--public-surface);
   border-width: 1px;
   border-style: solid;
-  border-color: currentColor;
-  padding: 0.5rem;
+  border-color: var(--public-border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
 }
 
 /* WCAG 2.5.8: the summary is the panel's only control, so it carries the same
@@ -300,10 +557,10 @@ p[contenteditable='true']:empty::before {
  * covering the canvas would hide the thing it describes. The border is what tells
  * it apart from the panels above and below it without relying on colour. */
 .live-character-card {
-  border-width: 1px;
-  border-style: solid;
-  border-color: currentColor;
-  padding: 0.5rem;
+  /* Inherits the structural card treatment (it IS `main > section`); the accent
+     rail is what marks it out as the thing the viewer just opened, rather than
+     one more panel in the stack. */
+  border-left: 3px solid var(--public-accent);
 }
 
 /* The character's own sprite frame, cut out of the shared 384x256 texture by

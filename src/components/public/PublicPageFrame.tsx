@@ -55,7 +55,11 @@ export function PublicPageFrame({
   children: React.ReactNode;
 }) {
   return (
-    <div lang="zh-Hant" className={`public-page mx-auto ${WIDTH_CLASS[width]} p-4 font-body`}>
+    // No `font-body` since ART-131. That class is VCR OSD Mono — a monospace pixel face with no
+    // CJK coverage, so every Chinese glyph fell back to a generic monospace and the pages read as
+    // a terminal (RISK2-006). `.public-page` now sets `--public-font-body`, a real reading stack;
+    // the pixel face survives on the numeric and status chips, where it reads as world flavour.
+    <div lang="zh-Hant" className={`public-page mx-auto ${WIDTH_CLASS[width]} p-4`}>
       {showBackLink && (
         <nav aria-label="頁面導覽">
           <a className="public-tap text-sm" href={worldId ? `#home/${worldId}` : '#home'}>
