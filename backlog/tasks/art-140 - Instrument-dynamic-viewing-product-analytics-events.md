@@ -1,11 +1,11 @@
 ---
 id: ART-140
 title: Instrument dynamic viewing product analytics events
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-04 16:16'
-updated_date: '2026-08-24 18:08'
+updated_date: '2026-08-24 18:10'
 labels:
   - prd-2.0
   - v2-i
@@ -74,8 +74,8 @@ PRD 2.0 records the resolution of the internal tension between §18.1 (which sta
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Notes
