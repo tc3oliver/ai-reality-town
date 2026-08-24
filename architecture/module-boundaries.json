@@ -2,32 +2,226 @@
   "$schema": "./module-boundaries.schema.json",
   "version": 1,
   "modules": {
-    "canon": { "roots": ["convex/canon"], "mayDependOn": ["shared"] },
-    "simulation": { "roots": ["convex/simulation"], "mayDependOn": ["canon", "knowledge", "story", "safety", "observability", "shared"] },
-    "knowledge": { "roots": ["convex/knowledge"], "mayDependOn": ["canon", "shared"] },
-    "story": { "roots": ["convex/story"], "mayDependOn": ["canon", "knowledge", "shared"] },
-    "editorial": { "roots": ["convex/editorial", "convex/recaps"], "mayDependOn": ["canon", "story", "safety", "shared"] },
-    "publicRead": { "roots": ["convex/publicRead"], "mayDependOn": ["canon", "knowledge", "story", "editorial", "safety", "visualRuntime", "shared"] },
-    "viewer": { "roots": ["convex/viewer"], "mayDependOn": ["publicRead", "safety", "shared"] },
-    "visual": { "roots": ["convex/visual"], "mayDependOn": ["canon", "shared"] },
-    "visualRuntime": { "roots": ["convex/visualRuntime"], "mayDependOn": ["visual", "shared"] },
-    "operations": { "roots": ["convex/operations"], "mayDependOn": ["canon", "simulation", "knowledge", "story", "editorial", "publicRead", "safety", "observability", "shared"] },
-    "safety": { "roots": ["convex/safety"], "mayDependOn": ["shared"] },
-    "observability": { "roots": ["convex/observability"], "mayDependOn": ["shared"] },
-    "shared": { "roots": ["convex/shared"], "mayDependOn": [] },
-    "clientPublic": { "roots": ["src/components/public"], "mayDependOn": ["publicRead", "shared", "clientProvider", "clientLiveRoute"] },
-    "clientWorldReadOnly": { "roots": ["src/components/world"], "mayDependOn": ["publicRead", "visualRuntime", "shared", "clientProvider", "clientLiveRoute"] },
-    "clientLive": { "roots": ["src/components/live"], "mayDependOn": ["clientPublic", "clientWorldReadOnly", "clientProvider", "clientLiveRoute", "publicRead", "shared"] },
-    "clientLiveRoute": { "roots": ["src/components/live/liveMapRoute.ts"], "mayDependOn": [] },
-    "clientProvider": { "roots": ["src/components/ConvexClientProvider.tsx"], "mayDependOn": ["clientE2EFixture"] },
-    "clientE2EFixture": { "roots": ["src/e2e"], "mayDependOn": ["publicRead", "shared"] },
-    "clientShell": { "roots": ["src"], "mayDependOn": ["clientPublic", "clientWorldReadOnly", "clientLive", "clientLiveRoute", "clientProvider", "publicRead", "shared"] }
+    "canon": {
+      "roots": [
+        "convex/canon"
+      ],
+      "mayDependOn": [
+        "shared"
+      ]
+    },
+    "simulation": {
+      "roots": [
+        "convex/simulation"
+      ],
+      "mayDependOn": [
+        "canon",
+        "knowledge",
+        "story",
+        "safety",
+        "observability",
+        "shared"
+      ]
+    },
+    "knowledge": {
+      "roots": [
+        "convex/knowledge"
+      ],
+      "mayDependOn": [
+        "canon",
+        "shared"
+      ]
+    },
+    "story": {
+      "roots": [
+        "convex/story"
+      ],
+      "mayDependOn": [
+        "canon",
+        "knowledge",
+        "shared"
+      ]
+    },
+    "editorial": {
+      "roots": [
+        "convex/editorial",
+        "convex/recaps"
+      ],
+      "mayDependOn": [
+        "canon",
+        "story",
+        "safety",
+        "shared"
+      ]
+    },
+    "publicRead": {
+      "roots": [
+        "convex/publicRead"
+      ],
+      "mayDependOn": [
+        "canon",
+        "knowledge",
+        "story",
+        "editorial",
+        "safety",
+        "visualRuntime",
+        "shared"
+      ]
+    },
+    "viewer": {
+      "roots": [
+        "convex/viewer"
+      ],
+      "mayDependOn": [
+        "publicRead",
+        "safety",
+        "shared"
+      ]
+    },
+    "visual": {
+      "roots": [
+        "convex/visual"
+      ],
+      "mayDependOn": [
+        "canon",
+        "shared"
+      ]
+    },
+    "visualRuntime": {
+      "roots": [
+        "convex/visualRuntime"
+      ],
+      "mayDependOn": [
+        "visual",
+        "shared"
+      ]
+    },
+    "operations": {
+      "roots": [
+        "convex/operations"
+      ],
+      "mayDependOn": [
+        "canon",
+        "simulation",
+        "knowledge",
+        "story",
+        "editorial",
+        "publicRead",
+        "safety",
+        "observability",
+        "shared"
+      ]
+    },
+    "safety": {
+      "roots": [
+        "convex/safety"
+      ],
+      "mayDependOn": [
+        "shared"
+      ]
+    },
+    "observability": {
+      "roots": [
+        "convex/observability"
+      ],
+      "mayDependOn": [
+        "shared"
+      ]
+    },
+    "shared": {
+      "roots": [
+        "convex/shared"
+      ],
+      "mayDependOn": []
+    },
+    "clientPublic": {
+      "roots": [
+        "src/components/public"
+      ],
+      "mayDependOn": [
+        "publicRead",
+        "shared",
+        "clientProvider",
+        "clientLiveRoute"
+      ]
+    },
+    "clientWorldReadOnly": {
+      "roots": [
+        "src/components/world"
+      ],
+      "mayDependOn": [
+        "publicRead",
+        "visualRuntime",
+        "shared",
+        "clientProvider",
+        "clientLiveRoute"
+      ]
+    },
+    "clientLive": {
+      "roots": [
+        "src/components/live"
+      ],
+      "mayDependOn": [
+        "clientPublic",
+        "clientWorldReadOnly",
+        "clientProvider",
+        "clientLiveRoute",
+        "publicRead",
+        "shared"
+      ]
+    },
+    "clientLiveRoute": {
+      "roots": [
+        "src/components/live/liveMapRoute.ts"
+      ],
+      "mayDependOn": []
+    },
+    "clientProvider": {
+      "roots": [
+        "src/components/ConvexClientProvider.tsx"
+      ],
+      "mayDependOn": [
+        "clientE2EFixture"
+      ]
+    },
+    "clientE2EFixture": {
+      "roots": [
+        "src/e2e"
+      ],
+      "mayDependOn": [
+        "publicRead",
+        "shared"
+      ]
+    },
+    "clientShell": {
+      "roots": [
+        "src"
+      ],
+      "mayDependOn": [
+        "clientPublic",
+        "clientWorldReadOnly",
+        "clientLive",
+        "clientLiveRoute",
+        "clientProvider",
+        "publicRead",
+        "shared"
+      ]
+    }
   },
   "readOnlyClientBoundary": {
-    "roots": ["src"],
-    "excludeRoots": ["src/editor"],
+    "roots": [
+      "src"
+    ],
+    "excludeRoots": [
+      "src/editor"
+    ],
     "exemptFiles": [
-      { "path": "src/components/ConvexClientProvider.tsx", "symbols": ["ConvexReactClient"] }
+      {
+        "path": "src/components/ConvexClientProvider.tsx",
+        "symbols": [
+          "ConvexReactClient"
+        ]
+      }
     ],
     "forbiddenSymbols": [
       "useMutation",
@@ -45,36 +239,211 @@
     ]
   },
   "publicFunctionSurface": {
-    "scanRoots": ["convex"],
-    "forbiddenRegistrations": ["httpAction"],
+    "scanRoots": [
+      "convex"
+    ],
+    "forbiddenRegistrations": [
+      "httpAction"
+    ],
     "allowed": [
-      { "path": "convex/publicRead/readModelFunctions.ts", "name": "getPublishedReadModel", "kind": "query", "gate": "anonymous" },
-      { "path": "convex/publicRead/liveStateFunctions.ts", "name": "getPublicDynamicProjection", "kind": "query", "gate": "anonymous" },
-      { "path": "convex/publicRead/runtimeSnapshotFunctions.ts", "name": "getPublicRuntimeSnapshot", "kind": "query", "gate": "anonymous" },
-      { "path": "convex/publicRead/visualReplayFunctions.ts", "name": "getPublicVisualReplay", "kind": "query", "gate": "anonymous" },
-      { "path": "convex/observability/traces.ts", "name": "getTracePublic", "kind": "query", "gate": "anonymous" },
-      { "path": "convex/operations/opsConsoleFunctions.ts", "name": "inspectWorldState", "kind": "query", "gate": "operator" },
-      { "path": "convex/operations/opsConsoleFunctions.ts", "name": "inspectScheduleAndQueue", "kind": "query", "gate": "operator" },
-      { "path": "convex/operations/opsConsoleFunctions.ts", "name": "listOperatorAudit", "kind": "query", "gate": "operator" },
-      { "path": "convex/operations/opsConsoleFunctions.ts", "name": "describeOperatorSession", "kind": "query", "gate": "operator" },
-      { "path": "convex/operations/dynamicViewMetricsFunctions.ts", "name": "inspectDynamicViewMetrics", "kind": "query", "gate": "operator" },
-      { "path": "convex/operations/emergencyStopFunctions.ts", "name": "inspectEmergencyStop", "kind": "query", "gate": "operator" },
-      { "path": "convex/operations/proposalReviewFunctions.ts", "name": "listProposedEventReviews", "kind": "query", "gate": "operator" },
-      { "path": "convex/operations/proposalReviewFunctions.ts", "name": "reviewProposedEvent", "kind": "query", "gate": "operator" },
-      { "path": "convex/operations/opsConsoleFunctions.ts", "name": "pauseWorld", "kind": "mutation", "gate": "operator" },
-      { "path": "convex/operations/opsConsoleFunctions.ts", "name": "resumeWorld", "kind": "mutation", "gate": "operator" },
-      { "path": "convex/operations/opsConsoleFunctions.ts", "name": "advanceSlot", "kind": "mutation", "gate": "operator" },
-      { "path": "convex/operations/opsConsoleFunctions.ts", "name": "retryFailedSlot", "kind": "mutation", "gate": "operator" },
-      { "path": "convex/operations/opsConsoleFunctions.ts", "name": "cancelUncommittedScene", "kind": "mutation", "gate": "operator" },
-      { "path": "convex/operations/opsConsoleFunctions.ts", "name": "createWorldSnapshot", "kind": "mutation", "gate": "operator" },
-      { "path": "convex/operations/emergencyStopFunctions.ts", "name": "emergencyStop", "kind": "mutation", "gate": "operator" },
-      { "path": "convex/operations/emergencyStopFunctions.ts", "name": "resumeFromEmergencyStop", "kind": "mutation", "gate": "operator" },
-      { "path": "convex/operations/emergencyStopFunctions.ts", "name": "activateWorldRollback", "kind": "mutation", "gate": "operator" },
-      { "path": "convex/operations/emergencyStopFunctions.ts", "name": "clearWorldRollback", "kind": "mutation", "gate": "operator" },
-      { "path": "convex/operations/canonCorrectionFunctions.ts", "name": "createCorrectionEvent", "kind": "mutation", "gate": "operator" },
-      { "path": "convex/operations/canonCorrectionFunctions.ts", "name": "createCompensationEvent", "kind": "mutation", "gate": "operator" },
-      { "path": "convex/operations/canonCorrectionFunctions.ts", "name": "createRetconEvent", "kind": "mutation", "gate": "operator" },
-      { "path": "convex/operations/safetyOverrideFunctions.ts", "name": "overridePostGenerationSafetyLabel", "kind": "mutation", "gate": "operator" }
+      {
+        "path": "convex/publicRead/readModelFunctions.ts",
+        "name": "getPublishedReadModel",
+        "kind": "query",
+        "gate": "anonymous"
+      },
+      {
+        "path": "convex/publicRead/liveStateFunctions.ts",
+        "name": "getPublicDynamicProjection",
+        "kind": "query",
+        "gate": "anonymous"
+      },
+      {
+        "path": "convex/publicRead/runtimeSnapshotFunctions.ts",
+        "name": "getPublicRuntimeSnapshot",
+        "kind": "query",
+        "gate": "anonymous"
+      },
+      {
+        "path": "convex/publicRead/visualReplayFunctions.ts",
+        "name": "getPublicVisualReplay",
+        "kind": "query",
+        "gate": "anonymous"
+      },
+      {
+        "path": "convex/observability/traces.ts",
+        "name": "getTracePublic",
+        "kind": "query",
+        "gate": "anonymous"
+      },
+      {
+        "path": "convex/operations/opsConsoleFunctions.ts",
+        "name": "inspectWorldState",
+        "kind": "query",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/opsConsoleFunctions.ts",
+        "name": "inspectScheduleAndQueue",
+        "kind": "query",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/opsConsoleFunctions.ts",
+        "name": "listOperatorAudit",
+        "kind": "query",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/opsConsoleFunctions.ts",
+        "name": "describeOperatorSession",
+        "kind": "query",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/dynamicViewMetricsFunctions.ts",
+        "name": "inspectDynamicViewMetrics",
+        "kind": "query",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/emergencyStopFunctions.ts",
+        "name": "inspectEmergencyStop",
+        "kind": "query",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/proposalReviewFunctions.ts",
+        "name": "listProposedEventReviews",
+        "kind": "query",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/proposalReviewFunctions.ts",
+        "name": "reviewProposedEvent",
+        "kind": "query",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/opsConsoleFunctions.ts",
+        "name": "pauseWorld",
+        "kind": "mutation",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/opsConsoleFunctions.ts",
+        "name": "resumeWorld",
+        "kind": "mutation",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/opsConsoleFunctions.ts",
+        "name": "advanceSlot",
+        "kind": "mutation",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/opsConsoleFunctions.ts",
+        "name": "retryFailedSlot",
+        "kind": "mutation",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/opsConsoleFunctions.ts",
+        "name": "cancelUncommittedScene",
+        "kind": "mutation",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/opsConsoleFunctions.ts",
+        "name": "createWorldSnapshot",
+        "kind": "mutation",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/emergencyStopFunctions.ts",
+        "name": "emergencyStop",
+        "kind": "mutation",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/emergencyStopFunctions.ts",
+        "name": "resumeFromEmergencyStop",
+        "kind": "mutation",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/emergencyStopFunctions.ts",
+        "name": "activateWorldRollback",
+        "kind": "mutation",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/emergencyStopFunctions.ts",
+        "name": "clearWorldRollback",
+        "kind": "mutation",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/canonCorrectionFunctions.ts",
+        "name": "createCorrectionEvent",
+        "kind": "mutation",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/canonCorrectionFunctions.ts",
+        "name": "createCompensationEvent",
+        "kind": "mutation",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/canonCorrectionFunctions.ts",
+        "name": "createRetconEvent",
+        "kind": "mutation",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/safetyOverrideFunctions.ts",
+        "name": "overridePostGenerationSafetyLabel",
+        "kind": "mutation",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/dynamicViewControlFunctions.ts",
+        "name": "setDynamicUpdatesPaused",
+        "kind": "mutation",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/dynamicViewControlFunctions.ts",
+        "name": "setSnapshotPinned",
+        "kind": "mutation",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/dynamicViewControlFunctions.ts",
+        "name": "setCharacterVisualHidden",
+        "kind": "mutation",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/dynamicViewControlFunctions.ts",
+        "name": "setSceneVisualHidden",
+        "kind": "mutation",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/dynamicViewControlFunctions.ts",
+        "name": "rebuildDynamicProjection",
+        "kind": "mutation",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/dynamicViewControlFunctions.ts",
+        "name": "inspectDynamicViewControls",
+        "kind": "query",
+        "gate": "operator"
+      }
     ]
   },
   "canonWriteBoundary": {
@@ -89,7 +458,11 @@
       "convex/canon/queries.ts",
       "convex/canon/schema.ts"
     ],
-    "forbiddenModules": ["visualRuntime", "clientPublic", "clientWorldReadOnly"],
+    "forbiddenModules": [
+      "visualRuntime",
+      "clientPublic",
+      "clientWorldReadOnly"
+    ],
     "forbiddenSymbols": [
       "internalMutation",
       "ctx.db.insert",
@@ -107,7 +480,13 @@
   "providerBoundary": {
     "contract": "convex/simulation/provider.ts",
     "contractVersion": 1,
-    "adapterRoots": ["convex/simulation/providers"],
-    "providerPackagePatterns": ["^openai$", "^@anthropic-ai/", "^@google/generative-ai$"]
+    "adapterRoots": [
+      "convex/simulation/providers"
+    ],
+    "providerPackagePatterns": [
+      "^openai$",
+      "^@anthropic-ai/",
+      "^@google/generative-ai$"
+    ]
   }
 }
