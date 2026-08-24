@@ -180,6 +180,18 @@ The dark-scheme link colour is the important one: the user-agent default
 `#0000EE` on the dark-scheme black background measures **≈2.2:1**, a clear
 WCAG AA failure that the pages shipped with.
 
+**Updated by ART-131 (FR-P003): there are now three backgrounds, not one.** The
+design system introduced cards, so every ink token also lands on
+`--public-surface` and, for nested cards, on `--public-surface-sunken`. The
+table above measured against the body gradient alone, which is a background the
+text often no longer sits on — a token could have cleared AA there and failed on
+a card without any assertion noticing. `publicPages.a11y.test.tsx` now checks
+every ink token against all three backgrounds in both schemes (24 ratios, worst
+case 6.1:1 light / 9.3:1 dark), and resolves `var(--token)` to its declared
+value first, because comparing the literal string `var(--public-muted)` parses
+to `NaN` and would have passed forever. The full palette, and the reasoning
+behind the two separate border tokens, is in `docs/public-design-system.md`.
+
 Other additions:
 
 - `:focus-visible` draws a 3px `currentColor` outline with a 2px offset on every

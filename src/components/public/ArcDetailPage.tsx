@@ -115,7 +115,7 @@ export function ArcDetailView({ worldId, vm }: { worldId: string; vm: ArcViewMod
       <section className="arc-people mt-4" aria-labelledby="arc-people">
         <h2 id="arc-people" className="text-xl font-semibold">核心人物</h2>
         {vm.coreCharacters.length > 0 ? (
-          <ul>
+          <ul className="public-rows">
             {vm.coreCharacters.map((person) => (
               <li key={person.characterId} className="text-sm">
                 <a href={person.href}>{person.name}</a>
@@ -129,7 +129,7 @@ export function ArcDetailView({ worldId, vm }: { worldId: string; vm: ArcViewMod
       {vm.essentialBackstory.length > 0 && (
         <section className="arc-backstory mt-4" aria-labelledby="arc-backstory">
           <h2 id="arc-backstory" className="text-xl font-semibold">必要前情</h2>
-          <ul className="text-sm">
+          <ul className="public-rows text-sm">
             {vm.essentialBackstory.map((fact) => <li key={fact.factId}>{fact.label}</li>)}
           </ul>
         </section>
@@ -137,7 +137,7 @@ export function ArcDetailView({ worldId, vm }: { worldId: string; vm: ArcViewMod
 
       <section className="arc-turning-points mt-4" aria-labelledby="arc-turning-points">
         <h2 id="arc-turning-points" className="text-xl font-semibold">轉折</h2>
-        <ul className="text-sm">
+        <ul className="public-rows text-sm">
           <li>起始事件:{vm.incitingEventId || '—'}</li>
           <li>
             最近轉折:{vm.latestTurningPoint
@@ -163,7 +163,7 @@ export function ArcDetailView({ worldId, vm }: { worldId: string; vm: ArcViewMod
       <section className="arc-episodes mt-4" aria-labelledby="arc-episodes">
         <h2 id="arc-episodes" className="text-xl font-semibold">相關集數</h2>
         {vm.relatedEpisodes.length > 0 ? (
-          <ul>
+          <ul className="public-rows">
             {vm.relatedEpisodes.map((episode) => (
               <li key={episode.episodeNumber} className="text-sm">
                 <a href={episode.href}>
@@ -178,7 +178,7 @@ export function ArcDetailView({ worldId, vm }: { worldId: string; vm: ArcViewMod
       <section className="arc-clues mt-4" aria-labelledby="arc-clues">
         <h2 id="arc-clues" className="text-xl font-semibold">已知線索</h2>
         {vm.knownClues.length > 0 ? (
-          <ul className="text-sm">
+          <ul className="public-rows text-sm">
             {vm.knownClues.map((clue) => <li key={clue.factId}>{clue.label}</li>)}
           </ul>
         ) : <p className="public-muted">尚無公開線索。</p>}
@@ -187,7 +187,7 @@ export function ArcDetailView({ worldId, vm }: { worldId: string; vm: ArcViewMod
       <section className="arc-questions mt-4" aria-labelledby="arc-questions">
         <h2 id="arc-questions" className="text-xl font-semibold">未解問題</h2>
         {vm.unresolvedQuestions.length > 0 ? (
-          <ul className="text-sm">
+          <ul className="public-rows text-sm">
             {vm.unresolvedQuestions.map((question) => <li key={question}>{question}</li>)}
           </ul>
         ) : <p className="public-muted">尚無未解問題。</p>}

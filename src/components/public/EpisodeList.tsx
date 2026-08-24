@@ -133,9 +133,11 @@ export function EpisodeListView({
           故事列表
         </h2>
         {vm.episodes.length > 0 ? (
-          <ul>
+          <ul className="public-rows">
             {vm.episodes.map((episode) => (
-              <li key={episode.worldDay} className="mt-2">
+              // AC#2: an Episode row is one of the four card kinds the design system unifies,
+              // and it is nested inside a card, so it takes the sunken variant of the treatment.
+              <li key={episode.worldDay} className="public-card mt-2">
                 <a href={episode.href} className="font-medium">
                   第 {episode.episodeNumber} 集 · {episode.title}
                 </a>

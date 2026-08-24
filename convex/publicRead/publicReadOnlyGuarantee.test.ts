@@ -295,7 +295,8 @@ describe('AC#1 — the client-reachable surface is exactly what policy declares'
   test('every Convex function the shipped client can reach is a read', () => {
     // The browser bundle's whole write capability is whatever it can name. After
     // ART-128 deleted the music module, only published-read queries remain; ART-118
-    // (FR-O001) added the live map's dynamic projection, which is also a query.
+    // (FR-O001) added the live map's dynamic projection, and ART-131 (FR-P003 AC#3)
+    // the runtime snapshot the homepage's freshness badge reads -- both queries.
     // The list is asserted exhaustively, so a new reference has to be added here on
     // purpose -- and the assertion below then forces it to be a read.
     const refs = sourceFiles('src', ['.ts', '.tsx']).flatMap((path) =>
@@ -306,11 +307,19 @@ describe('AC#1 — the client-reachable surface is exactly what policy declares'
     expect([...refs].sort()).toEqual([
       'publicRead/liveStateFunctions:getPublicDynamicProjection',
       'publicRead/readModelFunctions:getPublishedReadModel',
+      'publicRead/runtimeSnapshotFunctions:getPublicRuntimeSnapshot',
       'publicRead/visualReplayFunctions:getPublicVisualReplay',
     ]);
     expect(readModelFunctions.getPublishedReadModel).toHaveProperty('isQuery', true);
     expect(liveStateFunctions.getPublicDynamicProjection).toHaveProperty('isQuery', true);
     expect(visualReplayFunctions.getPublicVisualReplay).toHaveProperty('isQuery', true);
+    expect(runtimeSnapshotFunctions.getPublicRuntimeSnapshot).toHaveProperty('isQuery', true);
+    // ART-128 removed this query's caller-suppliable `nowMs`, which is what makes the
+    // badge worth rendering: freshness is decided by the server clock, so no viewer can
+    // make a five-hour-old snapshot report `live` by naming the instant themselves.
+    expect(
+      readFileSync(join(ROOT, 'convex/publicRead/runtimeSnapshotFunctions.ts'), 'utf8'),
+    ).toContain('args: { worldId: v.string() },');
     // Both are anonymous-gated queries in policy, so no viewer needs a credential
     // to watch and none of them can write.
     for (const ref of refs) {
