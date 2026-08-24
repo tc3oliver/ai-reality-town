@@ -1,5 +1,6 @@
 import { getFunctionName } from 'convex/server';
 
+import { fixtureScenario } from './fixtureScenario';
 import {
   fixtureProjection,
   fixtureReadModel,
@@ -47,9 +48,20 @@ export type E2ERecorder = {
 };
 
 const FIXTURE_QUERY_HANDLERS: Record<string, (args: Record<string, unknown>) => unknown> = {
-  'publicRead/liveStateFunctions:getPublicDynamicProjection': () => fixtureProjection(Date.now()),
+  /**
+   * `null` under the `snapshot` scenario (FR-Q005 / ART-136).
+   *
+   * That is not a fault being simulated — it is exactly what the real query returns when the
+   * read-model store has nothing to serve, including no last-known-good. It is also the ONLY
+   * way to reach the ladder's second rung, which is a state NFR2-002 requires figures for and
+   * which no amount of browser manipulation can produce: it is a fact about what the server
+   * returned.
+   */
+  'publicRead/liveStateFunctions:getPublicDynamicProjection': () =>
+    fixtureScenario() === 'snapshot' ? null : fixtureProjection(Date.now()),
   'publicRead/visualReplayFunctions:getPublicVisualReplay': () => fixtureReplay(),
-  'publicRead/runtimeSnapshotFunctions:getPublicRuntimeSnapshot': () => fixtureRuntimeSnapshot(Date.now()),
+  'publicRead/runtimeSnapshotFunctions:getPublicRuntimeSnapshot': () =>
+    fixtureRuntimeSnapshot(Date.now(), fixtureScenario()),
   'publicRead/readModelFunctions:getPublishedReadModel': (args) =>
     fixtureReadModel(String(args.modelRef ?? '')),
 };

@@ -38,7 +38,10 @@
     "le": "vite src/editor/",
     "build:e2e": "VITE_E2E_FIXTURE=1 VITE_CONVEX_URL=https://e2e.invalid VITE_CLERK_PUBLISHABLE_KEY= vite build --outDir dist-e2e",
     "test:e2e": "playwright test",
-    "e2e": "run-s build:e2e test:e2e"
+    "e2e": "run-s build:e2e test:e2e",
+    "bench:run": "playwright test --config playwright.bench.config.ts",
+    "bench:report": "node scripts/bench/report.mjs",
+    "bench": "run-s build:e2e bench:run bench:report"
   },
   "dependencies": {
     "@clerk/clerk-react": "^5.61.9",
