@@ -152,6 +152,11 @@ describe('FR-O011 AC#2 — the ambient client boundary', () => {
     // this module consumes and `locationVisualBinding.ts` supplies `ZonePoint`; both are
     // erased at compile time, and neither imports the Canon seed.
     expect(closure.filter((file) => !bundled.includes(file))).toEqual([
+      // FR-O004 / ART-123. Reached only because `publicDynamicProjection` now derives
+      // conversation state; the edge back is a `import type` and erases. Named deliberately,
+      // which is what this pin is for — and the module imports nothing but that same type, so
+      // it cannot be a route to the Canon seed. The bundled list above is unchanged.
+      'convex/publicRead/conversationState.ts',
       'convex/publicRead/publicDynamicProjection.ts',
       'convex/visual/locationVisualBinding.ts',
       'convex/visualRuntime/pathPlanner.ts',

@@ -105,6 +105,21 @@ export function CharacterCard({
           <li>目前地點:{viewModel.locationLabel}</li>
           <li>移動狀態:{viewModel.movementLabel}</li>
           <li>目前活動:{viewModel.activityLabel}</li>
+          {/* FR-O004 / ART-123 AC#1. Who with, then what about — both from the same active
+              scene the map is drawing, so the card and the panel cannot disagree.
+
+              Rendered as TEXT in the DOM rather than on the canvas. The canvas draws no text at
+              all (see `conversationState.ts`), which is what makes AC#2 and AC#3 structural on
+              the map surface rather than a rule someone has to remember. */}
+          {viewModel.conversationPartnerIds.length > 0 && (
+            <li>與 {viewModel.conversationPartnerIds.join('、')} 交談中</li>
+          )}
+          {/* Absent, not blank, when the scene's text is withheld or unpublished: an empty
+              「談話內容:」 row would imply the conversation had nothing in it (AC#5 — the state
+              above still says they are talking). */}
+          {viewModel.conversationHint.length > 0 && (
+            <li>談話內容:{viewModel.conversationHint}</li>
+          )}
           {viewModel.hasContent && <li>情緒:{viewModel.emotionalState}</li>}
         </ul>
       )}

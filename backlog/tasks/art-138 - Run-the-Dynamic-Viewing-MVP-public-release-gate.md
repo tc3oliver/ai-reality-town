@@ -1,10 +1,11 @@
 ---
 id: ART-138
 title: Run the Dynamic Viewing MVP public release gate
-status: To Do
-assignee: []
+status: Blocked
+assignee:
+  - '@claude'
 created_date: '2026-08-04 16:00'
-updated_date: '2026-08-05 03:37'
+updated_date: '2026-08-24 19:06'
 labels:
   - prd-2.0
   - v2-k
@@ -94,3 +95,17 @@ ordinal: 138000
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## Blocked (2026-08-25): H01 + H03
+
+Every PRD 2.0 Dynamic Viewing feature task is now Done (ART-118..ART-137, ART-140, ART-123, ART-127, ART-129, ART-134, ART-136). This gate is the only remaining item, and it cannot be executed autonomously.
+
+**AC#10** requires a PUBLIC ACCEPTANCE ENVIRONMENT with the Mistwood world seeded and its slot scheduler producing accepted events, so the twelve-character requirement is verified against real Canon rather than fixtures. That needs a deployed Convex deployment with provider credentials — H01 — and standing it up is a production deploy, which `CLAUDE.md` §5 forbids outright (H03).
+
+**AC#11** requires the ART-136 benchmark to be confirmed executed AND PASSED before release. It has been executed and is committed at `docs/benchmarks/`, but the mid-tier mobile profile measures ~28 fps against NFR2-002's 30 fps threshold. That figure was taken on a host with no usable GPU (Chromium reports ANGLE/SwiftShader even with the blocklist ignored), so it is recorded as a FAIL and as inconclusive for real mobile hardware — it needs a device or a GPU host, which is the same class of blocker.
+
+Everything else this gate aggregates already exists and is cited in `docs/prd-2.0-requirement-matrix.md`: the read-only guarantee suite (ART-128), the browser E2E on desktop and Pixel 5 (ART-137, ART-135), asset licence checks, the binding completeness assertions, and the replay publication-version contract (ART-121/ART-132).
+<!-- SECTION:NOTES:END -->
