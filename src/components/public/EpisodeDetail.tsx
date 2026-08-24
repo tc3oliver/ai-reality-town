@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery } from 'convex/react';
 import { getPublishedReadModelRef } from './publicReadModelRef';
 import { PublicPageFrame } from './PublicPageFrame';
+import { characterMapHref } from './liveMapLinks';
 
 /**
  * Public Episode detail page (FR-I003). Reads ONLY the published episode
@@ -191,10 +192,22 @@ export function EpisodeDetailView({
         <h2 id="episode-related-characters" className="text-xl font-semibold mt-4">
           關連角色
         </h2>
-        <ul>
+        <ul className="public-rows">
           {episode.characterIds.map((id) => (
             <li key={id}>
-              <a href={`#character/${worldId}/${id}`}>{id}</a>
+              <a className="public-tap" href={`#character/${worldId}/${id}`}>{id}</a>
+              {/* FR-P002 / ART-130 AC#2 — the other half of "links back to related characters":
+                  where they are RIGHT NOW. The link opens the live map focused on them and with
+                  their card open, so the viewer lands on the answer instead of on a map they
+                  then have to search. Named per row, since every row reads the same (WCAG
+                  2.4.4). */}
+              <a
+                className="public-tap"
+                href={characterMapHref(worldId, id)}
+                aria-label={`在地圖上查看 ${id}`}
+              >
+                在地圖上查看
+              </a>
             </li>
           ))}
         </ul>
@@ -204,10 +217,10 @@ export function EpisodeDetailView({
         <h2 id="episode-related-arcs" className="text-xl font-semibold mt-3">
           關連故事線
         </h2>
-        <ul>
+        <ul className="public-rows">
           {episode.arcIds.map((id) => (
             <li key={id}>
-              <a href={`#arc/${worldId}/${id}`}>{id}</a>
+              <a className="public-tap" href={`#arc/${worldId}/${id}`}>{id}</a>
             </li>
           ))}
         </ul>

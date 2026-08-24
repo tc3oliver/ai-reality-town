@@ -29,6 +29,7 @@ import {
   replayFrame,
   skipReplay,
 } from './replayPlayback';
+import { liveViewSessionStorage, rememberCamera, resolveLiveEntry } from './liveViewSession';
 import { hasAutoPlayed, markAutoPlayed, replaySessionStorage } from './replaySession';
 import { composeTimeStateBadges } from './timeStateLabel';
 import { useMotionClock } from './useMotionClock';
@@ -93,10 +94,35 @@ type LiveStatePayload = { activeArcs: StoryOverlayArcInput[] };
  * it, or an unavailable backend blanks the page instead of degrading it.
  */
 export default function LiveMapPage({ worldId, base }: { worldId: string; base: string }) {
+  /**
+   * Where an editorial page sent this viewer, and where they left the camera last time
+   * (FR-P002 / ART-130 AC#5). Both are resolved ONCE, in a `useState` initialiser, because both
+   * are answers to "how should this page open" — recomputing them per render would drag the
+   * camera back every time the projection updated.
+   *
+   * The URL wins over the memory, and deliberately: a viewer who just followed a link asking for
+   * a particular character is asking for that character NOW, and honouring a remembered camera
+   * instead would ignore the thing they clicked.
+   */
+  const [cameraSessionStorage] = useState(liveViewSessionStorage);
+  const [entry] = useState(() =>
+    resolveLiveEntry({
+      // SSR-safe, as every other route read on these pages is.
+      search: typeof window === 'undefined' ? '' : window.location.search,
+      worldId,
+      storage: liveViewSessionStorage(),
+    }),
+  );
+
   // Which character's card is open (FR-O006 / ART-124). It is state on the DATA layer rather
   // than on the view, because it parameterises a read: the card's identity fields come from the
   // published `character:<id>` projection, and every read this feature makes has to be here.
-  const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
+  //
+  // Seeded from the link (ART-130 AC#2): an Episode that says "see 何俊 on the map" opens the map
+  // AND the card, so the viewer lands on the answer rather than on a page they must then search.
+  const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(
+    entry.openCharacterId,
+  );
 
   const projection = useQuery(getPublicDynamicProjectionRef, { worldId });
   const replayResponse = useQuery(getPublicVisualReplayRef, { worldId });
@@ -333,6 +359,17 @@ export default function LiveMapPage({ worldId, base }: { worldId: string; base: 
       characterCard={characterCard}
       onOpenCharacterCard={setSelectedCharacterId}
       onCloseCharacterCard={() => setSelectedCharacterId(null)}
+      // FR-P002 / ART-130 AC#5. Seeded once from the link or the remembered camera; reported on
+      // every change so the return leg lands where the viewer left off rather than at the town
+      // view, which is what makes the navigation continuous in both directions.
+      initialCameraMode={entry.mode}
+      onCameraModeChange={(mode) =>
+        rememberCamera(
+          worldId,
+          { focusId: mode.focusId, follow: mode.follow, zoomStep: mode.zoomStep },
+          cameraSessionStorage,
+        )
+      }
       reducedMotion={reducedMotion}
       webglSupported={webglSupported}
       loading={projection === undefined}

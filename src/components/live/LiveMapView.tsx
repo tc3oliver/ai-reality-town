@@ -72,6 +72,21 @@ export interface LiveMapViewProps {
   onOpenCharacterCard?: (characterId: string) => void;
   onCloseCharacterCard?: () => void;
   /**
+   * Where the camera should start (FR-P002 / ART-130 AC#5): the `?focus=` an editorial page
+   * linked with, or the camera this viewer left behind. Read ONCE, as the initial state — after
+   * that the camera is the viewer's, and re-applying a prop on every render would fight them.
+   *
+   * Omitted keeps {@link INITIAL_CAMERA_MODE}, so every existing caller is unchanged.
+   */
+  initialCameraMode?: CameraMode;
+  /**
+   * Told whenever the viewer moves the camera, so {@link ./LiveMapPage} can remember it for the
+   * return leg. A callback rather than lifting the state up: the camera is view state that never
+   * leaves the browser, and moving it to the data layer would put a `useState` setter that fires
+   * on every pan next to the queries.
+   */
+  onCameraModeChange?: (mode: CameraMode) => void;
+  /**
    * The viewer's Reduced Motion preference, decided by the caller (ART-120).
    *
    * The page now needs it before this component renders — it gates whether in-zone drift is
@@ -116,6 +131,8 @@ export function LiveMapView({
   characterCard = null,
   onOpenCharacterCard,
   onCloseCharacterCard = () => undefined,
+  initialCameraMode,
+  onCameraModeChange,
   reducedMotion: reducedMotionProp,
   webglSupported,
   loading,
@@ -137,8 +154,21 @@ export function LiveMapView({
    */
   const cardTriggerRef = useRef<HTMLElement | null>(null);
   const { ref, size } = useElementSize();
-  const [mode, setMode] = useState<CameraMode>(INITIAL_CAMERA_MODE);
+  // Seeded once. `useState`'s initial value is read on the first render only, which is exactly
+  // the semantics ART-130 AC#5 wants: honour where the viewer was sent or where they left off,
+  // then get out of the way.
+  const [mode, setModeState] = useState<CameraMode>(initialCameraMode ?? INITIAL_CAMERA_MODE);
   const [camera, setCamera] = useState<CameraView | null>(null);
+
+  /**
+   * Every camera change goes through here, so there is exactly one place that both updates the
+   * view and reports the change (ART-130 AC#5). Routing some changes around it is how "the
+   * camera came back wrong, but only if you used the zoom buttons" bugs happen.
+   */
+  const setMode = (next: CameraMode) => {
+    setModeState(next);
+    onCameraModeChange?.(next);
+  };
 
   const { worldWidth, worldHeight } = viewModel;
   useEffect(() => {

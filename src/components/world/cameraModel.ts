@@ -86,20 +86,30 @@ export interface CameraMode {
   zoomStep: number;
 }
 
-export const TOWN_TARGET_ID = 'town';
+/**
+ * The focus-target namespace moved to `components/live/liveMapRoute.ts` with ART-130 (FR-P002)
+ * and is re-exported here so every existing importer is unchanged.
+ *
+ * It had to move because `components/public` now builds `?focus=` links out of these ids, and
+ * `clientPublic` may not depend on `clientWorldReadOnly` — the boundary check refused it, which
+ * is the check doing its job. `clientLiveRoute` is the one module all three sides may depend on,
+ * because it depends on nothing itself.
+ */
+export {
+  TOWN_TARGET_ID,
+  characterIdFromFocusTargetId,
+  characterTargetId,
+  locationTargetId,
+  sceneTargetId,
+} from '../live/liveMapRoute';
+import {
+  TOWN_TARGET_ID,
+  characterTargetId,
+  locationTargetId,
+  sceneTargetId,
+} from '../live/liveMapRoute';
+
 export const TOWN_TARGET_LABEL = '全鎮視角';
-
-export function locationTargetId(locationId: string): string {
-  return `location:${locationId}`;
-}
-
-export function characterTargetId(characterId: string): string {
-  return `character:${characterId}`;
-}
-
-export function sceneTargetId(sceneId: string): string {
-  return `scene:${sceneId}`;
-}
 
 /** The default camera: whole town, following the primary scene, no zoom offset. */
 export const INITIAL_CAMERA_MODE: CameraMode = { follow: true, focusId: null, zoomStep: 0 };
