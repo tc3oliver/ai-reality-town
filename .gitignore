@@ -53,3 +53,10 @@ dist
 
 convex-local*
 convex_local*
+
+# ART-137 browser E2E artefacts
+dist-e2e/
+test-results/
+playwright-report/
+blob-report/
+.playwright/

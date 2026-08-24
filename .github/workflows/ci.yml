@@ -53,3 +53,39 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  browser-e2e:
+    name: Browser E2E (desktop + mobile)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Chromium only: the suite is about this product's behaviour, not about cross-browser
+      # rendering, and three engines would triple the gate's cost for no extra coverage of it.
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      # Builds `dist-e2e` (the production build with the fixture transport) and runs both the
+      # desktop and mobile projects against it. PRD 2.0 §22 requires both.
+      - name: Dynamic view E2E
+        run: npm run e2e
+
+      - name: Upload traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: test-results/
+          retention-days: 7

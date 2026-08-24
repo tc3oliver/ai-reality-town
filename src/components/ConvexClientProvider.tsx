@@ -3,6 +3,12 @@ import { ConvexReactClient, ConvexProvider } from 'convex/react';
 import { ConvexProviderWithClerk } from 'convex/react-clerk';
 import { ClerkProvider, useAuth } from '@clerk/clerk-react';
 
+import {
+  createFixtureConvexClient,
+  e2eFixtureEnabled,
+  installRecorder,
+} from '../e2e/fixtureConvexClient';
+
 /**
  * Determines the Convex deployment to use.
  *
@@ -17,7 +23,21 @@ function convexUrl(): string {
   return url;
 }
 
-const convex = new ConvexReactClient(convexUrl(), { unsavedChangesWarning: false });
+/**
+ * The E2E fixture transport (FR-Q006 / ART-137), or the real deployment.
+ *
+ * Only the TRANSPORT is swapped. Every component, hook, view model and renderer in an E2E run is
+ * the shipped one — which is the entire point of browser evidence, and why the branch is here
+ * rather than inside any component.
+ *
+ * `import.meta.env.VITE_E2E_FIXTURE` is replaced by Vite at build time, so an ordinary build
+ * evaluates this to `false` as a literal and the fixture modules are tree-shaken out of the
+ * bundle entirely. `e2eFixtureBuild.test.ts` asserts that: a production bundle containing the
+ * fixture would be a far worse defect than any it was written to catch.
+ */
+const convex = e2eFixtureEnabled()
+  ? (createFixtureConvexClient(installRecorder()) as unknown as ConvexReactClient)
+  : new ConvexReactClient(convexUrl(), { unsavedChangesWarning: false });
 
 /**
  * The Clerk publishable key. Until the operator sets `VITE_CLERK_PUBLISHABLE_KEY`, this is

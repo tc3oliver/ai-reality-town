@@ -30,7 +30,16 @@ const jestConfig: JestConfigWithTsJest = {
     {
       displayName: 'unit',
       preset: 'ts-jest/presets/default-esm',
-      testPathIgnorePatterns: ['/node_modules/', '\\.a11y\\.test\\.tsx$', '\\.dom\\.test\\.tsx$'],
+      // `<rootDir>/e2e/` is the Playwright suite (ART-137), which needs a browser and its own
+      // runner. Anchored at the root on purpose: `src/e2e/` holds ORDINARY unit tests — the
+      // ones that validate the fixture against the production assertions — and those must
+      // keep running here, which a bare '/e2e/' pattern would have silently stopped.
+      testPathIgnorePatterns: [
+        '/node_modules/',
+        '<rootDir>/e2e/',
+        '\\.a11y\\.test\\.tsx$',
+        '\\.dom\\.test\\.tsx$',
+      ],
     },
     {
       displayName: 'a11y',

@@ -35,7 +35,10 @@
     "agent:check": "node scripts/agent/check-bootstrap.mjs",
     "agent:context": "node scripts/agent/session-context.mjs",
     "level-editor": "vite src/editor/",
-    "le": "vite src/editor/"
+    "le": "vite src/editor/",
+    "build:e2e": "VITE_E2E_FIXTURE=1 VITE_CONVEX_URL=https://e2e.invalid VITE_CLERK_PUBLISHABLE_KEY= vite build --outDir dist-e2e",
+    "test:e2e": "playwright test",
+    "e2e": "run-s build:e2e test:e2e"
   },
   "dependencies": {
     "@clerk/clerk-react": "^5.61.9",
@@ -63,6 +66,7 @@
   },
   "devDependencies": {
     "@flydotio/dockerfile": "^0.2.14",
+    "@playwright/test": "^1.62.1",
     "@types/css-font-loading-module": "^0.0.8",
     "@types/jest": "^29.5.4",
     "@types/jest-axe": "^3.5.9",
