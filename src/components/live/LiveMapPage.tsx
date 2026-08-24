@@ -9,6 +9,7 @@ import type { SceneFocusInput } from '../world/cameraModel';
 import { getPublishedReadModelRef } from '../public/publicReadModelRef';
 import { getPublicRuntimeSnapshotRef } from '../public/publicRuntimeSnapshotRef';
 import type { CharacterProjection, CharacterRecentEvent } from '../public/characterRoute';
+import { emitDynamicViewEvent } from '../../analytics/analyticsSink';
 import { resolveDegradationLevel } from './degradationLadder';
 import { composeStaticMap } from './staticMapModel';
 import { composeActiveScenePanel, type ActiveSceneInput } from './activeSceneModel';
@@ -127,6 +128,19 @@ export default function LiveMapPage({ worldId, base }: { worldId: string; base: 
     entry.openCharacterId,
   );
 
+  /**
+   * `live_view_opened` (FR-Q007 / ART-140), once per mount, BEFORE any data arrives.
+   *
+   * It is PRD 2.0 section 18.1's click-rate denominator, so it has to fire for every viewer who
+   * reached the page — including the ones whose projection never loads and the ones who land on
+   * a degraded rung. Gating it on a successful load would silently remove exactly the sessions
+   * a click-rate is most interesting about, and the metric would look healthier the worse the
+   * page performed.
+   */
+  useEffect(() => {
+    emitDynamicViewEvent('live_view_opened', { worldId });
+  }, [worldId]);
+
   const projection = useQuery(getPublicDynamicProjectionRef, { worldId });
   const replayResponse = useQuery(getPublicVisualReplayRef, { worldId });
   // Both card reads are skipped until a card is actually opened, so watching the map costs the
@@ -218,6 +232,50 @@ export default function LiveMapPage({ worldId, base }: { worldId: string; base: 
     mapAvailable: mistwoodLocationFootprints.length > 0,
   });
 
+  /**
+   * The three outcome events, derived from the ladder's verdict rather than from separate
+   * call sites (FR-Q007 / ART-140).
+   *
+   * `live_map_ready` fires when the animated map is what the viewer got; `live_map_failed` when
+   * the renderer threw; `live_fallback_used` when they are on a degraded rung for any reason.
+   * A failed renderer produces BOTH `live_map_failed` and `live_fallback_used`, and that is
+   * correct: they answer different questions ("did the renderer break" and "how many sessions
+   * saw something other than the map"), and collapsing them would make the second unanswerable
+   * for the browsers that never had WebGL in the first place.
+   *
+   * Keyed on the level so a re-render does not re-emit; a viewer whose rung genuinely changes
+   * mid-session has genuinely seen a second outcome.
+   */
+  useEffect(() => {
+    if (degradation.reason === 'renderer-failed') {
+      emitDynamicViewEvent('live_map_failed', { worldId, degradationLevel: degradation.level });
+    }
+    if (degradation.level === 'stream' || degradation.level === 'snapshot') {
+      emitDynamicViewEvent('live_map_ready', { worldId, degradationLevel: degradation.level });
+    } else {
+      emitDynamicViewEvent('live_fallback_used', {
+        worldId,
+        degradationLevel: degradation.level,
+        reason: degradation.reason ?? 'unknown',
+      });
+    }
+  }, [worldId, degradation.level, degradation.reason]);
+
+  /**
+   * `live_runtime_stale_seen`, on the SERVER's verdict rather than on our own arithmetic.
+   *
+   * `delayed` counts as well as `stale`: PRD 2.0 section 18.1 asks how often a viewer saw
+   * content the world had moved past, and both verdicts mean exactly that. `paused` does not —
+   * a paused world is not behind, it is stopped on purpose, and `classifyRuntimeFreshness`
+   * draws that distinction for the same reason.
+   */
+  const freshness = runtimeSnapshot?.freshness ?? null;
+  useEffect(() => {
+    if (freshness === 'stale' || freshness === 'delayed') {
+      emitDynamicViewEvent('live_runtime_stale_seen', { worldId, freshness });
+    }
+  }, [worldId, freshness]);
+
   // One source of positions per rung, chosen once. Everything downstream — the view model,
   // the camera, the scene panel, the character card — reads this, so no two parts of the page
   // can end up describing different rungs.
@@ -281,6 +339,43 @@ export default function LiveMapPage({ worldId, base }: { worldId: string; base: 
   useEffect(() => {
     setPlayback((previous) => advanceReplay(replay, previous, nowMs));
   }, [replay, nowMs]);
+
+  /**
+   * `live_replay_started` / `live_replay_completed` (FR-Q007 / ART-140).
+   *
+   * Derived from the playback PHASE, which is the one thing both the automatic and the manual
+   * path move through — instrumenting the two entry points separately would miss whichever one
+   * a later change routed around. `replayId` rides along so section 18.1's completion rate is a
+   * join rather than a subtraction of two unrelated counters.
+   *
+   * A skip lands in `finished` too, so completion is emitted only when the clock ran the
+   * playback out: `skipReplay` emits its own event and marks the ref, and counting a skip as a
+   * completion would make the completion rate the one number nobody could trust.
+   */
+  const reportedPhase = useRef<string | null>(null);
+  const skipped = useRef<string | null>(null);
+  useEffect(() => {
+    const key = `${replay?.replayId ?? ''}:${playback.phase}`;
+    if (reportedPhase.current === key) return;
+    reportedPhase.current = key;
+    if (playback.phase === 'playing') {
+      emitDynamicViewEvent('live_replay_started', {
+        worldId,
+        replayId: replay?.replayId,
+        sceneCount: replay?.scenes.length,
+      });
+      return;
+    }
+    if (playback.phase !== 'finished' || replay === null) return;
+    // A skip lands in `finished` too. Counting it as a completion would make the completion
+    // rate the one number nobody could trust, so the skip marks the id and this steps aside.
+    if (skipped.current === replay.replayId) return;
+    emitDynamicViewEvent('live_replay_completed', {
+      worldId,
+      replayId: replay.replayId,
+      sceneCount: replay.scenes.length,
+    });
+  }, [worldId, replay, playback.phase]);
 
   const frame = useMemo(() => replayFrame(replay, playback, nowMs), [replay, playback, nowMs]);
 
@@ -452,8 +547,21 @@ export default function LiveMapPage({ worldId, base }: { worldId: string; base: 
       replayAvailable={replay !== null}
       replayPlaying={replayActive}
       replayText={replayText}
-      onSkipReplay={() => setPlayback(skipReplay)}
-      onReplay={() => replay && setPlayback(beginReplay(replay, Date.now()))}
+      onSkipReplay={() => {
+        if (replay !== null) skipped.current = replay.replayId;
+        emitDynamicViewEvent('live_replay_skipped', { worldId, replayId: replay?.replayId });
+        setPlayback(skipReplay);
+      }}
+      onReplay={() => {
+        if (!replay) return;
+        // Cleared, so a manual replay after a skip can complete normally.
+        skipped.current = null;
+        emitDynamicViewEvent('live_replay_manual_triggered', {
+          worldId,
+          replayId: replay.replayId,
+        });
+        setPlayback(beginReplay(replay, Date.now()));
+      }}
       characterCard={characterCard}
       onOpenCharacterCard={setSelectedCharacterId}
       onCloseCharacterCard={() => setSelectedCharacterId(null)}

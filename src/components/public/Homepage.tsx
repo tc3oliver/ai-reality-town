@@ -1,3 +1,4 @@
+import { emitDynamicViewEvent } from '../../analytics/analyticsSink';
 import { useQuery } from 'convex/react';
 import { getPublishedReadModelRef } from './publicReadModelRef';
 import { getPublicRuntimeSnapshotRef } from './publicRuntimeSnapshotRef';
@@ -148,7 +149,18 @@ export function HomepageView({
         {/* AC#2 — the primary arc, chosen with the same ordering the live overlay uses. */}
         {vm.primaryArc !== null && (
           <p className="mt-2 text-sm">
-            <a href={vm.primaryArc.href}>{vm.primaryArc.title}</a>
+            <a
+              href={vm.primaryArc.href}
+              // FR-Q007 / ART-140. The live map shows the primary arc as TEXT (ART-125), so the
+              // first screen's arc link is the only place on the dynamic surface where a viewer
+              // can open one. Emitting it here rather than declaring the event unreachable.
+              onClick={() => emitDynamicViewEvent('live_arc_opened', {
+                worldId,
+                arcId: vm.primaryArc?.arcId,
+              })}
+            >
+              {vm.primaryArc.title}
+            </a>
             <span className="public-muted">({vm.primaryArc.statusLabel})</span>
             {vm.primaryArc.currentQuestion.length > 0 && (
               <span className="block">懸而未決:{vm.primaryArc.currentQuestion}</span>
