@@ -39,7 +39,18 @@ import {
  * Bumped when a published field is added, removed or reinterpreted, so a client holding an
  * older payload can tell that it is reading a contract it does not fully understand.
  */
-export const PUBLIC_DYNAMIC_RUNTIME_VERSION = 3;
+/**
+ * 4 with ART-123 (FR-O004).
+ *
+ * No field was added or removed. `animationState` now REINTERPRETS two of the values it has
+ * always declared — `speaking` and `activity` are produced for the first time — and
+ * `docs/public-dynamic-projection.md` requires a bump for a reinterpretation of an existing
+ * field, not only for a shape change. A client that assumed `idle | walking` were the only
+ * reachable values is looking at a different contract than one that does not.
+ */
+import { applyConversationState, conversationStatesFor } from './conversationState';
+
+export const PUBLIC_DYNAMIC_RUNTIME_VERSION = 4;
 
 /**
  * Why a character is where it is. `canon` is an accepted `character_location_changed` fact
@@ -512,9 +523,24 @@ export function buildPublicDynamicProjectionResult(
   });
 
   const excluded = excludedCharacterIds(input.acceptedEvents);
+  /**
+   * FR-O004 / ART-123. Who is visibly in conversation, from the ACTIVE scenes this same call is
+   * about to publish — so the map and the scene panel are describing one set of facts.
+   *
+   * Applied between the motion mapping and the sort, and only where a motion is `idle`: see
+   * `conversationState.ts` for why a walking character keeps `walking`.
+   */
+  const conversationStates = conversationStatesFor(input.activeScenes ?? []);
   const characters = snapshot.trajectories
     .filter((trajectory) => !excluded.has(trajectory.characterId))
     .map(toPublicCharacterMotion)
+    .map((motion) => {
+      const refined = applyConversationState(
+        motion.animationState,
+        conversationStates.get(motion.characterId),
+      );
+      return refined === motion.animationState ? motion : { ...motion, animationState: refined };
+    })
     .sort((left, right) => left.characterId.localeCompare(right.characterId));
 
   const lastEvent = [...input.acceptedEvents]

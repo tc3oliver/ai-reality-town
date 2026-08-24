@@ -39,6 +39,11 @@ export function ActiveScenePanel({
                 <h3 className="font-medium">
                   {scene.title}
                   {scene.ended && <span className="public-muted text-sm">(已結束)</span>}
+                  {/* FR-O004 AC#3. The server already replaced the text; this says WHY it is a
+                      placeholder, so a reader is not left to conclude the scene has a strange
+                      title. The participants and the location beside it are unchanged, which is
+                      AC#5: the conversation is still visibly happening. */}
+                  {scene.withheld && <span className="public-muted text-sm">(內容審核中)</span>}
                 </h3>
                 {scene.locationLabel !== null && (
                   <p className="public-muted text-sm">地點:{scene.locationLabel}</p>

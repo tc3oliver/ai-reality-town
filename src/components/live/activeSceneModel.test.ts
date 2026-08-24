@@ -39,6 +39,8 @@ describe('AC#2 — a scene carries its title, summary, participants and story ar
       participantCharacterIds: ['cassia', 'rowan'],
       arcIds: ['arc-truce'],
       ended: false,
+      // FR-O004 / ART-123: the publication verdict the client did not read until now.
+      withheld: false,
       focusTargetId: sceneTargetId(`3:evening:${HALL}`),
       episodeHref: null,
     }]);
