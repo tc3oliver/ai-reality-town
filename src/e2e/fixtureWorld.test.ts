@@ -147,7 +147,23 @@ describe('the fixture carries no private field', () => {
   });
 
   test('the runtime snapshot reports a state the badge can render', () => {
-    expect(fixtureRuntimeSnapshot().freshness).toBe('live');
+    expect(fixtureRuntimeSnapshot(1_000_000).freshness).toBe('live');
+  });
+
+  test('the runtime snapshot actually holds a world state, which is the point of it', () => {
+    // ART-127 wired the live map's second ladder rung to this table. An empty snapshot is not a
+    // plausible last-valid one — it holds nothing to fall back TO — and it went unnoticed
+    // because until then only the homepage's freshness chip read it, and that reads no
+    // positions. Pinned against the same production assertion the projection is held to.
+    const snapshot = fixtureRuntimeSnapshot(1_000_000);
+    expect(snapshot.characterStates.length).toBe(FIXTURE_CHARACTER_IDS.length);
+    for (const motion of snapshot.characterStates) {
+      expect(FIXTURE_CHARACTER_IDS).toContain(motion.characterId);
+    }
+    // Ages must be plausible too: the ladder renders a relative "last updated" from these, and
+    // a sentinel timestamp reads as a confidently wrong claim about how old the world is.
+    expect(snapshot.contentUpdatedAt).toBeGreaterThan(0);
+    expect(snapshot.observedAt).toBeGreaterThanOrEqual(snapshot.contentUpdatedAt);
   });
 });
 

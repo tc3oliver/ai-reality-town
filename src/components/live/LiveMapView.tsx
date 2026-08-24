@@ -17,9 +17,14 @@ import type { ActiveScenePanelModel } from './activeSceneModel';
 import { CameraControls } from './CameraControls';
 import { CharacterCard } from './CharacterCard';
 import type { CharacterCardViewModel } from './characterCardModel';
+import { DegradationNotice } from './DegradationNotice';
+import type { DegradationVerdict } from './degradationLadder';
 import { LiveMapFallback } from './LiveMapFallback';
 import { textLiveHref } from './liveMapRoute';
+import { RendererErrorBoundary } from './RendererErrorBoundary';
 import { ReplayControls } from './ReplayControls';
+import { StaticMapView } from './StaticMapView';
+import type { StaticMapModel } from './staticMapModel';
 import { StoryOverlay } from './StoryOverlay';
 import type { StoryOverlayViewModel } from './storyOverlayModel';
 import { TimeStateBanner } from './TimeStateBanner';
@@ -97,6 +102,32 @@ export interface LiveMapViewProps {
   /** Decided once by the caller, so the probe does not create a canvas per render. */
   webglSupported: boolean;
   loading: boolean;
+  /**
+   * Which rung of the degradation ladder to render (FR-O010 / ART-127).
+   *
+   * Decided by {@link ./LiveMapPage}, because two of its four inputs are reads only that layer
+   * may issue. Omitted keeps the pre-ART-127 behaviour exactly — animated map, or the
+   * standalone fallback page when WebGL is absent — so every existing caller and test is
+   * unchanged and the ladder is opt-in at the seam rather than a rewrite of this component's
+   * contract.
+   */
+  degradation?: DegradationVerdict;
+  /** The floor plan for rung 3. Required in practice whenever `degradation` is passed. */
+  staticMap?: StaticMapModel | null;
+  /** The server's freshness verdict for the content on screen (AC#3). */
+  freshness?: string | null;
+  /** When that content was last updated (AC#3). */
+  contentUpdatedAt?: number | null;
+  /** Read once per render for the relative age; never a second clock. */
+  nowMs?: number;
+  /** Told when the Pixi stage throws, so the page can drop to the static plan. */
+  onRendererFailure?: () => void;
+  /**
+   * Clears the renderer latch when it changes. The projection's `mapId`: switching to a
+   * different map is worth one more attempt at the renderer, and it is the only signal here
+   * that is not a clock — a time-based reset would be the retry loop AC#4 forbids.
+   */
+  rendererResetKey?: string;
 }
 
 /**
@@ -136,6 +167,13 @@ export function LiveMapView({
   reducedMotion: reducedMotionProp,
   webglSupported,
   loading,
+  degradation,
+  staticMap = null,
+  freshness = null,
+  contentUpdatedAt = null,
+  nowMs = 0,
+  onRendererFailure,
+  rendererResetKey,
 }: LiveMapViewProps) {
   const observed = useReducedMotion();
   const reducedMotion = reducedMotionProp ?? observed;
@@ -185,9 +223,15 @@ export function LiveMapView({
     );
   }, [mode, targets, primaryLocationId, size.width, size.height, worldWidth, worldHeight, reducedMotion]);
 
-  if (!webglSupported) {
+  // Pre-ART-127 behaviour, kept for callers that have not adopted the ladder: without a
+  // verdict there are no middle rungs to fall to, so an absent WebGL context still means the
+  // standalone signpost page.
+  if (degradation === undefined && !webglSupported) {
     return <LiveMapFallback worldId={worldId} base={base} />;
   }
+
+  const level = degradation?.level ?? 'stream';
+  const showCanvas = level === 'stream' || level === 'snapshot';
 
   return (
     // `wide` is what makes AC#1 reachable: the prose measure every other public page uses is
@@ -203,6 +247,20 @@ export function LiveMapView({
       {/* Above the canvas on purpose: "what am I looking at" has to be answerable before a
           viewer looks, not after they scroll past the map to find out (FR-O014 AC#9). */}
       {timeStateBadges.length > 0 && <TimeStateBanner badges={timeStateBadges} />}
+
+      {/* AC#3, and above the stage for the same reason the time-state banner is: "what am I
+          looking at, and how old is it" has to be answerable BEFORE the viewer looks, not
+          after they scroll past the map to find out. Rendered at every rung including the
+          top — see `DegradationNotice` for why a notice that only appears when something is
+          wrong fails AC#3 in the case that matters most. */}
+      {degradation !== undefined && (
+        <DegradationNotice
+          verdict={degradation}
+          freshness={freshness}
+          updatedAt={contentUpdatedAt}
+          nowMs={nowMs}
+        />
+      )}
 
       {/* The responsive stage (FR-O008 / ART-126). Exactly two children: the canvas and the
           story overlay, as block siblings — never one inside the other, so the overlay remains
@@ -221,20 +279,43 @@ export function LiveMapView({
           actually required — that the overlay never obscure the map — is untouched, and is still
           asserted by `storyOverlayLayout.dom.test.tsx`. */}
       <div className="live-stage mt-3">
-        <div ref={ref} className="live-map-canvas">
-          {size.width > 0 && size.height > 0 && (
-            <ReadOnlyWorld
-              viewModel={viewModel}
-              spriteAssets={spriteAssets}
-              screenWidth={size.width}
-              screenHeight={size.height}
-              viewportRef={viewportRef}
-              camera={camera ?? undefined}
-              reducedMotion={reducedMotion}
-              timeSlot={timeSlot}
-              zones={mistwoodLocationFootprints}
-              collision={mistwoodCollision}
-            />
+        {/* Still the FIRST of the stage's exactly-two children at every rung, and still
+            `.live-map-canvas`. The responsive contract ART-126 proved — one column with the
+            map leading below 64rem, two columns above it, visual order equal to DOM order at
+            both — is a property of the stage's shape, and a degraded rung has no business
+            changing how the page lays out. Only what is INSIDE this box changes. */}
+        <div ref={ref} className="live-map-canvas" data-rung={level}>
+          {showCanvas && size.width > 0 && size.height > 0 && (
+            // Around the canvas alone (FR-O010). A throw here takes out the renderer and
+            // leaves the reads, the view model and the rest of the page standing, which is
+            // what makes the static rung a DEGRADATION rather than a different page.
+            <RendererErrorBoundary onFailure={onRendererFailure} resetKey={rendererResetKey}>
+              <ReadOnlyWorld
+                viewModel={viewModel}
+                spriteAssets={spriteAssets}
+                screenWidth={size.width}
+                screenHeight={size.height}
+                viewportRef={viewportRef}
+                camera={camera ?? undefined}
+                reducedMotion={reducedMotion}
+                timeSlot={timeSlot}
+                zones={mistwoodLocationFootprints}
+                collision={mistwoodCollision}
+              />
+            </RendererErrorBoundary>
+          )}
+          {level === 'static-map' && staticMap !== null && <StaticMapView model={staticMap} />}
+          {level === 'informational' && (
+            <div className="live-informational">
+              <p>
+                目前沒有可顯示的角色位置。世界的地點、場景與最近事件仍可閱讀。
+              </p>
+              <p className="mt-2">
+                <a className="public-tap" href={textLiveHref(worldId, base)}>
+                  開啟文字實況(不需地圖)
+                </a>
+              </p>
+            </div>
           )}
         </div>
 

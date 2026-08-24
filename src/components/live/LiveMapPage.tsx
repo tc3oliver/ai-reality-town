@@ -7,7 +7,10 @@ import { mistwoodLocationFootprints, mistwoodWorldMap } from '../../../data/mist
 import { focusTargetsFrom, primaryLocationId, primarySceneLocationId } from '../world/cameraModel';
 import type { SceneFocusInput } from '../world/cameraModel';
 import { getPublishedReadModelRef } from '../public/publicReadModelRef';
+import { getPublicRuntimeSnapshotRef } from '../public/publicRuntimeSnapshotRef';
 import type { CharacterProjection, CharacterRecentEvent } from '../public/characterRoute';
+import { resolveDegradationLevel } from './degradationLadder';
+import { composeStaticMap } from './staticMapModel';
 import { composeActiveScenePanel, type ActiveSceneInput } from './activeSceneModel';
 import { composeCharacterCardViewModel } from './characterCardModel';
 import {
@@ -154,6 +157,23 @@ export default function LiveMapPage({ worldId, base }: { worldId: string; base: 
     modelKind: 'liveState',
     modelRef: `live:${worldId}`,
   });
+  /**
+   * The last valid runtime snapshot (FR-O010 / ART-127, ladder rung 2).
+   *
+   * ART-116 has published this since it was written, and until now the live map — the one
+   * surface whose entire job is showing the world state — never read it. Its only reader was
+   * the homepage, and only for the freshness chip. Reading it here is what makes rung 2 exist
+   * at all: `getPublicDynamicProjection` returns `null` when even the read model store's
+   * last-known-good is gone, and this table is an INDEPENDENT store that may still have
+   * content from before whatever broke.
+   *
+   * Not skip-gated, because a snapshot that is only fetched once the projection has already
+   * failed arrives one round trip after the viewer needed it — and the whole ladder is about
+   * what is on screen at that moment. It is an anonymous cached read on the public allowlist
+   * (`publicReadOnlyGuarantee.test.ts` has enumerated it since ART-131), so a third standing
+   * subscription costs a row read and can trigger no generation.
+   */
+  const runtimeSnapshot = useQuery(getPublicRuntimeSnapshotRef, { worldId });
   // Probed once per mount: each of these creates a canvas or reads `navigator`, and doing
   // that per render would be a per-frame cost for an answer that cannot change while the
   // page is open.
@@ -164,9 +184,66 @@ export default function LiveMapPage({ worldId, base }: { worldId: string; base: 
   // off, and turning it off has to mean "never derived", not "derived and then hidden".
   const reducedMotion = useReducedMotion();
 
-  const liveMotions: readonly PublicCharacterMotion[] = projection?.characters ?? NO_MOTIONS;
-  const scenes: readonly ActiveSceneInput[] = projection?.activeScenes ?? NO_SCENES;
-  const replay = replayResponse?.replay ?? null;
+  /**
+   * The degradation ladder (FR-O010 / ART-127).
+   *
+   * `rendererFailed` is the ONLY latched piece of this feature, and it latches the renderer
+   * rather than the level: every rung below it is re-derived from the data on every render,
+   * so recovery (AC#5) needs no mechanism — when the projection comes back, the next render
+   * is already `stream` again. The latch clears when the map identity changes, and on nothing
+   * else; a timer here would be the retry loop AC#4 forbids.
+   */
+  const [rendererFailed, setRendererFailed] = useState(false);
+  const mapId = projection?.mapId ?? runtimeSnapshot?.mapId ?? null;
+  useEffect(() => {
+    setRendererFailed(false);
+  }, [mapId]);
+
+  const streamMotions: readonly PublicCharacterMotion[] = projection?.characters ?? NO_MOTIONS;
+  const snapshotMotions: readonly PublicCharacterMotion[] =
+    runtimeSnapshot?.characterStates ?? NO_MOTIONS;
+
+  const degradation = resolveDegradationLevel({
+    // `undefined` is the read in flight. Kept apart from `null` (resolved, nothing published)
+    // for the reason the card and overlay already draw the same distinction: collapsing them
+    // makes the first paint flash the bottom rung before the data lands.
+    loading: projection === undefined,
+    streamContent: streamMotions.length > 0,
+    snapshotContent: snapshotMotions.length > 0,
+    webglSupported,
+    rendererFailed,
+    // Mistwood is the only authored floor plan today, exactly as `visualRuntimeForWorld`
+    // records on the server side. A world with no footprints has no static rung and drops
+    // straight to the informational one rather than drawing an empty rectangle.
+    mapAvailable: mistwoodLocationFootprints.length > 0,
+  });
+
+  // One source of positions per rung, chosen once. Everything downstream — the view model,
+  // the camera, the scene panel, the character card — reads this, so no two parts of the page
+  // can end up describing different rungs.
+  const liveMotions = degradation.source === 'snapshot' ? snapshotMotions : streamMotions;
+  const scenes: readonly ActiveSceneInput[] = (degradation.source === 'snapshot'
+    ? runtimeSnapshot?.activeSceneStates
+    : projection?.activeScenes) ?? NO_SCENES;
+  /**
+   * The visual replay is withdrawn on the rungs that draw no animation (FR-O010 / ART-127).
+   *
+   * FR-O013's replay is a VISUAL replay: it re-enacts a scene by moving characters. A static
+   * floor plan cannot move, so "replaying" on it would mean the plan silently jumping between
+   * historical positions — a picture that changes for no visible reason and claims to be
+   * "last known positions" while showing positions from hours ago.
+   *
+   * Withdrawn by nulling the replay itself rather than by branching in four places: with no
+   * replay, the auto-play effect returns early, `advanceReplay` has nothing to advance,
+   * `replayFrame` is null and the controls report nothing available. It also needs no undoing —
+   * when the renderer recovers the replay simply reappears, which is the same
+   * derive-don't-latch property the rest of the ladder has.
+   *
+   * The browser suite caught this: the plan was drawing the replay's motions, so it showed the
+   * ONE character in the current replay scene instead of all twelve.
+   */
+  const rendererDrawing = degradation.level === 'stream' || degradation.level === 'snapshot';
+  const replay = rendererDrawing ? replayResponse?.replay ?? null : null;
 
   const [playback, setPlayback] = useState(IDLE_REPLAY_PLAYBACK);
   // The tab's storage, read once. `hasAutoPlayed` fails closed, so a null here means the
@@ -247,6 +324,27 @@ export default function LiveMapPage({ worldId, base }: { worldId: string; base: 
     }),
     [liveMotions, scenes],
   );
+  /**
+   * The floor plan for rung 3 (FR-O010 AC#1).
+   *
+   * Projected from the SAME view model the Pixi stage consumes and the SAME focus targets the
+   * camera controls are built from, so the static plan is structurally incapable of naming a
+   * different person or a different place than the animated map does. Composed only when the
+   * rung is actually reached: it is the one thing here that costs work nobody on rung 1 needs.
+   */
+  const staticMap = useMemo(
+    () =>
+      degradation.level === 'static-map'
+        ? composeStaticMap({
+            viewModel,
+            footprints: mistwoodLocationFootprints,
+            targets: camera.targets,
+            tileSize: mistwoodWorldMap.tileDim,
+          })
+        : null,
+    [degradation.level, viewModel, camera.targets],
+  );
+
   const scenePanel = useMemo(
     () => composeActiveScenePanel({ scenes, footprints: mistwoodLocationFootprints, worldId }),
     [scenes, worldId],
@@ -373,6 +471,21 @@ export default function LiveMapPage({ worldId, base }: { worldId: string; base: 
       reducedMotion={reducedMotion}
       webglSupported={webglSupported}
       loading={projection === undefined}
+      // FR-O010 / ART-127. The verdict, the plan for rung 3, and the two labels AC#3 requires
+      // at every rung. `contentUpdatedAt` follows the rung's own source rather than always
+      // reporting the projection's: on rung 2 the projection is what is missing, so quoting
+      // its timestamp would date the screen by a thing that is not on it.
+      degradation={degradation}
+      staticMap={staticMap}
+      freshness={runtimeSnapshot?.freshness ?? null}
+      contentUpdatedAt={
+        degradation.source === 'snapshot'
+          ? runtimeSnapshot?.contentUpdatedAt ?? null
+          : projection?.updatedAt ?? null
+      }
+      nowMs={nowMs}
+      onRendererFailure={() => setRendererFailed(true)}
+      rendererResetKey={mapId ?? undefined}
     />
   );
 }

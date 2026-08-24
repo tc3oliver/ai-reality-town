@@ -296,7 +296,7 @@ describe('the live map surface (FR-O001 AC#4)', () => {
     expect(model).not.toContain('from \'react\'');
   });
 
-  test('reading is confined to the page, and to six named public queries', () => {
+  test('reading is confined to the page, and to seven named public queries', () => {
     const page = fileNamed('LiveMapPage.tsx');
     expect(page).toContain('useQuery');
     // Every read is named explicitly rather than counted loosely: the count is what stops a
@@ -319,9 +319,16 @@ describe('the live map surface (FR-O001 AC#4)', () => {
     // same two the homepage reads — so mounting them cannot trigger generation (AC#6).
     expect(page).toContain('modelRef: `onboarding:${worldId}`');
     expect(page).toContain('modelRef: `live:${worldId}`');
-    expect(page.match(/\buseQuery\(/g)).toHaveLength(6);
-    // Still two, not four: the count is what says which of the six fire on mount, and "six
-    // queries" and "four queries on mount" are very different claims about a public page.
+    // ART-127 (FR-O010) added the seventh: the runtime snapshot ART-116 has published since it
+    // was written and this page never read. It is what makes the ladder's second rung exist —
+    // an INDEPENDENT store that may still hold content when even the read-model store's
+    // last-known-good is gone. Anonymous, cached, already on the public allowlist since
+    // ART-131, and deliberately NOT skip-gated: a snapshot fetched only after the projection
+    // has already failed arrives one round trip after the viewer needed it.
+    expect(page).toContain('getPublicRuntimeSnapshotRef');
+    expect(page.match(/\buseQuery\(/g)).toHaveLength(7);
+    // Still two, not four: the count is what says which of the seven fire on mount, and "seven
+    // queries" and "five queries on mount" are very different claims about a public page.
     expect(page.match(/\? 'skip'/g)).toHaveLength(2);
 
     // No other file in the module reads anything at all.
