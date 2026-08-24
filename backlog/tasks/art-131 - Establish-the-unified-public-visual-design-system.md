@@ -1,11 +1,11 @@
 ---
 id: ART-131
 title: Establish the unified public visual design system
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-04 15:59'
-updated_date: '2026-08-24 13:52'
+updated_date: '2026-08-24 13:53'
 labels:
   - prd-2.0
   - v2-h
@@ -76,8 +76,8 @@ ordinal: 131000
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
