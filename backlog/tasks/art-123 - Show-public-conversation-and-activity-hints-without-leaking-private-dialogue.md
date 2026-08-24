@@ -1,11 +1,11 @@
 ---
 id: ART-123
 title: Show public conversation and activity hints without leaking private dialogue
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-04 15:58'
-updated_date: '2026-08-24 19:04'
+updated_date: '2026-08-24 19:05'
 labels:
   - prd-2.0
   - v2-f
@@ -74,8 +74,8 @@ ordinal: 123000
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Notes
