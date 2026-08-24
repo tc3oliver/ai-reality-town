@@ -223,12 +223,40 @@ export function fixtureReadModel(modelRef: string): { payload: unknown } | null 
     };
   }
   if (modelRef === `live:${FIXTURE_WORLD_ID}`) {
+    // The COMPLETE `LiveProjection`, not just the arcs the story overlay reads. The text Live
+    // View — the non-map equivalent NFR2-006 makes a release gate — reads the same model and
+    // walks `characters`, `locations`, `recentEvents` and `activeScenes`; a partial payload made
+    // that page render nothing at all, which the accessibility suite caught and the map suite
+    // never would have, because the map does not read those fields.
     return {
       payload: {
+        worldTime: { worldDay: FIXTURE_WORLD_DAY, timeSlot: FIXTURE_TIME_SLOT },
+        locations: mistwoodLocationFootprints.map((footprint) => ({
+          locationId: footprint.id,
+          name: footprint.name,
+          description: footprint.vocabulary,
+          locationType: 'public',
+          active: footprint.id === MILL || footprint.id === HALL,
+        })),
+        characters: FIXTURE_CHARACTER_IDS.map((characterId, index) => ({
+          characterId,
+          locationId: index % 2 === 0 ? MILL : HALL,
+          alive: true,
+        })),
+        recentEvents: [
+          {
+            eventId: 'mistwood#event#102',
+            summary: '眾人見證休戰簽署。',
+            worldDay: FIXTURE_WORLD_DAY,
+            timeSlot: FIXTURE_TIME_SLOT,
+          },
+        ],
         activeArcs: [
           { arcId: 'arc-truce', title: '休戰協議', currentQuestion: '休戰能撐過冬天嗎?', status: 'climax' },
           { arcId: 'arc-mill', title: '磨坊之爭', currentQuestion: '水車修得好嗎?', status: 'active' },
         ],
+        activeScenes: fixtureScenes(),
+        publishedEpisodeStatus: 'ready',
       },
     };
   }
