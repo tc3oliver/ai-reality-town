@@ -31,6 +31,7 @@ import { composeCharacterViewModel } from './characterRoute';
 import { composeHelpViewModel } from './helpRoute';
 import { composeHomepageViewModel } from './homeRoute';
 import { composeLiveViewModel } from './liveRoute';
+import { MISTWOOD_CHARACTER_VISUALS } from '../../../data/mistwoodCharacters';
 import { PublicStatusChips } from './PublicStatusChips';
 import {
   PUBLIC_FRESHNESS_STATES,
@@ -1154,5 +1155,96 @@ describe('editorial pages link into the live map (FR-P002 / ART-130)', () => {
     ]) {
       await expectAccessible(element);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The homepage first screen (FR-P001 / ART-129).
+// ---------------------------------------------------------------------------
+
+describe('the homepage first screen (FR-P001 / ART-129)', () => {
+  test('AC#3 — the first screen is not only headings and lists', () => {
+    const container = render(<HomepageView worldId={WORLD_ID} vm={homeViewModel()} />);
+    const screen = container.querySelector('.home-first-screen');
+    expect(screen).not.toBeNull();
+    // The thing that makes it not-a-document: the residents are DRAWN. Asserted as rendered
+    // sprite elements carrying a real binding, not as "some element exists".
+    const sprites = Array.from(screen!.querySelectorAll('.public-sprite'));
+    expect(sprites.length).toBeGreaterThan(0);
+    for (const sprite of sprites) {
+      expect(sprite.getAttribute('data-sprite')).not.toBe('none');
+      expect(sprite.getAttribute('style') ?? '').toContain('background-image');
+      // Decorative: the name is beside it as real text, so announcing it again would be a
+      // second announcement of the same information.
+      expect(sprite.getAttribute('aria-hidden')).toBe('true');
+    }
+  });
+
+  test('AC#4 — each sprite is the binding the live map draws that character with', () => {
+    const container = render(<HomepageView worldId={WORLD_ID} vm={homeViewModel()} />);
+    const sprites = Array.from(container.querySelectorAll('.public-sprite[data-character]'));
+    expect(sprites.length).toBeGreaterThan(0);
+    for (const sprite of sprites) {
+      const characterId = sprite.getAttribute('data-character')!;
+      // Compared against the shared table, not a literal: a reassigned binding must follow here.
+      const binding = MISTWOOD_CHARACTER_VISUALS.find((v) => v.characterId === characterId);
+      expect(sprite.getAttribute('data-sprite')).toBe(binding?.spriteKey);
+    }
+  });
+
+  test('AC#1/#2 — everything the first screen promises is in it, and is one section', () => {
+    const container = render(<HomepageView worldId={WORLD_ID} vm={homeViewModel()} />);
+    const screen = container.querySelector('.home-first-screen')!;
+    const text = screen.textContent ?? '';
+    // AC#1: the live entry leads. AC#2: situation, arc, cast, major event, recommended Episode.
+    expect(screen.querySelector(`a[href="/ai-town/live/${WORLD_ID}"]`)).not.toBeNull();
+    expect(screen.querySelector(`a[href="/ai-town/live/${WORLD_ID}/text"]`)).not.toBeNull();
+    expect(text).toContain('磨坊之爭正在升溫。');
+    expect(text).toContain('審計被要求公開。');
+    expect(text).toContain('何俊');
+    expect(screen.querySelector(`a[href="#episode/${WORLD_ID}/2"]`)).not.toBeNull();
+  });
+
+  test('AC#5 — a character tile is a link, and the whole tile is the target', () => {
+    const container = render(<HomepageView worldId={WORLD_ID} vm={homeViewModel()} />);
+    for (const tile of Array.from(container.querySelectorAll('.home-cast-link'))) {
+      expect(tile.tagName).toBe('A');
+      expect(tile.getAttribute('href')).toMatch(/^#character\/mistwood\//);
+      // The sprite is INSIDE the link, so the target is the thing a viewer aims at rather than
+      // the two characters of the name beside it.
+      expect(tile.querySelector('.public-sprite')).not.toBeNull();
+      expect(tile.classList.contains('public-tap')).toBe(true);
+    }
+  });
+
+  test('the cast is not listed twice on one page', () => {
+    // It moved to the first screen, where it is drawn. Leaving the old text list behind would
+    // put the same four names on the page twice.
+    const container = render(<HomepageView worldId={WORLD_ID} vm={homeViewModel()} />);
+    const names = (container.textContent ?? '').split('何俊').length - 1;
+    expect(names).toBe(1);
+  });
+
+  test('the recommended Episode is linked once, and its absence is stated', () => {
+    // Same reason as the cast: it moved to the first screen, and the disclosure section's old
+    // copy would be a second link to the SAME destination — one destination twice for anyone
+    // navigating by link. Counted across the whole page, not within the first screen, because
+    // the duplicate this pins against lives outside it.
+    const container = render(<HomepageView worldId={WORLD_ID} vm={homeViewModel()} />);
+    const links = container.querySelectorAll(`a[href="#episode/${WORLD_ID}/2"]`);
+    expect(links.length).toBe(1);
+    expect(container.querySelector('.home-first-screen')!.contains(links[0])).toBe(true);
+
+    // With nothing to recommend, the page SAYS so rather than silently dropping the line —
+    // otherwise a viewer cannot tell "nothing recommended" from "the section is broken".
+    const empty = render(
+      <HomepageView worldId={WORLD_ID} vm={{ ...homeViewModel(), recommendedEpisode: null }} />,
+    );
+    expect(empty.querySelectorAll(`a[href^="#episode/${WORLD_ID}/"]`).length).toBe(0);
+    expect(empty.querySelector('.home-first-screen')!.textContent ?? '').toContain('尚未推薦');
+  });
+
+  test('the whole homepage is still axe-clean', async () => {
+    await expectAccessible(<HomepageView worldId={WORLD_ID} vm={homeViewModel()} />);
   });
 });

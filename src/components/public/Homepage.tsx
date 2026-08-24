@@ -2,6 +2,7 @@ import { useQuery } from 'convex/react';
 import { getPublishedReadModelRef } from './publicReadModelRef';
 import { getPublicRuntimeSnapshotRef } from './publicRuntimeSnapshotRef';
 import { PublicPageFrame } from './PublicPageFrame';
+import { CharacterSprite } from './CharacterSprite';
 import { PublicStatusChips } from './PublicStatusChips';
 import { freshnessDescriptor, worldClockDescriptors } from './publicStatusBadge';
 import {
@@ -108,44 +109,96 @@ export function HomepageView({
         <PublicStatusChips chips={worldClockDescriptors(vm.worldDay, vm.timeSlot)} label="世界時間" />
       </header>
 
-      {/* AC#2: first viewport prioritises the current major event. */}
-      <section className="major-event mt-4" aria-labelledby="home-major-event">
-        <h2 id="home-major-event" className="text-xl font-semibold">
-          最新大事
+      {/* THE FIRST SCREEN (FR-P001 / ART-129).
+          UX2-001 asks a viewer to SEE the world before reading about it, so the live entry point
+          leads (AC#1) and everything AC#2 names is in this one section: the current situation, the
+          primary arc, up to four core characters drawn with their own sprites, the latest major
+          event and the recommended Episode. It is one `<section>` rather than five so it is one
+          screenful rather than five headings a viewer scrolls past. */}
+      <section className="home-first-screen mt-4" aria-labelledby="home-first-screen">
+        <h2 id="home-first-screen" className="text-xl font-semibold">
+          現在的霧林鎮
         </h2>
-        {vm.majorEvent ? <p>{vm.majorEvent}</p> : <p className="public-muted">尚無重大發展。</p>}
-      </section>
 
-      <section className="current-situation mt-4" aria-labelledby="home-current-situation">
-        <h2 id="home-current-situation" className="text-xl font-semibold">
-          目前局勢
-        </h2>
-        <p>{vm.currentSituation}</p>
+        {/* AC#1 — the live world is the lead action, not a link buried under the prose. */}
+        <p className="home-lead-actions">
+          <a className="public-tap home-lead-live" href={vm.liveMapHref}>
+            進入實況地圖
+          </a>
+          {/* NFR-009 AC#3: the non-map equivalent is always offered beside it, never instead. */}
+          <a className="public-tap" href={vm.textLiveHref}>
+            改用文字實況(不需地圖)
+          </a>
+        </p>
+
+        {/* AC#3 — the first screen is not only headings and lists: the residents are drawn. */}
+        <ul className="home-cast" aria-label="核心角色">
+          {vm.characters.map((character) => (
+            <li key={character.characterId}>
+              <a className="home-cast-link public-tap" href={character.href}>
+                <CharacterSprite characterId={character.characterId} spriteKey={character.spriteKey} />
+                <span>{character.name}</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+
+        <p className="mt-2">{vm.currentSituation}</p>
+
+        {/* AC#2 — the primary arc, chosen with the same ordering the live overlay uses. */}
+        {vm.primaryArc !== null && (
+          <p className="mt-2 text-sm">
+            <a href={vm.primaryArc.href}>{vm.primaryArc.title}</a>
+            <span className="public-muted">({vm.primaryArc.statusLabel})</span>
+            {vm.primaryArc.currentQuestion.length > 0 && (
+              <span className="block">懸而未決:{vm.primaryArc.currentQuestion}</span>
+            )}
+          </p>
+        )}
+
+        <h3 className="font-medium mt-2">最新大事</h3>
+        {vm.majorEvent ? <p>{vm.majorEvent}</p> : <p className="public-muted">尚無重大發展。</p>}
+
+        {/* AC#5 — a scene links through to the day it belongs to. */}
+        {vm.activeScenes.length > 0 && (
+          <ul className="public-rows text-sm mt-2" aria-label="進行中的場景">
+            {vm.activeScenes.map((scene) => (
+              <li key={scene.key}>
+                <a href={scene.href} aria-label={`本日故事:${scene.title}`}>{scene.title}</a>
+                {scene.summary.length > 0 && <span className="public-muted">{scene.summary}</span>}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {/* AC#2 — the recommended Episode, with its absence stated rather than left blank, the
+            same way 最新大事 above does. This is the page's ONLY recommendation link; the
+            disclosure section below used to carry a second one to the same Episode, and two links
+            to one destination is one destination twice for anyone navigating by link. */}
+        {vm.recommendedEpisode !== null ? (
+          <p className="mt-2 text-sm">
+            <a className="public-tap" href={vm.recommendedEpisode.href}>
+              從第 {vm.recommendedEpisode.episodeNumber} 集開始認識這個世界
+            </a>
+          </p>
+        ) : (
+          <p className="mt-2 text-sm public-muted">尚未推薦入坑點。</p>
+        )}
       </section>
 
       <section className="disclosure mt-4" aria-labelledby="home-disclosure">
         <h2 id="home-disclosure" className="text-xl font-semibold">
           認識這個世界
         </h2>
-        {/* AC#4: ≤4 core characters, three essential facts, one entry point. */}
-        <h3 className="font-medium mt-2">核心角色</h3>
-        <ul className="public-rows">
-          {vm.characters.map((c) => (
-            <li key={c.characterId}>{c.name}</li>
-          ))}
-        </ul>
+        {/* The cast and the recommended Episode moved to the first screen with ART-129, where the
+            cast is drawn rather than listed; repeating either here would be the same four names,
+            and the same Episode link, twice on one page. */}
         <h3 className="font-medium mt-2">必知事實</h3>
         <ul className="public-rows">
           {vm.facts.map((f) => (
             <li key={f.factId}>{f.label}</li>
           ))}
         </ul>
-        <h3 className="font-medium mt-2">推薦入坑點</h3>
-        {vm.recommendedEpisode ? (
-          <a href={vm.recommendedEpisode.href}>從第 {vm.recommendedEpisode.episodeNumber} 集開始</a>
-        ) : (
-          <p className="public-muted">尚未推薦。</p>
-        )}
       </section>
 
       {/* AC#5: live + voting render unavailable states without blocking. */}

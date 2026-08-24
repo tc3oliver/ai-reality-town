@@ -150,3 +150,20 @@ describe('the fixture carries no private field', () => {
     expect(fixtureRuntimeSnapshot().freshness).toBe('live');
   });
 });
+
+describe('the onboarding summary can feed the homepage first screen (FR-P001)', () => {
+  test('it names four residents, with production ids and real bindings', () => {
+    // The first screen draws up to four characters with their sprite bindings. Without them the
+    // screen renders with nobody in it — a valid degraded state, and therefore NOT something a
+    // browser failure would obviously explain. It cost a debugging round; now it is pinned.
+    const payload = fixtureReadModel(`onboarding:${'mistwood'}`)?.payload as {
+      structured: { characters: Array<{ characterId: string; name: string }> };
+    };
+    expect(payload.structured.characters).toHaveLength(4);
+    for (const character of payload.structured.characters) {
+      const binding = MISTWOOD_CHARACTER_VISUALS.find((v) => v.characterId === character.characterId);
+      expect(binding).toBeDefined();
+      expect(character.name).toBe(binding!.displayName);
+    }
+  });
+});
