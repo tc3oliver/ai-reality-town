@@ -1,11 +1,11 @@
 ---
 id: ART-137
 title: Build the dynamic live browser E2E suite
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-04 16:00'
-updated_date: '2026-08-24 15:00'
+updated_date: '2026-08-24 15:01'
 labels:
   - prd-2.0
   - v2-k
@@ -89,8 +89,8 @@ ordinal: 137000
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Final Summary
