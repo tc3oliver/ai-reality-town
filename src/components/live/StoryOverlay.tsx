@@ -33,10 +33,32 @@ import type { StoryOverlaySourceStatus, StoryOverlayViewModel } from './storyOve
  * claim that must never stand in for "that read has not arrived". Each block below therefore
  * renders from `summaryStatus` or `arcStatus`, whichever governs it, through {@link SourceState}.
  */
-export function StoryOverlay({ viewModel }: { viewModel: StoryOverlayViewModel }) {
+export function StoryOverlay({
+  viewModel,
+  defaultOpen = true,
+}: {
+  viewModel: StoryOverlayViewModel;
+  /**
+   * Whether the disclosure starts expanded (FR-O008 / ART-126).
+   *
+   * `true` — the desktop arrangement and the default, so every existing caller and test is
+   * unchanged. {@link ./LiveMapView} passes `false` below the single-column breakpoint, where the
+   * overlay sits underneath the map: FR-O007 says a mobile viewer is not required to be shown
+   * everything at once, and an expanded panel there pushes the rest of the page a screenful down
+   * for someone who came to watch the map.
+   *
+   * Passed as React's `open`, which is uncontrolled in practice: React writes the attribute only
+   * when the value it last rendered changes, so a viewer's own toggle survives every re-render
+   * and is reset only by crossing the breakpoint — a rotation or a resize, where re-deciding is
+   * the right behaviour anyway.
+   */
+  defaultOpen?: boolean;
+}) {
   return (
-    <section className="live-story-overlay mt-3" aria-labelledby="live-story-overlay">
-      <details className="live-story-overlay-details" open>
+    // No top margin of its own since ART-126: it is a grid item of `.live-stage`, which supplies
+    // the gap. A margin here would drop it out of alignment with the map beside it.
+    <section className="live-story-overlay" aria-labelledby="live-story-overlay">
+      <details className="live-story-overlay-details" open={defaultOpen}>
         <summary className="live-story-overlay-summary">
           <h2 id="live-story-overlay" className="text-xl font-semibold inline">
             故事資訊
@@ -119,7 +141,9 @@ export function StoryOverlay({ viewModel }: { viewModel: StoryOverlayViewModel }
               needs the narrated version. */}
           {viewModel.recommendedEntry !== null && (
             <p className="mt-2 text-sm">
-              <a href={viewModel.recommendedEntry.href}>
+              {/* Standalone, so it carries the touch target rather than the WCAG 2.5.8 inline
+                  exception (FR-O008 AC#3). */}
+              <a className="public-tap" href={viewModel.recommendedEntry.href}>
                 從第 {viewModel.recommendedEntry.episodeNumber} 集開始認識這個世界
               </a>
             </p>

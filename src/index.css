@@ -103,6 +103,18 @@ p[contenteditable='true']:empty::before {
   color: #4a4a4a;
 }
 
+/* Blocking-overflow guard (FR-O008 / ART-126 AC#4).
+ *
+ * The public surfaces print raw identifiers the world generates — arc ids, participant character
+ * ids joined with 、, event ids, scene keys of the form `7:evening:mistwood-mill`. None of them
+ * contains a break opportunity, so a long one sets the minimum content width of its block and
+ * pushes the whole page sideways on a narrow viewport: the horizontal scroll WCAG 1.4.10 and this
+ * AC both forbid. `anywhere` rather than `break-word` because only `anywhere` also shrinks the
+ * intrinsic min-content width, which is the half that actually stops the overflow. */
+.public-page {
+  overflow-wrap: anywhere;
+}
+
 .public-page a {
   color: #0842a0;
   text-decoration: underline;
@@ -151,18 +163,69 @@ p[contenteditable='true']:empty::before {
   padding: 0 0.5rem;
 }
 
+/* The responsive live stage (FR-O008 / ART-126 AC#1, AC#2).
+ *
+ * Holds exactly two children — `.live-map-canvas` and `.live-story-overlay` — as siblings, in
+ * that DOM order. One column below the breakpoint, so the map leads and the overlay is the card
+ * beneath it (AC#2); two columns above it, so both are on screen at once (AC#1).
+ *
+ * Deliberately NOT achieved with `order`. Reordering the two visually while leaving the DOM alone
+ * would buy the same picture at the cost of a reading order that disagrees with the focus order
+ * (WCAG 1.3.2 / 2.4.3). Changing the COLUMN COUNT keeps visual order equal to DOM order at every
+ * width, which is why the canvas moved ahead of the overlay in the markup rather than staying put
+ * with a CSS override.
+ *
+ * `minmax(0, …)` on both tracks, not `3fr 2fr`: a grid track's automatic minimum is `auto`, so a
+ * canvas or a long unbroken id would refuse to shrink below its content and widen the grid past
+ * the viewport — the same blocking overflow AC#4 forbids, arriving through the layout instead of
+ * through the text. */
+.live-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+
+/* 64rem. Matches `COMPACT_VIEWPORT_MAX_REM` in `useCompactViewport.ts`, which decides whether the
+ * overlay starts expanded; `liveResponsiveLayout.dom.test.tsx` asserts the two agree, so the
+ * layout and the disclosure can never disagree about what "compact" means. */
+@media (min-width: 64rem) {
+  .live-stage {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  }
+}
+
 /* Live map canvas (ART-118, FR-O001 AC#1). Sized in the stylesheet rather than
  * with a fixed width so the same surface works on desktop and mobile; the Pixi
  * stage reads the measured box through a ResizeObserver.
  *
  * `touch-action: none` is load-bearing: without it a mobile browser claims the
  * drag as a page scroll before pixi-viewport sees it, and the map cannot be
- * panned with a finger at all. */
+ * panned with a finger at all.
+ *
+ * ART-126 replaced `min(70vh, 640px)` plus a floor of `min-height: 280px`, which was itself a
+ * blocking-overflow bug: a phone in landscape is around 360px tall, so the floor — which beat the
+ * `70vh` cap, and was therefore what actually applied — left nothing else on screen. `clamp`
+ * keeps the same upper bound with a floor that no longer exceeds a real viewport, and the
+ * short-landscape rule below takes it lower still. `dvh` repeats the declaration so browsers that
+ * understand it measure against the viewport actually left after the mobile URL bar, and browsers
+ * that do not keep the `vh` line above. */
 .live-map-canvas {
   touch-action: none;
   width: 100%;
-  height: min(70vh, 640px);
-  min-height: 280px;
+  height: clamp(200px, 60vh, 640px);
+  height: clamp(200px, 60dvh, 640px);
+}
+
+/* A phone held sideways: wide, and shorter than anything else that reaches this stylesheet.
+ * 55% of ~360px is under the 200px floor above, so the floor is what would apply — this rule
+ * lowers it so the map takes a little over half the screen and the story overlay, the scene panel
+ * and the camera chrome are reachable with one short scroll rather than a full screen of it. */
+@media (orientation: landscape) and (max-height: 32rem) {
+  .live-map-canvas {
+    height: clamp(140px, 55vh, 320px);
+    height: clamp(140px, 55dvh, 320px);
+  }
 }
 
 /* Time-state banner (ART-121, FR-O014 AC#9). The three states must be told apart

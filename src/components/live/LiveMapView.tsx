@@ -24,6 +24,7 @@ import { StoryOverlay } from './StoryOverlay';
 import type { StoryOverlayViewModel } from './storyOverlayModel';
 import { TimeStateBanner } from './TimeStateBanner';
 import type { TimeStateBadge } from './timeStateLabel';
+import { useCompactViewport } from './useCompactViewport';
 import { useElementSize } from './useElementSize';
 import { useReducedMotion } from './useReducedMotion';
 import { useSpriteAssets } from './useSpriteAssets';
@@ -121,6 +122,8 @@ export function LiveMapView({
 }: LiveMapViewProps) {
   const observed = useReducedMotion();
   const reducedMotion = reducedMotionProp ?? observed;
+  // Only the story overlay's default open state depends on this; the layout itself is CSS.
+  const compactViewport = useCompactViewport();
   const spriteAssets = useSpriteAssets();
   const viewportRef = useRef<Viewport | undefined>(undefined);
   /**
@@ -157,7 +160,9 @@ export function LiveMapView({
   }
 
   return (
-    <PublicPageFrame worldId={worldId}>
+    // `wide` is what makes AC#1 reachable: the prose measure every other public page uses is
+    // narrower than a map beside a panel. Only this surface asks for it.
+    <PublicPageFrame worldId={worldId} width="wide">
       <header>
         <h1 className="text-3xl font-bold">實況地圖</h1>
         <p className="text-sm public-muted">
@@ -169,25 +174,42 @@ export function LiveMapView({
           viewer looks, not after they scroll past the map to find out (FR-O014 AC#9). */}
       {timeStateBadges.length > 0 && <TimeStateBanner badges={timeStateBadges} />}
 
-      {/* Before the canvas, and a block sibling of it rather than a layer over it (FR-O007
-          AC#5): "why does this matter" is what a viewer needs before they look at the map, and a
-          block above it structurally cannot obscure it. */}
-      {storyOverlay !== undefined && <StoryOverlay viewModel={storyOverlay} />}
+      {/* The responsive stage (FR-O008 / ART-126). Exactly two children: the canvas and the
+          story overlay, as block siblings — never one inside the other, so the overlay remains
+          structurally incapable of obscuring the map (FR-O007 AC#5).
 
-      <div ref={ref} className="live-map-canvas mt-3">
-        {size.width > 0 && size.height > 0 && (
-          <ReadOnlyWorld
-            viewModel={viewModel}
-            spriteAssets={spriteAssets}
-            screenWidth={size.width}
-            screenHeight={size.height}
-            viewportRef={viewportRef}
-            camera={camera ?? undefined}
-            reducedMotion={reducedMotion}
-            timeSlot={timeSlot}
-            zones={mistwoodLocationFootprints}
-            collision={mistwoodCollision}
-          />
+          The canvas comes FIRST in the DOM, which is also its visual position at every width.
+          Below the breakpoint the stage is one column, so the map leads and the overlay is the
+          card beneath it (AC#2, map-first). Above it the stage is two columns and they are on
+          screen together (AC#1). Because the arrangement is achieved by changing the number of
+          columns rather than by reordering, visual order equals DOM order in both — a flex/grid
+          `order` that put the map first on mobile would have desynchronised the reading order
+          from the focus order (WCAG 1.3.2 / 2.4.3) to buy the same result.
+
+          ART-125 rendered the overlay before the canvas so "why does this matter" was answerable
+          first. FR-O008 AC#2 asks for the opposite on small screens and wins; what ART-125 AC#5
+          actually required — that the overlay never obscure the map — is untouched, and is still
+          asserted by `storyOverlayLayout.dom.test.tsx`. */}
+      <div className="live-stage mt-3">
+        <div ref={ref} className="live-map-canvas">
+          {size.width > 0 && size.height > 0 && (
+            <ReadOnlyWorld
+              viewModel={viewModel}
+              spriteAssets={spriteAssets}
+              screenWidth={size.width}
+              screenHeight={size.height}
+              viewportRef={viewportRef}
+              camera={camera ?? undefined}
+              reducedMotion={reducedMotion}
+              timeSlot={timeSlot}
+              zones={mistwoodLocationFootprints}
+              collision={mistwoodCollision}
+            />
+          )}
+        </div>
+
+        {storyOverlay !== undefined && (
+          <StoryOverlay viewModel={storyOverlay} defaultOpen={!compactViewport} />
         )}
       </div>
 
@@ -250,8 +272,12 @@ export function LiveMapView({
       />
 
       <p className="mt-3 text-sm">
-        {/* NFR-009 AC#3: the map always signposts its non-map equivalent. */}
-        <a href={textLiveHref(worldId, base)}>改用文字實況(不需地圖)</a>
+        {/* NFR-009 AC#3: the map always signposts its non-map equivalent. `public-tap` because it
+            is a standalone control on a touch surface (FR-O008 AC#3), not a link inside a
+            sentence — the WCAG 2.5.8 inline exception does not apply to it. */}
+        <a className="public-tap" href={textLiveHref(worldId, base)}>
+          改用文字實況(不需地圖)
+        </a>
       </p>
     </PublicPageFrame>
   );
