@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-08-04 16:00'
-updated_date: '2026-08-24 17:39'
+updated_date: '2026-08-24 17:40'
 labels:
   - prd-2.0
   - v2-j
@@ -87,7 +87,7 @@ ordinal: 136000
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -212,4 +212,20 @@ Left unchecked, with the reason recorded in the results file rather than omitted
 
 Therefore DoD#1 is NOT checked and the task is NOT Done. The harness — which is what the task
 names as the deliverable — is complete, repeatable and committed.
+
+## Status after PR #194 (2026-08-25)
+
+PR #194 opened with auto-merge. The harness ships; the TASK stays In Progress because AC#4
+(mobile frame rate) is measured and failing, and DoD#1 requires every acceptance criterion.
+
+What would close it, in order of directness:
+1. Run `npm run bench` on a host with a real GPU, or on a physical mid-tier device. If the
+   figure clears 30 fps, AC#4 is settled and the remaining gaps are ART-138's deployment
+   measurements.
+2. If it does not clear it on real hardware, the Pixi stage needs work — the `degraded` rung
+   hits 60 fps on the same profile, so the cost is in the renderer and not elsewhere on the
+   page.
+
+This is not a Human Blocker under H01-H07: it needs hardware or renderer work, not a human
+decision.
 <!-- SECTION:NOTES:END -->
