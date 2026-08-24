@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs';
+
+import { MISTWOOD_CHARACTER_VISUALS } from '../../../data/mistwoodCharacters';
+
 /**
  * Unit tests for the pure homepage logic (ART-41, FR-I001). Covers hash-route
  * resolution and view-model composition — including every graceful-fallback
@@ -8,9 +12,11 @@
  */
 
 import {
-  composeHomepageViewModel,
+  HOME_ARC_STATUS_PRIORITY,
   HOME_MAX_CHARACTERS,
   HOME_MAX_FACTS,
+  HOME_MAX_SCENES,
+  composeHomepageViewModel,
   parseHomeRoute,
   type HomeLiveProjection,
   type HomeOnboardingSummary,
@@ -148,5 +154,131 @@ describe('composeHomepageViewModel', () => {
     expect(vm.majorEvent).toBeNull();
     expect(vm.live).toBeNull();
     expect(vm.characters).toEqual([]);
+  });
+});
+
+/**
+ * The homepage first screen (FR-P001 / ART-129).
+ */
+describe('the first screen (FR-P001 / ART-129)', () => {
+  const WORLD = 'mistwood';
+
+  function vm(live?: Partial<Parameters<typeof composeHomepageViewModel>[0]['live']>) {
+    return composeHomepageViewModel({
+      worldId: WORLD,
+      summary: {
+        summaryText: '磨坊之爭正在升溫。',
+        structured: {
+          majorEvent: { eventId: 'e1', publicSummary: '審計被要求公開。' },
+          importance: 4,
+          characters: [
+            { characterId: 'he-jun', name: '何俊' },
+            { characterId: 'lin-yingxue', name: '林映雪' },
+          ],
+          facts: [],
+          question: null,
+          recommendedEpisode: { episodeNumber: 3, worldDay: 2 },
+        },
+      },
+      world: { name: '霧林鎮', currentWorldDay: 5, currentTimeSlot: '午後' },
+      live: { worldTime: { worldDay: 5, timeSlot: '午後' }, ...live } as never,
+      base: '/ai-town/',
+    });
+  }
+
+  test('AC#4 — a character carries the sprite key the live map draws them with', () => {
+    // Read from the SAME binding table the map resolves, so the two surfaces cannot disagree
+    // about who draws with what. Compared against the table rather than against a literal 'f4',
+    // which would keep passing if the binding were reassigned.
+    for (const character of vm().characters) {
+      const binding = MISTWOOD_CHARACTER_VISUALS
+        .find((visual) => visual.characterId === character.characterId);
+      expect(character.spriteKey).toBe(binding?.spriteKey);
+      expect(character.spriteKey).toBeTruthy();
+    }
+  });
+
+  test('AC#5 — a character links to their own page', () => {
+    expect(vm().characters.map((c) => c.href)).toEqual([
+      `#character/${WORLD}/he-jun`,
+      `#character/${WORLD}/lin-yingxue`,
+    ]);
+  });
+
+  test('AC#2 — the primary arc is the highest-priority one, not the first published', () => {
+    const model = vm({
+      activeArcs: [
+        { arcId: 'arc-b', title: '收束', currentQuestion: '?', status: 'resolving' },
+        { arcId: 'arc-a', title: '高潮', currentQuestion: '撐得過冬天嗎?', status: 'climax' },
+      ],
+    });
+    expect(model.primaryArc?.arcId).toBe('arc-a');
+    expect(model.primaryArc?.statusLabel).toBe('高潮');
+    expect(model.primaryArc?.href).toBe(`#arc/${WORLD}/arc-a`);
+  });
+
+  test('the arc choice is deterministic and total', () => {
+    // Ties broken by arcId, so the same payload always yields the same lead arc regardless of
+    // the order the backend published them in.
+    const tied = vm({
+      activeArcs: [
+        { arcId: 'b', title: 'B', currentQuestion: '', status: 'active' },
+        { arcId: 'a', title: 'A', currentQuestion: '', status: 'active' },
+      ],
+    });
+    expect(tied.primaryArc?.arcId).toBe('a');
+    // An unknown status ranks last but stays ELIGIBLE: a lifecycle stage added later must degrade
+    // to "sorted last", never to "disappears from the homepage".
+    const unknown = vm({ activeArcs: [{ arcId: 'x', title: 'X', currentQuestion: '', status: 'brand-new' }] });
+    expect(unknown.primaryArc?.arcId).toBe('x');
+    expect(unknown.primaryArc?.statusLabel).toBe('brand-new');
+  });
+
+  test('a malformed live payload degrades the first screen instead of blanking the page', () => {
+    // The payload is an untyped published model. `Array.isArray` rather than `?? []` because a
+    // non-array would throw on `.slice` and take the whole homepage down with it.
+    for (const broken of [{ activeArcs: 'nope' }, { activeScenes: 42 }, { activeArcs: null }]) {
+      const model = vm(broken as never);
+      expect(model.primaryArc).toBeNull;
+      expect(Array.isArray(model.activeScenes)).toBe(true);
+      // ...and the rest of the screen survived.
+      expect(model.currentSituation).toContain('磨坊');
+    }
+  });
+
+  test('scenes are bounded and link to the day they belong to', () => {
+    const model = vm({
+      activeScenes: [
+        { title: 'A', summary: 'a', sceneId: '5:午後:mill' },
+        { title: 'B', summary: 'b', sceneId: '5:午後:hall' },
+        { title: 'C', summary: 'c', sceneId: '5:午後:inn' },
+      ],
+    });
+    expect(model.activeScenes).toHaveLength(HOME_MAX_SCENES);
+    expect(model.activeScenes[0].href).toBe(`#episode/${WORLD}/5`);
+  });
+
+  test('the arc ordering is IDENTICAL to the live overlay’s, which it restates', () => {
+    // `clientPublic` may not depend on `clientLive`, and the reverse edge already exists — so the
+    // table is restated rather than imported. A restatement that drifted would have the homepage
+    // and the live overlay naming DIFFERENT arcs as "the" story, which is worse than either
+    // naming none. Read as source text, which costs no dependency.
+    const overlay = readFileSync(
+      new URL('../live/storyOverlayModel.ts', import.meta.url),
+      'utf8',
+    );
+    const priority = overlay.match(/STORY_ARC_STATUS_PRIORITY: readonly string\[\] = \[([^\]]*)\]/);
+    expect(priority).not.toBeNull();
+    const theirs = [...(priority as RegExpMatchArray)[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+    expect(theirs.length).toBeGreaterThan(0);
+    expect([...HOME_ARC_STATUS_PRIORITY]).toEqual(theirs);
+
+    // ...and so are the labels, so the same arc is not called 「高潮」 on one page and something
+    // else on the other.
+    const labels = overlay.match(/ARC_STATUS_LABELS: Readonly<Record<string, string>> = \{([^}]*)\}/);
+    for (const [, status, label] of (labels as RegExpMatchArray)[1].matchAll(/(\w+):\s*'([^']+)'/g)) {
+      const model = vm({ activeArcs: [{ arcId: 'a', title: 'T', currentQuestion: '', status }] });
+      expect(model.primaryArc?.statusLabel).toBe(label);
+    }
   });
 });

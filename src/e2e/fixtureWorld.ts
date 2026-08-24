@@ -217,6 +217,20 @@ export function fixtureReadModel(modelRef: string): { payload: unknown } | null 
         summaryText: '磨坊之爭正在升溫,兩派剛在鎮公所簽下休戰。',
         structured: {
           majorEvent: { eventId: 'mistwood#event#102', publicSummary: '眾人見證休戰簽署。' },
+          importance: 4,
+          // The homepage's first screen (FR-P001 / ART-129) draws up to four of these with their
+          // sprite bindings. Absent, the screen renders with nobody in it — which is a valid
+          // degraded state and therefore not something an E2E failure would obviously explain.
+          characters: MISTWOOD_CHARACTER_VISUALS.slice(0, 4).map((visual) => ({
+            characterId: visual.characterId,
+            name: visual.displayName,
+          })),
+          facts: [
+            { factId: 'f1', predicate: 'millStopped', value: true },
+            { factId: 'f2', predicate: 'auditRequested', value: true },
+            { factId: 'f3', predicate: 'truceSigned', value: true },
+          ],
+          question: '休戰能撐過冬天嗎?',
           recommendedEpisode: { episodeNumber: 3, worldDay: FIXTURE_WORLD_DAY },
         },
       },

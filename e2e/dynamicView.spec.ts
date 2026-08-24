@@ -63,7 +63,9 @@ function isStaticAsset(request: Request): boolean {
   if (url.origin !== ORIGIN) return false;
   return /\.(?:js|css|html|png|jpe?g|svg|ttf|woff2?|json|ico|map)$/.test(url.pathname)
     || url.pathname.endsWith('/')
-    || url.pathname.startsWith(`${BASE}/live/`);
+    || url.pathname.startsWith(`${BASE}/live/`)
+    || url.pathname === `${BASE}/`
+    || url.pathname === BASE;
 }
 
 /** Every request the page made that was not it loading itself. */
@@ -360,5 +362,70 @@ test.describe('the live map in a real browser', () => {
     //    name; the observable form of "the count did not increase" is that the page made no
     //    request to anything but its own static assets, which (2) has just established.
     expect(network.offSite).toHaveLength(0);
+  });
+});
+
+/**
+ * The homepage first screen (FR-P001 / ART-129).
+ *
+ * Two of its criteria are only settleable in a browser: whether the first screen actually paints
+ * the residents (a `background-image` on a 64px box is a claim until an engine loads the texture),
+ * and whether the page triggers any generation — which is a statement about the network, not
+ * about the source.
+ */
+test.describe('the homepage first screen (FR-P001 / ART-129)', () => {
+  const HOME = `${BASE}/#home/${WORLD}`;
+
+  test('AC#3/#4 — the residents are drawn, from the texture the map uses', async ({ page }) => {
+    await page.goto(HOME);
+    await expect(page.locator('.home-first-screen')).toBeVisible();
+    const sprites = page.locator('.home-first-screen .public-sprite');
+    await expect(sprites.first()).toBeVisible();
+
+    // Painted, not merely declared: the box has real size and the texture actually loaded. A
+    // broken URL leaves `background-image` in the style attribute and nothing on screen.
+    const box = await sprites.first().boundingBox();
+    expect(box?.width ?? 0).toBeGreaterThanOrEqual(32);
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(32);
+    const loaded = await sprites.first().evaluate((element) => {
+      const url = getComputedStyle(element).backgroundImage.match(/url\("?([^")]+)"?\)/)?.[1];
+      if (url === undefined) return Promise.resolve(false);
+      return new Promise<boolean>((resolve) => {
+        const probe = new Image();
+        probe.onload = () => resolve(probe.naturalWidth > 0);
+        probe.onerror = () => resolve(false);
+        probe.src = url;
+      });
+    });
+    expect(loaded).toBe(true);
+    // Nearest-neighbour, so the homepage and the Pixi canvas — which samples the same texture —
+    // do not show visibly different characters.
+    await expect(sprites.first()).toHaveCSS('image-rendering', 'pixelated');
+  });
+
+  test('AC#5 — a resident tile navigates to their page', async ({ page }) => {
+    await page.goto(HOME);
+    const tile = page.locator('.home-cast-link').first();
+    await expect(tile).toBeVisible();
+    const href = await tile.getAttribute('href');
+    await tile.click();
+    await expect(page).toHaveURL(new RegExp(`${(href as string).replace('#', '\\#')}$`));
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  });
+
+  test('AC#6 — the homepage triggers no generation', async ({ page }) => {
+    const network = watchNetwork(page);
+    await page.goto(HOME);
+    await expect(page.locator('.home-first-screen')).toBeVisible();
+    await page.waitForTimeout(1_500);
+
+    // Same two independent observations the live map gets. The published models the first screen
+    // reads are rebuilt on Canon commit and served from cache, so a public view structurally
+    // cannot cause a summary to be generated — this is that claim, at runtime.
+    const recorded = await recorder(page);
+    expect(recorded.writes).toEqual([]);
+    for (const query of recorded.queries) expect(query).toMatch(/^publicRead\/\w+:get/);
+    expect(network.writes).toEqual([]);
+    expect(network.offSite).toEqual([]);
   });
 });

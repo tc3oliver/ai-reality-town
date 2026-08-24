@@ -590,3 +590,70 @@ p[contenteditable='true']:empty::before {
     scroll-behavior: auto !important;
   }
 }
+
+/* --------------------------------------------------------------------------
+ * The homepage first screen (FR-P001 / ART-129).
+ *
+ * UX2-001 asks a viewer to SEE the world before reading about it, and RISK2-006
+ * names "text headings and lists" as the gap. The cast row is what makes this
+ * screen not-a-document: twelve residents already have a sprite binding, and
+ * drawing four of them costs one image the page was going to load anyway.
+ * -------------------------------------------------------------------------- */
+
+.home-first-screen {
+  border-left: 3px solid var(--public-accent);
+}
+
+.home-lead-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+/* The lead action reads as the primary one without relying on colour alone: it is
+ * also first, weightier, and outlined more strongly than its sibling. */
+.home-lead-live {
+  font-weight: 700;
+  border: 2px solid var(--public-accent);
+  border-radius: 6px;
+  background: var(--public-accent-soft);
+}
+
+.home-cast {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  list-style: none;
+  padding-left: 0;
+  margin-top: 0.75rem;
+}
+
+/* The whole tile is the link — sprite and name together — so the touch target is
+ * the thing a viewer is aiming at rather than the four characters of the name. */
+.home-cast-link {
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 72px;
+  padding: 0.4rem;
+  border: 1px solid var(--public-border);
+  border-radius: 8px;
+  background: var(--public-surface-sunken);
+  text-decoration: none;
+}
+
+.home-cast-link:hover {
+  border-color: var(--public-accent);
+}
+
+/* `pixelated` is load-bearing: the source is 32x32 pixel art, and a smoothed
+ * upscale would make the homepage and the Pixi canvas — which samples the same
+ * texture with nearest-neighbour — show visibly different characters. */
+.public-sprite {
+  display: inline-block;
+  flex: none;
+  width: 64px;
+  height: 64px;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
