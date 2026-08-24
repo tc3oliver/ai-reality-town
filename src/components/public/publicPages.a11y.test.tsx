@@ -1085,3 +1085,74 @@ describe('the status chips (FR-P003 / ART-131 AC#3, AC#7)', () => {
     expect(shown.textContent).toContain('已暫停');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Editorial → live map navigation (FR-P002 / ART-130 AC#2, AC#3).
+//
+// `liveMapLinks.test.ts` proves the hrefs round-trip back to the right target.
+// This is the other half: that the pages actually RENDER them, and render them
+// with names that survive being read out of context.
+// ---------------------------------------------------------------------------
+
+describe('editorial pages link into the live map (FR-P002 / ART-130)', () => {
+  function mapLinks(container: HTMLElement) {
+    return Array.from(container.querySelectorAll('a[href]')).filter((anchor) =>
+      (anchor.getAttribute('href') ?? '').includes('/live/'),
+    );
+  }
+
+  test('AC#2 — an Episode offers each related character on the map, not only their page', () => {
+    const container = render(
+      <EpisodeDetailView
+        worldId={WORLD_ID}
+        worldDay={4}
+        episode={episodeProjection()}
+        onNavigate={() => undefined}
+      />,
+    );
+    const links = mapLinks(container);
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) {
+      const href = link.getAttribute('href') ?? '';
+      // Focused, and asking for the card: "where are they" and "what are they doing" are one
+      // question, and the camera alone answers half of it.
+      expect(href).toContain('focus=');
+      expect(href).toContain('card=1');
+      // Every row renders the same visible text, so the accessible name carries the character
+      // (WCAG 2.4.4) — and still starts with the visible label (WCAG 2.5.3).
+      const name = accessibleName(link);
+      expect(name).not.toBe('在地圖上查看');
+      expect(name.startsWith('在地圖上查看')).toBe(true);
+    }
+    // Distinct per character, so a link list is not N identical entries.
+    expect(new Set(links.map((link) => accessibleName(link))).size).toBe(links.length);
+    // The page links to the character PAGE too — the map link is an addition, not a replacement.
+    expect(container.querySelector(`a[href^="#character/${WORLD_ID}/"]`)).not.toBeNull();
+  });
+
+  test('AC#3 — a story arc offers its core people on the map', () => {
+    const container = render(<ArcDetailView worldId={WORLD_ID} vm={arcViewModel()} />);
+    const links = mapLinks(container);
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) {
+      expect(link.getAttribute('href')).toContain('focus=');
+      expect(accessibleName(link).startsWith('在地圖上查看')).toBe(true);
+      // Thumb-sized, like every other standalone control on these pages (ART-126 AC#3).
+      expect(link.classList.contains('public-tap')).toBe(true);
+    }
+  });
+
+  test('both pages stay axe-clean with the new links', async () => {
+    for (const element of [
+      <EpisodeDetailView
+        worldId={WORLD_ID}
+        worldDay={4}
+        episode={episodeProjection()}
+        onNavigate={() => undefined}
+      />,
+      <ArcDetailView worldId={WORLD_ID} vm={arcViewModel()} />,
+    ]) {
+      await expectAccessible(element);
+    }
+  });
+});

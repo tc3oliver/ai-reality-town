@@ -117,12 +117,7 @@ export interface CharacterCardViewModel {
  * The prefix is derived from {@link characterTargetId} itself rather than written out again, so
  * the two cannot drift: if the producer ever changes its namespace, this follows it.
  */
-export function characterIdFromFocusTargetId(targetId: string): string | null {
-  const prefix = characterTargetId('');
-  if (!targetId.startsWith(prefix)) return null;
-  const characterId = targetId.slice(prefix.length);
-  return characterId.length > 0 ? characterId : null;
-}
+export { characterIdFromFocusTargetId } from './liveMapRoute';
 
 /**
  * Published activity, in the viewer's language. Total over the union, so a state the projection

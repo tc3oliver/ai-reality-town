@@ -1,6 +1,7 @@
 import { useQuery } from 'convex/react';
 import { getPublishedReadModelRef } from './publicReadModelRef';
 import { PublicPageFrame } from './PublicPageFrame';
+import { characterMapHref } from './liveMapLinks';
 import {
   composeArcViewModel,
   parseArcRoute,
@@ -118,8 +119,19 @@ export function ArcDetailView({ worldId, vm }: { worldId: string; vm: ArcViewMod
           <ul className="public-rows">
             {vm.coreCharacters.map((person) => (
               <li key={person.characterId} className="text-sm">
-                <a href={person.href}>{person.name}</a>
+                <a className="public-tap" href={person.href}>{person.name}</a>
                 {person.role && <span className="public-muted">({person.role})</span>}
+                {/* FR-P002 / ART-130 AC#3 — the arc links to its core people ON THE MAP, not only
+                    to their pages. An arc is about what is happening; "where is this happening"
+                    is the question the map answers and the page cannot. Named per row, since
+                    every row renders the same text (WCAG 2.4.4). */}
+                <a
+                  className="public-tap"
+                  href={characterMapHref(worldId, person.characterId)}
+                  aria-label={`在地圖上查看 ${person.name}`}
+                >
+                  在地圖上查看
+                </a>
               </li>
             ))}
           </ul>
