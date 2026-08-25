@@ -3,7 +3,7 @@
 - **Requirement IDs:** FR-J001 (PRD 1.0 §12 Epic J, §5.1 G11, UX-005, §19.1, RISK-002)
 - **Related:** FR-L003 / ART-56 (viewer-input classifier), FR-D004 / ART-15 (Canon validation),
   FR-O009 / ART-128 (public read-only guarantee)
-- **Status:** implemented
+- **Status:** implemented (PR #204)
 
 ## 1. What ships
 

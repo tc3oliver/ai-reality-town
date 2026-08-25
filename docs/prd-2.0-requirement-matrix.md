@@ -197,7 +197,7 @@ Requirement Matrix 不應只放未附證據的診斷結論。ART-139 的既有�
 
 | Task | 覆蓋的 Closure Matrix 條目 |
 |---|---|
-| **ART-45** | §5.1 G11、UX-005、FR-J001、§19.1、RISK-002 —— **Done**。每日環境投票已上線：目錄式候選（非自由文字）、每裝置每日一票＋嘗試次數預算、截止後單一勝出（決定性 tie-break）、勝出者以 **Proposed** World Event 經既有結構與 Canon 驗證注入。首頁 `voteAvailable` 由已發布的 ballot 推導，不再硬編碼 `false`。**與 FR-O009 的關係見下方 §5.6 與 `docs/daily-environment-vote.md` §2** |
+| **ART-45** | §5.1 G11、UX-005、FR-J001、§19.1、RISK-002 —— **Done**。每日環境投票已上線：目錄式候選（非自由文字）、每裝置每日一票＋嘗試次數預算、截止後單一勝出（決定性 tie-break）、勝出者以 **Proposed** World Event 經既有結構與 Canon 驗證注入。首頁 `voteAvailable` 由已發布的 ballot 推導，不再硬編碼 `false`。**與 FR-O009 的關係見下方 §5.6 與 `docs/daily-environment-vote.md` §2**。實作證據：PR #204 |
 | **ART-39** | §5.1 G10、FR-H004 |
 | **ART-73** | NFR-007、§19.3 |
 | **ART-59** | FR-M003、§16.3、RISK-005 |
