@@ -319,12 +319,38 @@ test.describe('the live map in a real browser', () => {
     }
 
     // Touch targets, measured in the engine rather than read off a stylesheet (FR-O008 AC#3).
-    for (const control of await page.locator('main .public-tap').all()) {
-      const box = await control.boundingBox();
-      if (box === null) continue;
-      expect(box.height).toBeGreaterThanOrEqual(43.5);
-      expect(box.width).toBeGreaterThanOrEqual(43.5);
-    }
+    //
+    // ONE round trip, not one per control. This loop used to call `boundingBox()` on each
+    // `.public-tap` in turn — 44 of them on the live map today, and the count only ever grows as
+    // features add controls (ART-131's chips, ART-127's ladder, ART-135's accessibility
+    // affordances). Each call is a round trip that also waits for actionability, and over a
+    // continuously animating canvas that waiting is not free. The test passed locally in 19s and
+    // exceeded the 60s timeout on CI runners, which is a gate failing on its own cost rather
+    // than on the property it measures. Raising the timeout would have hidden that; measuring
+    // everything in one `evaluate` removes it.
+    //
+    // `getClientRects().length === 0` reproduces the `boundingBox() === null` case the old loop
+    // skipped: an element that is not rendered has no box to measure, and asserting 44px on a
+    // control nobody can touch would fail for a control that is not there.
+    const targets = await page.evaluate(() =>
+      [...document.querySelectorAll('main .public-tap')]
+        .filter((element) => element.getClientRects().length > 0)
+        .map((element) => {
+          const rect = element.getBoundingClientRect();
+          return {
+            label: (element.textContent ?? '').trim().slice(0, 40),
+            height: rect.height,
+            width: rect.width,
+          };
+        }),
+    );
+    // The measurement has to have found something; an empty list would satisfy every assertion
+    // below while proving nothing about any touch target.
+    expect(targets.length).toBeGreaterThan(0);
+    const tooSmall = targets.filter((target) => target.height < 43.5 || target.width < 43.5);
+    // Reported as the offending controls rather than as a bare boolean, so a failure names which
+    // control shrank instead of only that one did.
+    expect(tooSmall).toEqual([]);
   });
 
   test('AC#10/#11 — watching the world writes nothing and asks for no generation', async ({ page }) => {
