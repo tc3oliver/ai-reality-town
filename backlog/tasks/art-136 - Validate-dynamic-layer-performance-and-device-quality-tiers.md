@@ -1,11 +1,11 @@
 ---
 id: ART-136
 title: Validate dynamic layer performance and device quality tiers
-status: In Progress
+status: Blocked
 assignee:
   - '@claude'
 created_date: '2026-08-04 16:00'
-updated_date: '2026-08-24 17:40'
+updated_date: '2026-08-25 11:45'
 labels:
   - prd-2.0
   - v2-j
@@ -88,7 +88,7 @@ ordinal: 136000
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -228,4 +228,17 @@ What would close it, in order of directness:
 
 This is not a Human Blocker under H01-H07: it needs hardware or renderer work, not a human
 decision.
+
+## Blocked (2026-08-25): H01 + H03 — the remaining criteria need an environment this session cannot create
+
+PR #194 is merged, so DoD #14 is satisfied. The benchmark harness, its committed results and its documentation are all delivered and green under `npm run check`. What is NOT delivered is a PASS on five criteria, and each is blocked on the same class of thing rather than on missing work:
+
+- **AC#2 / AC#3 — `requires_deployment`, recorded as such in `docs/benchmarks/dynamic-view-latest.json`.** The E2E build replaces the Convex TRANSPORT with a synchronous in-process fixture. Measuring query P95 against it would record ~0ms and report a pass for a path that was never exercised — a worse outcome than reporting nothing. AC#3 spans simulation, projection rebuild and subscription push, none of which exist in a fixture build. Both need a deployed Convex deployment with provider credentials (H01), and standing one up is a production deploy (H03, forbidden by CLAUDE.md §5).
+- **AC#4 (mobile) — measured, FAILING, and inconclusive.** ~28 fps against a 30 fps threshold. Reported as a real failure (`npm run bench` exits non-zero) rather than explained away. But this host has no usable GPU — Chromium reports ANGLE/SwiftShader even with the blocklist ignored — so the mobile profile software-rasterises a 1080x2340 backing store under 4x CPU throttling, which is harsher than the named device. The figure therefore cannot settle the criterion in either direction for real hardware. Locating evidence: the `degraded` rung reaches 60 fps on the same profile, which puts the cost in the Pixi stage rather than elsewhere on the page.
+- **AC#7 — an eight-hour soak has not been run.** The harness measures heap growth on the post-collection floor across six windows (the fix for the sawtooth false-positive documented above), but the criterion names eight hours and a run of that length was not performed here.
+- **AC#12 — 'executed and passed before public release' cannot be satisfied before a release exists.** It is the release gate's to close, and ART-138 is itself Blocked on the same H01/H03 pair.
+
+AC#6 is deliberately left unchecked. The benchmark COVERS twelve, twenty and forty visible characters (AC#9, checked, and the samples are in the results file), but AC#6 asks that performance BE measured at those counts, and on a host whose fps figures are inconclusive for the mobile profile the measurement does not settle it. Checking it would be checking the coverage, not the criterion.
+
+Nothing here is waiting on a decision or on further implementation. It is waiting on a GPU host or a real device, and on a deployed environment — the same blockers ART-138 records.
 <!-- SECTION:NOTES:END -->
