@@ -23,6 +23,7 @@ import { CANON_VALIDATION_VERSION } from '../shared/constants';
 import { CanonError } from '../shared/errors';
 import { deriveEventId } from '../shared/ids';
 import { emptyProjection, type AcceptedEvent, type CanonImmutableRule, type CanonRuleContext, type ProposedEvent } from './model';
+import { personaAnchorFromSeed } from './personaDeviation';
 import { proposedEventArgs } from './proposedEvent';
 import { replayWorldEvents } from './replay';
 import { rowToAcceptedEvent } from './serialize';
@@ -87,6 +88,12 @@ export async function commitProposedEvent(
     const ruleContext: CanonRuleContext = {
       ...(persistedContext ?? { worldId: proposed.worldId, rules: [] }),
       knownEventIds: events.map((event) => event.eventId),
+      // Derived from the events already in hand rather than read again: FR-B003 needs to know
+      // whether a cited cause actually involved the deviating character, and a second query for
+      // data this transaction has already loaded would be a second chance to disagree with it.
+      knownEventParticipantIds: Object.fromEntries(
+        events.map((event) => [event.eventId, event.participantIds]),
+      ),
     };
 
   // 4. Canon validation against the current projection.
@@ -159,6 +166,13 @@ export function createConvexCanonStore(
         worldId,
         rules: rules.map((row) => row.payload as CanonImmutableRule),
         characterIds: characters.map((row) => row.characterId),
+        // FR-B003 anchors come from the seed rows this query already reads. A payload that cannot
+        // yield an anchor contributes nothing, so an older or partial seed leaves the gate inert
+        // for that character instead of failing every commit involving them.
+        characterPersonas: Object.fromEntries(characters.flatMap((row) => {
+          const anchor = personaAnchorFromSeed(row.characterId, row.payload);
+          return anchor ? [[row.characterId, anchor] as const] : [];
+        })),
         locationIds: activeLocations.map((row) => row.locationId),
         itemIds: items.map((row) => row.assetId),
         organizationIds: organizations.map((row) => row.organizationId),

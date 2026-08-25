@@ -1,10 +1,11 @@
 ---
 id: ART-11
 title: Persona deviation detection and character summaries
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 16:24'
+updated_date: '2026-08-25 12:38'
 labels:
   - prd-1.0
   - epic-c
@@ -88,3 +89,14 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Pure module `convex/canon/personaDeviation.ts`. `PersonaAnchor` = the seed's structural identity fields (occupation, seeded organizations, traits/values/goals/fear/behaviourRules kept for the summary). Deviation signals are computed from STRUCTURED event data + the current projection only, never by matching persona prose: (a) occupation abandoned away from the anchor, (b) a seeded organization membership dropped, (c) a relationship dimension crossing zero with a swing >= PERSONA_SIGNIFICANT_SWING [reversal class], (d) a same-sign relationship swing >= the same threshold [deviation class]. Justifications map FR-B003's four bullets to structural evidence in the same event: explicit emotion change; a causal accepted event that materially involved the character; a recorded adversarial relationship change toward a co-participant (goal conflict as Canon can witness it); a high-importance character_memory_formed (growth/breakdown marker).
+2. Gate in `validateCanon`, driven by a new optional `CanonRuleContext.characterPersonas`. Unsupported REVERSAL -> reject with `UNSUPPORTED_PERSONA_REVERSAL`; unsupported high-importance non-reversal deviation -> `PERSONA_DEVIATION_REVIEW_REQUIRED` (AC#2's two arms; both are stable codes that the FR-K002 review console already surfaces). Superseding remediation events are exempt; an absent persona map leaves the gate inert so existing history and tests are unaffected.
+3. Flags and summaries are a DERIVED projection, not a table: `buildCharacterSummaries(initialProjection, events, anchors)` folds accepted events, appending one flag per high-importance deviation (AC#1) and bumping `version` plus appending a turning point when the deviation revises who the character is (AC#3). No schema change, no snapshot version bump.
+4. Wire anchors through `createConvexCanonStore.loadCanonRuleContext` (worldCharacters payloads are already loaded there) and expose an internal-only `getCharacterSummaries` query. Summaries carry state-change reasons, which may contain secrets, so they stay internal and out of every public read.
+5. Tests in `convex/canon/personaDeviation.test.ts`: flagged-and-committed, rejected reversal, review-required deviation, allowed small change, supported reversal accepted, replay determinism, gate inertness without anchors, and a structural boundary assertion that no publicRead/viewer module imports the summary module. Fault injection to prove non-vacuity.
+6. Docs: `docs/persona-deviation.md` design note; update the FR-B003 row of `docs/prd-1.0-closure-matrix.md`. Gate with `npm run check`.
+<!-- SECTION:PLAN:END -->
