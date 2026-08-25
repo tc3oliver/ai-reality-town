@@ -559,7 +559,10 @@ export function createWorldDayPort(
       }
       return snapshot;
     },
+    // The ninety-day harness runs no ballot, so its environment queue is genuinely empty and
+    // nothing is ever marked applied. FR-J001's own coverage is `environmentVoteInjection.test.ts`.
     loadScheduledEnvironmentEvents: () => Promise.resolve([]),
+    markScheduledEnvironmentEventApplied: () => Promise.resolve(),
     persistDirectorPlan: () => Promise.resolve(),
     persistCharacterIntent: () => Promise.resolve(),
     persistGroupedScenes: () => Promise.resolve(),

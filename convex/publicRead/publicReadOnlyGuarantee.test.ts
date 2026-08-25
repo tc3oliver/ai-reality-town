@@ -1,9 +1,17 @@
 /**
  * THE public read-only guarantee (ART-128 / FR-O009).
  *
- * PRD 2.0 §18.1 sets two numbers to exactly zero -- viewer-triggered LLM calls and
- * successful public mutations -- and §22 makes both a release gate. §12 Epic O adds
- * that hiding a control in the UI is explicitly not enough.
+ * PRD 2.0 §22.16 sets two numbers to exactly zero -- LLM calls and successful mutations caused
+ * by public VIEWING -- and §22 makes both a release gate. §12 Epic O adds that hiding a control
+ * in the UI is explicitly not enough.
+ *
+ * ART-45 (FR-J001) made the word 「觀看」 load-bearing. PRD 1.0 §5.1 G11 requires a daily viewer
+ * ballot, so "no anonymous caller may ever write" and "the product ships the vote the PRD asks
+ * for" cannot both be true as stated. The resolution is that the guarantee is proven PER SURFACE:
+ * viewing -- `/live`, the world renderer, every public page, the app shell -- still reaches
+ * nothing but reads, and there is exactly ONE declared, capped, safety-gated ballot that a
+ * viewer reaches only by deliberately casting a vote. `docs/daily-environment-vote.md` §2 records
+ * the decision and the alternative that was rejected.
  *
  * That claim cannot be proven by driving the app. A behavioural test only shows that
  * the paths it happened to walk did not write; it says nothing about the anonymous
@@ -57,6 +65,7 @@ import {
   type ReadModelKind,
   type StoredReadModel,
 } from './readModel';
+import * as environmentVoteFunctions from '../viewer/environmentVoteFunctions';
 import { PUBLIC_DYNAMIC_FORBIDDEN_FIELDS } from './publicDynamicProjection';
 import { serveRuntimeSnapshot, type RuntimeSnapshotReadStore } from './runtimeSnapshot';
 
@@ -64,7 +73,17 @@ const ROOT = process.cwd();
 
 // --- the declared surface ---------------------------------------------------
 
-type SurfaceEntry = { path: string; name: string; kind: 'query' | 'mutation' | 'action'; gate: 'anonymous' | 'operator' };
+type SurfaceEntry = {
+  path: string;
+  name: string;
+  kind: 'query' | 'mutation' | 'action';
+  /**
+   * `viewer` is ART-45 (FR-J001): the one declared ballot write. It is NOT `anonymous` -- the
+   * policy still rejects an anonymous mutation outright -- and it carries its own stricter
+   * rules in `viewerWriteBoundary`. See `docs/daily-environment-vote.md` §2.
+   */
+  gate: 'anonymous' | 'operator' | 'viewer';
+};
 
 const policy = JSON.parse(readFileSync(join(ROOT, 'architecture/module-boundaries.json'), 'utf8')) as {
   publicFunctionSurface: { allowed: SurfaceEntry[]; forbiddenRegistrations: string[] };
@@ -88,6 +107,7 @@ const MODULES: Readonly<Record<string, Record<string, unknown>>> = {
   'convex/publicRead/liveStateFunctions.ts': liveStateFunctions,
   'convex/publicRead/runtimeSnapshotFunctions.ts': runtimeSnapshotFunctions,
   'convex/publicRead/visualReplayFunctions.ts': visualReplayFunctions,
+  'convex/viewer/environmentVoteFunctions.ts': environmentVoteFunctions,
 };
 
 /** A Convex-registered function, as it exists at runtime. */
@@ -109,6 +129,17 @@ function registered(entry: SurfaceEntry): Registered {
 
 const PUBLIC_MUTATIONS = ALLOWED.filter((entry) => entry.kind === 'mutation');
 const PUBLIC_QUERIES = ALLOWED.filter((entry) => entry.kind === 'query');
+/**
+ * Operator controls, split out from {@link PUBLIC_MUTATIONS} by ART-45.
+ *
+ * The adversarial-invocation suites below assert `OPS_UNAUTHORIZED` and `state.touched === false`
+ * -- properties of a function that must refuse EVERY caller. The viewer ballot is reachable by
+ * design, so holding it to that bar would assert something false. It is proven separately, and
+ * against the things that actually bound it: it cannot reach Canon, it declares no
+ * character-control argument, and it is capped and safety-gated by policy.
+ */
+const OPERATOR_MUTATIONS = PUBLIC_MUTATIONS.filter((entry) => entry.gate === 'operator');
+const VIEWER_MUTATIONS = PUBLIC_MUTATIONS.filter((entry) => entry.gate === 'viewer');
 
 // --- source scanning --------------------------------------------------------
 
@@ -291,10 +322,20 @@ describe('AC#1 — the client-reachable surface is exactly what policy declares'
     }
   });
 
-  test('every public mutation is an operator control; no anonymous mutation exists', () => {
+  test('no anonymous mutation exists; every write is an operator control or the one ballot', () => {
+    // The claim PRD 2.0 §22.16 makes is about public VIEWING, and ART-45 (FR-J001) is where the
+    // difference started to matter: a daily ballot is a deliberate act, not viewing. So the
+    // invariant asserted here is the precise one -- `anonymous` still means READ ONLY, and the
+    // only write a viewer can reach is the single ballot the policy names.
     expect(PUBLIC_MUTATIONS.length).toBeGreaterThan(0);
-    for (const entry of PUBLIC_MUTATIONS) expect(entry.gate).toBe('operator');
     expect(ALLOWED.filter((entry) => entry.gate === 'anonymous').every((entry) => entry.kind === 'query')).toBe(true);
+    expect(OPERATOR_MUTATIONS.length).toBe(PUBLIC_MUTATIONS.length - VIEWER_MUTATIONS.length);
+    expect(VIEWER_MUTATIONS.map((entry) => `${entry.path}:${entry.name}`)).toEqual([
+      'convex/viewer/environmentVoteFunctions.ts:submitEnvironmentVote',
+    ]);
+    // No action is reachable by anyone but an operator, viewer gate included. An action can
+    // reach a provider, and "public reads never trigger LLM generation" depends on that.
+    expect(ALLOWED.filter((entry) => entry.kind === 'action')).toEqual([]);
   });
 
   test('every Convex function the shipped client can reach is a read', () => {
@@ -306,15 +347,21 @@ describe('AC#1 — the client-reachable surface is exactly what policy declares'
     // purpose -- and the assertion below then forces it to be a read.
     const refs = sourceFiles('src', ['.ts', '.tsx']).flatMap((path) =>
       [...readFileSync(join(ROOT, path), 'utf8').matchAll(/publicFunctionRef<[^>]*>\(\s*'([^']+)'/g)].map(
-        (match) => match[1],
-      ),
+        (match) => ({ path, ref: match[1] })),
     );
-    expect([...refs].sort()).toEqual([
+    expect(refs.map((entry) => entry.ref).sort()).toEqual([
       'publicRead/liveStateFunctions:getPublicDynamicProjection',
       'publicRead/readModelFunctions:getPublishedReadModel',
       'publicRead/runtimeSnapshotFunctions:getPublicRuntimeSnapshot',
       'publicRead/visualReplayFunctions:getPublicVisualReplay',
+      // ART-45 (FR-J001). The ballot READ, an ordinary anonymous query, and the ballot WRITE --
+      // the only non-read reference in the shipped bundle, and the assertion below pins both
+      // which function it is and which single file may name it.
+      'viewer/environmentVoteFunctions:getEnvironmentVoteBallot',
+      'viewer/environmentVoteFunctions:submitEnvironmentVote',
     ]);
+    expect(refs.filter((entry) => entry.ref.endsWith(':submitEnvironmentVote')).map((entry) => entry.path))
+      .toEqual(['src/components/vote/useEnvironmentVote.ts']);
     expect(readModelFunctions.getPublishedReadModel).toHaveProperty('isQuery', true);
     expect(liveStateFunctions.getPublicDynamicProjection).toHaveProperty('isQuery', true);
     expect(visualReplayFunctions.getPublicVisualReplay).toHaveProperty('isQuery', true);
@@ -325,13 +372,14 @@ describe('AC#1 — the client-reachable surface is exactly what policy declares'
     expect(
       readFileSync(join(ROOT, 'convex/publicRead/runtimeSnapshotFunctions.ts'), 'utf8'),
     ).toContain('args: { worldId: v.string() },');
-    // Both are anonymous-gated queries in policy, so no viewer needs a credential
-    // to watch and none of them can write.
-    for (const ref of refs) {
+    // Every reference the bundle carries is anonymous-gated -- so no viewer needs a credential
+    // to watch -- and every one of them is a READ except the single declared ballot write.
+    for (const { ref } of refs) {
       const [path, name] = ref.split(':');
       const entry = ALLOWED.find((allowed) => allowed.path === `convex/${path}.ts` && allowed.name === name);
       expect(entry).toBeDefined();
-      expect(entry!.kind).toBe('query');
+      expect(entry!.kind === 'query' || entry!.gate === 'viewer').toBe(true);
+      expect(entry!.gate).not.toBe('operator');
     }
   });
 
@@ -400,7 +448,7 @@ describe('AC#6/#7 — public mutations refuse unauthorized callers server-side',
 
   test('every public mutation refuses an unauthenticated caller before reading any row', async () => {
     process.env.SIMULATION_OPS_OPERATORS = REGISTRY;
-    for (const entry of PUBLIC_MUTATIONS) {
+    for (const entry of OPERATOR_MUTATIONS) {
       const { ctx, state } = anonymousCtx();
       await expect(registered(entry)._handler(ctx, commandArgsFor(entry))).rejects.toThrow(OPS_UNAUTHORIZED);
       // The denial must not be informed by any stored row: a gate that reads first
@@ -420,7 +468,7 @@ describe('AC#6/#7 — public mutations refuse unauthorized callers server-side',
 
   test('an empty registry denies everyone: the console fails closed', async () => {
     delete process.env.SIMULATION_OPS_OPERATORS;
-    for (const entry of PUBLIC_MUTATIONS) {
+    for (const entry of OPERATOR_MUTATIONS) {
       const { ctx } = anonymousCtx();
       await expect(registered(entry)._handler(ctx, commandArgsFor(entry))).rejects.toThrow(OPS_UNAUTHORIZED);
     }
@@ -434,7 +482,7 @@ describe('AC#6/#7 — public mutations refuse unauthorized callers server-side',
       { operatorId: 'op-real', operatorToken: '' },
       { operatorId: 'op-real' },
     ];
-    for (const entry of PUBLIC_MUTATIONS) {
+    for (const entry of OPERATOR_MUTATIONS) {
       for (const forgery of forgeries) {
         const { ctx, state } = anonymousCtx();
         await expect(
@@ -484,7 +532,7 @@ describe('AC#6/#7 — public mutations refuse unauthorized callers server-side',
       { registry: 'not-json-at-all', credentials: { operatorId: 'op-real', operatorToken: 'correct-horse-battery-staple' } },
     ];
     const messages = new Set<string>();
-    for (const entry of PUBLIC_MUTATIONS) {
+    for (const entry of OPERATOR_MUTATIONS) {
       for (const cause of causes) {
         for (const worldId of ['mistwood', 'no-such-world-at-all', SECRET_WORLD]) {
           if (cause.registry === undefined) delete process.env.SIMULATION_OPS_OPERATORS;
@@ -516,7 +564,7 @@ describe('AC#6/#7 — public mutations refuse unauthorized callers server-side',
       message: 'hello',
       conversationId: 'conv-1',
     };
-    for (const entry of PUBLIC_MUTATIONS) {
+    for (const entry of OPERATOR_MUTATIONS) {
       const { ctx, state } = anonymousCtx();
       await expect(
         registered(entry)._handler(ctx, { ...commandArgsFor(entry), ...controlPayload }),
@@ -841,5 +889,78 @@ describe('the deployment routes zero public HTTP endpoints', () => {
     expect(namesHttpAction('const routes = [{ handler: httpAction(async () => {}) }];')).toBe(true);
     // Prose about the ban is not a registration; `convex/http.ts` documents it at length.
     expect(namesHttpAction('/** No `httpAction` may be added here. */')).toBe(false);
+  });
+});
+
+/**
+ * FR-J001 / ART-45 — the one viewer write, and the fence around it.
+ *
+ * The rest of this suite proves the surface reaches nothing but reads. This block covers the
+ * single exception, and the burden is the opposite one: not "it refuses everybody" (it must not,
+ * or the vote would not exist) but "the most it can do is bounded, and nothing else joined it".
+ */
+describe('the declared viewer write is exactly one bounded ballot', () => {
+  const viewerWrite = VIEWER_MUTATIONS[0];
+
+  test('there is exactly one, it is a mutation, and it lives in the viewer module', () => {
+    expect(VIEWER_MUTATIONS).toHaveLength(1);
+    expect(viewerWrite.path.startsWith('convex/viewer/')).toBe(true);
+    const fn = registered(viewerWrite);
+    expect(fn.isMutation).toBe(true);
+    expect(fn.isPublic).toBe(true);
+    expect(fn.isAction).toBeUndefined();
+  });
+
+  test('it accepts three arguments and not one of them can name a character or a world change', () => {
+    // The stronger half of AC#7 applied to the write: these are not rejected inputs, they are
+    // not inputs. Convex validates against `exportArgs()` before the handler runs.
+    const declared = Object.keys(
+      (JSON.parse(registered(viewerWrite).exportArgs()) as { value?: Record<string, unknown> }).value ?? {},
+    );
+    expect(declared.sort()).toEqual(['candidateId', 'deviceKey', 'worldId']);
+  });
+
+  test('the ballot read beside it is an ordinary anonymous query', () => {
+    const ballotRead = ALLOWED.find((entry) => entry.name === 'getEnvironmentVoteBallot')!;
+    expect(ballotRead.gate).toBe('anonymous');
+    expect(registered(ballotRead).isQuery).toBe(true);
+  });
+
+  test('the viewer module names no Canon writer, so a vote cannot author a world fact', () => {
+    // The dependency graph already forbids `viewer` importing `canon`; this catches the other
+    // spelling, where the module grows its own writer. Duplicated from
+    // `scripts/architecture/check-boundaries.test.mjs` on purpose -- the build gate and the
+    // product-side acceptance evidence should each be able to fail on their own.
+    const sources = readdirSync(join(ROOT, 'convex/viewer'))
+      .filter((name) => name.endsWith('.ts') && !name.includes('.test.'))
+      .map((name) => readFileSync(join(ROOT, 'convex/viewer', name), 'utf8'));
+    expect(sources.length).toBeGreaterThan(0);
+    for (const source of sources) {
+      for (const symbol of ['canonEvents', 'commitProposedEvent', 'reduceWorldEvent', 'replayWorldEvents']) {
+        expect(source).not.toMatch(new RegExp(`\\b${symbol}\\b`));
+      }
+    }
+  });
+
+  test('the viewer module reaches no provider and no simulation', () => {
+    // The other half of ADR-0001: a viewer write must not be a way to make the world generate.
+    const sources = readdirSync(join(ROOT, 'convex/viewer'))
+      .filter((name) => name.endsWith('.ts') && !name.includes('.test.'))
+      .map((name) => readFileSync(join(ROOT, 'convex/viewer', name), 'utf8'));
+    for (const source of sources) {
+      expect(source).not.toMatch(/from '\.\.\/simulation\//);
+      expect(source).not.toMatch(/from '\.\.\/canon\//);
+      expect(source).not.toMatch(/\b(?:scheduler\.runAfter|scheduler\.runAt|internalAction)\b/);
+    }
+  });
+
+  test('the policy caps the gate: nothing else may be viewer-reachable and writable', () => {
+    const boundary = (JSON.parse(readFileSync(join(ROOT, 'architecture/module-boundaries.json'), 'utf8')) as {
+      viewerWriteBoundary: { maxViewerMutations: number; allowed: Array<{ path: string; name: string }> };
+    }).viewerWriteBoundary;
+    expect(boundary.maxViewerMutations).toBe(1);
+    expect(boundary.allowed).toEqual([
+      { path: 'convex/viewer/environmentVoteFunctions.ts', name: 'submitEnvironmentVote' },
+    ]);
   });
 });

@@ -164,6 +164,7 @@ function createSeedPort(store: InMemoryCanonStore): WorldDayLivePort & { persist
       return snapshot;
     },
     loadScheduledEnvironmentEvents: () => Promise.resolve([]),
+    markScheduledEnvironmentEventApplied: () => Promise.resolve(),
     persistDirectorPlan: (context, plan) => {
       persisted.directorPlans.push({ context, plan });
       return Promise.resolve();

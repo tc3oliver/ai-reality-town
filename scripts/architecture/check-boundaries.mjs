@@ -29,7 +29,15 @@ const REQUIRED_MODULES = [
 /** Convex registration helpers that publish a function to unauthenticated clients. */
 const CLIENT_REACHABLE_REGISTRATIONS = ['httpAction', 'query', 'mutation', 'action'];
 const PUBLIC_FUNCTION_KINDS = ['query', 'mutation', 'action'];
-const PUBLIC_FUNCTION_GATES = ['anonymous', 'operator'];
+/**
+ * `viewer` (ART-45 / FR-J001) is the third gate, and the only one that admits an anonymous
+ * write. It exists because PRD 1.0 §5.1 G11 requires a daily viewer ballot while PRD 2.0 §22.16
+ * requires that public **viewing** never mutates — two statements that are only compatible if
+ * "viewing never writes" is proven per surface instead of by a repo-wide ban on anonymous
+ * mutations. Every extra rule in {@link validateViewerWriteBoundary} exists to keep the gate
+ * from becoming a general-purpose hole; see `docs/daily-environment-vote.md` §2.
+ */
+const PUBLIC_FUNCTION_GATES = ['anonymous', 'operator', 'viewer'];
 
 export function loadPolicy(path = POLICY_PATH) {
   return JSON.parse(readFileSync(path, 'utf8'));
@@ -120,14 +128,135 @@ export function validatePolicy(policy) {
     if (!moduleForPath(entry.path, policy)) errors.push(`public function path ${entry.path} belongs to no module`);
     if (!PUBLIC_FUNCTION_KINDS.includes(entry.kind)) errors.push(`public function ${key} has unknown kind ${entry.kind}`);
     if (!PUBLIC_FUNCTION_GATES.includes(entry.gate)) errors.push(`public function ${key} has unknown gate ${entry.gate}`);
-    // PRD 2.0 §18.1 sets successful public mutations to exactly zero. A public
-    // mutation may therefore exist only as an operator control, never as
-    // something an anonymous viewer is allowed to reach.
-    if (entry.kind !== 'query' && entry.gate !== 'operator') {
+    // PRD 2.0 §22.16 sets successful mutations from public VIEWING to exactly zero, so a
+    // public mutation may exist only as an operator control -- or, since ART-45, as the one
+    // declared viewer ballot, which is not viewing and which carries its own stricter rules.
+    // The `viewer` gate is deliberately NOT sufficient on its own: it must ALSO be declared in
+    // `viewerWriteBoundary.allowed`, so opening a viewer write takes two edits in two places
+    // rather than one word in one.
+    if (entry.kind !== 'query' && entry.gate === 'anonymous') {
       errors.push(`public ${entry.kind} ${key} must be operator-gated`);
     }
+    if (entry.gate === 'viewer' && !viewerWriteDeclares(policy, entry)) {
+      errors.push(`viewer-gated ${entry.kind} ${key} is not declared in viewerWriteBoundary.allowed`);
+    }
   }
+  errors.push(...validateViewerWritePolicy(policy));
   if (!policy.providerBoundary?.contractVersion) errors.push('provider contract version is required');
+  return errors;
+}
+
+const viewerWriteDeclares = (policy, entry) =>
+  (policy.viewerWriteBoundary?.allowed ?? []).some(
+    (allowed) => allowed.path === entry.path && allowed.name === entry.name,
+  );
+
+/**
+ * Structural rules on the viewer write gate (ART-45 / FR-J001).
+ *
+ * Checked at POLICY level, before a single file is read, because every one of these is a rule
+ * about what the policy is allowed to say. The gate's whole justification is that it is one
+ * declared, capped, safety-bound channel; a policy that could quietly declare a second one, or
+ * put one outside `convex/viewer`, would have the same words and none of the meaning.
+ */
+export function validateViewerWritePolicy(policy) {
+  const boundary = policy.viewerWriteBoundary;
+  const gated = (policy.publicFunctionSurface?.allowed ?? []).filter((entry) => entry.gate === 'viewer');
+  if (!boundary) {
+    return gated.length > 0 ? ['viewer-gated functions are declared but viewerWriteBoundary is missing'] : [];
+  }
+  const errors = [];
+  if (!Array.isArray(boundary.roots) || boundary.roots.length === 0) {
+    errors.push('viewer write boundary must declare at least one root');
+  }
+  if (!Array.isArray(boundary.requiredSymbols) || boundary.requiredSymbols.length === 0) {
+    errors.push('viewer write boundary must require at least one safety symbol');
+  }
+  if (!Array.isArray(boundary.forbiddenSymbols) || boundary.forbiddenSymbols.length === 0) {
+    errors.push('viewer write boundary must forbid at least one Canon-write symbol');
+  }
+  if (!Number.isInteger(boundary.maxViewerMutations) || boundary.maxViewerMutations < 0) {
+    errors.push('viewer write boundary must cap viewer mutations with a non-negative integer');
+  }
+  for (const entry of boundary.allowed ?? []) {
+    if (!existsSync(join(ROOT, entry.path))) errors.push(`viewer write ${entry.path}:${entry.name} does not exist`);
+    // A viewer write outside `convex/viewer` would sit in a module that is allowed to reach
+    // Canon, the read model or the simulation, and the forbidden-symbol sweep below only
+    // covers the declared roots.
+    if (!boundary.roots?.some((root) => under(posix(entry.path), root))) {
+      errors.push(`viewer write ${entry.path}:${entry.name} must live under a viewerWriteBoundary root`);
+    }
+    if (!gated.some((allowed) => allowed.path === entry.path && allowed.name === entry.name)) {
+      errors.push(`viewer write ${entry.path}:${entry.name} is not declared as a viewer-gated public function`);
+    }
+  }
+  const mutations = gated.filter((entry) => entry.kind === 'mutation');
+  if (mutations.length > (boundary.maxViewerMutations ?? 0)) {
+    errors.push(
+      `${mutations.length} viewer-gated mutations are declared; the boundary caps them at ${boundary.maxViewerMutations}`,
+    );
+  }
+  for (const entry of gated) {
+    if (entry.kind === 'action') errors.push(`viewer-gated ${entry.path}:${entry.name} may not be an action`);
+  }
+  // The client half of the same argument. `ConvexClientProvider` is exempted for CONSTRUCTION
+  // (`ConvexReactClient`) and stays as unable to write as everything else; an exemption for a
+  // symbol that actually issues a write may only be granted inside the declared vote root, so
+  // `/live`, the world surface and every public page remain provably write-free by the same
+  // check that always covered them.
+  const writeSymbols = ['useMutation', 'useAction', 'useConvex'];
+  for (const exempt of policy.readOnlyClientBoundary?.exemptFiles ?? []) {
+    const granted = (exempt.symbols ?? []).filter((symbol) => writeSymbols.includes(symbol));
+    if (granted.length === 0) continue;
+    if (!boundary.clientRoots?.some((root) => under(posix(exempt.path), root))) {
+      errors.push(
+        `${exempt.path}: '${granted.join("', '")}' may only be exempted under a viewerWriteBoundary clientRoot`,
+      );
+    }
+  }
+  return errors;
+}
+
+/**
+ * Source rules on the viewer write module (ART-45 / FR-J001).
+ *
+ * Two sweeps over `convex/viewer`, and they say opposite things on purpose:
+ *
+ * - **`requiredSymbols` must appear.** A viewer write that never names the FR-L003 classifier or
+ *   the rate limiter is not a viewer write this policy sanctioned — it is an unguarded one. This
+ *   is the only rule in the file that fails on ABSENCE, because "we forgot the abuse control" is
+ *   exactly the failure a symbol denylist cannot see.
+ * - **`forbiddenSymbols` must not.** The module handling untrusted viewer input may not name a
+ *   Canon writer or a replay entry point, so 「觀眾只能提案」 is a build failure rather than a
+ *   review note. The module is already forbidden from IMPORTING `canon` by the dependency graph;
+ *   this catches the other spelling, where it grows its own.
+ */
+export function validateViewerWriteSources(root = ROOT, policy = loadPolicy()) {
+  const boundary = policy.viewerWriteBoundary;
+  if (!boundary?.roots) return [];
+  const errors = [];
+  const sources = new Map();
+  for (const moduleRoot of boundary.roots) {
+    for (const absolutePath of sourceFiles(join(root, moduleRoot))) {
+      sources.set(posix(relative(root, absolutePath)), readFileSync(absolutePath, 'utf8'));
+    }
+  }
+  const names = (symbol) => new RegExp(`\\b${symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+  for (const [sourcePath, source] of sources) {
+    for (const symbol of boundary.forbiddenSymbols ?? []) {
+      if (names(symbol).test(source)) {
+        errors.push(`${sourcePath}: the viewer write module may not reference Canon-write symbol '${symbol}'`);
+      }
+    }
+  }
+  // Required symbols are checked across the module rather than per file: the classifier belongs
+  // in the decision layer and the handler belongs in the adapter, and forcing both names into
+  // one file would buy a passing check by making the code worse.
+  for (const symbol of boundary.requiredSymbols ?? []) {
+    if (![...sources.values()].some((source) => names(symbol).test(source))) {
+      errors.push(`no file under the viewer write boundary references required safety symbol '${symbol}'`);
+    }
+  }
   return errors;
 }
 
@@ -378,6 +507,7 @@ export function checkRepository(root = ROOT, policy = loadPolicy()) {
   }
   errors.push(...validatePublicFunctionSurface(root, policy));
   errors.push(...validateForbiddenHttpActions(root, policy));
+  errors.push(...validateViewerWriteSources(root, policy));
   return errors;
 }
 

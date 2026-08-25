@@ -14,6 +14,8 @@ import {
   validateForbiddenHttpActions,
   validatePublicFunctionSurface,
   validateReadOnlyClientSource,
+  validateViewerWritePolicy,
+  validateViewerWriteSources,
 } from './check-boundaries.mjs';
 
 const policy = loadPolicy();
@@ -234,10 +236,17 @@ const surfacePolicy = (allowed) => ({
 
 test('the live policy declares exactly the repo\'s client-reachable surface', () => {
   assert.deepEqual(validatePublicFunctionSurface(), []);
-  // Every declared public mutation is an operator control, never an anonymous one.
-  for (const entry of policy.publicFunctionSurface.allowed) {
-    if (entry.kind !== 'query') assert.equal(entry.gate, 'operator', `${entry.name} must be operator-gated`);
+  // Every declared public mutation is an operator control -- or the ONE viewer ballot, which
+  // ART-45 (FR-J001) introduced and which `viewerWriteBoundary` fences separately. Anonymous
+  // writes remain impossible: the gate is spelled `viewer`, and it costs a second declaration.
+  const writes = policy.publicFunctionSurface.allowed.filter((entry) => entry.kind !== 'query');
+  for (const entry of writes) {
+    assert.ok(['operator', 'viewer'].includes(entry.gate), `${entry.name} must be operator- or viewer-gated`);
   }
+  assert.deepEqual(
+    writes.filter((entry) => entry.gate === 'viewer').map((entry) => `${entry.path}:${entry.name}`),
+    ['convex/viewer/environmentVoteFunctions.ts:submitEnvironmentVote'],
+  );
 });
 
 test('registrations are found through whatever name they are exported under', () => {
@@ -492,4 +501,141 @@ test('the client provider may construct a client but still may not write', () =>
 
 test('static, type, re-export, and dynamic imports are discovered', () => {
   assert.deepEqual(extractImports("import type { A } from './a'; export { B } from './b'; import('./c')"), ['./a', './b', './c']);
+});
+
+// --- the viewer write gate (ART-45 / FR-J001) --------------------------------
+//
+// PRD 1.0 §5.1 G11 requires a daily viewer ballot; PRD 2.0 §22.16 requires that public VIEWING
+// never mutates. Both hold only if the second is proven per surface rather than by a blanket ban
+// on anonymous writes. These tests are what gives "per surface" teeth: they show the gate admits
+// exactly one thing, that every way of widening it fails, and that everything the blanket ban
+// used to protect is still protected by the same check.
+
+test('the live policy passes every viewer-write rule', () => {
+  assert.deepEqual(validateViewerWritePolicy(policy), []);
+  assert.deepEqual(validateViewerWriteSources(), []);
+});
+
+test('a viewer gate without a viewerWriteBoundary declaration fails', () => {
+  // Two declarations in two places, on purpose. Opening a viewer write must not be one word.
+  const broken = structuredClone(policy);
+  broken.publicFunctionSurface.allowed.push({
+    path: 'convex/viewer/environmentVoteFunctions.ts', name: 'submitAnythingElse', kind: 'mutation', gate: 'viewer',
+  });
+  assert.match(
+    validatePolicy(broken).join('\n'),
+    /submitAnythingElse is not declared in viewerWriteBoundary\.allowed/,
+  );
+});
+
+test('a second viewer mutation exceeds the cap even when fully declared', () => {
+  const broken = structuredClone(policy);
+  broken.publicFunctionSurface.allowed.push({
+    path: 'convex/viewer/environmentVoteFunctions.ts', name: 'submitAnythingElse', kind: 'mutation', gate: 'viewer',
+  });
+  broken.viewerWriteBoundary.allowed.push({
+    path: 'convex/viewer/environmentVoteFunctions.ts', name: 'submitAnythingElse',
+  });
+  assert.match(
+    validateViewerWritePolicy(broken).join('\n'),
+    /2 viewer-gated mutations are declared; the boundary caps them at 1/,
+  );
+});
+
+test('a viewer write outside convex/viewer is refused', () => {
+  // The forbidden-symbol sweep only covers the declared roots, and every other module may reach
+  // Canon, the read model or the simulation. A viewer write there would be fenced by nothing.
+  const broken = structuredClone(policy);
+  broken.publicFunctionSurface.allowed.push({
+    path: 'convex/publicRead/readModelFunctions.ts', name: 'submitSomething', kind: 'mutation', gate: 'viewer',
+  });
+  broken.viewerWriteBoundary.allowed.push({
+    path: 'convex/publicRead/readModelFunctions.ts', name: 'submitSomething',
+  });
+  assert.match(validateViewerWritePolicy(broken).join('\n'), /must live under a viewerWriteBoundary root/);
+});
+
+test('a viewer-gated action is refused outright', () => {
+  // An action can reach the network and a provider. "Public reads never trigger LLM generation"
+  // would stop being enforceable if a viewer could reach one.
+  const broken = structuredClone(policy);
+  broken.publicFunctionSurface.allowed.push({
+    path: 'convex/viewer/environmentVoteFunctions.ts', name: 'runSomething', kind: 'action', gate: 'viewer',
+  });
+  assert.match(validateViewerWritePolicy(broken).join('\n'), /may not be an action/);
+});
+
+test('the viewer module cannot acquire its own Canon write path', () => {
+  const root = mkdtempSync(join(tmpdir(), 'viewer-write-'));
+  mkdirSync(join(root, 'convex/viewer'), { recursive: true });
+  writeFileSync(
+    join(root, 'convex/viewer/environmentVoteFunctions.ts'),
+    "import { commitProposedEvent } from '../canon/commit';\nclassifyViewerInput; evaluateVoteSubmission;\n",
+  );
+  assert.match(
+    validateViewerWriteSources(root, policy).join('\n'),
+    /may not reference Canon-write symbol 'commitProposedEvent'/,
+  );
+});
+
+test('a viewer write that drops its safety gate fails on ABSENCE', () => {
+  // The only rule here that fails because something is MISSING. A denylist cannot see "we
+  // forgot the rate limiter", and that is exactly the abuse-resistance regression worth
+  // catching before it ships.
+  const root = mkdtempSync(join(tmpdir(), 'viewer-unsafe-'));
+  mkdirSync(join(root, 'convex/viewer'), { recursive: true });
+  writeFileSync(join(root, 'convex/viewer/environmentVoteFunctions.ts'), 'export const submit = () => 1;\n');
+  const errors = validateViewerWriteSources(root, policy).join('\n');
+  assert.match(errors, /required safety symbol 'classifyViewerInput'/);
+  assert.match(errors, /required safety symbol 'evaluateVoteSubmission'/);
+});
+
+test('a write-API exemption may only be granted inside the declared vote client root', () => {
+  // The client half. `/live`, the world renderer and every public page keep the exact guarantee
+  // they had before ART-45, because an exemption for them cannot even be written down.
+  const broken = structuredClone(policy);
+  broken.readOnlyClientBoundary.exemptFiles.push({
+    path: 'src/components/live/LiveMapPage.tsx', symbols: ['useMutation'],
+  });
+  assert.match(
+    validateViewerWritePolicy(broken).join('\n'),
+    /LiveMapPage\.tsx: 'useMutation' may only be exempted under a viewerWriteBoundary clientRoot/,
+  );
+});
+
+test('the provider exemption is unaffected: construction is not a write', () => {
+  // `ConvexReactClient` is not a write symbol, so the one pre-existing exemption is untouched
+  // by the new rule -- and `useMutation` is still denied even there.
+  assert.deepEqual(validateViewerWritePolicy(policy), []);
+  assert.match(
+    validateReadOnlyClientSource({
+      sourcePath: 'src/components/ConvexClientProvider.tsx',
+      source: 'const send = useMutation(ref);',
+      policy,
+    })[0],
+    /may not reference world-write API 'useMutation'/,
+  );
+});
+
+test('every client module except the vote root is still denied every write API', () => {
+  for (const path of [
+    'src/App.tsx',
+    'src/components/public/Homepage.tsx',
+    'src/components/live/LiveMapPage.tsx',
+    'src/components/world/PixiStaticMap.tsx',
+    'src/e2e/fixtureConvexClient.ts',
+  ]) {
+    assert.match(
+      validateReadOnlyClientSource({ sourcePath: path, source: 'const send = useMutation(ref);', policy })[0],
+      /may not reference world-write API 'useMutation'/,
+      `${path} must still be denied`,
+    );
+  }
+  // And the one exempted file is exempted for that symbol only.
+  const votePath = 'src/components/vote/useEnvironmentVote.ts';
+  assert.deepEqual(validateReadOnlyClientSource({ sourcePath: votePath, source: 'useMutation(ref);', policy }), []);
+  assert.match(
+    validateReadOnlyClientSource({ sourcePath: votePath, source: 'useAction(ref);', policy })[0],
+    /may not reference world-write API 'useAction'/,
+  );
 });

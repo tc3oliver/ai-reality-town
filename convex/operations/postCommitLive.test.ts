@@ -491,6 +491,7 @@ function createWorldDayPort(store: InMemoryCanonStore, activeArcsFor: () => Live
       });
     },
     loadScheduledEnvironmentEvents: () => Promise.resolve([]),
+    markScheduledEnvironmentEventApplied: () => Promise.resolve(),
     persistDirectorPlan: () => Promise.resolve(),
     persistCharacterIntent: () => Promise.resolve(),
     persistGroupedScenes: () => Promise.resolve(),

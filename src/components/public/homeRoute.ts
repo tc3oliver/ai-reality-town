@@ -108,7 +108,14 @@ export type HomepageViewModel = {
   liveMapHref: string;
   /** Its non-map equivalent, which the homepage must also link (NFR-009 AC#3). */
   textLiveHref: string;
-  /** Voting is not yet an active capability (ART-45) — always false here (AC#5). */
+  /**
+   * Whether a daily environment ballot is open right now (FR-J001 / ART-45).
+   *
+   * DERIVED from the published ballot, not asserted. It was a hard-coded `false` for as long as
+   * voting did not exist, which was honest then and would be a lie now. A ballot whose cutoff
+   * has passed reports `false` here while still rendering its result, so "voting is open" and
+   * "there is something to show" stay separate claims.
+   */
   voteAvailable: boolean;
   /**
    * The story arc the first screen leads with (FR-P001 / ART-129 AC#2), or null.
@@ -181,6 +188,14 @@ export function composeHomepageViewModel(input: {
   live: HomeLiveProjection | null;
   /** Deployment path prefix (`import.meta.env.BASE_URL`). */
   base: string;
+  /**
+   * The open ballot (`getEnvironmentVoteBallot`), `null` when none is open, `undefined` while
+   * the query is in flight. All three collapse to `voteAvailable: false` here — an in-flight
+   * read is not evidence that voting is open.
+   */
+  vote?: { cutoffAt: number } | null;
+  /** Read clock for the ballot cutoff, so the boundary is testable at an exact instant. */
+  now?: number;
 }): HomepageViewModel {
   const summary = input.summary;
   const structured = summary?.structured;
@@ -226,7 +241,7 @@ export function composeHomepageViewModel(input: {
     live: liveTime ? { worldDay: liveTime.worldDay, timeSlot: liveTime.timeSlot } : null,
     liveMapHref: liveMapHref(input.worldId, input.base),
     textLiveHref: textLiveHref(input.worldId, input.base),
-    voteAvailable: false,
+    voteAvailable: input.vote != null && (input.now ?? 0) < input.vote.cutoffAt,
     primaryArc: (() => {
       const arc = pickPrimaryArc(Array.isArray(live?.activeArcs) ? (live?.activeArcs ?? []) : []);
       if (arc === null) return null;

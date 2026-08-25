@@ -57,6 +57,27 @@ const surface = READ_ONLY_ROOTS.flatMap(sourceFiles).map((path) => ({
 
 const worldModule = surface.filter((file) => file.path.startsWith('src/components/world/'));
 
+/** The single client root a write-API exemption may be granted inside (ART-45 / FR-J001). */
+const VOTE_ROOT = 'src/components/vote';
+
+/**
+ * The exemptions the POLICY grants, flattened to `path: symbol` and restricted to symbols that
+ * can actually issue a write.
+ *
+ * Read from `architecture/module-boundaries.json` rather than restated, so this suite and the
+ * build gate cannot disagree about what is exempt — a restatement that drifted would let one of
+ * them keep passing while the other stopped being true.
+ */
+const WRITE_SYMBOLS = ['useMutation', 'useAction', 'useConvex'];
+const EXEMPTED_WRITE_REFERENCES: string[] = (
+  JSON.parse(readFileSync(join(ROOT, 'architecture/module-boundaries.json'), 'utf8')) as {
+    readOnlyClientBoundary: { exemptFiles?: Array<{ path: string; symbols: string[] }> };
+  }
+).readOnlyClientBoundary.exemptFiles
+  ?.flatMap((entry) =>
+    entry.symbols.filter((symbol) => WRITE_SYMBOLS.includes(symbol)).map((symbol) => `${entry.path}: ${symbol}`))
+  .sort() ?? [];
+
 describe('read-only public surface', () => {
   test('covers the renderer and every public page', () => {
     const paths = surface.map((file) => file.path);
@@ -115,16 +136,16 @@ describe('read-only public surface', () => {
     }
   });
 
-  test('reaches no mutation, action or world-input API', () => {
+  test('reaches no mutation, action or world-input API outside the one declared vote module', () => {
     // Convex's write entry points, plus the retired a16z input helpers. A
     // mutation cannot be issued from the browser without one of these.
     //
     // Kept in sync by hand with `readOnlyClientBoundary.forbiddenSymbols` in
     // `architecture/module-boundaries.json`, minus `ConvexReactClient`: the policy
-    // exempts that one symbol for `ConvexClientProvider.tsx`, and this list carries
-    // no exemption machinery. `ConvexClient`/`BaseConvexClient` are the non-React
-    // `convex/browser` clients -- they expose `.mutation()`/`.action()` directly, so
-    // the React hooks above do not cover them.
+    // exempts that one symbol for `ConvexClientProvider.tsx`, and that exemption is
+    // for CONSTRUCTION, never for a write. `ConvexClient`/`BaseConvexClient` are the
+    // non-React `convex/browser` clients -- they expose `.mutation()`/`.action()`
+    // directly, so the React hooks above do not cover them.
     const writeApis = [
       'useMutation',
       'useAction',
@@ -143,7 +164,42 @@ describe('read-only public surface', () => {
         .filter((api) => new RegExp(`\\b${api}\\b`).test(file.source))
         .map((api) => `${file.path}: ${api}`),
     );
+    // ART-45 (FR-J001) introduced the product's one viewer write, and this list stopped being
+    // empty. It is asserted against the POLICY's exemption table rather than against a literal,
+    // so the two cannot drift and neither can be widened alone: adding a file here without
+    // declaring it fails, and declaring one that names nothing fails too.
+    expect(offenders).toEqual(EXEMPTED_WRITE_REFERENCES);
+  });
+
+  test('every surface other than the vote module is still provably unable to write', () => {
+    // The claim PRD 2.0 §22.16 actually makes -- 「公開**觀看**不執行任何成功 Mutation」 -- is
+    // about viewing, and this is where it is settled. `/live`, the world renderer, the public
+    // pages, the app shell and the analytics sink are checked as a group: not one of them may
+    // name a write API, exemption or no exemption. The vote module is a deliberate, separate,
+    // single-file surface a viewer reaches only by choosing to act.
+    const viewing = surface.filter((file) => !file.path.startsWith(`${VOTE_ROOT}/`));
+    expect(viewing.length).toBeGreaterThan(20);
+    const offenders = viewing.flatMap((file) =>
+      ['useMutation', 'useAction', 'useConvex', 'ConvexHttpClient', 'ConvexClient', 'BaseConvexClient']
+        .filter((api) => new RegExp(`\\b${api}\\b`).test(file.source))
+        .map((api) => `${file.path}: ${api}`),
+    );
     expect(offenders).toEqual([]);
+  });
+
+  test('the vote module is one file wide and holds no logic', () => {
+    // The exemption is only defensible while the exempted file is trivial. A decision that
+    // lived inside it would be a decision living inside the one hole in the boundary, so the
+    // model, the copy and the device token are all in sibling files that carry no exemption.
+    const exempted = EXEMPTED_WRITE_REFERENCES.map((entry) => entry.split(': ')[0]);
+    expect(exempted).toEqual(['src/components/vote/useEnvironmentVote.ts']);
+    const source = surface.find((file) => file.path === exempted[0])!.source;
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').trim();
+    expect(code.split('\n').filter((line) => line.trim().length > 0).length).toBeLessThan(20);
+    // It must not reach anything that could turn it into a second view layer.
+    for (const forbidden of ['useState', 'useEffect', 'localStorage', 'fetch']) {
+      expect(code).not.toMatch(new RegExp(`\\b${forbidden}\\b`));
+    }
   });
 
   test('offers no join, move, chat, interact, accept, reject or leave affordance', () => {

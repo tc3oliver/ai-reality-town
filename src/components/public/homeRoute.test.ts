@@ -116,9 +116,15 @@ describe('composeHomepageViewModel', () => {
     expect(HOME_MAX_FACTS).toBe(3);
   });
 
-  it('votes are always unavailable (ART-45 not built) without blocking (AC#5)', () => {
-    const vm = composeHomepageViewModel({ worldId: 'w', summary: summary(), world, live, base: BASE });
-    expect(vm.voteAvailable).toBe(false);
+  it('vote availability is derived from the published ballot, never asserted (ART-45)', () => {
+    // It was a hard-coded `false` for as long as FR-J001 did not exist. Now it is a derivation,
+    // and all four states are pinned: no ballot, an in-flight read, an open round, a closed one.
+    const base = { worldId: 'w', summary: summary(), world, live, base: BASE, now: 1_000 };
+    expect(composeHomepageViewModel(base).voteAvailable).toBe(false);
+    expect(composeHomepageViewModel({ ...base, vote: null }).voteAvailable).toBe(false);
+    expect(composeHomepageViewModel({ ...base, vote: { cutoffAt: 2_000 } }).voteAvailable).toBe(true);
+    // Past the cutoff the ballot still exists and is still rendered; voting is not open.
+    expect(composeHomepageViewModel({ ...base, vote: { cutoffAt: 1_000 } }).voteAvailable).toBe(false);
   });
 
   it('degrades gracefully when the onboarding summary is missing (AC#5)', () => {

@@ -6,6 +6,7 @@ import { v } from 'convex/values';
 import { internalFunctionRef } from './shared/internalFunctionRef';
 import type { tickAllPublicSchedules as tickAllPublicSchedulesExport } from './simulation/schedulerOperations';
 import type { captureAllPublicRuntimeSnapshots as captureAllPublicRuntimeSnapshotsExport } from './publicRead/runtimeSnapshotFunctions';
+import type { tickEnvironmentVoteRounds as tickEnvironmentVoteRoundsExport } from './viewer/environmentVoteFunctions';
 
 const crons = cronJobs();
 
@@ -20,6 +21,10 @@ const captureAllPublicRuntimeSnapshotsRef = internalFunctionRef<typeof captureAl
 // refs are only ever called from inside handler closures that run after module load.
 const vacuumOldEntriesRef = internalFunctionRef<typeof vacuumOldEntries>('crons:vacuumOldEntries');
 const vacuumTableRef = internalFunctionRef<typeof vacuumTable>('crons:vacuumTable');
+
+const tickEnvironmentVoteRoundsRef = internalFunctionRef<typeof tickEnvironmentVoteRoundsExport>(
+  'viewer/environmentVoteFunctions:tickEnvironmentVoteRounds',
+);
 
 // ART-112: the "stop inactive worlds" and "restart dead worlds" crons drove the retired
 // a16z engine's own lifecycle (internal.world.stopInactiveWorlds / restartDeadWorlds, both
@@ -39,6 +44,14 @@ crons.interval(
   { hours: 1 },
   captureAllPublicRuntimeSnapshotsRef,
 );
+
+// FR-J001. Opens a world's daily ballot and closes it once the cutoff passes or the world moves
+// past the day being voted on. Five minutes is a deliberate compromise: the interval bounds how
+// long a closed round can sit un-elected before its winner is queued, and the winner has to be
+// queued before the world reaches the slot it affects. A slower cron would let a vote expire
+// unheard; a faster one would re-scan every public world for no gain, since a round changes
+// state at most twice in its life.
+crons.interval('tick environment vote rounds', { minutes: 5 }, tickEnvironmentVoteRoundsRef);
 
 crons.daily('vacuum old entries', { hourUTC: 4, minuteUTC: 20 }, vacuumOldEntriesRef);
 
