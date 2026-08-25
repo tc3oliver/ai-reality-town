@@ -64,6 +64,23 @@ const FIXTURE_QUERY_HANDLERS: Record<string, (args: Record<string, unknown>) => 
     fixtureRuntimeSnapshot(Date.now(), fixtureScenario()),
   'publicRead/readModelFunctions:getPublishedReadModel': (args) =>
     fixtureReadModel(String(args.modelRef ?? '')),
+  /**
+   * `null` — no ballot round is open (FR-J001 / ART-45).
+   *
+   * Not a stub: `null` is one of the two values `getEnvironmentVoteBallot` actually returns, and
+   * it is what a world with no open round returns, which is the state a freshly seeded world is
+   * in. The homepage's vote section renders its closed state from it, exactly as it did before
+   * ART-45 existed.
+   *
+   * This entry is REQUIRED, not optional, because ART-45 mounts `EnvironmentVotePanel` on the
+   * homepage: the fixture transport throws on an unregistered query by design, so the missing
+   * handler took down the entire homepage render — `.home-first-screen` and every other section
+   * with it — and turned ART-129's three specs red for a reason that had nothing to do with
+   * ART-129. That the transport throws loudly is what made this five minutes to diagnose rather
+   * than a silent perpetual loading state; the cost is that adding a public query without adding
+   * its fixture is a build-breaking omission, which is the trade this file already chose.
+   */
+  'viewer/environmentVoteFunctions:getEnvironmentVoteBallot': () => null,
 };
 
 /**
