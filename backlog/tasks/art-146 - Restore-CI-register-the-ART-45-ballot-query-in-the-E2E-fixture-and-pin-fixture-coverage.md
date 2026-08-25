@@ -3,11 +3,11 @@ id: ART-146
 title: >-
   Restore CI: register the ART-45 ballot query in the E2E fixture and pin
   fixture coverage
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-25 14:47'
-updated_date: '2026-08-25 14:50'
+updated_date: '2026-08-25 15:34'
 labels: []
 dependencies: []
 ordinal: 146000
@@ -51,12 +51,12 @@ Note also that PR #204 merged while this job was red — the Browser E2E check i
 - [x] #6 Build passes when applicable
 - [x] #7 No known regression is introduced
 - [x] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Notes
