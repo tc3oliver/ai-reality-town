@@ -1,11 +1,11 @@
 ---
 id: ART-27
 title: Lossless long-term memory compression
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-25 12:50'
+updated_date: '2026-08-25 12:51'
 labels:
   - prd-1.0
   - epic-g
@@ -86,8 +86,8 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -128,6 +128,8 @@ Fault injection (non-vacuity evidence; source backed up by file copy and restore
 Full gate: npm run check -> check:architecture, test:architecture, check:asset-licenses, test:asset-licenses, typecheck, lint, jest (168 suites, 2598 passed, 5 skipped, 2603 total), build — all green. The 5 skips are the pre-existing ART60_LONG_RUN env-gated 30-day cases, untouched by this task.
 
 Deliberately NOT done: no scheduler/cron wiring and no simulation-side caller — the task scope is the compression capability and its evidence, and adding an automatic pass would be new behaviour outside the ACs. convex/_generated/api.d.ts was not regenerated: no Convex deployment is configured in this checkout, CI does not run codegen, and the same is true of the pure modules merged in ART-123. docs/public-test-acceptance-art-63.md was left unedited: it is a dated historical release record, and its claim that ART-27 is not on the public path remains true (the new query is internalQuery only).
+
+PR #201 opened against main with auto-merge (merge, delete-branch) enabled at 2026-08-25T12:51:08Z; mergeStateStatus BLOCKED pending required CI checks, which is the normal pre-merge state.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
