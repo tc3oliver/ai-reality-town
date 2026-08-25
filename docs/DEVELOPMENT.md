@@ -120,6 +120,7 @@ Run a single project with `npx jest --selectProjects a11y` (or `unit`).
 - **Subjective character memory:** `docs/subjective-character-memory.md`.
 - **Authorized memory retrieval:** `docs/authorized-memory-retrieval.md`.
 - **Directional relationship projection:** `docs/relationship-projection.md`.
+- **Persona deviation and character summaries:** `docs/persona-deviation.md`.
 - **Story Arc lifecycle:** `docs/story-arc-lifecycle.md`.
 - **Story Arc projection contract:** `docs/story-arc-projection.md`.
 - **Story Arc event classification:** `docs/story-arc-classification.md`.

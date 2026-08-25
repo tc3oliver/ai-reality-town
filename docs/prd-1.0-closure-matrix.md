@@ -15,14 +15,24 @@ The MVP goals in `§5.1`, the tech/ops goals in `§5.3`, and the UX principles i
 
 **Security audit evidence:** `docs/security-audit-art-62.md` (ART-62, Done). Both Criticals (C-1, C-2) and four Highs (H-2, H-3, H-6, D-1) were remediated inside ART-62. The three release-blocking Highs are now resolved: **H-1** by ART-104 (Clerk identity provider configured, shared ops-token retired — PR #140), **H-4** by ART-103 (pre-generation safety wired into the provider call path — PR #139), **H-5** by ART-102 (FR-K006 emergency stop extended to the upstream engine and restart cron — PR #138).
 
+**Post-audit updates:** this matrix is a living traceability record, so a clause delivered after the
+ART-63 audit is re-classified in place and the counts above move with it; the dated gate evidence in
+this header is left as the audit found it. The `P1 delivered early` rows (ART-35, ART-87) are the
+existing precedent for a non-P0 clause counting as delivered.
+
+- **2026-08-25 — FR-E004** moved `Deferred P1` → `P1 delivered` (ART-27, PR #201,
+  `docs/long-term-memory-compression.md`).
+- **2026-08-25 — FR-B003** moved `Deferred P1` → `P1 delivered` (ART-11, `docs/persona-deviation.md`).
+  Gate at that commit: `npm run check` exit 0, **167 suites / 2599 tests** (2594 passed, 5 skipped).
+
 ---
 
 ## Closure summary
 
 | Classification | Count | Launch-blocking? |
 |---|---:|---|
-| **P0 delivered** (in MVP scope, owning task Done, objective verification cited) | 96 | — |
-| **Deferred P1/P2** (explicitly out of MVP, owned by a backlog task, does not compromise safety / core experience) | 24 | No |
+| **P0 delivered** (in MVP scope, owning task Done, objective verification cited) | 98 | — |
+| **Deferred P1/P2** (explicitly out of MVP, owned by a backlog task, does not compromise safety / core experience) | 22 | No |
 | **Non-goal** (matches a `§6` non-goal; verified absent — `§ Closure audit`) | 17 | — |
 | **Unowned in-scope clause (gap)** | **0** | — |
 | **P0 clause whose task is not yet Done** | **0** | — |
@@ -94,7 +104,7 @@ The MVP goals in `§5.1`, the tech/ops goals in `§5.3`, and the UX principles i
 |---|---|---|---|---|
 | FR-B001 | Character current state (location, health, emotion, finance, occupation, membership, availability, alive/active) derived only from accepted events, rebuildable from replay | P0 delivered | ART-9 (Done) | `convex/canon/characterState.test.ts` |
 | FR-B002 | Multi-dimensional directional relationships (trust/affection/resentment/fear/dependency/familiarity) with reason+source, range-checked, queryable history, no secret leak | P0 delivered | ART-10 (Done) | `convex/canon/relationship.test.ts` |
-| FR-B003 | Persona-deviation detection (high-importance deviations flagged, baseless reversions rejected, summaries updated) | Deferred P1 | ART-11 (To Do) | Does not block launch: structural persona fields and `behaviorRules` are enforced at seed validation (FR-A002) and continuity validation (FR-D004); deviation *detection* is a quality enhancement feeding FR-M002 |
+| FR-B003 | Persona-deviation detection (high-importance deviations flagged, baseless reversions rejected, summaries updated) | P1 delivered | ART-11 (Done) | `convex/canon/personaDeviation.test.ts`, `convex/canon/personaDeviation.boundary.test.ts`; design note `docs/persona-deviation.md` |
 
 ---
 
@@ -358,7 +368,7 @@ Each RISK clause is normative via its required mitigations. Classification refle
 
 ## P0 clauses whose task is not yet Done
 
-**None.** Every P0 clause (`§5.1` goals G1–G9, G12–G14; `§5.3` all tech/ops goals; UX-001..004, UX-006 + UX-005 principle; FR-A001..A004, FR-B001..B002, FR-C001..C005, FR-D001..D006, FR-E001..E003, FR-F001..F005, FR-G001..G003, FR-H001..H003, FR-I001..I006, FR-K001..K004, FR-K006, FR-L001..L003, FR-M001; the §12 pipeline & failure rules; §10.2 dev/test mode; NFR-003..006, NFR-008..009; §16.2 quality invariants; §19.1/19.2/19.4 + 7/30 of §19.3; RISK-001/003/004/006/007/008/009 and the P0 portions of RISK-002/005) is backed by one or more **Done** tasks. The only incomplete tasks referenced anywhere in this matrix are P1 or P2 (ART-11, ART-28, ART-32, ART-36, ART-39, ART-44, ART-45, ART-46, ART-52, ART-58, ART-59, ART-71, ART-73, ART-76, ART-88, ART-89, ART-90, ART-91, ART-94, ART-47) — none of which own a P0 clause.
+**None.** Every P0 clause (`§5.1` goals G1–G9, G12–G14; `§5.3` all tech/ops goals; UX-001..004, UX-006 + UX-005 principle; FR-A001..A004, FR-B001..B002, FR-C001..C005, FR-D001..D006, FR-E001..E003, FR-F001..F005, FR-G001..G003, FR-H001..H003, FR-I001..I006, FR-K001..K004, FR-K006, FR-L001..L003, FR-M001; the §12 pipeline & failure rules; §10.2 dev/test mode; NFR-003..006, NFR-008..009; §16.2 quality invariants; §19.1/19.2/19.4 + 7/30 of §19.3; RISK-001/003/004/006/007/008/009 and the P0 portions of RISK-002/005) is backed by one or more **Done** tasks. The only incomplete tasks referenced anywhere in this matrix are P1 or P2 (ART-28, ART-32, ART-36, ART-39, ART-44, ART-45, ART-46, ART-52, ART-58, ART-59, ART-71, ART-73, ART-76, ART-88, ART-89, ART-90, ART-91, ART-94, ART-47) — none of which own a P0 clause.
 
 ---
 
