@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-25 12:38'
+updated_date: '2026-08-25 12:56'
 labels:
   - prd-1.0
   - epic-c
@@ -65,28 +65,28 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 FR-B003: 高重要度人格偏離必須被標記。
-- [ ] #2 FR-B003: 無原因的人格反轉必須被拒絕或送審。
-- [ ] #3 FR-B003: 角色轉折應更新 Character Summary。
-- [ ] #4 Automated tests provide evidence for every mapped FR-B003 acceptance criterion, including rejection and failure paths.
-- [ ] #5 PRD traceability links FR-B003 to doc-1 and the merged implementation evidence.
+- [x] #1 FR-B003: 高重要度人格偏離必須被標記。
+- [x] #2 FR-B003: 無原因的人格反轉必須被拒絕或送審。
+- [x] #3 FR-B003: 角色轉折應更新 Character Summary。
+- [x] #4 Automated tests provide evidence for every mapped FR-B003 acceptance criterion, including rejection and failure paths.
+- [x] #5 PRD traceability links FR-B003 to doc-1 and the merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 

@@ -20,6 +20,8 @@ ART-63 audit is re-classified in place and the counts above move with it; the da
 this header is left as the audit found it. The `P1 delivered early` rows (ART-35, ART-87) are the
 existing precedent for a non-P0 clause counting as delivered.
 
+- **2026-08-25 — FR-E004** moved `Deferred P1` → `P1 delivered` (ART-27, PR #201,
+  `docs/long-term-memory-compression.md`).
 - **2026-08-25 — FR-B003** moved `Deferred P1` → `P1 delivered` (ART-11, `docs/persona-deviation.md`).
   Gate at that commit: `npm run check` exit 0, **167 suites / 2599 tests** (2594 passed, 5 skipped).
 
@@ -29,8 +31,8 @@ existing precedent for a non-P0 clause counting as delivered.
 
 | Classification | Count | Launch-blocking? |
 |---|---:|---|
-| **P0 delivered** (in MVP scope, owning task Done, objective verification cited) | 97 | — |
-| **Deferred P1/P2** (explicitly out of MVP, owned by a backlog task, does not compromise safety / core experience) | 23 | No |
+| **P0 delivered** (in MVP scope, owning task Done, objective verification cited) | 98 | — |
+| **Deferred P1/P2** (explicitly out of MVP, owned by a backlog task, does not compromise safety / core experience) | 22 | No |
 | **Non-goal** (matches a `§6` non-goal; verified absent — `§ Closure audit`) | 17 | — |
 | **Unowned in-scope clause (gap)** | **0** | — |
 | **P0 clause whose task is not yet Done** | **0** | — |
@@ -140,7 +142,7 @@ existing precedent for a non-P0 clause counting as delivered.
 | FR-E001 | Character knowledge with source, truth status, no unauthorized access, event-driven updates | P0 delivered | ART-24 (Done) | `convex/knowledge/knowledgeLedger.test.ts`, `canonCognitionIntegration.test.ts` |
 | FR-E002 | Subjective memory (per-character interpretation, importance, emotional weight, confidence, visibility; separable from Canon Fact; may contain misunderstanding; never directly public) | P0 delivered | ART-25 (Done) | `convex/knowledge/subjectiveMemory.test.ts` |
 | FR-E003 | Bounded memory retrieval (semantic/importance/recency/emotion/arc relevance; bounded count; traceable; no full history in prompt; no unauthorized memory) | P0 delivered | ART-26 (Done) | `convex/knowledge/memoryRetrieval.test.ts` |
-| FR-E004 | Long-term memory compression (impressions, stable beliefs, relationship summaries, arc understanding, location experience; lossless; Canon-preserving) | Deferred P1 | ART-27 (To Do) | Does not block launch: bounded retrieval (FR-E003) already caps prompt size; compression is a longevity/cost optimization for runs beyond 30 days |
+| FR-E004 | Long-term memory compression (impressions, stable beliefs, relationship summaries, arc understanding, location experience; lossless; Canon-preserving) | P1 delivered | ART-27 (Done) | `convex/knowledge/memoryCompression.test.ts`, `memoryCompression.lossless.test.ts`, `memoryCompression.boundary.test.ts`; `docs/long-term-memory-compression.md`. "Lossless" is pinned to three machine-checked properties — exact partition, verbatim round trip, and recall preservation against the real FR-E003 retriever at every limit 1–12 — and the one dimension that *is* lossy (an old low-importance memory leaves the retrieval corpus) is asserted as such rather than only described |
 | FR-E005 | Versioned rumor propagation chains (source, chain, current version, credibility, objective truth, known corrections; never auto-promoted to Canon Fact) | Deferred P1 | ART-28 (To Do) | Does not block launch: rumors are a content enrichment; their absence does not violate any Canon/safety invariant. Arc engine and Episode pipeline do not depend on rumor presence |
 
 ---
@@ -339,7 +341,7 @@ Each RISK clause is normative via its required mitigations. Classification refle
 |---|---|---|---|---|
 | RISK-001 | World-consistency collapse → mitigations: append-only store, Canon validation, knowledge permission, snapshot, replay, kill switch, correction event | P0 delivered | ART-13/15/24/17/53/50 (Done) | `commit.test.ts`, `continuity.test.ts`, `knowledgeLedger.test.ts`, `replay.test.ts`, `emergencyStopControls.test.ts`, `canonCorrection.test.ts` |
 | RISK-002 | Boring world content → mitigations: tension readiness, warmup, Director pressure, repetition monitoring, heat score, long-absent character detection, environment injection | P0 delivered (heat score & repetition-evaluator P1 deferred) | ART-7/8/19, ART-32 (To Do), ART-88 (To Do), ART-45 (To Do) | `tensionReadiness.test.ts`, `warmup.test.ts`, `director.test.ts`. Heat score (FR-F006/ART-32) and novelty evaluators (ART-88) are P1; Director pressure + tension readiness cover the core |
-| RISK-003 | Infinite arc growth → mitigations: active-arc cap, lifecycle, auto-resolution, merge/archive, old-history compression | P0 delivered (history compression P1 deferred) | ART-30/64/31 (Done); ART-27 (To Do) | `portfolio.test.ts`, `lifecycle.test.ts`, `resolution.test.ts` |
+| RISK-003 | Infinite arc growth → mitigations: active-arc cap, lifecycle, auto-resolution, merge/archive, old-history compression | Fully delivered (history compression closed by ART-27) | ART-30/64/31/27 (Done) | `portfolio.test.ts`, `lifecycle.test.ts`, `resolution.test.ts`, `memoryCompression.lossless.test.ts`. Compression bounds the *working corpus*, not storage: Canon stays append-only by design, and the fixed-point property means a scheduled pass cannot keep folding the same history |
 | RISK-004 | Newcomer cannot understand → mitigations: current situation, 3 backstories, ≤4 core characters, recommended entry, 3-min primer, homepage not showing full world | P0 delivered | ART-37/67/38/41 (Done) | `onboardingSummary.test.ts`, `entryRecommendation.test.ts`, `arcPrimer.test.ts`, `newcomerAcceptance.test.ts` |
 | RISK-005 | Model quota high but rate-limit insufficient → mitigations: queue, concurrency control, scene merge, model routing, degradation, rule-based background events | P0 mitigations partially delivered; rate-limit/degradation P1 deferred | ART-21 (Done), ART-59 (To Do), ART-91 (To Do) | `sceneGrouping.test.ts` (scene merge reduces call count). Concurrency/budget (FR-M003/ART-59) and degradation (FR-M004/ART-91) are P1; deterministic fake provider means no live LLM quota exposure during public-test evidence runs |
 | RISK-006 | Inappropriate content generated → mitigations: pre-generation limits, post-generation classification, publication status, withhold, operator review, no auto external publish | P0 delivered | ART-54/55/51, ART-103 (Done) | `preGeneration.test.ts`, `postGeneration.test.ts`, `publicationLifecycle.test.ts` |
@@ -366,7 +368,7 @@ Each RISK clause is normative via its required mitigations. Classification refle
 
 ## P0 clauses whose task is not yet Done
 
-**None.** Every P0 clause (`§5.1` goals G1–G9, G12–G14; `§5.3` all tech/ops goals; UX-001..004, UX-006 + UX-005 principle; FR-A001..A004, FR-B001..B002, FR-C001..C005, FR-D001..D006, FR-E001..E003, FR-F001..F005, FR-G001..G003, FR-H001..H003, FR-I001..I006, FR-K001..K004, FR-K006, FR-L001..L003, FR-M001; the §12 pipeline & failure rules; §10.2 dev/test mode; NFR-003..006, NFR-008..009; §16.2 quality invariants; §19.1/19.2/19.4 + 7/30 of §19.3; RISK-001/003/004/006/007/008/009 and the P0 portions of RISK-002/005) is backed by one or more **Done** tasks. The only incomplete tasks referenced anywhere in this matrix are P1 or P2 (ART-27, ART-28, ART-32, ART-36, ART-39, ART-44, ART-45, ART-46, ART-52, ART-58, ART-59, ART-71, ART-73, ART-76, ART-88, ART-89, ART-90, ART-91, ART-94, ART-47) — none of which own a P0 clause.
+**None.** Every P0 clause (`§5.1` goals G1–G9, G12–G14; `§5.3` all tech/ops goals; UX-001..004, UX-006 + UX-005 principle; FR-A001..A004, FR-B001..B002, FR-C001..C005, FR-D001..D006, FR-E001..E003, FR-F001..F005, FR-G001..G003, FR-H001..H003, FR-I001..I006, FR-K001..K004, FR-K006, FR-L001..L003, FR-M001; the §12 pipeline & failure rules; §10.2 dev/test mode; NFR-003..006, NFR-008..009; §16.2 quality invariants; §19.1/19.2/19.4 + 7/30 of §19.3; RISK-001/003/004/006/007/008/009 and the P0 portions of RISK-002/005) is backed by one or more **Done** tasks. The only incomplete tasks referenced anywhere in this matrix are P1 or P2 (ART-28, ART-32, ART-36, ART-39, ART-44, ART-45, ART-46, ART-52, ART-58, ART-59, ART-71, ART-73, ART-76, ART-88, ART-89, ART-90, ART-91, ART-94, ART-47) — none of which own a P0 clause.
 
 ---
 
