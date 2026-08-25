@@ -424,7 +424,23 @@ test.describe('the homepage first screen (FR-P001 / ART-129)', () => {
     // cannot cause a summary to be generated — this is that claim, at runtime.
     const recorded = await recorder(page);
     expect(recorded.writes).toEqual([]);
-    for (const query of recorded.queries) expect(query).toMatch(/^publicRead\/\w+:get/);
+    // An explicit allowlist rather than the `^publicRead/\w+:get` prefix this used to match.
+    //
+    // The prefix was doing two jobs and only one of them well. It settled "no generation", but it
+    // also silently blessed any FUTURE query added under `publicRead/` — the homepage could grow
+    // a fifth read and no one would be told. And it FAILED when ART-45 added a legitimate
+    // anonymous read from `viewer/`, which is a published read like the others and triggers no
+    // generation, so the prefix was rejecting the right thing for the wrong reason.
+    //
+    // Naming them makes each addition a reviewed decision. `getEnvironmentVoteBallot` reads an
+    // open ballot row; the WRITE that a vote performs is a mutation, and mutations land in
+    // `recorded.writes`, which the assertion above still requires to be empty — so this list
+    // cannot become a way to smuggle a write past the check.
+    expect([...new Set(recorded.queries)].sort()).toEqual([
+      'publicRead/readModelFunctions:getPublishedReadModel',
+      'publicRead/runtimeSnapshotFunctions:getPublicRuntimeSnapshot',
+      'viewer/environmentVoteFunctions:getEnvironmentVoteBallot',
+    ]);
     expect(network.writes).toEqual([]);
     expect(network.offSite).toEqual([]);
   });
