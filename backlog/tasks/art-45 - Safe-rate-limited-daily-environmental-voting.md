@@ -1,11 +1,11 @@
 ---
 id: ART-45
 title: Safe rate-limited daily environmental voting
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-25 13:13'
+updated_date: '2026-08-25 13:18'
 labels:
   - prd-1.0
   - epic-l
@@ -87,9 +87,9 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #9 Documentation is updated
 - [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -248,3 +248,44 @@ declared ballot write exists", not "zero anywhere". Written into
 run does not meet it as a surprise. `e2e/dynamicView.spec.ts` is unchanged and still asserts zero
 writes from `/live` through two independent mechanisms.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Delivered FR-J001 end to end: a daily ballot of 3-4 catalog candidates, one accepted vote per
+device per round with an attempt budget that refusals also spend, a cutoff that elects exactly one
+winner with a deterministic tie-break, and injection of that winner as a **Proposed** World Event
+through the existing structural + Canon pipeline. The homepage's 「投票尚未開放」 is now derived
+from the published ballot instead of a hard-coded `false`.
+
+**The decision this task turned on** (`docs/daily-environment-vote.md` §2): this is the product's
+only viewer WRITE, and the machine-enforced read-only surface (ART-128 / FR-O009) forbade it.
+Resolved from the PRDs — PRD 2.0 §22.16 and FR-O009 scope the guarantee to **viewing** and to
+`/live`, while PRD 1.0 §5.1 G11 and PRD 2.0 §13 require the ballot — so the guarantee is now
+proven PER SURFACE, and the fence around the one exception is stricter than the blanket ban it
+replaces: `anonymous` still means read-only; a new `viewer` gate needs two declarations in two
+places; `viewerWriteBoundary` caps it at one, forces it under `convex/viewer`, forbids an action,
+requires the module to NAME the FR-L003 classifier and the rate limiter (the only policy rule that
+fails on ABSENCE), and forbids any Canon-write symbol; the single client exemption is one file and
+one symbol, grantable only under `src/components/vote`. A vote structurally cannot author a world
+fact — `viewer` cannot reach `canon`, `simulation` cannot reach `viewer`, and the event is rebuilt
+server-side from reviewed repository source with `proposedBy: system`.
+
+**Verified.** `npm run check` green after merging origin/main: boundaries valid (policy v1, 19
+modules); 37 architecture policy tests; 21 asset-licence tests; typecheck and lint clean; 174 Jest
+suites, 2689 passed, 5 pre-existing skips, 0 failed; `tsc && vite build` succeeded. Non-vacuity
+proven by seven fault-injected mutants (`mktemp -d` + `cp`, no `git checkout`) producing **14
+failures**: removing the per-device limit (2), removing the attempt budget (2), an order-dependent
+tie-break (1), a 指定犯人 catalog entry carrying a prompt injection (4), a character named in the
+proposal (2), a loosened policy — `maxViewerMutations: 99`, `clientRoots: ["src"]` (2), and moving
+the write out of the exempt file (1 boundary error + 1 test).
+
+Also closes audit note M-1: `classifyViewerInput` had zero production callers while FR-J001 was
+deferred, and now has two — with `viewerWriteBoundary.requiredSymbols` failing the build if the
+viewer write module stops naming it.
+
+PR #204, auto-merge enabled. **Flagged for ART-138:** §22 item 16 must be recorded as "zero
+successful mutations caused by viewing; one deliberately declared ballot write exists", not "zero
+anywhere"; recorded in `docs/public-read-only-guarantee.md` §9 and
+`docs/prd-2.0-requirement-matrix.md` §5.6.
+<!-- SECTION:FINAL_SUMMARY:END -->
