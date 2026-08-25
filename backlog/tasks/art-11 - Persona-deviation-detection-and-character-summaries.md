@@ -1,11 +1,11 @@
 ---
 id: ART-11
 title: Persona deviation detection and character summaries
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-25 12:56'
+updated_date: '2026-08-25 13:06'
 labels:
   - prd-1.0
   - epic-c
@@ -13,6 +13,8 @@ milestone: m-0
 dependencies:
   - ART-9
   - ART-25
+references:
+  - 'https://github.com/tc3oliver/ai-reality-town/pull/202'
 documentation:
   - backlog/docs/prd/ai-reality-town-prd-1.0/doc-1 - AI-Reality-Town-PRD-1.0.md
 priority: medium
@@ -87,7 +89,7 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -100,3 +102,49 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 5. Tests in `convex/canon/personaDeviation.test.ts`: flagged-and-committed, rejected reversal, review-required deviation, allowed small change, supported reversal accepted, replay determinism, gate inertness without anchors, and a structural boundary assertion that no publicRead/viewer module imports the summary module. Fault injection to prove non-vacuity.
 6. Docs: `docs/persona-deviation.md` design note; update the FR-B003 row of `docs/prd-1.0-closure-matrix.md`. Gate with `npm run check`.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Delivered FR-B003 as a structural gate plus a derived projection. PR #202 (auto-merge armed).
+
+DESIGN DECISIONS AND WHAT WAS REJECTED
+1. Detection reads NO persona prose. Matching `personalityTraits`/`values`/`behaviorRules` against an event's `reason`/`publicSummary` was rejected: it is a second unversioned classifier that cannot be replayed, drifts when a seed is reworded, and judges strings authored by the very provider under judgement. `docs/proposed-event-review.md` already bans exactly this for rejection reasons. Signals are instead comparisons between values the world holds: seeded occupation and organizationIds vs the FR-B001 projection, and FR-B002 relationship state vs the proposal's delta.
+2. No self-declared deviation field on the proposal. That would make AC#1 a claim rather than a guarantee; detection is computed FROM the proposal, never read OFF it.
+3. A reversal cannot supply its own conflict. A trust reversal IS trust going down, so the goal-conflict support must come from a DIFFERENT state change or every reversal would clear itself.
+4. A cited cause must be material. `causedByEventIds` naming any accepted event is a bar a provider clears trivially; the cause must have had the character as a participant. `knownEventParticipantIds` is built in `commitProposedEvent` from events already loaded, so it costs no extra read.
+5. Two refusal codes because AC#2 offers two remedies: `UNSUPPORTED_PERSONA_REVERSAL` (reject) and `PERSONA_DEVIATION_REVIEW_REQUIRED` (review). Nothing unsupported enters Canon either way; both are stable SCREAMING_SNAKE_CASE so the FR-K002 console reports them verbatim and no second review queue was needed.
+6. Deviating from the task's boilerplate Schema Impact line: NO new table and NO snapshot version bump. A flag is a pure function of (accepted event, prior projection, seeded anchor); a stored copy could disagree with Canon and would need back-filling onto all history.
+7. Turning point is strictly narrower than flag (reversal, or a growth/breakdown marker), so ordinary drama does not refresh every summary and `version` keeps its meaning.
+8. Gate runs LAST in `validateCanon`; exempts superseding remediations and worlds with no seeded anchors.
+
+STATED LIMITATION (not faked, not hidden): this cannot detect a character betraying a `behaviorRule` in dialogue alone. Canon records no such thing and inventing it would assert a world fact nobody accepted. Documented in the module header and `docs/persona-deviation.md` §1.
+
+FILES
+convex/canon/personaDeviation.ts (new, pure); validators.ts (`validatePersonaConsistency`); commit.ts (anchors + causal participants into CanonRuleContext); model.ts (2 optional CanonRuleContext fields); queries.ts (`getCharacterSummaries`, internalQuery); shared/errors.ts (2 codes); docs/persona-deviation.md; docs/DEVELOPMENT.md; docs/prd-1.0-closure-matrix.md.
+
+VERIFICATION
+npm run check -> exit 0. check:architecture ok, test:architecture ok, check:asset-licenses ok, test:asset-licenses ok, tsc --noEmit clean, lint clean, 170 suites / 2631 tests (2626 passed, 5 skipped) after merging origin/main (ART-27); 167 suites / 2599 tests at the ART-11 commit itself. Vite build ok.
+Focused: NODE_OPTIONS=--experimental-vm-modules npx jest --runTestsByPath convex/canon/personaDeviation.test.ts convex/canon/personaDeviation.boundary.test.ts -> 2 suites / 28 tests passed.
+
+FAULT INJECTION (temp-dir backup + restore, never git checkout) proving non-vacuity:
+- every outcome forced to 'flag' -> 6 tests failed
+- every flag forced to a turning point -> 2 failed
+- self-justification exclusion removed -> 10 failed
+- superseding-remediation exemption removed -> 1 failed
+- cause materiality dropped to 'any cited event' -> 1 failed
+- gate's anchors withheld from validateCanon -> 5 failed
+- CharacterSummary imported into convex/publicRead/conversationState.ts -> 1 failed (boundary)
+- swing threshold 40 -> 1 -> 3 failed in the long-run harness, proving the gate is live in the real pipeline
+All restored; full check green afterwards.
+
+SECURITY: summaries are internal only. The anchor carries occupation/organizationIds/personalityTraits/values and deliberately excludes privateProfile, privateGoal, fear and behaviorRules. Refusal details carry structured signals and never a `reason` string. `personaDeviation.boundary.test.ts` reads every file under convex/publicRead, convex/viewer and src and fails on any persona symbol, asserting over the file list so a new public file is covered automatically.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Delivered FR-B003 via PR #202. Canon detects a major action departing from a seeded persona structurally — comparing projected occupation, seeded organization memberships and FR-B002 relationship polarity against their anchors, never matching persona prose, which was rejected because it would judge strings written by the provider under judgement. High-importance deviations are flagged (AC#1); an unsupported reversal is rejected with UNSUPPORTED_PERSONA_REVERSAL and an unsupported same-direction deviation is refused with PERSONA_DEVIATION_REVIEW_REQUIRED, both stable codes the FR-K002 console already reports (AC#2); a turning point bumps a derived CharacterSummary's version (AC#3). Flags and summaries are a projection, not a table: no schema change, no snapshot version bump, and summaries stay internal.
+
+Verified: npm run check exit 0 — architecture ok, asset licences ok, tsc --noEmit clean, lint clean, 170 suites / 2631 tests (2626 passed, 5 skipped), Vite build ok. Focused personaDeviation.test.ts 23/23 and personaDeviation.boundary.test.ts 5/5 (AC#4 — every criterion including the reject and review paths). Eight fault injections proved the tests non-vacuous, failing 6/2/10/1/1/5/1/3 tests respectively; the threshold injection failed three long-run-harness tests, showing the gate is live in the real pipeline rather than only in unit tests. AC#5: docs/prd-1.0-closure-matrix.md FR-B003 row moved Deferred P1 -> P1 delivered, citing both test files and docs/persona-deviation.md, with doc-1 named as the requirement source.
+<!-- SECTION:FINAL_SUMMARY:END -->
