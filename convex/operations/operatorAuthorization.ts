@@ -78,6 +78,26 @@ export const OPS_CAPABILITIES = [
   // existing one: an operator trusted to pause a world is not thereby trusted to un-withhold
   // content the safety classifier refused.
   'safety.override',
+  /**
+   * FR-Q002 / ART-134. Four controls over the public dynamic view, each its own capability
+   * rather than folded into an existing one.
+   *
+   * `dynamic.hide` is separated from `safety.override` for the reason the two ledgers are
+   * separate: one pulls content an operator judged should come down, the other revises what a
+   * CLASSIFIER decided, and an operator trusted to take a mis-rendering sprite off the map is
+   * not thereby trusted to un-withhold content safety refused.
+   *
+   * `dynamic.pause` is separated from `world.pause` because they stop different things. Pausing
+   * the WORLD stops the simulation; pausing the dynamic VIEW stops republishing what the public
+   * sees while the world keeps running. Sharing a capability would mean an operator who can
+   * freeze the public page can also halt Canon, which is a much larger action.
+   */
+  'dynamic.pause',
+  'dynamic.pin_snapshot',
+  'dynamic.hide',
+  'dynamic.rebuild',
+  /** Read-only: binding and synchronisation errors (AC#4). */
+  'dynamic.inspect',
 ] as const;
 export type OpsCapability = (typeof OPS_CAPABILITIES)[number];
 
@@ -92,6 +112,13 @@ const CAPABILITY_MINIMUM_ROLE: Readonly<Record<OpsCapability, OperatorRole>> = {
   'world.inspect': 'viewer',
   'schedule.inspect': 'viewer',
   'world.pause': 'operator',
+  // Every dynamic control drives the running public view, so `operator`; inspection is
+  // read-only and therefore `viewer`, matching `world.inspect`.
+  'dynamic.pause': 'operator',
+  'dynamic.pin_snapshot': 'operator',
+  'dynamic.hide': 'operator',
+  'dynamic.rebuild': 'operator',
+  'dynamic.inspect': 'viewer',
   'world.resume': 'operator',
   'slot.advance': 'operator',
   'run.retry': 'operator',

@@ -42,6 +42,10 @@ import {
   type PublicWorldStatus,
 } from './publicDynamicProjection';
 import { publicDynamicProjectionValidator } from './publicDynamicProjectionValidators';
+import {
+  applyDynamicViewControls,
+  resolveDynamicViewControlRows,
+} from '../shared/dynamicViewControls';
 import { commitRuntimeSnapshot } from './runtimeSnapshot';
 import { runtimeSnapshotWriteStore } from './runtimeSnapshotFunctions';
 import {
@@ -392,7 +396,31 @@ export const rebuildLiveProjection = internalMutation({
           activeScenes: presentation.scenes,
         })
       : null;
-    const dynamic = derived?.projection ?? null;
+    /**
+     * FR-Q002 / ART-134 AC#3 — the operator's hidden characters and scenes, removed HERE.
+     *
+     * At build time, not at read time, for the same reason FR-P004's safety gate is: a
+     * read-time filter would leave the hidden thing in the stored payload, and FR-O010's
+     * last-known-good fallback would keep serving it the moment the current version could not
+     * be read. The hidden character would come back, from the mechanism designed to keep the
+     * page alive.
+     *
+     * The LEDGER is read here and the EFFECTIVE state is resolved by the shared resolver the
+     * operator console also uses. `publicRead` may not depend on `operations` (that edge already
+     * runs the other way), so the pure model lives in `shared` — which means the console and the
+     * projection cannot disagree about what is hidden. Re-deriving it here instead would be two
+     * implementations of that question, and the way those diverge is that something an operator
+     * hid stays on screen while the console keeps reporting it as hidden.
+     */
+    const dynamicControls = resolveDynamicViewControlRows(
+      await ctx.db
+        .query('dynamicViewControls')
+        .withIndex('by_world_and_created', (q) => q.eq('worldId', args.worldId))
+        .collect(),
+    );
+    const dynamic = derived?.projection
+      ? applyDynamicViewControls(derived.projection, dynamicControls)
+      : null;
 
     const publishableEvents = redactWithheldSummaries(acceptedEvents, withheldEvents);
 

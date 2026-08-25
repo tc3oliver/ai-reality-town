@@ -417,6 +417,42 @@
         "name": "overridePostGenerationSafetyLabel",
         "kind": "mutation",
         "gate": "operator"
+      },
+      {
+        "path": "convex/operations/dynamicViewControlFunctions.ts",
+        "name": "setDynamicUpdatesPaused",
+        "kind": "mutation",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/dynamicViewControlFunctions.ts",
+        "name": "setSnapshotPinned",
+        "kind": "mutation",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/dynamicViewControlFunctions.ts",
+        "name": "setCharacterVisualHidden",
+        "kind": "mutation",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/dynamicViewControlFunctions.ts",
+        "name": "setSceneVisualHidden",
+        "kind": "mutation",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/dynamicViewControlFunctions.ts",
+        "name": "rebuildDynamicProjection",
+        "kind": "mutation",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/dynamicViewControlFunctions.ts",
+        "name": "inspectDynamicViewControls",
+        "kind": "query",
+        "gate": "operator"
       }
     ]
   },

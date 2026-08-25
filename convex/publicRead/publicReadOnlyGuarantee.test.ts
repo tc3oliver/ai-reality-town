@@ -32,6 +32,10 @@ import { join } from 'node:path';
 import * as canonCorrectionFunctions from '../operations/canonCorrectionFunctions';
 import * as safetyOverrideFunctions from '../operations/safetyOverrideFunctions';
 import * as dynamicViewMetricsFunctions from '../operations/dynamicViewMetricsFunctions';
+// FR-Q002 / ART-134. Six new operator-gated functions over the public dynamic view. Named here
+// deliberately: this suite refused the branch until they were, which is exactly what an
+// exhaustive enumeration of the client-reachable surface is for.
+import * as dynamicViewControlFunctions from '../operations/dynamicViewControlFunctions';
 import * as emergencyStopFunctions from '../operations/emergencyStopFunctions';
 import * as opsConsoleFunctions from '../operations/opsConsoleFunctions';
 import * as proposalReviewFunctions from '../operations/proposalReviewFunctions';
@@ -77,6 +81,7 @@ const MODULES: Readonly<Record<string, Record<string, unknown>>> = {
   'convex/operations/canonCorrectionFunctions.ts': canonCorrectionFunctions,
   'convex/operations/safetyOverrideFunctions.ts': safetyOverrideFunctions,
   'convex/operations/dynamicViewMetricsFunctions.ts': dynamicViewMetricsFunctions,
+  'convex/operations/dynamicViewControlFunctions.ts': dynamicViewControlFunctions,
   'convex/operations/proposalReviewFunctions.ts': proposalReviewFunctions,
   'convex/observability/traces.ts': traces,
   'convex/publicRead/readModelFunctions.ts': readModelFunctions,
@@ -520,7 +525,13 @@ describe('AC#6/#7 — public mutations refuse unauthorized callers server-side',
     }
   });
 
-  test('no public function even declares a character-control argument', () => {
+  /**
+   * The vocabulary of PLAYER control. A public function that accepted any of these would be
+   * offering to move, speak as, or act on behalf of a character.
+   */
+  const CONTROL_ARGS = ['playerId', 'destination', 'message', 'conversationId', 'action'] as const;
+
+  test('no public function even declares a player-control argument', () => {
     // The stronger half of AC#7: these are not rejected inputs, they are not inputs.
     // Convex validates against `exportArgs()` before a handler runs, so a field absent
     // here cannot be supplied at all.
@@ -528,10 +539,48 @@ describe('AC#6/#7 — public mutations refuse unauthorized callers server-side',
       const declaredArgs = Object.keys(
         (JSON.parse(registered(entry).exportArgs()) as { value?: Record<string, unknown> }).value ?? {},
       );
-      for (const forbidden of ['playerId', 'characterId', 'destination', 'message', 'conversationId', 'action']) {
+      for (const forbidden of CONTROL_ARGS) {
         expect(declaredArgs).not.toContain(forbidden);
       }
     }
+  });
+
+  test('no ANONYMOUS function names a character at all', () => {
+    /**
+     * `characterId` was on the list above until ART-134, and moving it here is a narrowing
+     * rather than a relaxation — worth saying, because the two are easy to confuse.
+     *
+     * The criterion is that a viewer cannot control a character. An anonymous function taking a
+     * `characterId` is the shape that offers exactly that, so for anonymous functions the rule
+     * stays absolute: not merely refused, but undeclarable.
+     *
+     * FR-Q002's `setCharacterVisualHidden` takes one and is not that shape. It is
+     * operator-gated, it hides a VISUAL rather than acting as anyone, and it is refused for an
+     * unauthenticated caller by the test above — before any row is read. Keeping the blanket
+     * ban would have meant either denying an operator the ability to name which character to
+     * hide, or exempting one function by name, and a by-name exemption is how an exhaustive
+     * guard stops being exhaustive.
+     */
+    for (const entry of ALLOWED.filter((candidate) => candidate.gate === 'anonymous')) {
+      const declaredArgs = Object.keys(
+        (JSON.parse(registered(entry).exportArgs()) as { value?: Record<string, unknown> }).value ?? {},
+      );
+      expect(declaredArgs).not.toContain('characterId');
+    }
+  });
+
+  test('every function that DOES name a character is operator-gated', () => {
+    // The other half of the narrowing: `characterId` is not simply allowed now — every
+    // declaration of it has to be behind the gate, and this is what would fail if one appeared
+    // on an anonymous read.
+    const naming = ALLOWED.filter((entry) => {
+      const declaredArgs = Object.keys(
+        (JSON.parse(registered(entry).exportArgs()) as { value?: Record<string, unknown> }).value ?? {},
+      );
+      return declaredArgs.includes('characterId');
+    });
+    expect(naming.length).toBeGreaterThan(0);
+    for (const entry of naming) expect(entry.gate).toBe('operator');
   });
 });
 
