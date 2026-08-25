@@ -37,6 +37,11 @@ import { TIME_SLOTS, type TimeSlot } from '../canon/eventTypes';
 import { replayWorldEvents } from '../canon/replay';
 import { validateCanon, validateEventStructure } from '../canon/validators';
 import { CanonError } from '../shared/errors';
+import { CANON_SCHEMA_VERSION } from '../shared/constants';
+import {
+  findEnvironmentVoteCandidate,
+  VIEWER_VOTE_IDEMPOTENCY_PREFIX,
+} from '../shared/environmentVoteCatalog';
 import {
   DIRECTOR_PACING_STAGES,
   MAX_MAJOR_SCENES_PER_SLOT,
@@ -142,6 +147,16 @@ export interface WorldDayLivePort {
   loadWorldSnapshot(slot: WorldDaySlotIdentity): Promise<LiveWorldSnapshot>;
   /** Environment events already scheduled for this slot (viewer injection, FR-J001). */
   loadScheduledEnvironmentEvents(slot: WorldDaySlotIdentity): Promise<ProposedEvent[]>;
+  /**
+   * Record that a scheduled environment event reached Canon (FR-J001 AC#4).
+   *
+   * Keyed on the proposal's `idempotencyKey` rather than on a row id, because that is the only
+   * identifier the two sides share: the queue is written by `viewer`, and `simulation` may not
+   * depend on it. Called only after the commit succeeds, so the queue records what Canon
+   * actually accepted rather than what was offered — which is the distinction FR-J002 will
+   * need, and the one a "mark it sent" design would have lost.
+   */
+  markScheduledEnvironmentEventApplied(idempotencyKey: string, eventId: string): Promise<void>;
   persistDirectorPlan(context: DirectorPlanContext, plan: DirectorPlan): Promise<void>;
   persistCharacterIntent(context: CharacterIntentContext, intent: CharacterIntent): Promise<void>;
   persistGroupedScenes(input: SceneGroupingInput, result: SceneGroupingResult): Promise<void>;
@@ -151,6 +166,60 @@ export interface WorldDayLivePort {
 }
 
 // --- deterministic identifiers ---------------------------------------------
+
+/**
+ * Turn a queued viewer-vote intervention into a Proposed World Event (FR-J001 AC#4).
+ *
+ * Pure, and exported so the Convex adapter and the injection test build the same event from the
+ * same code — a test that reconstructed the proposal itself would prove only that two authors
+ * agreed, not that Canon receives what the ballot elected.
+ *
+ * Three properties are load-bearing:
+ *
+ *  - The sentence comes from `convex/shared/environmentVoteCatalog.ts`, i.e. from reviewed
+ *    repository source. The queued row supplies an id and nothing else, so no text a viewer
+ *    submitted can reach Canon even by winning.
+ *  - `proposedBy` is `system`. The world proposes; the vote only chose which sanctioned option.
+ *    Recording a viewer as the author would assert an authority this design does not grant.
+ *  - The result is a PROPOSAL. It goes through `validateEventStructure` and `validateCanon` like
+ *    any other, so a winner that contradicts the world is refused (AC#5).
+ *
+ * Returns `null` for an id with no catalog entry — a catalog edited after a vote closed leaves
+ * the world unchanged rather than proposing an event whose text no longer exists.
+ */
+export function buildViewerVoteProposal(
+  intervention: { worldId: string; candidateId: string; idempotencyKey: string; worldDay: number; votes: number },
+  slot: WorldDaySlotIdentity,
+): ProposedEvent | null {
+  const candidate = findEnvironmentVoteCandidate(intervention.candidateId);
+  if (candidate === null) return null;
+  return {
+    schemaVersion: CANON_SCHEMA_VERSION,
+    worldId: intervention.worldId,
+    idempotencyKey: intervention.idempotencyKey,
+    proposedBy: { type: 'system', id: 'viewer_vote' },
+    worldDay: slot.worldDay,
+    timeSlot: slot.timeSlot,
+    eventType: 'world_event',
+    participantIds: [],
+    causedByEventIds: [],
+    publicSummary: candidate.publicSummary,
+    stateChanges: [{
+      type: 'fact_created',
+      subjectType: 'world',
+      subjectId: intervention.worldId,
+      predicate: candidate.predicate,
+      value: candidate.value,
+      visibility: 'public',
+    }],
+    metadata: {
+      source: 'viewer_vote',
+      candidateId: intervention.candidateId,
+      roundWorldDay: intervention.worldDay,
+      votes: intervention.votes,
+    },
+  };
+}
 
 export const slotOrdinal = ({ worldDay, timeSlot }: WorldDaySlotIdentity): number =>
   worldDay * TIME_SLOTS.length + TIME_SLOTS.indexOf(timeSlot);
@@ -271,9 +340,14 @@ export function buildLiveWorldSnapshot(sources: WorldSnapshotSources): LiveWorld
     activeArcs: [...sources.activeArcs].sort((left, right) => left.arcId.localeCompare(right.arcId)),
     recentMajorEventIds: recent.map(({ eventId }) => eventId),
     environmentFactIds: Object.keys(projection.worldEnvironment).sort((left, right) => left.localeCompare(right)),
-    // FR-J001 viewer environment-event voting is not implemented, so no slot can carry
-    // viewer-injected events yet. This is an empty real input, not a placeholder value.
-    viewerInterventionEventIds: [],
+    // FR-J001: which accepted events the daily vote put there. Derived from the accepted
+    // record's own `idempotencyKey` prefix rather than from a side table, so the attribution
+    // survives replay and cannot disagree with Canon. Scoped to the recent window for the same
+    // reason `recentMajorEventIds` is — the Director is being told what is CURRENTLY true of
+    // the world, and a blackout six days ago is history, not context.
+    viewerInterventionEventIds: recent
+      .filter((event) => event.idempotencyKey.startsWith(VIEWER_VOTE_IDEMPOTENCY_PREFIX))
+      .map(({ eventId }) => eventId),
     protectedFactIds: [...new Set(sources.secretIds)].sort((left, right) => left.localeCompare(right)),
     repetitionScore: repetitionScore(recent.map(({ eventType }) => eventType)),
   };
@@ -652,9 +726,11 @@ export function createWorldDayStageHandlers(
       snapshot: await port.loadWorldSnapshot(slotOf(context)),
     }),
 
-    // Viewer-injected environment events are proposals like any other: they are committed
-    // through the same Canon pipeline before planning reads the world. FR-J001 does not
-    // queue any yet, so today this is an empty, honest pass-through.
+    // Viewer-injected environment events (FR-J001) are proposals like any other: they are
+    // committed through the same Canon pipeline, with the same structural and Canon
+    // validation, before planning reads the world. A vote therefore buys a proposal, never an
+    // outcome — a winning event that would contradict the world is refused exactly as a
+    // Director proposal would be.
     apply_scheduled_environment_events: async (context): Promise<EnvironmentArtifact> => {
       const slot = slotOf(context);
       const { snapshot } = artifact<WorldStateArtifact>(context, 'load_world_state');
@@ -665,6 +741,10 @@ export function createWorldDayStageHandlers(
         if (structural) throw new CanonError(structural);
         const result = await commitProposedEvent(port.canonStore, { proposed, traceId: worldDayRunId(slot) });
         appliedEventIds.push(result.eventId);
+        // After the commit, so the queue records what Canon accepted. A commit that threw
+        // leaves the intervention queued and the slot retryable, which is the behaviour the
+        // resumable orchestrator already relies on everywhere else.
+        await port.markScheduledEnvironmentEventApplied(proposed.idempotencyKey, result.eventId);
       }
       return { appliedEventIds, environmentFactIds: snapshot.environmentFactIds };
     },

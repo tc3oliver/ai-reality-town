@@ -198,6 +198,7 @@ function createSeedPort(store: InMemoryCanonStore): WorldDayLivePort {
       });
     },
     loadScheduledEnvironmentEvents: () => Promise.resolve([]),
+    markScheduledEnvironmentEventApplied: () => Promise.resolve(),
     persistDirectorPlan: () => Promise.resolve(),
     persistCharacterIntent: () => Promise.resolve(),
     persistGroupedScenes: () => Promise.resolve(),

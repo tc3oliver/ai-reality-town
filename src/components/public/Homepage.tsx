@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 import { emitDynamicViewEvent } from '../../analytics/analyticsSink';
 import { useQuery } from 'convex/react';
 import { getPublishedReadModelRef } from './publicReadModelRef';
@@ -5,6 +7,11 @@ import { getPublicRuntimeSnapshotRef } from './publicRuntimeSnapshotRef';
 import { PublicPageFrame } from './PublicPageFrame';
 import { CharacterSprite } from './CharacterSprite';
 import { PublicStatusChips } from './PublicStatusChips';
+import { EnvironmentVotePanel } from '../vote/EnvironmentVotePanel';
+import { getEnvironmentVoteBallotRef } from '../vote/environmentVoteRef';
+import { useEnvironmentVote } from '../vote/useEnvironmentVote';
+import { browserVoteDeviceKey } from '../vote/voteDeviceKey';
+import type { EnvironmentVoteBallot, VoteInteractionState } from '../vote/environmentVoteModel';
 import { freshnessDescriptor, worldClockDescriptors } from './publicStatusBadge';
 import {
   composeHomepageViewModel,
@@ -59,6 +66,44 @@ export default function Homepage() {
    * badge rather than a guessed one: a wrong state claim is worse than none.
    */
   const runtime = useQuery(getPublicRuntimeSnapshotRef, enabled ? { worldId } : 'skip');
+  /**
+   * The open daily ballot (FR-J001 / ART-45). A fifth anonymous READ — reading a ballot is no
+   * more privileged than reading an episode, and it is what turns 「投票尚未開放」 from a
+   * hard-coded sentence into a derivation. Casting a vote is a separate, deliberate action and
+   * goes through the one exempt module (`src/components/vote/useEnvironmentVote.ts`).
+   */
+  const ballot = useQuery(getEnvironmentVoteBallotRef, enabled ? { worldId } : 'skip');
+  /**
+   * The ballot's write channel and its result (FR-J001 / ART-45).
+   *
+   * Held here, in the data-fetching half, rather than inside the panel. `HomepageView` must stay
+   * renderable with no Convex client — that is what lets `publicPages.a11y.test.tsx` exercise the
+   * real markup — and a panel that bound the write itself would have ended that. The binding is
+   * reached through `useEnvironmentVote`, the one module the read-only boundary exempts.
+   */
+  const submitVote = useEnvironmentVote();
+  const [voteInteraction, setVoteInteraction] = useState<VoteInteractionState>({ kind: 'idle' });
+
+  async function castVote(candidateId: string) {
+    const deviceKey = browserVoteDeviceKey();
+    // No storage means no stable device, and the server would refuse the submission anyway.
+    // Saying so is better than spending one of this device's attempts to be told the same.
+    if (deviceKey === null || worldId === null) {
+      setVoteInteraction({ kind: 'refused', code: 'VOTE_DEVICE_KEY_INVALID' });
+      return;
+    }
+    setVoteInteraction({ kind: 'submitting' });
+    try {
+      const result = await submitVote({ worldId, deviceKey, candidateId });
+      setVoteInteraction(result.accepted
+        ? { kind: 'accepted', candidateId }
+        : { kind: 'refused', code: result.code });
+    } catch {
+      // A transport failure is not a refusal and must not be reported as one: the vote may well
+      // have been recorded. The generic message covers both without claiming either.
+      setVoteInteraction({ kind: 'refused', code: null });
+    }
+  }
 
   if (!enabled) {
     return (
@@ -77,9 +122,20 @@ export default function Homepage() {
     world: (world?.payload ?? null) as HomeWorldProjection | null,
     live: (live?.payload ?? null) as HomeLiveProjection | null,
     base: import.meta.env.BASE_URL,
+    vote: ballot ?? null,
+    now: Date.now(),
   });
 
-  return <HomepageView worldId={worldId} vm={vm} freshness={runtime?.freshness ?? null} />;
+  return (
+    <HomepageView
+      worldId={worldId}
+      vm={vm}
+      freshness={runtime?.freshness ?? null}
+      ballot={ballot}
+      voteInteraction={voteInteraction}
+      onCastVote={(candidateId) => void castVote(candidateId)}
+    />
+  );
 }
 
 /**
@@ -90,6 +146,9 @@ export function HomepageView({
   worldId,
   vm,
   freshness = null,
+  ballot,
+  voteInteraction,
+  onCastVote,
 }: {
   worldId: string;
   vm: HomepageViewModel;
@@ -99,6 +158,19 @@ export function HomepageView({
    * not adopted it is unchanged.
    */
   freshness?: string | null;
+  /**
+   * The open ballot (FR-J001 / ART-45), or `null`/`undefined`. Omitted renders the section's
+   * closed state, so callers that have not adopted it — the accessibility suite among them —
+   * are unchanged.
+   */
+  ballot?: EnvironmentVoteBallot | null;
+  /** The ballot's submission state, owned by the data-fetching half. */
+  voteInteraction?: VoteInteractionState;
+  /**
+   * The ballot's write channel. Omitted renders the ballot with its counts and without its
+   * controls, which is what a render with no Convex client must do.
+   */
+  onCastVote?: (candidateId: string) => void;
 }) {
   const runtimeChip = freshnessDescriptor(freshness);
   return (
@@ -246,12 +318,14 @@ export function HomepageView({
           <a href={`#help/${worldId}`}>觀看指南</a>
         </p>
       </section>
-      <section className="vote mt-4" aria-labelledby="home-vote">
-        <h2 id="home-vote" className="text-xl font-semibold">
-          投票
-        </h2>
-        <p className="public-muted">{vm.voteAvailable ? '投票已開放。' : '投票尚未開放。'}</p>
-      </section>
+      {/* FR-J001 / ART-45. The section used to be a hard-coded 「投票尚未開放」; it now renders
+          the real ballot when one is open and its result when the cutoff has passed. */}
+      <EnvironmentVotePanel
+        ballot={ballot}
+        headingId="home-vote"
+        interaction={voteInteraction}
+        onCast={onCastVote}
+      />
     </PublicPageFrame>
   );
 }

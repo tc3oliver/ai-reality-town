@@ -143,7 +143,8 @@
         "shared",
         "clientProvider",
         "clientLiveRoute",
-        "clientAnalytics"
+        "clientAnalytics",
+        "clientViewerWrite"
       ]
     },
     "clientWorldReadOnly": {
@@ -216,6 +217,16 @@
         "src/analytics"
       ],
       "mayDependOn": []
+    },
+    "clientViewerWrite": {
+      "roots": [
+        "src/components/vote"
+      ],
+      "mayDependOn": [
+        "viewer",
+        "shared",
+        "clientLiveRoute"
+      ]
     }
   },
   "readOnlyClientBoundary": {
@@ -230,6 +241,12 @@
         "path": "src/components/ConvexClientProvider.tsx",
         "symbols": [
           "ConvexReactClient"
+        ]
+      },
+      {
+        "path": "src/components/vote/useEnvironmentVote.ts",
+        "symbols": [
+          "useMutation"
         ]
       }
     ],
@@ -285,6 +302,18 @@
         "name": "getTracePublic",
         "kind": "query",
         "gate": "anonymous"
+      },
+      {
+        "path": "convex/viewer/environmentVoteFunctions.ts",
+        "name": "getEnvironmentVoteBallot",
+        "kind": "query",
+        "gate": "anonymous"
+      },
+      {
+        "path": "convex/viewer/environmentVoteFunctions.ts",
+        "name": "submitEnvironmentVote",
+        "kind": "mutation",
+        "gate": "viewer"
       },
       {
         "path": "convex/operations/opsConsoleFunctions.ts",
@@ -453,6 +482,34 @@
         "name": "inspectDynamicViewControls",
         "kind": "query",
         "gate": "operator"
+      }
+    ]
+  },
+  "viewerWriteBoundary": {
+    "roots": [
+      "convex/viewer"
+    ],
+    "clientRoots": [
+      "src/components/vote"
+    ],
+    "maxViewerMutations": 1,
+    "requiredSymbols": [
+      "classifyViewerInput",
+      "evaluateVoteSubmission"
+    ],
+    "forbiddenSymbols": [
+      "canonEvents",
+      "commitProposedEvent",
+      "validateAndCommitProposedEvent",
+      "reduceWorldEvent",
+      "replayWorldEvents",
+      "seedWorldCharacters",
+      "importWorld"
+    ],
+    "allowed": [
+      {
+        "path": "convex/viewer/environmentVoteFunctions.ts",
+        "name": "submitEnvironmentVote"
       }
     ]
   },

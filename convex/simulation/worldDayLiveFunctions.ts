@@ -48,6 +48,7 @@ import { executeWorldDay, type WorldDayRun } from './worldDayOrchestration';
 import { createConvexWorldDayRunStore } from './worldDayOrchestrationFunctions';
 import {
   buildLiveWorldSnapshot,
+  buildViewerVoteProposal,
   createWorldDayStageHandlers,
   worldDayRunId,
   type LiveArc,
@@ -152,6 +153,59 @@ async function loadWorldSnapshot(db: MutationDb, slot: WorldDaySlotIdentity): Pr
 }
 
 /**
+ * Drain the viewer vote queue for one slot (FR-J001 AC#4).
+ *
+ * ## Why this reads rows instead of importing the viewer module
+ *
+ * `simulation` may not depend on `viewer` (`architecture/module-boundaries.json`), and the edge
+ * should not be added: the ballot must never be something the world consults while it plans.
+ * The queue's contract is therefore the TABLE, and each side owns one end of it — `viewer`
+ * fills it and can go no further, `simulation` drains it and never looks at a ballot.
+ *
+ * ## Why the event is rebuilt rather than stored
+ *
+ * The queued row carries a catalog id, not an event. {@link buildViewerVoteProposal} constructs
+ * the Proposed World Event from `convex/shared/environmentVoteCatalog.ts` at the moment it is
+ * proposed, so the sentence that reaches Canon is reviewed repository source rather than a
+ * payload that travelled through a public mutation.
+ *
+ * Only the day's FIRST slot drains the queue. Returning the same proposal in all five slots
+ * would be harmless — the commit is idempotent on `idempotencyKey` — but it would report four
+ * spurious "applied" events per day into the run artifact, and an artifact that overstates what
+ * happened is worse than one that is quiet.
+ */
+async function loadQueuedEnvironmentEvents(
+  db: MutationDb,
+  slot: WorldDaySlotIdentity,
+): Promise<ProposedEvent[]> {
+  if (slot.timeSlot !== TIME_SLOTS[0]) return [];
+  const queued = await db
+    .query('environmentVoteInterventions')
+    .withIndex('by_world_and_target_day', (q) =>
+      q.eq('worldId', slot.worldId).eq('targetWorldDay', slot.worldDay).eq('status', 'queued'))
+    .collect();
+  return queued.flatMap((row) => {
+    const proposal = buildViewerVoteProposal(row, slot);
+    return proposal === null ? [] : [proposal];
+  });
+}
+
+/** Record what Canon accepted, so the queue reflects the world rather than the intent. */
+async function markQueuedEnvironmentEventApplied(
+  db: MutationDb,
+  idempotencyKey: string,
+  appliedEventId: string,
+): Promise<void> {
+  const row = await db
+    .query('environmentVoteInterventions')
+    .withIndex('by_idempotency_key', (q) => q.eq('idempotencyKey', idempotencyKey))
+    .unique();
+  if (row && row.status === 'queued') {
+    await db.patch(row._id, { status: 'applied', appliedEventId, appliedAt: Date.now() });
+  }
+}
+
+/**
  * Convex-backed {@link WorldDayLivePort}. Canon goes through the shared commit store;
  * every Director/Intent/Grouping/Scene artifact is persisted through its own already
  * tested internal mutation, so their idempotency and authorization rules run live.
@@ -160,9 +214,12 @@ function createConvexWorldDayLivePort(ctx: MutationCtx, now: number): WorldDayLi
   return {
     canonStore: createConvexCanonStore(ctx.db),
     loadWorldSnapshot: (slot) => loadWorldSnapshot(ctx.db, slot),
-    // PRD §12 stage 2. Scheduled environment events originate from viewer voting
-    // (FR-J001), which is not implemented yet, so no slot has any queued for it.
-    loadScheduledEnvironmentEvents: (): Promise<ProposedEvent[]> => Promise.resolve([]),
+    // PRD §12 stage 2. Scheduled environment events originate from the daily viewer vote
+    // (FR-J001) — see {@link loadQueuedEnvironmentEvents} for why the queue is read as rows
+    // rather than through an import.
+    loadScheduledEnvironmentEvents: (slot) => loadQueuedEnvironmentEvents(ctx.db, slot),
+    markScheduledEnvironmentEventApplied: (idempotencyKey, eventId) =>
+      markQueuedEnvironmentEventApplied(ctx.db, idempotencyKey, eventId),
     persistDirectorPlan: async (context, plan) => {
       await ctx.runMutation(persistDirectorPlanRef,
         { context, plan, createdAt: now });

@@ -7,6 +7,13 @@
 - **Method:** enumeration from source, adversarial invocation of every public mutation,
   and proof-by-absence for the retired interactive engine. See §3.
 
+> **Amended by ART-45 (FR-J001), 2026-08-25.** This document records the audit as it stood on
+> 2026-08-07, when the deployment exposed no viewer write because none was intended. FR-J001's
+> daily environment vote is one, and the guarantee is now stated and enforced **per surface**
+> rather than repository-wide. The amendment is §9; everything above it describes the audit at
+> the time, and the counts in §1 and §5 are superseded there. The reasoning, and the alternative
+> that was rejected, are in `docs/daily-environment-vote.md` §2.
+
 ## 1. Verdict
 
 **The public read-only guarantee holds, and is now machine-enforced.**
@@ -244,3 +251,65 @@ diff and the suite until the identifier check was added alongside them.
   removal of `nowMs` from one public validator.
 - **"Fixing" GAP 7.** The forged-identifier behaviour is already fail-safe and is pinned,
   not altered.
+
+## 9. Amendment — the one viewer write (ART-45 / FR-J001, 2026-08-25)
+
+### What changed
+
+PRD 1.0 §5.1 G11 requires a daily viewer ballot. This audit's blanket rule — *no anonymous
+mutation exists anywhere* — could not express that exception, so the guarantee is now proven as
+what PRD 2.0 §22.16 actually claims: 「公開**觀看**不執行任何成功 Mutation」, scoped by FR-O009 to
+`/live` and by RISK2-002 to 觀看. Viewing still reaches nothing but reads.
+
+### The surface today
+
+**Anonymous reads: 5** (the four in §5, plus `getEnvironmentVoteBallot`).
+**Operator-gated reads: 8. Operator-gated mutations: 13. Viewer-gated mutations: 1.
+Anonymous mutations: 0. Anonymous actions: 0. HTTP routes: 0.**
+
+The shipped browser bundle now names **six** Convex functions: five queries and
+`viewer/environmentVoteFunctions:submitEnvironmentVote`, which is referenced from exactly one
+file (`src/components/vote/useEnvironmentVote.ts`) and is asserted to be.
+
+### Why this is not a hole
+
+`anonymous` still means READ ONLY — `validatePolicy` rejects an anonymous mutation exactly as it
+did before. The ballot uses a **third** gate, `viewer`, and every rule below is machine-checked
+by `scripts/architecture/check-boundaries.mjs` and covered by
+`scripts/architecture/check-boundaries.test.mjs`:
+
+| Rule | Effect |
+|---|---|
+| Declared twice — `publicFunctionSurface.allowed` **and** `viewerWriteBoundary.allowed` | Opening a viewer write costs two edits in two places, not one word |
+| `maxViewerMutations: 1` | A second viewer write fails the build even when fully declared |
+| Must live under `convex/viewer` | It cannot sit in a module that may reach Canon, the read model or the simulation |
+| May never be an `action` | A viewer cannot reach a provider; ADR-0001 stays enforceable |
+| Module must NAME `classifyViewerInput` and `evaluateVoteSubmission` | The only rule in the policy that fails on ABSENCE — a viewer write that dropped its safety gate or its rate limiter fails the build |
+| Module may name no Canon-write symbol | A vote cannot author a world fact, in either spelling: import or home-grown |
+| A write-API exemption may only be granted under `src/components/vote` | `/live`, the world renderer, every public page and the app shell keep the exact guarantee they had; an exemption for them cannot be written down |
+
+### The three layers, updated
+
+`readOnlyClientBoundary` is unchanged in strength: `useMutation` and friends are still forbidden
+in every file under `src`. There is now one exemption, for one file and one symbol, and the new
+clientRoot rule bounds where such an exemption may ever be granted. The `ConvexClientProvider`
+exemption is untouched — `ConvexReactClient` is construction, not a write, and `useMutation`
+remains denied there.
+
+### Evidence
+
+- `convex/publicRead/publicReadOnlyGuarantee.test.ts` → *no anonymous mutation exists; every
+  write is an operator control or the one ballot*, and the six tests under *the declared viewer
+  write is exactly one bounded ballot*.
+- `src/components/world/readOnlyWorldSurface.test.ts` → *every surface other than the vote module
+  is still provably unable to write*, and *the vote module is one file wide and holds no logic*.
+- `scripts/architecture/check-boundaries.test.mjs` → the seven viewer-write-gate tests, each of
+  which introduces a mutant policy and asserts it is refused.
+- `e2e/dynamicView.spec.ts` is unchanged and still asserts zero writes from `/live` through two
+  independent mechanisms.
+
+### Consequence for the release gate
+
+§22's item 16 should be recorded as **"zero successful mutations caused by viewing; one
+deliberately declared ballot write exists"**. That is a change in how the number is reported, not
+a change in what viewing can do, and it is flagged here so ART-138 does not meet it as a surprise.

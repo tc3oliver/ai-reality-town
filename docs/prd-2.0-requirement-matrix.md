@@ -197,7 +197,7 @@ Requirement Matrix 不應只放未附證據的診斷結論。ART-139 的既有�
 
 | Task | 覆蓋的 Closure Matrix 條目 |
 |---|---|
-| **ART-45** | §5.1 G11、UX-005、FR-J001、§19.1、RISK-002 |
+| **ART-45** | §5.1 G11、UX-005、FR-J001、§19.1、RISK-002 —— **Done**。每日環境投票已上線：目錄式候選（非自由文字）、每裝置每日一票＋嘗試次數預算、截止後單一勝出（決定性 tie-break）、勝出者以 **Proposed** World Event 經既有結構與 Canon 驗證注入。首頁 `voteAvailable` 由已發布的 ballot 推導，不再硬編碼 `false`。**與 FR-O009 的關係見下方 §5.6 與 `docs/daily-environment-vote.md` §2**。實作證據：PR #204 |
 | **ART-39** | §5.1 G10、FR-H004 |
 | **ART-73** | NFR-007、§19.3 |
 | **ART-59** | FR-M003、§16.3、RISK-005 |
@@ -231,6 +231,28 @@ Requirement Matrix 不應只放未附證據的診斷結論。ART-139 的既有�
 ### 5.5 結論
 
 7 個 Task 各覆蓋多條需求；1 條需求由 4 個 Task 覆蓋；3 個 Task 不源自延後需求；4 條條目不需 Task。**不得假設「補完 23 個 Task 即等於清空 24 條延後需求」。**
+
+### 5.6 ART-45 與 FR-O009／§22.16 的張力，以及處置
+
+PRD 1.0 §5.1 G11／FR-J001 要求觀眾投票（一次寫入）；PRD 2.0 §22.16 要求「公開**觀看**不執行任何成功
+Mutation」。ART-128 當時把後者實作成 repo 級的「禁止任何匿名 mutation」，因為當時並不存在任何預期中的
+觀眾寫入路徑——那是最強的可得代理，但它無法表達 FR-J001 這個例外。
+
+**處置：保證改為逐表面證明，且例外周圍的強制比它取代的更嚴格。**
+
+- `anonymous` 閘門仍然**只允許 read**；`validatePolicy` 依舊直接拒絕匿名 mutation。
+- 新增第三個閘門 `viewer`，且**必須同時**登錄於 `publicFunctionSurface.allowed` 與新的
+  `viewerWriteBoundary.allowed`——開一個觀眾寫入需要兩處宣告。
+- `viewerWriteBoundary` 另外要求：必須位於 `convex/viewer`、**最多一個**（`maxViewerMutations: 1`）、
+  不得是 action、模組必須指名安全分類器與速率限制器、且不得指名任何 Canon 寫入符號。
+- Client 端 `readOnlyClientBoundary` 仍禁止整個 `src` 使用寫入 API，僅有**一個檔案一個符號**的豁免，
+  且新規則使該豁免**只可能**授予 `src/components/vote`。`/live`、世界算繪層、每個公開頁面與 app shell
+  皆由原本那道檢查照舊覆蓋。
+
+**§22 Release Gate 的第 16 項應記為「觀看造成的成功 Mutation 為零；另存在一個刻意宣告的投票寫入」**，
+而非「任何地方皆為零」。ART-138 執行 gate 時請依此讀法回報。`e2e/dynamicView.spec.ts` 仍以兩個互相
+獨立的機制斷言 `/live` 的零寫入，`readOnlyWorldSurface.test.ts` 則逐表面證明 `src/components/vote`
+以外沒有任何檔案能指名寫入 API。
 
 ---
 
