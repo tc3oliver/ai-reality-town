@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Viewport } from 'pixi-viewport';
 
+import { emitDynamicViewEvent } from '../../analytics/analyticsSink';
+import { emitCameraEvents } from '../../analytics/cameraEvents';
 import { mistwoodCollision, mistwoodLocationFootprints } from '../../../data/mistwood';
 import { PublicPageFrame } from '../public/PublicPageFrame';
 import { ReadOnlyWorld } from '../world/ReadOnlyWorld';
@@ -204,6 +206,11 @@ export function LiveMapView({
    * camera came back wrong, but only if you used the zoom buttons" bugs happen.
    */
   const setMode = (next: CameraMode) => {
+    // FR-Q007 / ART-140. Every camera change already goes through here, so the four camera
+    // events are derived from the TRANSITION rather than bolted onto each control — a control
+    // added later emits correctly without anyone remembering to instrument it, which is the
+    // same reason this function exists at all.
+    emitCameraEvents(mode, next, worldId);
     setModeState(next);
     onCameraModeChange?.(next);
   };
@@ -373,6 +380,11 @@ export function LiveMapView({
           onOpenCharacterCard === undefined
             ? undefined
             : (characterId) => {
+                // FR-Q007 / ART-140. Emitted HERE rather than in the page's handler, because
+                // this wrapper is the one place every card open passes through — a caller that
+                // supplies its own `onOpenCharacterCard` would otherwise silently emit nothing,
+                // which is what the DOM test caught.
+                emitDynamicViewEvent('live_character_selected', { worldId, characterId });
                 // Recorded before the state change, while the pressed button is still the
                 // active element. `CharacterCard` takes focus from here on mount.
                 const active = typeof document === 'undefined' ? null : document.activeElement;

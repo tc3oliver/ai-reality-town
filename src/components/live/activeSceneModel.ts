@@ -25,6 +25,15 @@ export interface ActiveSceneInput {
   participantCharacterIds?: string[];
   arcIds?: string[];
   status?: 'active' | 'ended';
+  /**
+   * FR-P004's publication verdict, which the client did not read until ART-123.
+   *
+   * The server has substituted a withheld scene's `title` and `summary` for placeholders since
+   * FR-P004, so nothing leaked — but the panel presented the placeholder as though it were the
+   * scene's actual title, with nothing saying the content was held back. Reading it lets the
+   * panel say so, while the conversation state beside it stays visible (AC#5).
+   */
+  publicationStatus?: 'published' | 'withheld';
   startedAt?: number;
   endedAt?: number;
 }
@@ -39,6 +48,8 @@ export interface ActiveScenePanelItem {
   participantCharacterIds: string[];
   arcIds: string[];
   ended: boolean;
+  /** True when FR-P004's gate is holding this scene's text back (AC#3). */
+  withheld: boolean;
   /**
    * The camera target to focus, or null when the scene has no id or no placeable location.
    * Null is what the panel renders as "not focusable" rather than as a button that would
@@ -105,6 +116,9 @@ export function composeActiveScenePanel(input: {
       participantCharacterIds: [...(scene.participantCharacterIds ?? [])],
       arcIds: [...(scene.arcIds ?? [])],
       ended,
+      // Absent means published: a payload persisted before FR-P004 carries no verdict, and
+      // reading its silence as "withheld" would label every pre-ART-132 scene as held back.
+      withheld: scene.publicationStatus === 'withheld',
       focusTargetId: focusable ? sceneTargetId(scene.sceneId as string) : null,
       episodeHref: ended && worldDay !== null
         ? `#episode/${encodeURIComponent(input.worldId)}/${worldDay}`

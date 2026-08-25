@@ -26,6 +26,7 @@
 
 import type { MistwoodLocationFootprint } from '../../../data/mistwood';
 import { characterTargetId } from '../world/cameraModel';
+import { truncateForPublic } from '../../../convex/shared/publicText';
 import type { PublicAnimationState, PublicMotionType } from '../world/worldViewModel';
 import {
   CHARACTER_FORBIDDEN_KEYS,
@@ -48,6 +49,13 @@ export const CHARACTER_CARD_RECENT_EVENT_LIMIT = 5;
 export interface CharacterCardSceneInput {
   title?: string;
   sceneId?: string;
+  /**
+   * The scene's ALREADY-PUBLISHED public summary (FR-O004 / ART-123).
+   *
+   * Already through FR-P004's withhold substitution when it arrives here — a withheld scene's
+   * is `''` — so the card's hint is empty by construction rather than by a second check.
+   */
+  summary?: string;
   participantCharacterIds?: readonly string[];
   arcIds?: readonly string[];
   status?: 'active' | 'ended';
@@ -103,6 +111,21 @@ export interface CharacterCardViewModel {
   movementLabel: string;
   /** What they are publicly doing. */
   activityLabel: string;
+  /**
+   * Who this character is visibly in conversation with, or `[]` (FR-O004 / ART-123 AC#1).
+   *
+   * Ids, because the projection publishes no display names — the same thing the camera controls
+   * and the scene panel show, so the three surfaces name people identically.
+   */
+  conversationPartnerIds: string[];
+  /**
+   * A short line from the scene's ALREADY-PUBLISHED summary, or `''` (AC#1, AC#4).
+   *
+   * Derived from the substituted summary rather than carried as its own projection field: a
+   * withheld scene's summary is `''`, so the hint is empty BY CONSTRUCTION and there is no
+   * second place the withhold substitution has to be applied. See `conversationState.ts`.
+   */
+  conversationHint: string;
   emotionalState: string;
   publicGoal: string;
   activeArcs: CharacterCardArc[];
@@ -141,6 +164,50 @@ const MOVEMENT_LABELS: Record<PublicMotionType, string> = {
   idle: '停留原地',
   replay: '重播中的動態',
 };
+
+/**
+ * The other participants of every ACTIVE scene this character is in.
+ *
+ * Ended scenes are excluded for the reason `conversationStatesFor` excludes them: the
+ * conversation is over, and naming who they were talking to an hour ago as who they are talking
+ * to is a claim about now. Sorted and de-duplicated so a card re-opened without any change reads
+ * identically.
+ */
+function conversationPartners(
+  characterId: string,
+  scenes: readonly CharacterCardSceneInput[],
+): string[] {
+  const partners = new Set<string>();
+  for (const scene of scenes) {
+    if (scene.status !== 'active') continue;
+    const participants = scene.participantCharacterIds ?? [];
+    if (!participants.includes(characterId)) continue;
+    for (const participant of participants) {
+      if (participant !== characterId) partners.add(participant);
+    }
+  }
+  return [...partners].sort();
+}
+
+/**
+ * The shortened public line for this character's active scene, or `''`.
+ *
+ * The FIRST active scene they are in that has any published summary. A card is about one
+ * person, and concatenating two scenes' summaries would produce a sentence neither scene
+ * published — which is exactly the kind of derived text FR-P004's provenance rule forbids.
+ */
+function conversationHintFor(
+  characterId: string,
+  scenes: readonly CharacterCardSceneInput[],
+): string {
+  for (const scene of scenes) {
+    if (scene.status !== 'active') continue;
+    if (!(scene.participantCharacterIds ?? []).includes(characterId)) continue;
+    const hint = truncateForPublic(scene.summary ?? '');
+    if (hint.length > 0) return hint;
+  }
+  return '';
+}
 
 export function composeCharacterCardViewModel(input: {
   worldId: string;
@@ -181,6 +248,8 @@ export function composeCharacterCardViewModel(input: {
     locationLabel: locationId === null ? EM_DASH : (locationName.get(locationId) ?? locationId),
     movementLabel: motion === null ? EM_DASH : MOVEMENT_LABELS[motion.motionType],
     activityLabel: motion === null ? EM_DASH : ACTIVITY_LABELS[motion.animationState],
+    conversationPartnerIds: conversationPartners(input.characterId, input.scenes ?? []),
+    conversationHint: conversationHintFor(input.characterId, input.scenes ?? []),
     emotionalState: character?.emotionalState ?? EM_DASH,
     publicGoal: character?.publicGoal ?? '',
     activeArcs: activeArcsFor(input.characterId, input.scenes ?? []),

@@ -1,3 +1,4 @@
+import type { FixtureScenario } from './fixtureScenario';
 import { MISTWOOD_CHARACTER_VISUALS } from '../../data/mistwoodCharacters';
 import { mistwoodLocationFootprints } from '../../data/mistwood';
 
@@ -329,14 +330,23 @@ export function fixtureReadModel(modelRef: string): { payload: unknown } | null 
 }
 
 /** A `live` runtime snapshot, so the homepage's freshness badge (ART-131 AC#3) has a verdict. */
-export function fixtureRuntimeSnapshot(nowMs: number) {
+export function fixtureRuntimeSnapshot(nowMs: number, scenario: FixtureScenario = 'stream') {
+  /**
+   * The `delayed` scenario ages the CONTENT, not the observation (FR-Q005 / ART-136).
+   *
+   * `classifyRuntimeFreshness` reports `delayed` when the content is between one and two slot
+   * gaps old while the capture path is still confirming it — a world that has missed a slot,
+   * not one whose monitoring has stopped. Ageing `observedAt` instead would produce `stale`,
+   * which is a different state and a different set of figures.
+   */
+  const ageMs = scenario === 'delayed' ? 7 * 3_600_000 : 120_000;
   return {
     worldId: FIXTURE_WORLD_ID,
     runtimeVersion: 1,
     snapshotSequence: 1,
     sourceRuntimeSequence: 1,
     status: 'live' as const,
-    freshness: 'live' as const,
+    freshness: scenario === 'delayed' ? ('delayed' as const) : ('live' as const),
     mapId: 'mistwood',
     /**
      * Populated with ART-127. It was `[]`, which is not a plausible last-valid snapshot: the
@@ -347,10 +357,10 @@ export function fixtureRuntimeSnapshot(nowMs: number) {
      */
     characterStates: fixtureMotions(nowMs),
     activeSceneStates: fixtureScenes(),
-    contentUpdatedAt: Math.max(0, nowMs - 120_000),
-    createdAt: Math.max(0, nowMs - 120_000),
+    contentUpdatedAt: Math.max(0, nowMs - ageMs),
+    createdAt: Math.max(0, nowMs - ageMs),
     observedAt: Math.max(0, nowMs - 60_000),
-    contentAgeMs: 120_000,
+    contentAgeMs: ageMs,
     observationAgeMs: 60_000,
     thresholds: { delayedMaxAgeMs: 1, observationMaxAgeMs: 1 },
   };

@@ -113,6 +113,11 @@ describe('FR-O013 AC#4 — the replay builder cannot reach a generator or a writ
     // and the collision grid. Every one of them is a pure function over its arguments.
     expect(executed).toEqual([
       'convex/publicRead/activeScenePresentation.ts',
+      // FR-O004 / ART-123. Pure, no imports of its own beyond a type, and reached because the
+      // projection builder now derives conversation state. Named deliberately: this pin exists
+      // so a new dependency in the replay builder's closure is a reviewed decision, and it did
+      // its job here.
+      'convex/publicRead/conversationState.ts',
       'convex/publicRead/publicDynamicProjection.ts',
       'convex/visual/locationVisualBinding.ts',
       'convex/visualRuntime/ambientAnchor.ts',

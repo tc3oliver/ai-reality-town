@@ -1,3 +1,4 @@
+import { emitDynamicViewEvent } from '../../analytics/analyticsSink';
 import type { ReactNode } from 'react';
 
 import type { StoryOverlaySourceStatus, StoryOverlayViewModel } from './storyOverlayModel';
@@ -143,7 +144,13 @@ export function StoryOverlay({
             <p className="mt-2 text-sm">
               {/* Standalone, so it carries the touch target rather than the WCAG 2.5.8 inline
                   exception (FR-O008 AC#3). */}
-              <a className="public-tap" href={viewModel.recommendedEntry.href}>
+              <a
+                className="public-tap"
+                href={viewModel.recommendedEntry.href}
+                onClick={() => emitDynamicViewEvent('live_episode_opened', {
+                  episodeNumber: viewModel.recommendedEntry?.episodeNumber,
+                })}
+              >
                 從第 {viewModel.recommendedEntry.episodeNumber} 集開始認識這個世界
               </a>
             </p>

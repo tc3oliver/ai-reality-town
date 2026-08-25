@@ -142,7 +142,8 @@
         "publicRead",
         "shared",
         "clientProvider",
-        "clientLiveRoute"
+        "clientLiveRoute",
+        "clientAnalytics"
       ]
     },
     "clientWorldReadOnly": {
@@ -154,7 +155,8 @@
         "visualRuntime",
         "shared",
         "clientProvider",
-        "clientLiveRoute"
+        "clientLiveRoute",
+        "clientAnalytics"
       ]
     },
     "clientLive": {
@@ -167,7 +169,8 @@
         "clientProvider",
         "clientLiveRoute",
         "publicRead",
-        "shared"
+        "shared",
+        "clientAnalytics"
       ]
     },
     "clientLiveRoute": {
@@ -204,8 +207,15 @@
         "clientLiveRoute",
         "clientProvider",
         "publicRead",
-        "shared"
+        "shared",
+        "clientAnalytics"
       ]
+    },
+    "clientAnalytics": {
+      "roots": [
+        "src/analytics"
+      ],
+      "mayDependOn": []
     }
   },
   "readOnlyClientBoundary": {

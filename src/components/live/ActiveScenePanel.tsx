@@ -1,3 +1,4 @@
+import { emitDynamicViewEvent } from '../../analytics/analyticsSink';
 import type { CameraMode } from '../world/cameraModel';
 import type { ActiveScenePanelModel } from './activeSceneModel';
 
@@ -39,6 +40,11 @@ export function ActiveScenePanel({
                 <h3 className="font-medium">
                   {scene.title}
                   {scene.ended && <span className="public-muted text-sm">(已結束)</span>}
+                  {/* FR-O004 AC#3. The server already replaced the text; this says WHY it is a
+                      placeholder, so a reader is not left to conclude the scene has a strange
+                      title. The participants and the location beside it are unchanged, which is
+                      AC#5: the conversation is still visibly happening. */}
+                  {scene.withheld && <span className="public-muted text-sm">(內容審核中)</span>}
                 </h3>
                 {scene.locationLabel !== null && (
                   <p className="public-muted text-sm">地點:{scene.locationLabel}</p>
@@ -65,7 +71,19 @@ export function ActiveScenePanel({
                     </button>
                   )}
                   {scene.episodeHref !== null && (
-                    <a className="public-tap" href={scene.episodeHref}>
+                    <a
+                      className="public-tap"
+                      href={scene.episodeHref}
+                      // FR-Q007 / ART-140. An ordinary same-origin navigation, so the handler
+                      // only records that it happened — it does not preventDefault and does not
+                      // wait for anything. Analytics must never sit between a viewer and a link.
+                      onClick={() => emitDynamicViewEvent('live_episode_opened', {
+                        // `key` is the scene id where the scene has one — the model builds it
+                        // from `sceneId` and the sanitiser drops it if it is not a short
+                        // identifier, so no invented field is needed to attribute the click.
+                        sceneId: scene.key,
+                      })}
+                    >
                       閱讀當日 Episode
                     </a>
                   )}
