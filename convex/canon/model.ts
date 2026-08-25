@@ -17,6 +17,10 @@ import type {
   ProposedByType,
   TimeSlot,
 } from './eventTypes';
+// Type-only, and deliberately so: `personaDeviation.ts` imports the reducer at runtime, and the
+// reducer imports this file for types alone. A value import in either direction would close a
+// real cycle; these two erase at compile time and close nothing.
+import type { PersonaAnchor } from './personaDeviation';
 import { CANON_SCHEMA_VERSION } from '../shared/constants';
 
 export { CANON_SCHEMA_VERSION, CANON_VALIDATION_VERSION, SUPPORTED_SCHEMA_VERSIONS } from '../shared/constants';
@@ -184,6 +188,18 @@ export type CanonRuleContext = {
   initialCharacterAlive?: Record<string, boolean>;
   initialItemOwners?: Record<string, string>;
   knownEventIds?: string[];
+  /**
+   * FR-B003 seeded persona anchors, keyed by character id. Optional and absent-means-inert, like
+   * every other reference set here: a world with no anchors (unseeded, or seeded by an older
+   * bundle) commits exactly as it did before persona detection existed.
+   */
+  characterPersonas?: Record<string, PersonaAnchor>;
+  /**
+   * `eventId -> participantIds` for accepted events, supplied alongside `knownEventIds` by the
+   * commit pipeline out of events it has already loaded. FR-B003 uses it to tell a cited cause
+   * that materially involved a character from one that merely exists.
+   */
+  knownEventParticipantIds?: Record<string, readonly string[]>;
 };
 
 /** An accepted, immutable, append-only canonical event. */

@@ -27,6 +27,7 @@ export type CanonErrorCode =
   | 'INVALID_KNOWLEDGE_CORRECTION'
   | 'KNOWLEDGE_ACCESS_DENIED'
   | 'MEMORY_ACCESS_DENIED'
+  | 'MEMORY_COMPRESSION_INPUT_INVALID'
   | 'ITEM_OWNERSHIP_CONFLICT'
   | 'UNKNOWN_CHARACTER_REFERENCE'
   | 'UNKNOWN_LOCATION_REFERENCE'
@@ -39,7 +40,14 @@ export type CanonErrorCode =
   | 'RECOVERY_HEAD_CONFLICT'
   | 'INVALID_CHARACTER_STATE_CHANGE'
   | 'CHARACTER_STATE_PRECONDITION_FAILED'
-  | 'UNKNOWN_ORGANIZATION_REFERENCE';
+  | 'UNKNOWN_ORGANIZATION_REFERENCE'
+  // FR-B003's two dispositions for an unsupported persona deviation. Two codes rather than one
+  // because AC#2 offers two remedies and an operator must be able to tell them apart from the
+  // code alone: a reversal with nothing behind it is refused outright, while a large but
+  // same-direction change is refused pending a human look. Both are stable SCREAMING_SNAKE_CASE,
+  // so `proposalReview.ts` reports them verbatim instead of `UNCLASSIFIED_REJECTION`.
+  | 'UNSUPPORTED_PERSONA_REVERSAL'
+  | 'PERSONA_DEVIATION_REVIEW_REQUIRED';
 
 export type CanonValidationError = {
   code: CanonErrorCode;

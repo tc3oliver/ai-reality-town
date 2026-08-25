@@ -30,6 +30,7 @@ import {
   isTimeSlot,
 } from './eventTypes';
 import type { CanonRuleContext, ProposedEvent, WorldProjection } from './model';
+import { assessPersonaDeviations, PERSONA_JUSTIFICATIONS } from './personaDeviation';
 
 // --- primitive guards -------------------------------------------------------
 
@@ -818,5 +819,54 @@ export function validateCanon(
     }
   }
 
+  return validatePersonaConsistency(event, projection, ruleContext);
+}
+
+/**
+ * FR-B003. Refuse a major action that departs from a seeded persona with nothing behind it.
+ *
+ * Runs LAST, after every reference, precondition and uniqueness rule. A persona verdict on an
+ * event that names a character who does not exist, or moves someone who is dead, would be a
+ * verdict about nothing — the operator needs to be told the event is malformed, not that it is
+ * out of character.
+ *
+ * Reports the FIRST unsupported assessment, in character-id order, matching the one-error-at-a-time
+ * contract the rest of this module keeps. `details` carries the structured signals so the review
+ * console can show what fired without re-deriving it, and never carries a `reason` string: those
+ * may hold secrets, and a rejection reason is read by roles a private relationship reason is not.
+ */
+function validatePersonaConsistency(
+  event: ProposedEvent,
+  projection: WorldProjection,
+  ruleContext?: CanonRuleContext | null,
+): CanonValidationError | null {
+  const anchors = ruleContext?.characterPersonas;
+  if (!anchors) return null;
+  const assessments = assessPersonaDeviations(event, projection, {
+    anchors,
+    ...(ruleContext?.knownEventParticipantIds === undefined
+      ? {}
+      : { eventParticipants: ruleContext.knownEventParticipantIds }),
+  });
+  for (const assessment of assessments) {
+    if (assessment.outcome === 'flag') continue;
+    const details = {
+      characterId: assessment.characterId,
+      signals: assessment.signals,
+      requiredJustifications: [...PERSONA_JUSTIFICATIONS],
+    };
+    if (assessment.outcome === 'reject') {
+      return canonError(
+        'UNSUPPORTED_PERSONA_REVERSAL',
+        'a persona reversal must be supported by an emotional change, a material causal event, a recorded conflict, or a growth/breakdown marker',
+        details,
+      );
+    }
+    return canonError(
+      'PERSONA_DEVIATION_REVIEW_REQUIRED',
+      'a high-importance persona deviation with no recorded support requires human review',
+      details,
+    );
+  }
   return null;
 }
