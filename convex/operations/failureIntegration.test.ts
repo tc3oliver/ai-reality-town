@@ -143,7 +143,7 @@ describe('ART-74 AC#1 — provider failure retries safely', () => {
     const scene = await captureScene();
     // Fail the first call transiently, then succeed.
     const flaky = new FlakyWholeSceneProvider(new FakeWholeSceneProvider(), 1, 'transient');
-    const result = await simulateWholeScene(flaky, 'sim:retry', scene, 2);
+    const result = await simulateWholeScene(flaky, 'sim:retry', scene, { maxAttempts: 2 });
 
     expect(result.attemptCount).toBe(2);              // succeeded on the second attempt
     expect(flaky.callCount).toBe(2);                  // the failed call was retried, not swallowed
@@ -157,14 +157,14 @@ describe('ART-74 AC#1 — provider failure retries safely', () => {
   it('does not retry a permanent provider failure', async () => {
     const scene = await captureScene();
     const permanent = new FlakyWholeSceneProvider(new FakeWholeSceneProvider(), 1, 'permanent');
-    await expect(simulateWholeScene(permanent, 'sim:perm', scene, 2)).rejects.toThrow(SimulationProviderError);
+    await expect(simulateWholeScene(permanent, 'sim:perm', scene, { maxAttempts: 2 })).rejects.toThrow(SimulationProviderError);
     expect(permanent.callCount).toBe(1); // permanent errors are not retried
   });
 
   it('succeeds with no retry when the provider is healthy', async () => {
     const scene = await captureScene();
     const healthy = new FlakyWholeSceneProvider(new FakeWholeSceneProvider(), 0);
-    const result = await simulateWholeScene(healthy, 'sim:ok', scene, 2);
+    const result = await simulateWholeScene(healthy, 'sim:ok', scene, { maxAttempts: 2 });
     expect(result.attemptCount).toBe(1);
     expect(result.trace.retryCount).toBe(0);
     expect(healthy.callCount).toBe(1);

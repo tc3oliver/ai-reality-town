@@ -326,8 +326,41 @@ export function finalizeWholeSceneOutput(simulationRunId: string, scene: Grouped
     attemptCount, trace: { ...trace } };
 }
 
+/**
+ * Per-call model settings for one whole-scene simulation (FR-K005 / ART-52).
+ *
+ * Every field is optional and every default is the literal this function used before the
+ * configuration table existed, so `simulateWholeScene(provider, runId, scene)` behaves exactly
+ * as it always did. `convex/simulation/moduleConfig.ts` builds this object from the world's
+ * `moduleModelConfigs` row, and `worldDayLive.ts` passes it in.
+ *
+ * `buildSystemPrompt` is the resolved FR-K005 "Prompt Version": the ID is looked up in
+ * `./promptVersions.ts` by the caller, because that registry imports the prompt bodies from THIS
+ * file and importing it back would be a module cycle.
+ */
+export type WholeSceneSimulationOptions = {
+  /** FR-K005 "Retry", semantic layer: whole-scene re-simulations. 1–3, default 2. */
+  maxAttempts?: number;
+  /** FR-K005 "Temperature". Default 0.4. */
+  temperature?: number;
+  /** FR-K005 "Token Limit". Default 4_000. */
+  maxTokens?: number;
+  /** FR-K005 "Model". Absent inherits the provider instance's configured model. */
+  model?: string;
+  /** FR-K005 "Timeout", per HTTP attempt. Absent inherits the provider instance's timeout. */
+  timeoutMs?: number;
+  /** FR-K005 "Retry", transport layer. Absent inherits the provider instance's attempt count. */
+  transportMaxAttempts?: number;
+  /** FR-K005 "Prompt Version", already resolved to its builder. Default: the v1 prompt below. */
+  buildSystemPrompt?: (scene: GroupedScene) => string;
+};
+
 export async function simulateWholeScene(provider: LanguageModelProvider, simulationRunId: string, scene: GroupedScene,
-  maxAttempts = 2): Promise<SceneSimulationResult> {
+  options: WholeSceneSimulationOptions = {}): Promise<SceneSimulationResult> {
+  const maxAttempts = options.maxAttempts ?? 2;
+  const temperature = options.temperature ?? 0.4;
+  const maxTokens = options.maxTokens ?? 4_000;
+  const buildSystemPrompt = options.buildSystemPrompt ?? wholeSceneSystemPrompt;
   if (simulationRunId.trim().length === 0 || !Number.isSafeInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 3) {
     throw new SceneSimulationError('SCENE_SIMULATION_INVALID', 'valid Run ID and 1-3 attempts are required');
   }
@@ -335,9 +368,12 @@ export async function simulateWholeScene(provider: LanguageModelProvider, simula
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       const response = await provider.structuredChat({
-        messages: [{ role: 'system', content: wholeSceneSystemPrompt(scene) },
+        messages: [{ role: 'system', content: buildSystemPrompt(scene) },
           { role: 'user', content: JSON.stringify(scene) }],
-        schemaName: 'whole_scene_output', jsonSchema: WHOLE_SCENE_JSON_SCHEMA, temperature: 0.4, maxTokens: 4_000,
+        schemaName: 'whole_scene_output', jsonSchema: WHOLE_SCENE_JSON_SCHEMA, temperature, maxTokens,
+        ...(options.model === undefined ? {} : { model: options.model }),
+        ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+        ...(options.transportMaxAttempts === undefined ? {} : { maxAttempts: options.transportMaxAttempts }),
       });
       const output = parseWholeSceneOutput(response.output, scene);
       return finalizeWholeSceneOutput(simulationRunId, scene, output, attempt,

@@ -114,6 +114,10 @@ import {
   type PostCommitSource,
   type PostCommitWorldState,
 } from './postCommitLive';
+import {
+  resolveEffectiveModuleConfig,
+  type ConfigurableModule,
+} from '../shared/moduleModelConfig';
 
 // --- seed -------------------------------------------------------------------
 
@@ -534,6 +538,10 @@ export function createWorldDayPort(
 ): WorldDayLivePort {
   return {
     canonStore: store,
+    // FR-K005 / ART-52: the harness runs an UNCONFIGURED world, so the port returns the
+    // documented defaults -- which are the pre-ART-52 hardcoded values.
+    loadModuleConfig: (_worldId: string, module: ConfigurableModule) =>
+      Promise.resolve(resolveEffectiveModuleConfig(module, null)),
     async loadWorldSnapshot(slot: WorldDaySlotIdentity) {
       const acceptedEvents = await store.loadAcceptedEvents(slot.worldId);
       const snapshot = buildLiveWorldSnapshot({

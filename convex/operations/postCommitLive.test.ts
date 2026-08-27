@@ -92,6 +92,10 @@ import {
   type SafetyArtifact,
   type SnapshotArtifact,
 } from './postCommitLive';
+import {
+  resolveEffectiveModuleConfig,
+  type ConfigurableModule,
+} from '../shared/moduleModelConfig';
 
 const WORLD_ID = MISTWOOD_PUBLIC_WORLD_ID;
 const OPERATOR = { type: 'operations' as const, operatorId: 'test' };
@@ -474,6 +478,10 @@ function mistwoodRuleContext(): CanonRuleContext {
 function createWorldDayPort(store: InMemoryCanonStore, activeArcsFor: () => LiveWorldSnapshot['activeArcs']): WorldDayLivePort {
   return {
     canonStore: store,
+    // FR-K005 / ART-52: this spec runs an UNCONFIGURED world, so the port returns the documented
+    // defaults -- which are the pre-ART-52 hardcoded values.
+    loadModuleConfig: (_worldId: string, module: ConfigurableModule) =>
+      Promise.resolve(resolveEffectiveModuleConfig(module, null)),
     async loadWorldSnapshot(slot: WorldDaySlotIdentity) {
       const acceptedEvents = await store.loadAcceptedEvents(slot.worldId);
       return buildLiveWorldSnapshot({

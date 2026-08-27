@@ -162,6 +162,9 @@ describe('capability matrix', () => {
       // exhaustive list, and is how this test caught the five new ones.
       'dynamic.hide', 'dynamic.inspect', 'dynamic.pause', 'dynamic.pin_snapshot',
       'dynamic.rebuild',
+      // FR-K005 / ART-52. Two, not one: writing decides which model authors every subsequent
+      // scene and what the world costs, while reading is as read-only as `world.inspect`.
+      'model_config.inspect', 'model_config.write',
       'run.retry', 'safety.override', 'scene.cancel', 'schedule.inspect', 'slot.advance',
       'snapshot.create', 'world.emergency_resume', 'world.emergency_stop',
       'world.inspect', 'world.pause', 'world.resume', 'world.rollback',
@@ -173,9 +176,11 @@ describe('capability matrix', () => {
     // `dynamic.inspect` joins the viewer set: reading the state of the public view is not
     // the authority to change it, which is why it is a separate capability from the four
     // that do change it.
-    viewer: ['world.inspect', 'schedule.inspect', 'dynamic.inspect'],
+    // `model_config.inspect` joins it for the same reason: reading what a world is configured
+    // to do is not the authority to change it, and `model_config.write` is `admin`.
+    viewer: ['world.inspect', 'schedule.inspect', 'dynamic.inspect', 'model_config.inspect'],
     operator: ['world.pause', 'world.resume', 'slot.advance', 'run.retry', 'scene.cancel',
-      'world.inspect', 'schedule.inspect',
+      'world.inspect', 'schedule.inspect', 'model_config.inspect',
       'dynamic.inspect', 'dynamic.pause', 'dynamic.pin_snapshot', 'dynamic.hide', 'dynamic.rebuild'],
     admin: [...OPS_CAPABILITIES],
   };
@@ -194,7 +199,9 @@ describe('capability matrix', () => {
     // Derived from the role table rather than from a second hand-written list: an inspect
     // capability added later is exempt automatically, and a WRITE capability added later is
     // not — which is the direction that matters.
-    const readOnly: readonly OpsCapability[] = ['world.inspect', 'schedule.inspect', 'dynamic.inspect'];
+    const readOnly: readonly OpsCapability[] = [
+      'world.inspect', 'schedule.inspect', 'dynamic.inspect', 'model_config.inspect',
+    ];
     for (const capability of OPS_CAPABILITIES) {
       if (readOnly.includes(capability)) continue;
       expect(hasCapability('viewer', capability)).toBe(false);

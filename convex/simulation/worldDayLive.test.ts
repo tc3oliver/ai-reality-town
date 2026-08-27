@@ -47,6 +47,10 @@ import {
   type WorldDayLivePort,
   type WorldDaySlotIdentity,
 } from './worldDayLive';
+import {
+  resolveEffectiveModuleConfig,
+  type ConfigurableModule,
+} from '../shared/moduleModelConfig';
 
 const WORLD_ID = MISTWOOD_PUBLIC_WORLD_ID;
 
@@ -146,6 +150,10 @@ function createSeedPort(store: InMemoryCanonStore): WorldDayLivePort & { persist
       return snapshot;
     },
     canonStore: store,
+    // FR-K005 / ART-52. Defaults unless a spec overrides this method: the port under test here
+    // is an unconfigured world, and `moduleConfigSelection.test.ts` owns the configured case.
+    loadModuleConfig: (_worldId: string, module: ConfigurableModule) =>
+      Promise.resolve(resolveEffectiveModuleConfig(module, null)),
     async loadWorldSnapshot(slot) {
       const acceptedEvents = await store.loadAcceptedEvents(slot.worldId);
       snapshot = buildLiveWorldSnapshot({

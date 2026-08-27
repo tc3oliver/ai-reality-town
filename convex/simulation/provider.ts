@@ -32,12 +32,32 @@ export interface SimulationProvider {
   proposeEvent(input: SimulationInput): Promise<unknown>;
 }
 
+/**
+ * One structured-output request.
+ *
+ * `temperature` and `maxTokens` have always been per-request. FR-K005 / ART-52 added the three
+ * OPTIONAL overrides below, because the settings they name were previously fixed on the provider
+ * INSTANCE (`OpenAICompatibleConfig`, built once from the deployment environment) while FR-K005
+ * requires them per module.
+ *
+ * Overriding per request rather than constructing one provider per module is deliberate: a
+ * provider instance also owns the credential, the endpoints and the embedding contract, none of
+ * which are per-module, and four instances would mean four places for those to diverge. An
+ * absent override means "use the instance's configured value", so an adapter that ignores them
+ * behaves exactly as it did.
+ */
 export type StructuredChatRequest = {
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
   schemaName: string;
   jsonSchema: Record<string, unknown>;
   temperature: number;
   maxTokens: number;
+  /** FR-K005 "Model". Absent inherits the provider instance's configured chat model. */
+  model?: string;
+  /** FR-K005 "Timeout", per HTTP attempt. Absent inherits the instance's `timeoutMs`. */
+  timeoutMs?: number;
+  /** FR-K005 "Retry" layer 1 — HTTP attempts. Absent inherits the instance's `maxAttempts`. */
+  maxAttempts?: number;
 };
 
 export type ProviderTraceMetadata = {
