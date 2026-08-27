@@ -142,6 +142,23 @@ export const ENVIRONMENT_VOTE_CANDIDATE_IDS: readonly string[] =
  */
 export const VIEWER_VOTE_IDEMPOTENCY_PREFIX = 'vote:';
 
+/**
+ * The `modelRef` of the FR-J002 consequence read model for one world day (ART-46).
+ *
+ * Here, in `shared`, for the same reason the prefix above is: FIVE modules have to spell this
+ * string identically — the projection that publishes it, the post-commit pipeline that names it,
+ * the homepage that reads it, the E2E fixture that answers it, and two in-memory test harnesses —
+ * and no two of them may import each other. A hand-built template string in each was the ART-146
+ * shape exactly: the fixture and the client disagreed about a key, the query resolved to nothing,
+ * and the page failed somewhere that looked unrelated.
+ *
+ * `modelKind` deliberately stays in `convex/publicRead/voteConsequenceProjection.ts` beside
+ * `READ_MODEL_KINDS`, which is the registry it has to agree with.
+ */
+export function voteConsequenceModelRef(worldId: string, targetWorldDay: number): string {
+  return `voteConsequence:${worldId}:${targetWorldDay}`;
+}
+
 /** The catalog entry for an id, or `null`. Total: an unknown id is a value, not a throw. */
 export function findEnvironmentVoteCandidate(candidateId: string): EnvironmentVoteCandidate | null {
   return ENVIRONMENT_VOTE_CATALOG.find((candidate) => candidate.candidateId === candidateId) ?? null;

@@ -62,6 +62,7 @@ import type {
   rebuildTimelineProjection as rebuildTimelineProjectionExport,
 } from '../publicRead/episodeTimelineProjectionFunctions';
 import type { rebuildEpisodeIndexProjection as rebuildEpisodeIndexProjectionExport } from '../publicRead/episodeIndexProjectionFunctions';
+import type { rebuildVoteConsequenceProjection as rebuildVoteConsequenceProjectionExport } from '../publicRead/voteConsequenceProjectionFunctions';
 import type { rebuildArcPrimer as rebuildArcPrimerExport } from '../publicRead/arcPrimerFunctions';
 import type { rebuildLiveProjection as rebuildLiveProjectionExport } from '../publicRead/liveStateFunctions';
 import type { rebuildOnboardingSummary as rebuildOnboardingSummaryExport } from '../publicRead/onboardingSummaryFunctions';
@@ -163,6 +164,9 @@ const rebuildEpisodeIndexProjectionRef = internalFunctionRef<typeof rebuildEpiso
 );
 const rebuildTimelineProjectionRef = internalFunctionRef<typeof rebuildTimelineProjectionExport>(
   'publicRead/episodeTimelineProjectionFunctions:rebuildTimelineProjection',
+);
+const rebuildVoteConsequenceProjectionRef = internalFunctionRef<typeof rebuildVoteConsequenceProjectionExport>(
+  'publicRead/voteConsequenceProjectionFunctions:rebuildVoteConsequenceProjection',
 );
 const rebuildArcPrimerRef = internalFunctionRef<typeof rebuildArcPrimerExport>(
   'publicRead/arcPrimerFunctions:rebuildArcPrimer',
@@ -393,6 +397,12 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
     async rebuildTimelineProjection(worldId) {
       const { modelRef } = await ctx.runMutation(
         rebuildTimelineProjectionRef, { worldId, now });
+      return modelRef;
+    },
+
+    async rebuildVoteConsequenceProjection(worldId, targetWorldDay) {
+      const { modelRef } = await ctx.runMutation(
+        rebuildVoteConsequenceProjectionRef, { worldId, targetWorldDay, now });
       return modelRef;
     },
 

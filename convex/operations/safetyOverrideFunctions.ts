@@ -45,17 +45,8 @@ import { v } from 'convex/values';
 
 import { POST_GENERATION_LABELS } from '../safety/postGeneration';
 import { readEffectiveSafetyLabel } from '../safety/effectiveSafetyLabels';
-import type { rebuildLiveProjection as rebuildLiveProjectionExport } from '../publicRead/liveStateFunctions';
-import type { rebuildOnboardingSummary as rebuildOnboardingSummaryExport } from '../publicRead/onboardingSummaryFunctions';
-import { internalFunctionRef } from '../shared/internalFunctionRef';
 import { commandArgs, operatorNow, recordAudit, requireOperator } from './opsConsoleFunctions';
-
-const rebuildLiveProjectionRef = internalFunctionRef<typeof rebuildLiveProjectionExport>(
-  'publicRead/liveStateFunctions:rebuildLiveProjection',
-);
-const rebuildOnboardingSummaryRef = internalFunctionRef<typeof rebuildOnboardingSummaryExport>(
-  'publicRead/onboardingSummaryFunctions:rebuildOnboardingSummary',
-);
+import { refreshPublicTextModels } from './publicTextModelRefresh';
 
 export class SafetyOverrideError extends Error {
   constructor(readonly code: string, message: string) {
@@ -91,6 +82,15 @@ export type SafetyOverrideResult = {
    * were re-derived, not just the one this command originally refreshed.
    */
   onboardingRefresh: { modelRef: string; version: number };
+  /**
+   * The FR-J002 consequence models re-derived in the same transaction (ART-46).
+   *
+   * A LIST, not a single ref: `voteConsequence` is keyed per world day, so one withhold can
+   * touch several of them — and unlike the two surfaces above, nothing else would ever rebuild
+   * a past day, because the commit pipeline only refreshes a bounded trailing window.
+   * Empty is a real answer for a world that has published none.
+   */
+  voteConsequenceRefresh: string[];
 };
 
 /**
@@ -174,21 +174,18 @@ export const overridePostGenerationSafetyLabel = mutation({
 
     // Same transaction as the override row: a projection that still showed withheld text after
     // the ledger said otherwise would be the exact failure FR-P004 exists to prevent.
-    const refresh = await ctx.runMutation(rebuildLiveProjectionRef, {
+    //
+    // ONE call for ALL of them, through `refreshPublicTextModels`. This used to be two inline
+    // rebuilds, and a third public text surface (ART-46's `voteConsequence`) was added without
+    // either of them noticing — which is precisely the failure a hand-kept list of call sites
+    // produces. The helper is named for the invariant, so the next read model that quotes Canon
+    // is added in one place and every safety path picks it up.
+    const refresh = await refreshPublicTextModels(ctx, {
       worldId: args.worldId,
       now: at,
       correlateSceneId: classification.sourceId,
     });
-    const correlatedEventCount = refresh.correlatedEventCount ?? 0;
-    // The second cached public text surface built from the same summaries and the same episode
-    // narration (ART-125). Not folded into the live rebuild: the two are independent read models
-    // with independent rebuild entry points, and a projection that still quoted withheld text
-    // after the ledger said otherwise is the exact failure FR-P004 exists to prevent — on the
-    // world's introduction just as much as on its map.
-    const onboardingRefresh = await ctx.runMutation(rebuildOnboardingSummaryRef, {
-      worldId: args.worldId,
-      now: at,
-    });
+    const correlatedEventCount = refresh.correlatedEventCount;
 
     // Audited AFTER the rebuild so the durable record carries whether the decision reached any
     // content at all. An override that correlates to nothing is not a failure — it is a
@@ -214,11 +211,9 @@ export const overridePostGenerationSafetyLabel = mutation({
       effectiveLabel,
       correlatedEventCount,
       createdAt: at,
-      refresh: { modelRef: refresh.modelRef, version: refresh.version },
-      onboardingRefresh: {
-        modelRef: onboardingRefresh.modelRef,
-        version: onboardingRefresh.version,
-      },
+      refresh: refresh.live,
+      onboardingRefresh: refresh.onboarding,
+      voteConsequenceRefresh: refresh.voteConsequenceModelRefs,
     };
   },
 });

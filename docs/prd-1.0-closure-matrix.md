@@ -24,6 +24,12 @@ existing precedent for a non-P0 clause counting as delivered.
   `docs/long-term-memory-compression.md`).
 - **2026-08-25 — FR-B003** moved `Deferred P1` → `P1 delivered` (ART-11, `docs/persona-deviation.md`).
   Gate at that commit: `npm run check` exit 0, **167 suites / 2599 tests** (2594 passed, 5 skipped).
+- **2026-08-28 — FR-J002** moved `Deferred P1` → `P1 delivered` (ART-46,
+  `docs/vote-consequence-tracking.md`). Delivered as a DERIVED read model: Canon is untouched and
+  no causality is stamped anywhere, because `causedByEventIds` is empty on every event the running
+  system produces and inferring edges to fill the view is exactly what AC#2 forbids. The view
+  reports what provenance supports and states the emptiness plainly.
+  Gate at that commit: `npm run check` exit 0, **178 suites / 2745 tests** (2740 passed, 5 skipped).
 
 ---
 
@@ -204,7 +210,7 @@ existing precedent for a non-P0 clause counting as delivered.
 | Clause ID | Summary | Classification | Owning task (status) | Objective verification |
 |---|---|---|---|---|
 | FR-J001 | Daily environment-event vote (3–4 safe candidates; per-device rate limit; single winner; winner injected as Proposed World Event; no result dictated) | P1 delivered | ART-45 (Done) | `convex/viewer/environmentVote.test.ts` (30 tests: candidate safety/Canon shape, per-device limit, attempt budget, cutoff, deterministic single winner), `environmentVoteInjection.test.ts` (9 tests: real commit pipeline, idempotency, Canon rejection). The write surface is the deployment's ONLY viewer-reachable mutation and is fenced by `viewerWriteBoundary`; see `docs/daily-environment-vote.md` §2 for the read-only-guarantee decision. Merged implementation evidence: PR #204 |
-| FR-J002 | Vote-consequence tracking (mark vote-triggered events, direct effects, downstream events, unconfirmed indirect effects; never over-claim causation) | Deferred P1 | ART-46 (To Do) | Does not block launch: tracking is a transparency layer over voting. ART-45 laid the attribution it needs — the `vote:` idempotency-key prefix survives into accepted Canon and the applied event id is recorded — but presenting causality is ART-46's job |
+| FR-J002 | Vote-consequence tracking (mark vote-triggered events, direct effects, downstream events, unconfirmed indirect effects; never over-claim causation) | P1 delivered | ART-46 (In Progress) | `voteConsequenceProjection.test.ts` (23 tests: trigger selection off the `vote:` prefix cross-checked against `appliedEventId`, direct edges, multi-hop closure with real paths, cycle termination, determinism, provenance validation), `voteConsequenceProjectionFunctions.test.ts` (10 tests: the six indexed reads, the Scene → grouping-run → Director-plan walk, the ART-132 safety gate, and the published payload), `src/components/vote/voteConsequenceModel.test.ts` (14 tests: the four distinct labels and the wording that keeps AC#2). **AC#2 is pinned by a test against today's real canon shape** — no event carries a `causedByEventIds` edge, so `direct`/`downstream` MUST be empty and everything context-linked lands in `uncertain`; the view reports honest emptiness instead of inferring causality. A derived read model only: Canon is unchanged, no causality is stamped, and no new public query is added (reads reuse `getPublishedReadModel`). **Known bound, stated rather than implied:** links are reported over `[targetWorldDay, targetWorldDay + VOTE_CONSEQUENCE_LOOKAHEAD_DAYS]` (=1, derived from the Director's `RECENT_EVENT_WINDOW` of 10 accepted events over five slots a day), and the pipeline re-runs the same trailing window on each commit — so a link crossing more days than that is NOT reported. Removing the bound needs providers to emit real `causedByEventIds` first. See `docs/vote-consequence-tracking.md` §5.2 |
 | FR-J003 | Authenticated follows & progress (follow characters/arcs, save progress, personalised return recap) | Deferred P2 | ART-71 (To Do) | Explicit P2 in §17. No auth-required viewer surface in MVP |
 
 ---

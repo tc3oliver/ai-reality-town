@@ -155,9 +155,13 @@ full round with near-certainty and a collision silently refuses an honest viewer
 
 ## 6. Non-goals
 
-- **FR-J002 vote-consequence tracking (ART-46).** The attribution this task lays down — the
-  `vote:` idempotency-key prefix that survives into accepted Canon, and the recorded
-  `appliedEventId` — is what ART-46 will read. Presenting causality is its job, not this one's.
+- **FR-J002 vote-consequence tracking (ART-46) — DELIVERED, elsewhere.** The attribution this task
+  lays down — the `vote:` idempotency-key prefix that survives into accepted Canon, and the
+  recorded `appliedEventId` — is what ART-46 reads. It is still not this task's job: ART-46 added a
+  separate derived read model (`voteConsequence`) and changed nothing here. See
+  `docs/vote-consequence-tracking.md`. Note in particular that it does NOT stamp causality onto
+  the proposal this task builds: `buildViewerVoteProposal` still writes `causedByEventIds: []`,
+  and the consequence view reports that emptiness honestly rather than inferring edges.
 - **Analytics for `vote_viewed` / `vote_submitted` (§17, FR-Q007 / ART-47).** Not emitted here;
   §18.1's participation metric stays 「未量測」 until ART-47 lands.
 - **Authenticated voting.** FR-J001 says 「每個裝置」, and ART-71 owns authenticated viewers.

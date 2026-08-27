@@ -34,6 +34,7 @@ import {
   parseArcEventClassification,
 } from '../story/classification';
 import { ALLOWED_ARC_TRANSITIONS, isActiveArcStatus } from '../story/lifecycle';
+import { VOTE_CONSEQUENCE_LOOKAHEAD_DAYS } from '../publicRead/voteConsequenceProjection';
 import {
   MAX_MAJOR_ACTIVE_ARCS,
   MAX_MAJOR_CORE_CHARACTERS,
@@ -172,6 +173,8 @@ export interface PostCommitLivePort {
   rebuildEpisodeProjection(worldId: string, worldDay: number): Promise<string>;
   rebuildEpisodeIndexProjection(worldId: string): Promise<string>;
   rebuildTimelineProjection(worldId: string): Promise<string>;
+  /** ART-46 viewer-intervention consequence read model for the committed event's world day. */
+  rebuildVoteConsequenceProjection(worldId: string, targetWorldDay: number): Promise<string>;
   /** ART-I006 arc read model and ART-38 arc primer. */
   rebuildArcReadModel(worldId: string, arcId: string): Promise<string>;
   rebuildArcPrimer(worldId: string, arcId: string): Promise<string>;
@@ -682,6 +685,35 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
       }
       modelRefs.push(await port.rebuildLiveProjection(context.worldId));
       modelRefs.push(await port.rebuildOnboardingSummary(context.worldId));
+      /**
+       * FR-J002 / ART-46 — LAST, and deliberately so.
+       *
+       * This stage is one un-isolated handler: a throw anywhere in it aborts everything after
+       * it. The live projection and the onboarding summary are the two SAFETY-BEARING rebuilds
+       * on this path — they are what removes withheld text from the public surface — so the
+       * newest and least critical read model must not sit upstream of them. It used to, which
+       * meant a defect in the consequence builder could stop a withhold from propagating.
+       *
+       * ## Why a trailing WINDOW rather than just the committed day
+       *
+       * `voteConsequence:<world>:<day>` is only rebuilt when this pipeline names that day, so a
+       * day rebuilt once and never again freezes. Both cross-day buckets can legitimately gain
+       * members later: `uncertain` rests on the Director's ten-event context window, which spans
+       * more than one day, and `downstream` will cross days the moment providers emit real
+       * `causedByEventIds`. Rebuilding only `context.worldDay` meant day 7's blackout could never
+       * pick up the day-8 scene it was named in.
+       *
+       * The window is the committed day and the `VOTE_CONSEQUENCE_LOOKAHEAD_DAYS` days before
+       * it — the mirror of the lookahead the projection itself reads forward over, so the two
+       * cannot disagree about which days are still open. It is a BOUND, not a proof: a chain
+       * reaching further than the window is not reported. Stated in
+       * `docs/vote-consequence-tracking.md` §5 rather than left silent.
+       */
+      for (let offset = VOTE_CONSEQUENCE_LOOKAHEAD_DAYS; offset >= 0; offset -= 1) {
+        const targetWorldDay = context.worldDay - offset;
+        if (targetWorldDay < 0) continue;
+        modelRefs.push(await port.rebuildVoteConsequenceProjection(context.worldId, targetWorldDay));
+      }
       return { contentRef, publicationStatus, reassessedArcIds, modelRefs };
     },
 

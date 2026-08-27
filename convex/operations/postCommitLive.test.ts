@@ -46,6 +46,11 @@ import {
   type TimelineEntryInput,
 } from '../publicRead/episodeTimelineProjection';
 import { buildArcProjection, ARC_MODEL_KIND } from '../publicRead/relationshipArcProjection';
+import {
+  buildVoteConsequenceProjection,
+  VOTE_CONSEQUENCE_MODEL_KIND,
+} from '../publicRead/voteConsequenceProjection';
+import { voteConsequenceModelRef } from '../shared/environmentVoteCatalog';
 import { buildLiveProjection, LIVE_MODEL_KIND, liveSourceEventIds } from '../publicRead/liveState';
 import {
   commitReadModelVersion,
@@ -807,6 +812,36 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
       }));
       const payload = buildTimelineProjection({ worldId, entries });
       return publish(TIMELINE_MODEL_KIND, `timeline:${worldId}`, payload, payload.entries.map(({ eventId }) => eventId));
+    },
+
+    /**
+     * FR-J002 / ART-46, through the REAL builder like every other read model here.
+     *
+     * The harness commits no viewer-vote event and persists no Director plan, so the payload
+     * comes out with a null trigger and four empty buckets — which is precisely the shape the
+     * pipeline must be able to publish, and the reason it is asserted here rather than stubbed.
+     */
+    rebuildVoteConsequenceProjection(worldId, targetWorldDay) {
+      const payload = buildVoteConsequenceProjection({
+        worldId,
+        targetWorldDay,
+        events: events().map((event) => ({
+          eventId: event.eventId, sequenceNumber: event.sequenceNumber, worldDay: event.worldDay,
+          timeSlot: event.timeSlot, eventType: event.eventType, idempotencyKey: event.idempotencyKey,
+          causedByEventIds: [...event.causedByEventIds], publicSummary: event.publicSummary ?? null,
+          publicationStatus: 'published' as const, sceneId: null,
+        })),
+        // Derived from the canon store, the way the real wiring derives it from `canonEvents`.
+        acceptedEventIds: events().map((event) => event.eventId),
+        appliedEventIds: [],
+        contextInterventionEventIdsByScene: {},
+      });
+      return publish(
+        VOTE_CONSEQUENCE_MODEL_KIND,
+        voteConsequenceModelRef(worldId, targetWorldDay),
+        payload,
+        payload.sourceEventIds,
+      );
     },
 
     rebuildArcReadModel(worldId, arcId) {
