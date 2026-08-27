@@ -1,6 +1,7 @@
 import type { FixtureScenario } from './fixtureScenario';
 import { MISTWOOD_CHARACTER_VISUALS } from '../../data/mistwoodCharacters';
 import { mistwoodLocationFootprints } from '../../data/mistwood';
+import { voteConsequenceModelRef } from '../../convex/shared/environmentVoteCatalog';
 
 /**
  * The deterministic world the browser E2E suite watches (FR-Q006 / ART-137).
@@ -297,6 +298,61 @@ export function fixtureReadModel(modelRef: string): { payload: unknown } | null 
             episodeNumber: 3,
           },
         ],
+      },
+    };
+  }
+  if (modelRef === voteConsequenceModelRef(FIXTURE_WORLD_ID, FIXTURE_WORLD_DAY)) {
+    /**
+     * The consequence model (FR-J002 / ART-46), in TODAY'S REAL PRODUCTION SHAPE.
+     *
+     * A trigger, no causal edge, and one event the Director's plan context mentioned the vote
+     * to. That is what a live world actually publishes — no provider writes `causedByEventIds`
+     * — so a fixture with a tidy invented causal chain would put the browser evidence behind a
+     * state the product has never been in, which ART-107 §8 forbids.
+     *
+     * The key is built with the SAME `voteConsequenceModelRef` the server and the homepage use,
+     * not a template string that happens to match today. A fixture and a client that spell a key
+     * two ways is the ART-146 failure exactly, and `fixtureConvexClient` THROWS on an unhandled
+     * query — taking the whole page down, not just this section.
+     */
+    return {
+      payload: {
+        worldId: FIXTURE_WORLD_ID,
+        targetWorldDay: FIXTURE_WORLD_DAY,
+        trigger: {
+          eventId: 'mistwood#event#100',
+          sequenceNumber: 100,
+          worldDay: FIXTURE_WORLD_DAY,
+          timeSlot: FIXTURE_TIME_SLOT,
+          eventType: 'world_event',
+          publicSummary: '全鎮停電。',
+          publicationStatus: 'published',
+          bucket: 'trigger',
+          depth: 0,
+          path: ['mistwood#event#100'],
+          provenance: { basis: 'vote_idempotency_key', sourceEventIds: ['mistwood#event#100'] },
+        },
+        direct: [],
+        downstream: [],
+        uncertain: [
+          {
+            eventId: 'mistwood#event#101',
+            sequenceNumber: 101,
+            worldDay: FIXTURE_WORLD_DAY,
+            timeSlot: FIXTURE_TIME_SLOT,
+            eventType: 'conversation',
+            publicSummary: '兩派在磨坊為停工的水車爭執。',
+            publicationStatus: 'published',
+            bucket: 'uncertain',
+            depth: null,
+            path: [],
+            provenance: {
+              basis: 'director_plan_context',
+              sourceEventIds: ['mistwood#event#100'],
+            },
+          },
+        ],
+        explicitCausalEdgeCount: 0,
       },
     };
   }

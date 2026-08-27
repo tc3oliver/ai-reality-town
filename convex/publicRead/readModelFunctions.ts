@@ -30,7 +30,7 @@ import {
 const modelKindValidator = v.union(
   v.literal('world'), v.literal('character'), v.literal('episode'),
   v.literal('arc'), v.literal('relationship'), v.literal('liveState'), v.literal('timeline'),
-  v.literal('visualReplay'),
+  v.literal('visualReplay'), v.literal('voteConsequence'),
 );
 
 type PublishedReadModelRow = {

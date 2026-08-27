@@ -44,6 +44,11 @@ export const READ_MODEL_KINDS = [
   // only when a slot completes) so sharing a `contentHash` would defeat dedup for both, and
   // ART-132's future withhold handling needs a target it can invalidate on its own.
   'visualReplay',
+  // FR-J002 / ART-46. A kind of its own rather than a field on `liveState`, for the same
+  // reasons `visualReplay` is one: a consequence-rebuild failure must not take the live map
+  // down, and the two change on different cadences (one per world day with a vote, versus
+  // every commit), so sharing a `contentHash` would defeat dedup for both.
+  'voteConsequence',
 ] as const;
 export type ReadModelKind = (typeof READ_MODEL_KINDS)[number];
 
