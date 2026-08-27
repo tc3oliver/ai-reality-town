@@ -8,10 +8,14 @@ import { PublicPageFrame } from './PublicPageFrame';
 import { CharacterSprite } from './CharacterSprite';
 import { PublicStatusChips } from './PublicStatusChips';
 import { EnvironmentVotePanel } from '../vote/EnvironmentVotePanel';
+import { VoteConsequencePanel } from '../vote/VoteConsequencePanel';
 import { getEnvironmentVoteBallotRef } from '../vote/environmentVoteRef';
 import { useEnvironmentVote } from '../vote/useEnvironmentVote';
 import { browserVoteDeviceKey } from '../vote/voteDeviceKey';
 import type { EnvironmentVoteBallot, VoteInteractionState } from '../vote/environmentVoteModel';
+import type { VoteConsequencePayload } from '../vote/voteConsequenceModel';
+import { voteConsequenceModelRef } from '../../../convex/shared/environmentVoteCatalog';
+import { VOTE_CONSEQUENCE_MODEL_KIND } from '../../../convex/publicRead/voteConsequenceProjection';
 import { freshnessDescriptor, worldClockDescriptors } from './publicStatusBadge';
 import {
   composeHomepageViewModel,
@@ -66,6 +70,44 @@ export default function Homepage() {
    * badge rather than a guessed one: a wrong state claim is worse than none.
    */
   const runtime = useQuery(getPublicRuntimeSnapshotRef, enabled ? { worldId } : 'skip');
+  /**
+   * The current world day, taken from the live projection this page already reads.
+   *
+   * The consequence model below is published per world day, and this is the day whose
+   * consequences a visitor is looking at. Read off `live` rather than off the ballot's
+   * `targetWorldDay`, which is the day the CURRENTLY OPEN round will affect — a day whose
+   * events have not happened yet, and about which there is nothing to trace.
+   */
+  const liveWorldDay = ((live?.payload ?? null) as HomeLiveProjection | null)?.worldTime?.worldDay
+    ?? null;
+  /**
+   * What the day's viewer vote can be shown to have led to (FR-J002 / ART-46).
+   *
+   * A sixth published read, through the SAME `getPublishedReadModel` query the page already
+   * makes four times — FR-J002 adds no public function, so the public surface and the
+   * no-generation guarantee are both unchanged.
+   */
+  const consequence = useQuery(
+    getPublishedReadModelRef,
+    enabled && liveWorldDay !== null
+      ? {
+        worldId,
+        modelKind: VOTE_CONSEQUENCE_MODEL_KIND,
+        modelRef: voteConsequenceModelRef(worldId, liveWorldDay),
+      }
+      : 'skip',
+  );
+  /**
+   * This section depends on TWO reads in sequence, so its loading state is not just
+   * `consequence === undefined`.
+   *
+   * While `live` is in flight the world day is unknown, the query above is skipped, and
+   * `consequence` stays `undefined` — which is indistinguishable from "nothing published" unless
+   * said explicitly. A settled `live` that carries no world time is NOT loading: there is
+   * genuinely nothing to ask for, and the section should say so.
+   */
+  const consequenceLoading = live === undefined
+    || (liveWorldDay !== null && consequence === undefined);
   /**
    * The open daily ballot (FR-J001 / ART-45). A fifth anonymous READ — reading a ballot is no
    * more privileged than reading an episode, and it is what turns 「投票尚未開放」 from a
@@ -134,6 +176,8 @@ export default function Homepage() {
       ballot={ballot}
       voteInteraction={voteInteraction}
       onCastVote={(candidateId) => void castVote(candidateId)}
+      voteConsequence={(consequence?.payload ?? null) as VoteConsequencePayload | null}
+      voteConsequenceLoading={consequenceLoading}
     />
   );
 }
@@ -149,6 +193,8 @@ export function HomepageView({
   ballot,
   voteInteraction,
   onCastVote,
+  voteConsequence,
+  voteConsequenceLoading = false,
 }: {
   worldId: string;
   vm: HomepageViewModel;
@@ -171,6 +217,14 @@ export function HomepageView({
    * controls, which is what a render with no Convex client must do.
    */
   onCastVote?: (candidateId: string) => void;
+  /**
+   * The day's published consequence model (FR-J002 / ART-46), or `null`/`undefined`. Omitted
+   * renders the section's unavailable state, so callers that have not adopted it — the
+   * accessibility suite among them — are unchanged.
+   */
+  voteConsequence?: VoteConsequencePayload | null;
+  /** True while the reads that section depends on are still settling. */
+  voteConsequenceLoading?: boolean;
 }) {
   const runtimeChip = freshnessDescriptor(freshness);
   return (
@@ -325,6 +379,14 @@ export function HomepageView({
         headingId="home-vote"
         interaction={voteInteraction}
         onCast={onCastVote}
+      />
+      {/* FR-J002 / ART-46. Directly beneath the ballot: what a vote may do and what one did
+          are the same question asked at two moments, and separating them across pages would
+          leave the promise on one screen and the accounting on another. */}
+      <VoteConsequencePanel
+        payload={voteConsequence}
+        headingId="home-vote-consequence"
+        loading={voteConsequenceLoading}
       />
     </PublicPageFrame>
   );

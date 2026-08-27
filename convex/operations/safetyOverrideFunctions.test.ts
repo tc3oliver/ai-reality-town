@@ -127,12 +127,16 @@ function operatorCtx(tables: Tables, rebuildResult: Row = {}) {
     auth: { getUserIdentity: () => Promise.resolve(null) },
     db: fakeDb(tables),
     runMutation: (ref: unknown, args: Row) => {
-      // Recorded WITH the function it targets, since ART-125 the override refreshes two
-      // independent read models and "a rebuild ran" is no longer the same claim as "both did".
+      // Recorded WITH the function it targets. Since ART-125 the override refreshes several
+      // independent read models and "a rebuild ran" is no longer the same claim as "all of them
+      // did" — ART-46 added a third, and this assertion is what caught its absence.
       const target = getFunctionName(ref as Parameters<typeof getFunctionName>[0]);
       rebuilds.push({ target, ...args });
       if (target.includes('rebuildOnboardingSummary')) {
         return Promise.resolve({ modelRef: `onboarding:${WORLD_ID}`, version: 3, deduplicated: false });
+      }
+      if (target.includes('refreshVoteConsequenceProjections')) {
+        return Promise.resolve({ modelRefs: [`voteConsequence:${WORLD_ID}:7`], rebuiltDayCount: 1 });
       }
       return Promise.resolve({
         modelRef: `live:${WORLD_ID}`,
@@ -274,6 +278,10 @@ describe('overridePostGenerationSafetyLabel — the ledger is additive and audit
       // ART-125: the onboarding summary is the SECOND cached public text surface built from the
       // same Canon summaries. Reported separately so an operator can see both were re-derived.
       onboardingRefresh: { modelRef: `onboarding:${WORLD_ID}`, version: 3 },
+      // ART-46: the THIRD such surface, and the only one keyed per world day. Reported as a
+      // list because one withhold can touch several days, and because nothing else would ever
+      // rebuild a past day — the commit pipeline only refreshes a bounded trailing window.
+      voteConsequenceRefresh: [`voteConsequence:${WORLD_ID}:7`],
     });
 
     expect(tables.operatorAuditLog).toHaveLength(1);
@@ -289,10 +297,17 @@ describe('overridePostGenerationSafetyLabel — the ledger is additive and audit
       at: NOW,
     });
     // AC#3: the public projections are rebuilt in the same call, not at some later commit, and
-    // the dynamic one is told which Scene to report correlation for. BOTH cached public text
-    // surfaces are refreshed (ART-125): rebuilding only the live projection would leave the
-    // world's own introduction quoting the withheld sentence until the next Canon commit —
-    // which on a paused or finished world never comes.
+    // the dynamic one is told which Scene to report correlation for.
+    //
+    // EVERY cached public text surface is refreshed, and this list is deliberately exhaustive —
+    // it is the check that fails when someone adds a read model carrying Canon text and forgets
+    // the safety path. It has now done that twice: ART-125's onboarding summary and ART-46's
+    // per-day consequence model. Rebuilding only the live projection would leave the other two
+    // quoting the withheld sentence until the next Canon commit, which on a paused or finished
+    // world never comes — and for a past world day, never at all.
+    //
+    // If you are here because you added a surface: add it to `refreshPublicTextModels`, not to
+    // the handler.
     expect(rebuilds).toEqual([
       {
         target: 'publicRead/liveStateFunctions:rebuildLiveProjection',
@@ -300,6 +315,10 @@ describe('overridePostGenerationSafetyLabel — the ledger is additive and audit
       },
       {
         target: 'publicRead/onboardingSummaryFunctions:rebuildOnboardingSummary',
+        worldId: WORLD_ID, now: NOW,
+      },
+      {
+        target: 'publicRead/voteConsequenceProjectionFunctions:refreshVoteConsequenceProjections',
         worldId: WORLD_ID, now: NOW,
       },
     ]);

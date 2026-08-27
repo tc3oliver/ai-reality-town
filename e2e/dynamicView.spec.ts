@@ -429,6 +429,35 @@ test.describe('the homepage first screen (FR-P001 / ART-129)', () => {
     await expect(sprites.first()).toHaveCSS('image-rendering', 'pixelated');
   });
 
+  /**
+   * FR-J002 / ART-46, in a real browser.
+   *
+   * Here rather than in a unit test because the claim is that the section is REACHABLE: the
+   * homepage derives the world day from the `live:` projection and asks for a second published
+   * model with it, and a wrong `modelRef` renders a permanently-unavailable section that every
+   * unit test would still pass. It is also the check that the fixture branch is registered —
+   * ART-146's failure mode, where an unhandled query takes down the whole page.
+   */
+  test('FR-J002 — the consequence view shows four distinct buckets and claims no causality', async ({ page }) => {
+    await page.goto(HOME);
+    const panel = page.locator('.vote-consequence');
+    await expect(panel).toBeVisible();
+
+    // AC#1 — all four buckets, each with its own label.
+    for (const title of ['投票觸發事件', '直接影響', '後續衍生事件', '尚無法確認的間接影響']) {
+      await expect(panel.getByRole('heading', { name: title })).toBeVisible();
+    }
+
+    // AC#2 — the fixture carries today's real canon shape (no `causedByEventIds` anywhere), so
+    // the page must state that Canon records no causal link rather than show a bare empty list,
+    // and the disclaimer must be on screen whether or not anything is uncertain.
+    await expect(panel).toContainText('Canon 目前沒有記錄任何事件明確由這次投票引發');
+    await expect(panel).toContainText('並不等於由投票直接造成');
+
+    // AC#3 — the one row that IS shown says what it rests on, and says it is not causality.
+    await expect(panel.locator('.vote-consequence-uncertain')).toContainText('不代表因果');
+  });
+
   test('AC#5 — a resident tile navigates to their page', async ({ page }) => {
     await page.goto(HOME);
     const tile = page.locator('.home-cast-link').first();
