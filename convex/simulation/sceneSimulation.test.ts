@@ -51,7 +51,7 @@ class SequenceProvider implements LanguageModelProvider {
 describe('FR-C005 whole-scene simulation', () => {
   it('simulates the whole scene once and runtime-validates every required output and Proposed Event', async () => {
     const provider = new SequenceProvider([output()]);
-    const result = await simulateWholeScene(provider, 'simulation-1', scene, 2);
+    const result = await simulateWholeScene(provider, 'simulation-1', scene, { maxAttempts: 2 });
     expect(provider.calls).toHaveLength(1);
     expect(provider.calls[0].messages[1].content).toContain(scene.sceneId);
     expect(provider.calls[0].messages[1].content).toContain('lin-yingxue');
@@ -66,7 +66,7 @@ describe('FR-C005 whole-scene simulation', () => {
 
   it('retries malformed structured output as one whole-scene attempt and then succeeds', async () => {
     const provider = new SequenceProvider([{ schemaVersion: 1, sceneId: scene.sceneId }, output()]);
-    const result = await simulateWholeScene(provider, 'simulation-retry', scene, 2);
+    const result = await simulateWholeScene(provider, 'simulation-retry', scene, { maxAttempts: 2 });
     expect(provider.calls).toHaveLength(2);
     expect(result.attemptCount).toBe(2);
     expect(result.trace.retryCount).toBe(1);
@@ -75,7 +75,7 @@ describe('FR-C005 whole-scene simulation', () => {
   it('fails after the bounded invalid-output retry budget and does not accept unknown or foreign data', async () => {
     const bad = { ...(output() as Record<string, unknown>), administrativeOverride: true };
     const provider = new SequenceProvider([bad, bad]);
-    await expect(simulateWholeScene(provider, 'simulation-invalid', scene, 2)).rejects
+    await expect(simulateWholeScene(provider, 'simulation-invalid', scene, { maxAttempts: 2 })).rejects
       .toMatchObject({ code: 'SCENE_OUTPUT_INVALID' });
     expect(provider.calls).toHaveLength(2);
 
@@ -86,9 +86,9 @@ describe('FR-C005 whole-scene simulation', () => {
 
   it('retries transient providers but immediately rejects permanent provider failures', async () => {
     const transient = new SequenceProvider([new SimulationProviderError('transient', 'TEMP', 'temporary'), output()]);
-    await expect(simulateWholeScene(transient, 'simulation-transient', scene, 2)).resolves.toMatchObject({ attemptCount: 2 });
+    await expect(simulateWholeScene(transient, 'simulation-transient', scene, { maxAttempts: 2 })).resolves.toMatchObject({ attemptCount: 2 });
     const permanent = new SequenceProvider([new SimulationProviderError('permanent', 'NO', 'rejected'), output()]);
-    await expect(simulateWholeScene(permanent, 'simulation-permanent', scene, 2)).rejects.toMatchObject({ code: 'NO' });
+    await expect(simulateWholeScene(permanent, 'simulation-permanent', scene, { maxAttempts: 2 })).rejects.toMatchObject({ code: 'NO' });
     expect(permanent.calls).toHaveLength(1);
   });
 

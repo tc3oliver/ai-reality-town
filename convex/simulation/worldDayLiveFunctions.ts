@@ -43,6 +43,7 @@ import { replayWorldEvents } from '../canon/replay';
 import { rowToAcceptedEvent } from '../canon/serialize';
 import { isActiveArcStatus } from '../story/lifecycle';
 import { guardWorldDayStageHandlers } from './emergencyStop';
+import { resolveModuleConfig } from './moduleConfig';
 import { assertWorldAdmitsSimulation, isWorldEmergencyStopped } from './emergencyStopOperations';
 import { executeWorldDay, type WorldDayRun } from './worldDayOrchestration';
 import { createConvexWorldDayRunStore } from './worldDayOrchestrationFunctions';
@@ -214,6 +215,10 @@ function createConvexWorldDayLivePort(ctx: MutationCtx, now: number): WorldDayLi
   return {
     canonStore: createConvexCanonStore(ctx.db),
     loadWorldSnapshot: (slot) => loadWorldSnapshot(ctx.db, slot),
+    // FR-K005 / ART-52: the authorized, versioned per-module model configuration. Reading it
+    // here keeps `worldDayLive.ts` free of any database handle, exactly like every other port
+    // method.
+    loadModuleConfig: (worldId, module) => resolveModuleConfig(ctx.db, worldId, module),
     // PRD §12 stage 2. Scheduled environment events originate from the daily viewer vote
     // (FR-J001) — see {@link loadQueuedEnvironmentEvents} for why the queue is read as rows
     // rather than through an import.

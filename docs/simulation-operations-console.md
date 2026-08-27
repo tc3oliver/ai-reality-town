@@ -24,6 +24,17 @@ Every FR-K001 bullet maps to exactly one capability and one caller-facing functi
 | 建立 Snapshot (create a snapshot) | `snapshot.create` | `createWorldSnapshot` (mutation) | `admin` |
 | 查看排程與 Queue (inspect schedules and queues) | `schedule.inspect` | `inspectScheduleAndQueue` (query) | `viewer` |
 
+Later epics extend the same table with their own capabilities. FR-K005 (ART-52) adds two:
+
+| PRD control (FR-K005) | Capability | Function | Minimum role |
+| --- | --- | --- | --- |
+| 設定每模組模型/Prompt/重試/預算 (configure a module) | `model_config.write` | `setModuleModelConfig` (mutation) | `admin` |
+| 查看模組設定與版本歷史 (inspect configuration + history) | `model_config.inspect` | `inspectModuleModelConfig`, `listModuleModelConfigVersions`, `describeModuleModelDefaults` (queries) | `viewer` |
+
+Writing is `admin` for the reason `snapshot.create` is: it takes effect on every
+subsequent scene in the world and a wrong value is not visible until scenes have
+already been authored with it. See `docs/model-configuration.md`.
+
 Supporting queries: `listOperatorAudit` (the audit trail for a world) and
 `describeOperatorSession` (what the calling operator may do). Both require
 `schedule.inspect`, so the console cannot be enumerated anonymously.
@@ -140,6 +151,15 @@ second user of that seam: `createCorrectionEvent`, `createCompensationEvent`, an
 `createRetconEvent` in `convex/operations/canonCorrectionFunctions.ts` authorize through
 `requireOperator` with `canon.correct` / `canon.compensate` / `canon.retcon` (all `admin`)
 and append their audit row in the same transaction as the Canon commit.
+
+The FR-K005 per-module model configuration (`docs/model-configuration.md`) is the most
+recent user: `setModuleModelConfig`, `inspectModuleModelConfig`,
+`listModuleModelConfigVersions` and `describeModuleModelDefaults` in
+`convex/operations/moduleModelConfigFunctions.ts` authorize through `requireOperator`
+with `model_config.write` / `model_config.inspect` and append their audit row in the same
+transaction as the versioned configuration write. Its table lives in `convex/shared/` rather
+than here, because `simulation` reads it on the live scene path and the module boundary
+forbids `simulation → operations`.
 
 The FR-K006 kill switch (`docs/world-emergency-stop.md`) is the first user of that
 seam: `emergencyStop`, `resumeFromEmergencyStop`, `activateWorldRollback`, and

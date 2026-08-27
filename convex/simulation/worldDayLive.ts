@@ -65,6 +65,8 @@ import {
   type SceneGroupingResult,
 } from './sceneGrouping';
 import { simulateWholeScene, type SceneSimulationResult } from './sceneSimulation';
+import { wholeSceneOptionsFor } from './moduleConfig';
+import type { ConfigurableModule, EffectiveModuleConfig } from '../shared/moduleModelConfig';
 import type { LanguageModelProvider } from './provider';
 import { FakeWholeSceneProvider } from './fakeSceneNarrator';
 import {
@@ -161,6 +163,15 @@ export interface WorldDayLivePort {
   persistCharacterIntent(context: CharacterIntentContext, intent: CharacterIntent): Promise<void>;
   persistGroupedScenes(input: SceneGroupingInput, result: SceneGroupingResult): Promise<void>;
   persistSceneSimulation(groupingRunId: string, result: SceneSimulationResult): Promise<void>;
+  /**
+   * The world's current FR-K005 model configuration for one module (ART-52).
+   *
+   * On the port rather than resolved inside the stage, because this module is pure — it has no
+   * Convex import and no database handle. The Convex adapter binds it to
+   * `resolveModuleConfig(ctx.db, …)`; tests bind it to a literal. A world with no configuration
+   * row resolves to the pre-ART-52 defaults, so an unconfigured world is unaffected.
+   */
+  loadModuleConfig(worldId: string, module: ConfigurableModule): Promise<EffectiveModuleConfig>;
   /** Canon repository shared with the commit pipeline; never bypassed. */
   canonStore: CanonCommitStore;
 }
@@ -823,12 +834,17 @@ export function createWorldDayStageHandlers(
     },
 
     simulate_scenes: async (context): Promise<SimulationArtifact> => {
+      const slot = slotOf(context);
       const grouping = artifact<GroupingArtifact>(context, 'group_intents_into_scenes');
       const { snapshot } = artifact<WorldStateArtifact>(context, 'load_world_state');
+      // FR-K005 / ART-52. Read ONCE per slot, not per scene: every scene in a slot is authored
+      // under the same configuration, and re-reading would let a mid-slot change split one
+      // slot's scenes across two configurations with nothing recording which got which.
+      const options = wholeSceneOptionsFor(await port.loadModuleConfig(slot.worldId, 'scene_simulation'));
       const results: SceneSimulationResult[] = [];
       const withheldSceneIds: string[] = [];
       for (const scene of grouping.result.scenes) {
-        const result = await simulateWholeScene(provider, `${scene.sceneId}:simulation`, scene);
+        const result = await simulateWholeScene(provider, `${scene.sceneId}:simulation`, scene, options);
         await port.persistSceneSimulation(grouping.groupingRunId, result);
         // FR-C005 AC#5: high-risk output goes to safety review instead of Canon.
         if (result.reviewStatus === 'required') withheldSceneIds.push(scene.sceneId);
