@@ -9,11 +9,15 @@
  *
  * ## Reads are bounded (house rule: no world-wide sweep in a per-day path)
  *
- * Three point/range reads, all index-scoped: the Episode row and the day's accepted events by
- * `by_world_and_day`, and the derived copy's own safety verdict through
- * `readEffectiveSafetyLabel`, which is two indexed lookups keyed on the source id. Nothing here
- * grows with the world's history. The accepted-event read is the same bound
- * `generateAcceptedEventEpisode` already takes for the same day.
+ * Four point/range reads, all index-scoped: the existing derived row and the Episode row by
+ * `by_world_and_day`, the day's accepted events by the same index, and this copy's own operator
+ * overrides from `safetyStatusOverrides` by `by_world_source_and_created`. Nothing here grows with
+ * the world's history. The accepted-event read is the same bound `generateAcceptedEventEpisode`
+ * already takes for the same day.
+ *
+ * The overrides are read directly rather than through `readEffectiveSafetyLabel`, because the
+ * derived copy is classified here in the same transaction — so the base label is already in hand
+ * and only the ledger on top of it has to be fetched.
  *
  * ## Why the accepted events are re-read at all
  *
@@ -164,6 +168,22 @@ export const generateEpisodeShareFormats = internalMutation({
         reasonCodes: classification.reasonCodes, warningCodes: classification.warningCodes,
         classifiedTextHash: classification.classifiedTextHash, createdAt: args.createdAt,
       });
+      // The publication record exists for BOTH outcomes: a refused piece of copy still has a
+      // reviewable history, and creating the record only on success would mean the one case an
+      // administrator most needs to find left no trace in the lifecycle.
+      //
+      // It is created BEFORE the `episodeShareFormats` row, and that ordering is load-bearing.
+      // `episodeShareFormats` is read with `.unique()` on (world, day), and the `catch` below
+      // recovers by inserting a `blocked` row. If this `runMutation` threw AFTER that row already
+      // existed, the recovery would insert a second one and every later read of the day — here and
+      // in `getEpisodeShareFormats` — would throw permanently. Doing the fallible cross-module
+      // call first means the unique-keyed insert is the LAST write in the happy path, so any throw
+      // leaves zero rows for the catch to replace rather than one for it to duplicate.
+      const { status: publicationStatus } = await ctx.runMutation(createEpisodePublicationRef, {
+        worldId: args.worldId, contentRef: shareFormatsContentRef(args.worldId, args.worldDay),
+        contentKind: 'episode_share', summary: null, actor: SYSTEM_ACTOR,
+        reason: 'episode-derived share formats', now: args.createdAt,
+      });
       await ctx.db.insert('episodeShareFormats', {
         schemaVersion: 1, worldId: args.worldId, worldDay: args.worldDay, episodeNumber,
         status: decision.outcome === 'blocked' ? 'blocked' : 'manual_release_required',
@@ -172,14 +192,6 @@ export const generateEpisodeShareFormats = internalMutation({
         reasonCodes: [...decision.reasonCodes],
         sourceEventIds: [...formats.sourceEpisode.sourceEventIds],
         createdAt: args.createdAt,
-      });
-      // The publication record exists for BOTH outcomes: a refused piece of copy still has a
-      // reviewable history, and creating the record only on success would mean the one case an
-      // administrator most needs to find left no trace in the lifecycle.
-      const { status: publicationStatus } = await ctx.runMutation(createEpisodePublicationRef, {
-        worldId: args.worldId, contentRef: shareFormatsContentRef(args.worldId, args.worldDay),
-        contentKind: 'episode_share', summary: null, actor: SYSTEM_ACTOR,
-        reason: 'episode-derived share formats', now: args.createdAt,
       });
       return {
         status: decision.outcome === 'blocked' ? 'blocked' as const : 'manual_release_required' as const,

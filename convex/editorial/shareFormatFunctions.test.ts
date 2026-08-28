@@ -114,6 +114,13 @@ function fakeDb(tables: Tables) {
       return chain;
     },
     insert(table: keyof Tables, row: Row) {
+      // The adapter lives in `editorial`, OUTSIDE the `derivedContent` boundary that makes
+      // AC#1 a build failure — so nothing structural stops it writing to Canon, and this is the
+      // only place that can catch it. `patch`/`delete` were already refused; `insert` was not,
+      // which left the one verb that could actually create an event unguarded.
+      if (!(table in tables)) {
+        throw new Error(`the share-format wiring must not insert into '${String(table)}'`);
+      }
       tables[table].push(row);
       return Promise.resolve(`${table}-${tables[table].length}`);
     },

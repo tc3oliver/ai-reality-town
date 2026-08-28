@@ -104,14 +104,37 @@ function resolveImport(fromFile: string, specifier: string): string | null {
 }
 
 /** Every file reachable from `entry`. `valueOnly` walks the graph a bundler would walk. */
+/**
+ * Files this one calls through a STRING function reference rather than an import.
+ *
+ * `internalFunctionRef('editorial/publicationLifecycleFunctions:createEpisodePublication')` is the
+ * repo's idiom for a cross-module Convex call, and it is invisible to an import-graph walk BY
+ * CONSTRUCTION: the only compile-time edge left is `import type`, which a value-only walk skips.
+ *
+ * That is not a detail. Without this, `publicationLifecycleFunctions.ts` — the one file the share
+ * wiring actually invokes at runtime — sat in neither sweep: absent from the closure because the
+ * edge is type-only, and absent from `pipelineFiles` because it contains no `shareFormat`
+ * substring. A transport added to it passed every test here.
+ */
+function stringRefTargets(source: string): string[] {
+  return [...source.matchAll(/internalFunctionRef<[^>]*>\(\s*'([^':]+):/g)]
+    .map((match) => `convex/${match[1]}.ts`)
+    .filter((path) => existsSync(join(ROOT, path)));
+}
+
 function closureOf(entry: string, valueOnly: boolean): string[] {
   const visited = new Set<string>([entry]);
   const queue = [entry];
   while (queue.length > 0) {
     const file = queue.shift() as string;
-    for (const { specifier, typeOnly } of importsOf(executableSource(file))) {
-      if (valueOnly && typeOnly) continue;
-      const target = resolveImport(file, specifier);
+    const source = executableSource(file);
+    const targets = importsOf(source)
+      .filter(({ typeOnly }) => !(valueOnly && typeOnly))
+      .map(({ specifier }) => resolveImport(file, specifier))
+      // Runtime edges the import graph cannot see. Walked identically once resolved, so anything
+      // reached only through a string ref is swept exactly like an imported dependency.
+      .concat(stringRefTargets(source));
+    for (const target of targets) {
       if (target === null || visited.has(target)) continue;
       visited.add(target);
       queue.push(target);
@@ -230,6 +253,14 @@ describe('FR-G005 AC#3 — no automatic external publication path exists', () =>
     // claim above is specific rather than a hope.
     expect(closure).not.toContain('convex/util/llm.ts');
     expect(closure.filter((file) => file.startsWith('convex/simulation/providers/'))).toEqual([]);
+  });
+
+  it('follows the string function references too, not just the imports', () => {
+    // The sweep above is only as wide as the walk. `internalFunctionRef` calls leave no value
+    // import behind, so a walk that followed imports alone would silently exclude the one file the
+    // wiring actually invokes -- and a transport added there would pass every test in this file.
+    // Naming the file is what stops the walk regressing to imports-only without anyone noticing.
+    expect(closureOf(WIRING, true)).toContain('convex/editorial/publicationLifecycleFunctions.ts');
   });
 
   it('registers no public function for derived content, and no HTTP endpoint anywhere', () => {
