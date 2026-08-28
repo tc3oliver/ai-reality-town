@@ -75,12 +75,23 @@ sorted `pairKey`; picking one direction would report half of a mutual falling-ou
 
 ### Character summaries
 
-Built through `characterSourceFrom` + `buildCharacterProjection` — the same pair
-`rebuildCharacterProjection` uses — so 人物摘要 sits behind the identical field allowlist as the
-character page and inherits ART-132's withheld-scene redaction. Only the nodes that survived the
-thirty-node cap are built, via a two-pass build: the first pass settles who is on the graph with
-no summaries at all, the second fills them in for the survivors. The two passes cannot disagree,
-because node selection reads no character field.
+**Not in the payload at all.** A `RelationshipGraphNode` carries `characterId`, `isCoreCharacter`,
+`hop` and `edgeCount` — structure only, no name, summary, occupation or liveness.
+
+The view reads 人物摘要 live instead, one `character:<id>` per rendered node through the same
+`getPublishedReadModel` query everything else uses, bounded at thirty by the node cap and adding no
+public function.
+
+The reason is retroactive withhold. A past day's graph is never rebuilt (§7), so any character text
+frozen into its payload could never self-heal: a day-5 scene withheld on day 9 would stay readable
+on day 5's graph permanently. `character:<id>` is rebuilt whenever the character changes, so
+reading it live is what makes the withhold arrive. Baking summaries in and calling the redaction
+inherited would have been the inverse of the truth.
+
+> An earlier revision of this section said summaries were built through `characterSourceFrom` +
+> `buildCharacterProjection` and "inherits ART-132's withheld-scene redaction", via a two-pass
+> build. That code is deleted and the claim was false for past days. It is recorded here rather
+> than silently replaced, because it is the precise claim this design exists to avoid.
 
 ## 3. The default scope
 
@@ -198,3 +209,19 @@ neighbours by radius and stroke-width as well as colour, so the two groups survi
   resolves to the lower `arcId`. The payload names the arc it chose, so a reader is never left
   guessing which story they are looking at, but the graph does not offer arc switching — FR-I007
   does not ask for it.
+- **A change reason is gated on Canon visibility only, not on withheld scenes.** This is the one
+  piece of text the payload still carries (`RelationshipGraphChange.reason`), and the gate is
+  `visibility === 'public'` on the Canon change itself. A `relationship_changed` marked public
+  whose source event belongs to a Scene refused later has its reason already frozen into that
+  day's payload, and — because a past day is never rebuilt (§7) — it stays there.
+
+  This is the same gate the published `relationship:<pairKey>` model has always applied, so it is
+  not a new exposure; what is new is that the per-day freeze makes it permanent for past days
+  rather than self-healing on the next rebuild. Character text avoids this entirely by not being
+  in the payload (§2), and the honest reason the same trick is not applied to reasons is that a
+  change reason has no per-day published model to read it from.
+
+  Closing it properly means gating reasons on `readWithheldSceneLabels` at build time, keyed on
+  event id, the way `redactWithheldSummaries` does for scenes. That is a change to what the
+  payload contains and belongs to whichever task takes the safety sweep across derived text; it is
+  recorded here rather than left for a reader to discover.
