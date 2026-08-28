@@ -15,12 +15,14 @@ import {
   ARC_MODEL_KIND,
   RELATIONSHIP_MODEL_KIND,
   RelationshipArcError,
+  accumulatePublicRelationshipDimensions,
   buildArcProjection,
   buildRelationshipProjection,
   type ArcOutcome,
   type ArcSummary,
   type PublicFact,
   type RelationshipChange,
+  type RelationshipDeltaInput,
 } from './relationshipArcProjection';
 import { commitReadModelVersion } from './readModel';
 import { writeStore } from './readModelFunctions';
@@ -49,8 +51,26 @@ export const rebuildRelationshipProjection = internalMutation({
       (source === args.sourceCharacterId && target === args.targetCharacterId)
       || (source === args.targetCharacterId && target === args.sourceCharacterId);
 
-    let latest: { source: string; target: string; trust: number; affection: number; resentment: number; fear: number; dependency: number; familiarity: number; visibility: string; lastUpdatedEventId: string } | null = null;
+    /**
+     * The pair's identity and the id of the event that last moved it. NOT its dimensions.
+     *
+     * ART-95: this record used to carry the six dimensions too, assigned from the current
+     * event's DELTAS on every iteration, so the published levels were whatever the last change
+     * happened to be worth. The levels are now folded across the whole public history by
+     * `accumulatePublicRelationshipDimensions`, and this holds only the two things that
+     * genuinely are "the latest": which way round the pair was named, and which event it was.
+     */
+    let latest: { source: string; target: string; lastUpdatedEventId: string } | null = null;
     const history: RelationshipChange[] = [];
+    /**
+     * All six deltas, alongside the three-delta published history.
+     *
+     * A separate list rather than a widened `RelationshipChange`: the accumulation needs every
+     * dimension, and the published payload's shape is deliberately untouched by this fix — see
+     * the type's docblock. Both are appended in the same iteration, so they cannot fall out of
+     * step with each other.
+     */
+    const deltas: RelationshipDeltaInput[] = [];
     for (const event of events) {
       for (const change of event.stateChanges) {
         if (change.type === 'relationship_changed' && isPair(change.sourceCharacterId, change.targetCharacterId)) {
@@ -59,22 +79,31 @@ export const rebuildRelationshipProjection = internalMutation({
               eventId: event.eventId, reason: change.reason,
               trustDelta: change.trustDelta, affectionDelta: change.affectionDelta, resentmentDelta: change.resentmentDelta,
             });
+            deltas.push({
+              trustDelta: change.trustDelta,
+              affectionDelta: change.affectionDelta,
+              resentmentDelta: change.resentmentDelta,
+              fearDelta: change.fearDelta ?? 0,
+              dependencyDelta: change.dependencyDelta ?? 0,
+              familiarityDelta: change.familiarityDelta ?? 0,
+            });
             latest = {
               source: change.sourceCharacterId, target: change.targetCharacterId,
-              trust: change.trustDelta, affection: change.affectionDelta, resentment: change.resentmentDelta,
-              fear: change.fearDelta ?? 0, dependency: change.dependencyDelta ?? 0, familiarity: change.familiarityDelta ?? 0,
-              visibility: 'public', lastUpdatedEventId: event.eventId,
+              lastUpdatedEventId: event.eventId,
             };
           }
         }
       }
     }
     if (!latest) throw new RelationshipArcError('RELATIONSHIP_NOT_FOUND', 'no public relationship between this pair');
+    // Levels, folded over every public change in order. `events` is read on
+    // `by_world_and_sequence`, so "in order" is Canon's own accepted order rather than an
+    // assumption about how the rows came back.
+    const dimensions = accumulatePublicRelationshipDimensions(deltas);
     const payload = buildRelationshipProjection({
       worldId: args.worldId,
       sourceCharacterId: latest.source, targetCharacterId: latest.target,
-      trust: latest.trust, affection: latest.affection, resentment: latest.resentment,
-      fear: latest.fear, dependency: latest.dependency, familiarity: latest.familiarity,
+      ...dimensions,
       visibility: 'public', lastUpdatedEventId: latest.lastUpdatedEventId, changeHistory: history,
     });
     const result = await commitReadModelVersion(writeStore(ctx.db), {

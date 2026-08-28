@@ -2,6 +2,7 @@ import type { FixtureScenario } from './fixtureScenario';
 import { MISTWOOD_CHARACTER_VISUALS } from '../../data/mistwoodCharacters';
 import { mistwoodLocationFootprints } from '../../data/mistwood';
 import { voteConsequenceModelRef } from '../../convex/shared/environmentVoteCatalog';
+import { relationshipGraphModelRef } from '../../convex/shared/relationshipGraphRef';
 
 /**
  * The deterministic world the browser E2E suite watches (FR-Q006 / ART-137).
@@ -353,6 +354,100 @@ export function fixtureReadModel(modelRef: string): { payload: unknown } | null 
           },
         ],
         explicitCausalEdgeCount: 0,
+      },
+    };
+  }
+  if (modelRef === relationshipGraphModelRef(FIXTURE_WORLD_ID, FIXTURE_WORLD_DAY)) {
+    /**
+     * The scoped relationship graph (FR-I007 / ART-44), in the shape the SERVER publishes.
+     *
+     * Written against `convex/publicRead/relationshipGraphProjection.ts`'s contract rather than
+     * against what the page happens to read, and `fixtureWorld.test.ts` runs it through the
+     * production `assertRelationshipGraphBounds` — so a fixture that broke the thirty-node cap or
+     * misreported its own truncation fails a unit test instead of producing a green E2E run
+     * against a graph the product could not have published.
+     *
+     * Two core characters, two one-hop neighbours and one relationship type per edge, so the type
+     * filter has something to narrow and the diagram has both rings. The counts are deliberately
+     * inconsistent-free: `candidate* = rendered + omitted` on both axes, which is the invariant
+     * the assertion checks.
+     *
+     * The key is built with the SAME `relationshipGraphModelRef` the server and the page use.
+     * A fixture and a client that spell a key two ways is the ART-146 failure exactly, and
+     * `fixtureConvexClient` THROWS on an unhandled query — taking the whole page down.
+     */
+    const core = FIXTURE_CHARACTER_IDS.slice(0, 2);
+    const neighbours = FIXTURE_CHARACTER_IDS.slice(2, 4);
+    /**
+     * A node carries graph STRUCTURE only — no name, summary or occupation.
+     *
+     * That mirrors the server exactly: character text is read live from `character:<id>` (already
+     * answered by the branch below), because a past day's graph is never rebuilt and a summary
+     * frozen into it could not honour a retroactive withhold.
+     */
+    const node = (characterId: string, isCoreCharacter: boolean, edgeCount: number) => ({
+      characterId,
+      isCoreCharacter,
+      hop: isCoreCharacter ? 0 : 1,
+      edgeCount,
+    });
+    const edge = (
+      first: string,
+      second: string,
+      relationshipType: string,
+      strength: number,
+      reason: string,
+    ) => {
+      // Endpoints derived from the SORTED key, exactly as `groupPublicRelationships` derives them
+      // server-side. Taking them from the raw arguments was harmless while every caller happened
+      // to pass them in order, and would have made the fixture disagree with the contract it
+      // claims to be written against the first time one did not.
+      const [sourceCharacterId, targetCharacterId] = [first, second].sort();
+      return {
+      pairKey: `${sourceCharacterId}:${targetCharacterId}`,
+      sourceCharacterId,
+      targetCharacterId,
+      relationshipType,
+      strength,
+      dimensions: {
+        trust: relationshipType === 'trust' ? strength : 0,
+        affection: 0,
+        resentment: relationshipType === 'resentment' ? strength : 0,
+        fear: 0,
+        dependency: 0,
+        familiarity: 0,
+      },
+      lastChangedWorldDay: FIXTURE_WORLD_DAY,
+      recentChanges: [
+        { eventId: 'mistwood#event#101', worldDay: FIXTURE_WORLD_DAY, reason },
+      ],
+      changeCountInWindow: 1,
+      };
+    };
+    return {
+      payload: {
+        schemaVersion: 1,
+        worldId: FIXTURE_WORLD_ID,
+        worldDay: FIXTURE_WORLD_DAY,
+        arc: { arcId: 'arc-mill', title: '磨坊之爭', status: 'escalating' },
+        nodes: [
+          node(core[0], true, 2),
+          node(core[1], true, 1),
+          node(neighbours[0], false, 1),
+          node(neighbours[1], false, 1),
+        ],
+        edges: [
+          edge(core[0], core[1], 'resentment', 30, '兩派為停工的水車爭執'),
+          edge(core[0], neighbours[0], 'trust', 20, '在鎮公所一同見證休戰'),
+          edge(core[1], neighbours[1], 'trust', 10, '共同修復水車'),
+        ],
+        relationshipTypes: ['trust', 'resentment'],
+        scope: { windowDays: 7, nodeLimit: 30, nodeOrdering: 'core_first_then_recent_change_desc' },
+        candidateNodeCount: 4,
+        candidateEdgeCount: 3,
+        omittedNodeCount: 0,
+        omittedEdgeCount: 0,
+        sourceEventIds: ['mistwood#event#101'],
       },
     };
   }

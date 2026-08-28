@@ -91,6 +91,12 @@ import {
   VOTE_CONSEQUENCE_MODEL_KIND,
 } from '../publicRead/voteConsequenceProjection';
 import { voteConsequenceModelRef } from '../shared/environmentVoteCatalog';
+import {
+  buildRelationshipGraphProjection,
+  groupPublicRelationships,
+  RELATIONSHIP_GRAPH_MODEL_KIND,
+} from '../publicRead/relationshipGraphProjection';
+import { relationshipGraphModelRef } from '../shared/relationshipGraphRef';
 import { buildLiveProjection, LIVE_MODEL_KIND, liveSourceEventIds } from '../publicRead/liveState';
 import {
   commitReadModelVersion,
@@ -901,6 +907,36 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
       return publish(
         VOTE_CONSEQUENCE_MODEL_KIND,
         voteConsequenceModelRef(worldId, targetWorldDay),
+        payload,
+        payload.sourceEventIds,
+      );
+    },
+
+    /**
+     * FR-I007 / ART-44, through the real builder and the real published rows.
+     *
+     * Over a multi-day run this is the one read model that exercises the seven-day window with a
+     * window that actually moves: by day 9 the day-1 changes have aged out of it, which no
+     * single-commit harness can show.
+     */
+    rebuildRelationshipGraphProjection(worldId, targetWorldDay) {
+      const projection = replayWorldEvents(emptyProjection(worldId), events());
+      const payload = buildRelationshipGraphProjection({
+        worldId,
+        targetWorldDay,
+        arcs: [...arcs.keys()].map((arcId) => {
+          const arc = arcProjectionData(arcId);
+          return {
+            arcId, title: arc.title, status: arc.status, coreCharacterIds: arc.coreCharacterIds,
+          };
+        }),
+        relationships: groupPublicRelationships(
+          Object.values(projection.relationshipHistory).flat(),
+        ),
+      });
+      return publish(
+        RELATIONSHIP_GRAPH_MODEL_KIND,
+        relationshipGraphModelRef(worldId, targetWorldDay),
         payload,
         payload.sourceEventIds,
       );

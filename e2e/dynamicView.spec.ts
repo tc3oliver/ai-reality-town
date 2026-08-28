@@ -612,3 +612,93 @@ test.describe('the degradation ladder (FR-O010 / ART-127)', () => {
     await expect(notice.locator('p')).toHaveCount(0);
   });
 });
+
+/**
+ * The scoped relationship graph (FR-I007 + NFR-002 / ART-44), in a real browser.
+ *
+ * Here rather than only in a unit test for the reason the FR-J002 spec above is: the claim is
+ * that the page is REACHABLE. It derives the world day from `live:<worldId>` and then asks for a
+ * SECOND published model keyed on that day, so a `modelRef` the fixture spells differently from
+ * the client renders a permanently-empty page that every unit test still passes — the ART-146
+ * failure exactly. The ref is built here, in the fixture and on the server by one shared helper
+ * (`convex/shared/relationshipGraphRef.ts`) so the three cannot drift; this spec is the check
+ * that the helper is actually the thing all three used.
+ *
+ * It is also the only place the two-read sequence is exercised end to end: the default day is not
+ * in the URL, so the page has to resolve it from the clock before it can ask for anything.
+ */
+test.describe('the scoped relationship graph (FR-I007 / ART-44)', () => {
+  /** No day in the URL: the page must resolve the default from the world clock (AC#1). */
+  const GRAPH = `${BASE}/#graph/${WORLD}`;
+
+  test('AC#1 — the default graph resolves its day from the world clock and renders scoped', async ({ page }) => {
+    await page.goto(GRAPH);
+    await expect(page.getByRole('heading', { level: 1, name: '關係圖' })).toBeVisible();
+    // The fixture's world day is 7 and the URL named none, so this is the clock read working.
+    await expect(page.locator('.public-page')).toContainText('世界日 7');
+    await expect(page.locator('.public-page')).toContainText('磨坊之爭');
+    // AC#3 — the scope is on screen, so the default is never read as a picture of the whole town.
+    await expect(page.locator('.graph-controls')).toContainText('不會顯示全部角色與全部關係');
+    await expect(page.locator('.graph-controls')).toContainText('最近 7 個世界日');
+  });
+
+  test('AC#3 — the diagram is not the only way to read it', async ({ page }) => {
+    await page.goto(GRAPH);
+    const diagram = page.locator('.graph-canvas');
+    await expect(diagram).toBeVisible();
+    await expect(diagram).toHaveAttribute('role', 'img');
+    // Everything the picture encodes, in words, in the section beneath it.
+    const people = page.locator('.graph-people');
+    await expect(people).toContainText('故事線核心人物');
+    await expect(people).toContainText('一階關係人物');
+    await expect(people).toContainText('敵意');
+    await expect(people).toContainText('兩派為停工的水車爭執');
+  });
+
+  test('AC#2 — the type filter narrows the graph and never widens it', async ({ page }) => {
+    await page.goto(GRAPH);
+    const rows = page.locator('.graph-people li li');
+    const unfiltered = await rows.count();
+    expect(unfiltered).toBeGreaterThan(0);
+
+    const trust = page.locator('.graph-type-filter button', { hasText: '信任' });
+    await trust.click();
+    await expect(trust).toHaveAttribute('aria-pressed', 'true');
+    const filtered = await rows.count();
+    expect(filtered).toBeLessThan(unfiltered);
+    await expect(page.locator('.graph-people')).not.toContainText('敵意(強度');
+
+    // Back to 全部 restores exactly what was published — the filter is reversible and bounded.
+    await page.locator('.graph-type-filter button', { hasText: '全部' }).click();
+    await expect(trust).toHaveAttribute('aria-pressed', 'false');
+    expect(await rows.count()).toBe(unfiltered);
+  });
+
+  test('AC#2 — date switching is real navigation to a different published day', async ({ page }) => {
+    await page.goto(GRAPH);
+    const previous = page.getByRole('link', { name: /世界日 6 的關係圖/ });
+    await expect(previous).toBeVisible();
+    await previous.click();
+    await expect(page).toHaveURL(new RegExp(`\\#graph/${WORLD}/6$`));
+    // Day 6 has no published graph in the fixture, and the page SAYS so rather than rendering an
+    // empty diagram that would read as "these people have no relationships".
+    await expect(page.locator('.public-page')).toContainText('尚未發布關係圖');
+    await expect(page.locator('.graph-canvas')).toHaveCount(0);
+    // ...and the viewer is not stranded: the way back is still on screen.
+    await expect(page.getByRole('link', { name: /世界日 5 的關係圖/ })).toBeVisible();
+  });
+
+  test('the graph writes nothing and asks for no generation', async ({ page }) => {
+    const network = watchNetwork(page);
+    await page.goto(GRAPH);
+    await expect(page.locator('.graph-people')).toBeVisible();
+    await page.locator('.graph-type-filter button', { hasText: '信任' }).click();
+    await page.waitForTimeout(1_500);
+
+    // Both observers, for the reason AC#10/#11 use both: the fixture transport is the thing being
+    // replaced, so it cannot be the only witness to its own guarantee.
+    expect((await recorder(page)).writes).toEqual([]);
+    expect(network.writes).toEqual([]);
+    expect(network.offSite).toEqual([]);
+  });
+});

@@ -33,6 +33,7 @@ export const publicReadTables = {
       v.literal('world'), v.literal('character'), v.literal('episode'),
       v.literal('arc'), v.literal('relationship'), v.literal('liveState'), v.literal('timeline'),
       v.literal('visualReplay'), v.literal('voteConsequence'),
+      v.literal('relationshipGraph'),
     ),
     modelRef: v.string(),
     version: v.number(),

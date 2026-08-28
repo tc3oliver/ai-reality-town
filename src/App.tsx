@@ -11,6 +11,7 @@ import HelpPage from './components/public/HelpPage.tsx';
 import Homepage from './components/public/Homepage.tsx';
 import LiveView from './components/public/LiveView.tsx';
 import { OperatorEntry } from './components/public/OperatorEntry.tsx';
+import RelationshipGraphView from './components/public/RelationshipGraphView.tsx';
 import TimelineView from './components/public/TimelineView.tsx';
 
 /** Deployment path prefix (`/ai-town/`). Vite inlines this at build time. */
@@ -79,6 +80,12 @@ function PublicRoute() {
   }
   if (window.location.hash.startsWith('#arc/')) {
     return <ArcDetailPage />;
+  }
+  // ART-44 (FR-I007): the scoped relationship graph. `#graph/<worldId>` defaults to the world's
+  // current day; `#graph/<worldId>/<worldDay>` is the date-switched form, which is a real URL so
+  // a particular day is shareable.
+  if (window.location.hash.startsWith('#graph/')) {
+    return <RelationshipGraphView />;
   }
   if (window.location.hash.startsWith('#help')) {
     return <HelpPage />;

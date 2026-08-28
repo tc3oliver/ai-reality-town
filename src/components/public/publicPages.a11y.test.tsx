@@ -26,6 +26,11 @@ import { EpisodeListView } from './EpisodeList';
 import { HelpView } from './HelpPage';
 import { HomepageView } from './Homepage';
 import { LiveViewBody } from './LiveView';
+import { RelationshipGraphBody } from './RelationshipGraphView';
+import {
+  composeRelationshipGraphViewModel,
+  type RelationshipGraphPayload,
+} from './relationshipGraphRoute';
 import { composeArcViewModel } from './arcRoute';
 import { composeCharacterViewModel } from './characterRoute';
 import { composeHelpViewModel } from './helpRoute';
@@ -326,6 +331,73 @@ function arcViewModel(overrides: { status?: string; outcome?: { summary: string;
   });
 }
 
+/**
+ * The scoped relationship graph (FR-I007 / ART-44), in the shape the server publishes.
+ *
+ * ART-94 owns the full P1 graph/timeline accessibility pass. What ART-44 ships — and what is
+ * asserted below — is the baseline every public page here already meets, plus the one thing a
+ * GRAPH specifically needs: a non-visual text equivalent, so the picture is never the only way to
+ * obtain the information.
+ */
+function relationshipGraphPayload(over: Partial<RelationshipGraphPayload> = {}): RelationshipGraphPayload {
+  return {
+    worldDay: 5,
+    arc: { arcId: 'arc:mistwood:50', title: '磨坊之爭', status: 'escalating' },
+    nodes: [
+      { characterId: 'he-jun', isCoreCharacter: true, hop: 0, edgeCount: 2 },
+      { characterId: 'zhao-ming', isCoreCharacter: true, hop: 0, edgeCount: 1 },
+      { characterId: 'lin-wan', isCoreCharacter: false, hop: 1, edgeCount: 1 },
+    ],
+    edges: [
+      {
+        pairKey: 'he-jun:zhao-ming', sourceCharacterId: 'he-jun', targetCharacterId: 'zhao-ming',
+        relationshipType: 'resentment', strength: 30, lastChangedWorldDay: 5,
+        recentChanges: [{ eventId: 'mistwood#event#74', worldDay: 5, reason: '審計被要求公開' }],
+        changeCountInWindow: 2,
+      },
+      {
+        pairKey: 'he-jun:lin-wan', sourceCharacterId: 'he-jun', targetCharacterId: 'lin-wan',
+        relationshipType: 'trust', strength: 20, lastChangedWorldDay: 3,
+        recentChanges: [{ eventId: 'mistwood#event#70', worldDay: 3, reason: '一同修好水車' }],
+        changeCountInWindow: 1,
+      },
+    ],
+    relationshipTypes: ['trust', 'resentment'],
+    scope: { windowDays: 7, nodeLimit: 30, nodeOrdering: 'core_first_then_recent_change_desc' },
+    candidateNodeCount: 3,
+    candidateEdgeCount: 2,
+    omittedNodeCount: 0,
+    omittedEdgeCount: 0,
+    ...over,
+  };
+}
+
+/**
+ * The live `character:<id>` reads the page makes per node (AC#2 人物摘要).
+ *
+ * Passed in rather than carried by the graph payload, which is the shape the real page produces:
+ * character text is subject to ART-132's retroactive withhold and a past day's graph is never
+ * rebuilt, so the summary is read live. See `docs/scoped-relationship-graph.md` §2.
+ */
+function relationshipGraphCharacters() {
+  return {
+    'he-jun': { name: '何俊', occupation: '管事', publicProfile: '磨坊管事。', alive: true },
+    'zhao-ming': { name: '趙明', occupation: '帳房', publicProfile: '鎮上的帳房。', alive: true },
+    'lin-wan': { name: '林晚', occupation: '工匠', publicProfile: '水車工匠。', alive: true },
+  };
+}
+
+function relationshipGraphViewModel(over: Partial<RelationshipGraphPayload> | null = {}) {
+  return composeRelationshipGraphViewModel({
+    worldId: WORLD_ID,
+    worldDay: 5,
+    projection: over === null ? null : relationshipGraphPayload(over),
+    filter: { relationshipType: null },
+    latestWorldDay: 9,
+    characters: relationshipGraphCharacters(),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // AC#1 / AC#2 / AC#4 — every P0 experience, populated and empty.
 // ---------------------------------------------------------------------------
@@ -401,6 +473,214 @@ describe('P0 public experiences pass automated accessibility checks (NFR-009)', 
       outcome: { summary: '審計公開,磨坊復工。', sourceEventIds: ['mistwood#event#90'] },
     });
     await expectAccessible(<ArcDetailView worldId={WORLD_ID} vm={vm} />);
+  });
+
+  test('relationship graph (ART-44)', async () => {
+    await expectAccessible(
+      <RelationshipGraphBody worldId={WORLD_ID} vm={relationshipGraphViewModel()} />,
+    );
+  });
+
+  test('relationship graph with nothing published for the day', async () => {
+    await expectAccessible(
+      <RelationshipGraphBody worldId={WORLD_ID} vm={relationshipGraphViewModel(null)} />,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The relationship graph is not the only way to read the relationships
+// (FR-I007 / ART-44; the a11y baseline ART-94 builds its P1 pass on).
+// ---------------------------------------------------------------------------
+
+describe('the relationship graph has an equivalent non-visual reading (ART-44)', () => {
+  function graph(over: Partial<RelationshipGraphPayload> | null = {}) {
+    return render(<RelationshipGraphBody worldId={WORLD_ID} vm={relationshipGraphViewModel(over)} />);
+  }
+
+  test('every character and relationship the diagram draws is also written out', () => {
+    // The claim is not "there is some alt text" — it is that the SAME facts are available in
+    // words: who is on the graph, whether they are core or one hop out, who they are connected
+    // to, what kind of relationship it is, how strong, when it last changed, and why.
+    const container = graph();
+    const text = container.textContent ?? '';
+    for (const name of ['何俊', '趙明', '林晚']) expect(text).toContain(name);
+    expect(text).toContain('故事線核心人物');
+    expect(text).toContain('一階關係人物');
+    expect(text).toContain('敵意');
+    expect(text).toContain('強度 30');
+    expect(text).toContain('最近變化於世界日 5');
+    expect(text).toContain('審計被要求公開');
+    expect(text).toContain('一同修好水車');
+    // Character summaries (AC#2 人物摘要) are on the page, not only in a tooltip.
+    expect(text).toContain('磨坊管事。');
+  });
+
+  test('the diagram itself is announced once, as an image, and adds no tab stops', () => {
+    const container = graph();
+    const svg = container.querySelector('svg');
+    expect(svg).not.toBeNull();
+    expect(svg!.getAttribute('role')).toBe('img');
+    // A label that says what it shows AND where the same information is written out.
+    expect(svg!.getAttribute('aria-label')).toContain('人物');
+    expect(svg!.getAttribute('aria-label')).toContain('人物與關係');
+    // Its geometry is hidden: a screen reader walking it would announce a list of coordinates,
+    // which is worse than nothing when the text equivalent is the next section down.
+    expect(svg!.querySelector('[aria-hidden="true"]')).not.toBeNull();
+    expect(svg!.querySelectorAll('a[href], button, [tabindex]')).toHaveLength(0);
+  });
+
+  test('removing the diagram entirely leaves every fact on the page', () => {
+    /**
+     * The claim is carried by the `toContain` assertions below, NOT by a text-unchanged check.
+     *
+     * An earlier version asserted `after === before` and called that the strong form. It was
+     * vacuous: the `<svg>` holds only `<line>` and `<circle>`, no text node, so removing it cannot
+     * change `textContent` however broken the page is. What has to be shown is that each fact the
+     * diagram encodes — who is on the graph, their hop, who they are connected to, the type,
+     * strength, day and reason — is still readable with the picture gone.
+     */
+    const container = graph();
+    const svg = container.querySelector('svg');
+    // The diagram really did render something, so this is not passing over an absent picture.
+    expect(svg!.querySelectorAll('circle').length).toBeGreaterThan(0);
+    expect(svg!.querySelectorAll('line').length).toBeGreaterThan(0);
+    svg!.remove();
+
+    const after = container.textContent ?? '';
+    for (const fragment of [
+      '何俊', '趙明', '林晚',
+      '故事線核心人物', '一階關係人物',
+      '敵意', '強度 30', '最近變化於世界日 5',
+      '審計被要求公開', '一同修好水車',
+      '磨坊管事。',
+    ]) {
+      expect(after).toContain(fragment);
+    }
+    // ...and the diagram is gone, so those facts are coming from the text.
+    expect(container.querySelector('svg')).toBeNull();
+  });
+
+  test('the scope is stated on the page, so the default is not read as the whole town', () => {
+    const container = graph();
+    const text = container.textContent ?? '';
+    expect(text).toContain('不會顯示全部角色與全部關係');
+    expect(text).toContain('最近 7 個世界日');
+  });
+
+  test('truncation is stated in words, with counts, when the cap removed anything', () => {
+    const container = graph({ candidateNodeCount: 84, candidateEdgeCount: 120, omittedNodeCount: 81, omittedEdgeCount: 118 });
+    const text = container.textContent ?? '';
+    expect(text).toContain('未顯示 81 人');
+    expect(text).toContain('118 段關係');
+    expect(text).toContain('核心人物優先');
+  });
+
+  test('date switching is real navigation with names that survive being read alone', () => {
+    const container = graph();
+    const hrefs = Array.from(container.querySelectorAll('a[href]')).map((a) => a.getAttribute('href'));
+    expect(hrefs).toContain('#graph/mistwood/4');
+    expect(hrefs).toContain('#graph/mistwood/6');
+    for (const anchor of Array.from(container.querySelectorAll('a[href^="#graph/"]'))) {
+      // WCAG 2.4.4: 「前一日」 alone does not say which day, so the accessible name does.
+      expect(accessibleName(anchor)).toMatch(/世界日 \d+ 的關係圖/);
+      expect(anchor.classList.contains('public-tap')).toBe(true);
+    }
+  });
+
+  test('every standalone control is a 44px target (NFR-009 AC#2)', () => {
+    const container = graph();
+    const controls = Array.from(container.querySelectorAll(
+      'nav a[href], .graph-type-filter button, .graph-people h3 a[href]',
+    ));
+    expect(controls.length).toBeGreaterThan(0);
+    for (const control of controls) {
+      expect(control.classList.contains('public-tap')).toBe(true);
+    }
+  });
+
+  test('the type filter is a labelled group of toggles, offering only types the graph carries', () => {
+    const container = graph();
+    const group = container.querySelector('.graph-type-filter');
+    expect(group?.getAttribute('role')).toBe('group');
+    expect(document.getElementById(group!.getAttribute('aria-labelledby')!)?.textContent)
+      .toBe('關係類型');
+    const buttons = Array.from(group!.querySelectorAll('button'));
+    expect(buttons.map((button) => button.textContent)).toEqual(['全部', '信任', '敵意']);
+    // Exactly one is pressed, and the state is in `aria-pressed` rather than in a colour.
+    expect(buttons.filter((button) => button.getAttribute('aria-pressed') === 'true')).toHaveLength(1);
+    // Every button renders two characters of Chinese, so the accessible name carries what it
+    // filters (WCAG 2.4.4) while still starting with the visible label (2.5.3).
+    for (const button of buttons) {
+      const name = accessibleName(button);
+      expect(name).not.toBe('');
+      expect(new Set(buttons.map(accessibleName)).size).toBe(buttons.length);
+      expect(name.startsWith(button.textContent ?? '')).toBe(true);
+    }
+  });
+
+  test('the pressed filter is not signalled by colour alone', () => {
+    // The stylesheet half of the claim above. `aria-pressed` reaches assistive tech; border-width
+    // and font-weight are what a sighted viewer in greyscale sees.
+    const rule = INDEX_CSS.match(
+      /\.public-page button\.public-tap\[aria-pressed='true'\]\s*\{([^}]*)\}/,
+    );
+    expect(rule).not.toBeNull();
+    expect((rule as RegExpMatchArray)[1]).toMatch(/border-width:/);
+    expect((rule as RegExpMatchArray)[1]).toMatch(/font-weight:/);
+  });
+
+  test('every relationship row names both people, so an edge read alone still makes sense', () => {
+    const container = graph();
+    const rows = Array.from(container.querySelectorAll('.graph-edge-row'));
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(accessibleName(row)).toMatch(/^.+ 與 .+ 的關係$/);
+    }
+  });
+
+  test('the empty day says what is empty rather than rendering a blank diagram', () => {
+    const container = graph(null);
+    expect(container.querySelector('svg')).toBeNull();
+    expect(container.textContent ?? '').toContain('尚未發布關係圖');
+    // ...and the viewer is not stranded: date switching still works from an unpublished day.
+    expect(container.querySelector('a[href="#graph/mistwood/4"]')).not.toBeNull();
+  });
+
+  test('the graph page declares no animation and no reflow-breaking construct', () => {
+    // The same structural guard the P0 pages carry, applied to the file this task added.
+    const source = readFileSync(new URL('./RelationshipGraphView.tsx', import.meta.url), 'utf8');
+    for (const className of source.match(/className="[^"]*"/g) ?? []) {
+      expect(className).not.toMatch(/\bw-\[\d/);
+      expect(className).not.toMatch(/\bmin-w-\[(?!44px)/);
+      expect(className).not.toMatch(/\bwhitespace-nowrap\b/);
+      expect(className).not.toMatch(/\boverflow-x-\b/);
+      expect(className).not.toMatch(/\b(fixed|sticky|absolute)\b/);
+      expect(className).not.toMatch(/\b(animate-|transition|duration-|motion-safe:)/);
+      if (/\bflex\b/.test(className) && !/\bflex-col\b/.test(className)) {
+        expect(className).toMatch(/\bflex-wrap\b/);
+      }
+    }
+    // The diagram scales with its column: a viewBox and no width/height attribute.
+    expect(source).toMatch(/viewBox="0 0 100 100"/);
+    expect(source).not.toMatch(/<svg[^>]*\swidth=/);
+    // ...and the stylesheet half, so the two together mean something.
+    expect(declaredValue('.graph-canvas', 'max-width')).toBe('100%');
+    expect(declaredValue('.graph-canvas', 'height')).toBe('auto');
+  });
+
+  test('the diagram is drawn from the shared tokens, not from its own colours', () => {
+    // ART-131 AC#4: every surface speaks the same visual language. A second palette here would
+    // be this component picking its own rather than a decision the design system made.
+    for (const selector of ['.graph-canvas', '.graph-edge', '.graph-node', '.graph-node-core']) {
+      const rule = INDEX_CSS.match(new RegExp(`\\${selector}\\s*\\{([^}]*)\\}`));
+      expect(rule).not.toBeNull();
+      expect((rule as RegExpMatchArray)[1]).toMatch(/var\(--public-/);
+    }
+    // Core and one-hop differ by SHAPE as well as colour (radius in the markup, stroke-width in
+    // the stylesheet), so the two rings survive greyscale.
+    expect(rawDeclaredValue('.graph-node', 'stroke-width'))
+      .not.toBe(rawDeclaredValue('.graph-node-core', 'stroke-width'));
   });
 });
 

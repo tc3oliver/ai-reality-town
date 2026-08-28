@@ -9,8 +9,33 @@ ART-118), Episode list (`#episodes/<worldId>`), Episode detail
 (`#episode/<worldId>/<worldDay>`), Character (`#character/<worldId>/<characterId>`)
 and Story Arc (`#arc/<worldId>/<arcId>`).
 
-Out of scope: the P1 relationship graph and timeline (ART-94), the PixiJS game
-runtime, and production deployment.
+Also covered, since ART-44: the **scoped relationship graph**
+(`#graph/<worldId>` and `#graph/<worldId>/<worldDay>`). ART-44 built the same
+baseline as the P0 pages — one `<main>`, `aria-labelledby` headings with no
+skipped level, 44×44 `.public-tap` controls, `aria-pressed` filter toggles, zh-Hant
+copy — plus the two things a graph specifically needs:
+
+- a **non-visual text equivalent** carrying everything the diagram encodes (each
+  character, their hop, every relationship with its type, strength, last change
+  day and reason), so the picture is never the only way to obtain the
+  information. `publicPages.a11y.test.tsx`'s `removing the diagram entirely
+  leaves every fact on the page` removes the `<svg>` from the DOM and then
+  asserts each of those facts is still present in the page text — the
+  `toContain` checks are the claim; a text-unchanged check would be vacuous,
+  since the `<svg>` contains no text node to begin with;
+- **per-edge accessible names**, so a relationship row read out of context still
+  says which two people it is about.
+
+The diagram itself is `role="img"` with a summarising label and `aria-hidden`
+internals, adds no tab stops, and its layout is a pure function of the published
+node order — no effects, no measurement, no randomness. See
+`docs/scoped-relationship-graph.md` §8.
+
+Out of scope: the **P1 world timeline** (`#timeline/<worldId>`), which has had no
+accessibility pass and remains **ART-94**; the **cross-surface P1 evidence pass**
+for the graph and the timeline together — axe runs, contrast, reduced motion and
+mobile touch targets measured across both — also **ART-94**; the PixiJS game
+runtime; and production deployment.
 
 NFR-009 requires the public interface to support, at minimum: keyboard
 navigation, reasonable contrast, reduced motion, a non-map alternative view,

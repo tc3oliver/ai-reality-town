@@ -25,7 +25,14 @@ import { mistwoodLocationFootprints } from '../../data/mistwood';
 import { assertPublicDynamicProjection } from '../../convex/publicRead/publicDynamicProjection';
 import { assertVisualReplay } from '../../convex/publicRead/visualReplay';
 import {
+  assertRelationshipGraphBounds,
+  type RelationshipGraphProjection,
+} from '../../convex/publicRead/relationshipGraphProjection';
+import { relationshipGraphModelRef } from '../../convex/shared/relationshipGraphRef';
+import {
   FIXTURE_CHARACTER_IDS,
+  FIXTURE_WORLD_DAY,
+  FIXTURE_WORLD_ID,
   fixtureProjection,
   fixtureReadModel,
   fixtureReplay,
@@ -57,6 +64,19 @@ describe('the fixture is a payload the real surface could have produced', () => 
         motions: [], summaryRef: { publicSummaryId: 'x', publicationVersion: 1 }, durationMs: 1_200 }],
     };
     expect(() => assertVisualReplay(invented)).toThrow();
+  });
+
+  test('the relationship graph passes the production bound assertion (FR-I007 / ART-44)', () => {
+    // The same check `buildRelationshipGraphProjection` ends with: the thirty-node cap, the
+    // truncation counts adding up, no dangling edge, and no change outside the seven-day window.
+    // A fixture that broke any of them would put the browser evidence behind a graph the product
+    // could not have published.
+    const payload = fixtureReadModel(relationshipGraphModelRef(FIXTURE_WORLD_ID, FIXTURE_WORLD_DAY))
+      ?.payload as RelationshipGraphProjection;
+    expect(payload).toBeDefined();
+    expect(() => assertRelationshipGraphBounds(payload)).not.toThrow();
+    // ...and it is not vacuous: the same payload with a mis-stated omission count is refused.
+    expect(() => assertRelationshipGraphBounds({ ...payload, candidateNodeCount: 99 })).toThrow();
   });
 
   test('every text a replay step addresses is resolvable', () => {

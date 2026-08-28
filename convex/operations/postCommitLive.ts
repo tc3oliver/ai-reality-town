@@ -175,6 +175,8 @@ export interface PostCommitLivePort {
   rebuildTimelineProjection(worldId: string): Promise<string>;
   /** ART-46 viewer-intervention consequence read model for the committed event's world day. */
   rebuildVoteConsequenceProjection(worldId: string, targetWorldDay: number): Promise<string>;
+  /** ART-44 scoped relationship graph (FR-I007) for the committed event's world day. */
+  rebuildRelationshipGraphProjection(worldId: string, targetWorldDay: number): Promise<string>;
   /** ART-I006 arc read model and ART-38 arc primer. */
   rebuildArcReadModel(worldId: string, arcId: string): Promise<string>;
   rebuildArcPrimer(worldId: string, arcId: string): Promise<string>;
@@ -714,6 +716,27 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
         if (targetWorldDay < 0) continue;
         modelRefs.push(await port.rebuildVoteConsequenceProjection(context.worldId, targetWorldDay));
       }
+      /**
+       * FR-I007 / ART-44 — LAST, after the consequence model.
+       *
+       * The reason is the one stated above and no other: this handler is not failure-isolated, so
+       * the newest and least critical read model must sit downstream of the two SAFETY-BEARING
+       * rebuilds (`rebuildLiveProjection`, `rebuildOnboardingSummary`), never upstream of them.
+       *
+       * It does NOT depend on the read models rebuilt earlier in this pipeline. The graph is
+       * built from Canon (`relationshipGraphProjectionFunctions.ts`), so its inputs are the same
+       * whichever order this stage runs in. An earlier draft of this comment claimed the opposite
+       * — that it was derived from `relationship`/`arc`/`character` — which contradicted the very
+       * argument for reading Canon: that the graph is correct independently of ART-95's repair to
+       * the relationship payload.
+       *
+       * ONLY the committed day, with no trailing window. Each day's graph is a snapshot of the
+       * relationships as of that day and is complete the moment that day is over: unlike
+       * `voteConsequence`, no later event can add to a past day's graph, because a change on
+       * day 9 is by construction not a change that had happened by day 7. A trailing window here
+       * would republish identical payloads and dedup them, which is work with no result.
+       */
+      modelRefs.push(await port.rebuildRelationshipGraphProjection(context.worldId, context.worldDay));
       return { contentRef, publicationStatus, reassessedArcIds, modelRefs };
     },
 
