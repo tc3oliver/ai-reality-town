@@ -64,6 +64,7 @@ import type {
 } from '../publicRead/episodeTimelineProjectionFunctions';
 import type { rebuildEpisodeIndexProjection as rebuildEpisodeIndexProjectionExport } from '../publicRead/episodeIndexProjectionFunctions';
 import type { rebuildVoteConsequenceProjection as rebuildVoteConsequenceProjectionExport } from '../publicRead/voteConsequenceProjectionFunctions';
+import type { rebuildRelationshipGraphProjection as rebuildRelationshipGraphProjectionExport } from '../publicRead/relationshipGraphProjectionFunctions';
 import type { rebuildArcPrimer as rebuildArcPrimerExport } from '../publicRead/arcPrimerFunctions';
 import type { rebuildLiveProjection as rebuildLiveProjectionExport } from '../publicRead/liveStateFunctions';
 import type { rebuildOnboardingSummary as rebuildOnboardingSummaryExport } from '../publicRead/onboardingSummaryFunctions';
@@ -171,6 +172,9 @@ const rebuildTimelineProjectionRef = internalFunctionRef<typeof rebuildTimelineP
 );
 const rebuildVoteConsequenceProjectionRef = internalFunctionRef<typeof rebuildVoteConsequenceProjectionExport>(
   'publicRead/voteConsequenceProjectionFunctions:rebuildVoteConsequenceProjection',
+);
+const rebuildRelationshipGraphProjectionRef = internalFunctionRef<typeof rebuildRelationshipGraphProjectionExport>(
+  'publicRead/relationshipGraphProjectionFunctions:rebuildRelationshipGraphProjection',
 );
 const rebuildArcPrimerRef = internalFunctionRef<typeof rebuildArcPrimerExport>(
   'publicRead/arcPrimerFunctions:rebuildArcPrimer',
@@ -413,6 +417,12 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
     async rebuildVoteConsequenceProjection(worldId, targetWorldDay) {
       const { modelRef } = await ctx.runMutation(
         rebuildVoteConsequenceProjectionRef, { worldId, targetWorldDay, now });
+      return modelRef;
+    },
+
+    async rebuildRelationshipGraphProjection(worldId, targetWorldDay) {
+      const { modelRef } = await ctx.runMutation(
+        rebuildRelationshipGraphProjectionRef, { worldId, targetWorldDay, now });
       return modelRef;
     },
 

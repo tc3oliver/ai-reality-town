@@ -51,6 +51,12 @@ import {
   VOTE_CONSEQUENCE_MODEL_KIND,
 } from '../publicRead/voteConsequenceProjection';
 import { voteConsequenceModelRef } from '../shared/environmentVoteCatalog';
+import {
+  buildRelationshipGraphProjection,
+  groupPublicRelationships,
+  RELATIONSHIP_GRAPH_MODEL_KIND,
+} from '../publicRead/relationshipGraphProjection';
+import { relationshipGraphModelRef } from '../shared/relationshipGraphRef';
 import { buildLiveProjection, LIVE_MODEL_KIND, liveSourceEventIds } from '../publicRead/liveState';
 import {
   commitReadModelVersion,
@@ -871,6 +877,38 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
       return publish(
         VOTE_CONSEQUENCE_MODEL_KIND,
         voteConsequenceModelRef(worldId, targetWorldDay),
+        payload,
+        payload.sourceEventIds,
+      );
+    },
+
+    /**
+     * FR-I007 / ART-44, through the REAL builder over CANON, the way the shipped wiring does.
+     *
+     * The relationship history comes from the same deterministic reducer
+     * (`replayWorldEvents(...).relationshipHistory`) rather than from anything this harness
+     * invents, and — as in production — Canon's accumulated `projection.relationships` is
+     * deliberately not touched, because it folds private changes in with public ones.
+     * `groupPublicRelationships` is what applies the visibility filter, here and in production.
+     */
+    rebuildRelationshipGraphProjection(worldId, targetWorldDay) {
+      const projection = replayWorldEvents(emptyProjection(worldId), events());
+      const payload = buildRelationshipGraphProjection({
+        worldId,
+        targetWorldDay,
+        arcs: [...arcs.keys()].map((arcId) => {
+          const arc = arcProjectionData(arcId);
+          return {
+            arcId, title: arc.title, status: arc.status, coreCharacterIds: arc.coreCharacterIds,
+          };
+        }),
+        relationships: groupPublicRelationships(
+          Object.values(projection.relationshipHistory).flat(),
+        ),
+      });
+      return publish(
+        RELATIONSHIP_GRAPH_MODEL_KIND,
+        relationshipGraphModelRef(worldId, targetWorldDay),
         payload,
         payload.sourceEventIds,
       );
