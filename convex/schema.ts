@@ -15,6 +15,7 @@ import { publicReadTables } from './publicRead/schema';
 import { viewerTables } from './viewer/schema';
 import { operationsTables } from './operations/schema';
 import { visualTables } from './visual/schema';
+import { sharedTables } from './shared/schema';
 
 export default defineSchema({
   music: defineTable({
@@ -48,4 +49,7 @@ export default defineSchema({
   ...viewerTables,
   ...operationsTables,
   ...visualTables,
+  // FR-K005 / ART-52. Lives in `shared` because `operations` writes it and `simulation` reads
+  // it, and the module boundary forbids the second module depending on the first.
+  ...sharedTables,
 });

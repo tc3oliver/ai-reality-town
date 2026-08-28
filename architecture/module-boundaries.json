@@ -510,6 +510,30 @@
         "name": "inspectDynamicViewControls",
         "kind": "query",
         "gate": "operator"
+      },
+      {
+        "path": "convex/operations/moduleModelConfigFunctions.ts",
+        "name": "setModuleModelConfig",
+        "kind": "mutation",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/moduleModelConfigFunctions.ts",
+        "name": "inspectModuleModelConfig",
+        "kind": "query",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/moduleModelConfigFunctions.ts",
+        "name": "listModuleModelConfigVersions",
+        "kind": "query",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/moduleModelConfigFunctions.ts",
+        "name": "describeModuleModelDefaults",
+        "kind": "query",
+        "gate": "operator"
       }
     ]
   },

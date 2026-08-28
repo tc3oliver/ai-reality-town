@@ -98,6 +98,23 @@ export const OPS_CAPABILITIES = [
   'dynamic.rebuild',
   /** Read-only: binding and synchronisation errors (AC#4). */
   'dynamic.inspect',
+  /**
+   * FR-K005 / ART-52. Per-module model, prompt, temperature, token, timeout, retry, fallback
+   * and daily-budget configuration.
+   *
+   * Its own capability rather than folded into `world.pause` or `snapshot.create`, because it
+   * governs a different thing from either: what the world COSTS and how it is AUTHORED. An
+   * operator trusted to pause a running world is not thereby trusted to change which model
+   * writes its scenes, and the reverse is equally true.
+   *
+   * `model_config.write` is `admin` for the reason `snapshot.create` is: it takes effect on
+   * every subsequent scene in the world, it is the lever that decides spend, and a wrong value
+   * is not visible in the output until scenes have already been authored with it.
+   * `model_config.inspect` is `viewer`, matching `world.inspect` — reading what the world is
+   * configured to do does not require the authority to change it.
+   */
+  'model_config.write',
+  'model_config.inspect',
 ] as const;
 export type OpsCapability = (typeof OPS_CAPABILITIES)[number];
 
@@ -139,6 +156,10 @@ const CAPABILITY_MINIMUM_ROLE: Readonly<Record<OpsCapability, OperatorRole>> = {
   // publication decision in the system, so it is `admin` for the same reason the remediations
   // are.
   'safety.override': 'admin',
+  // FR-K005. Writing configuration decides which model authors every subsequent scene and what
+  // the world costs, so `admin`; reading it is as read-only as `world.inspect`, so `viewer`.
+  'model_config.write': 'admin',
+  'model_config.inspect': 'viewer',
 };
 
 /** Capabilities that only ever read; used to keep read entry points side-effect free. */
