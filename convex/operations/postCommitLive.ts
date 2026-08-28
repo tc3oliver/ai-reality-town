@@ -677,7 +677,8 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
       let publicationStatus: string | null = null;
       let shareFormatStatus: string | null = null;
       let shareFormatReasonCodes: string[] = [];
-      if (safety.episodeStatus !== null) {
+      const hasEpisode = safety.episodeStatus !== null;
+      if (hasEpisode) {
         contentRef = episodeContentRef(context.worldId, safety.worldDay);
         publicationStatus = (await port.createPublication(context.worldId, contentRef, null)).status;
         const actions = safety.publishable
@@ -687,14 +688,6 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
           if (publicationStatus === 'ready' || publicationStatus === 'withheld' || publicationStatus === 'published') break;
           publicationStatus = (await port.advancePublication(context.worldId, contentRef, action)).status;
         }
-        // FR-G005, and unconditionally rather than only when `safety.publishable`. The share
-        // generator re-reads the Episode row and refuses a non-`ready` one itself, so running it
-        // on a withheld day records the REFUSAL — `blocked`, with its reason — where an operator
-        // can see it. Skipping the call would leave the day silently absent from the derived
-        // table, which reads identically to "not generated yet".
-        const share = await port.generateShareFormats(context.worldId, safety.worldDay);
-        shareFormatStatus = share.status;
-        shareFormatReasonCodes = share.reasonCodes;
       }
       const reassessedArcIds = await port.reassessArcEntries(context.worldId);
       const modelRefs: string[] = [];
@@ -710,6 +703,30 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
       }
       modelRefs.push(await port.rebuildLiveProjection(context.worldId));
       modelRefs.push(await port.rebuildOnboardingSummary(context.worldId));
+      /**
+       * FR-G005 / ART-36 — DOWNSTREAM of the two safety-bearing rebuilds, for the reason stated
+       * below for ART-46 and again for ART-44.
+       *
+       * It shipped upstream of them, at the end of the publication block. That was wrong for the
+       * exact reason this handler already documents twice: the stage is not failure-isolated, so a
+       * throw anywhere in the share wiring aborts stage 19 and the withhold never reaches
+       * `live:<world>` or the onboarding summary. The wiring's own `try` does not cover its first
+       * two `.unique()` reads or its first insert, so the throw is reachable rather than
+       * hypothetical — outreach copy, the least critical artifact in the pipeline, could stop a
+       * safety decision from propagating.
+       *
+       * Still UNCONDITIONAL rather than gated on `safety.publishable`: the generator re-reads the
+       * Episode row and refuses a non-`ready` one itself, so running it on a withheld day records
+       * the REFUSAL — `blocked`, with its reason — where an operator can see it. Skipping the call
+       * would leave the day silently absent from the derived table, which reads identically to
+       * "not generated yet". It stays gated on an Episode existing at all, which is what
+       * `hasEpisode` preserves from the original placement.
+       */
+      if (hasEpisode) {
+        const share = await port.generateShareFormats(context.worldId, safety.worldDay);
+        shareFormatStatus = share.status;
+        shareFormatReasonCodes = share.reasonCodes;
+      }
       /**
        * FR-J002 / ART-46 — LAST, and deliberately so.
        *

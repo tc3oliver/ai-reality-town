@@ -1010,6 +1010,11 @@ describe('live post-commit pipeline over real world-day commits (AC#1/#2/#3/#4)'
     const events = canon.committedEvents() ;
     expect(events.length).toBeGreaterThan(0);
 
+    // FR-G005 / ART-36 AC#1, captured BEFORE the pipeline runs. It was originally captured after,
+    // with only Map reads between the snapshot and the comparison, so it could not fail whatever
+    // the share pipeline did. Spanning the pipeline is what makes it evidence.
+    const canonBeforePostCommit = JSON.stringify(canon.committedEvents());
+
     // Stages 11–21 (this task), for every accepted event, in canon order.
     const runs = await runPostCommitForAll(canon, harness.port, runStore);
     expect(runs.every(({ status }) => status === 'completed')).toBe(true);
@@ -1053,7 +1058,6 @@ describe('live post-commit pipeline over real world-day commits (AC#1/#2/#3/#4)'
 
     // FR-G005 / ART-36 — the same stage derived share formats from the Episode it just gated,
     // and derived them from REAL accepted events rather than from a fixture.
-    const canonBeforeShareCheck = JSON.stringify(canon.committedEvents());
     expect(publicationArtifacts.some(({ shareFormatStatus }) => shareFormatStatus !== null)).toBe(true);
     // The best status the automated pipeline reaches is `manual_release_required`. `published`
     // is not a value this pipeline can produce -- there is nothing for it to publish TO.
@@ -1073,8 +1077,10 @@ describe('live post-commit pipeline over real world-day commits (AC#1/#2/#3/#4)'
         expect(format.sourceEventIds.every((id) => acceptedIds.has(id))).toBe(true);
       }
     }
-    // AC#1 — deriving and gating the outreach copy committed nothing.
-    expect(JSON.stringify(canon.committedEvents())).toBe(canonBeforeShareCheck);
+    // AC#1 — the whole post-commit pipeline, share derivation and gating included, committed
+    // nothing to the accepted-event log. Compared against the snapshot taken before the pipeline
+    // ran, so a share module that wrote to canon would break this.
+    expect(JSON.stringify(canon.committedEvents())).toBe(canonBeforePostCommit);
 
     // AC#3 — a PUBLIC reader sees the new content. `serveReadModel` reads only published
     // snapshots: it has no canon access and no provider, so no read can trigger generation.
