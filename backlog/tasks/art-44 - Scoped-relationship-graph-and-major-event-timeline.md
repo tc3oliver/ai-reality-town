@@ -1,11 +1,11 @@
 ---
 id: ART-44
 title: Scoped relationship graph experience
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-28 13:42'
+updated_date: '2026-08-28 17:03'
 labels:
   - prd-1.0
   - epic-k
@@ -66,27 +66,27 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 FR-I007: Relationship graph defaults to current-arc core characters, one-hop relationships, and relationships changed in the last seven days.
-- [ ] #2 FR-I007: Graph supports date switching, relationship-type filtering, character summaries, and change reasons.
-- [ ] #3 The default graph never renders all characters/relationships and remains within the 30-node limit.
+- [x] #1 FR-I007: Relationship graph defaults to current-arc core characters, one-hop relationships, and relationships changed in the last seven days.
+- [x] #2 FR-I007: Graph supports date switching, relationship-type filtering, character summaries, and change reasons.
+- [x] #3 The default graph never renders all characters/relationships and remains within the 30-node limit.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -170,3 +170,108 @@ Not absorbed: ART-43 AC#1 (character page primary relationships) may become sati
 is the first client consumer of relationship data -- mention it, do not check it, do not build
 toward it.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## Verification
+
+- `npm run check` on the branch merged with `origin/main`: exit 0, **188 suites, 3022 passed, 5 skipped**.
+- `npm run e2e` run alone (it is not part of `check`): **82 passed**.
+- Focused: `npx jest convex/publicRead/relationshipGraphProjection.test.ts convex/publicRead/relationshipGraphProjectionFunctions.test.ts convex/publicRead/relationshipArcProjection.test.ts src/components/public/relationshipGraphRoute.test.ts`.
+
+Fault injections run and reverted, each failing for the right reason: removing the 30-node cap
+(6 fail); widening the window to 8 days (3 fail); removing the `groupPublicRelationships` private
+filter (4 fail); neutering `assertNoPrivateRelationship` (2 fail); reverting the ART-95
+accumulation (6 fail across 2 suites); removing the clamp (2 fail).
+
+## Why the graph reads Canon rather than the published relationship model
+
+A reviewer will ask, so it is recorded here. The published `RelationshipChange` carries three of
+six deltas and no world day, so FR-I007's seven-day window and six-dimension type filter are
+IMPOSSIBLE on it — this is not a preference. It also makes the graph correct independently of the
+ART-95 repair below, which is why the two are separately reviewable.
+
+Canon's own accumulated `RelationshipState` is deliberately NOT used either. That fold mixes
+private changes in with public ones, so re-folding public-only history is what stops a private
+change from moving a public level. The filter is `!== 'public'` and Canon's reducer defaults
+absent visibility to private, so the channel fails closed at both ends. A pair whose only history
+is private does not appear at all — not at zero, which would itself disclose that something
+private happened.
+
+## Why the scoping is server-side
+
+Relationship projections are one `modelRef` per pair and no published model enumerates the pairs,
+so a client cannot discover its own edges. A client-only graph is impossible, not merely inferior.
+It is also the only place the NFR-002 30-node bound and the private-relationship exclusion are
+guarantees rather than hopes.
+
+## Why nodes carry no character text
+
+Nodes carry structure only. Character text is subject to retroactive withhold, and a past day's
+graph is never rebuilt — so a summary baked into the payload would freeze at publication and a
+day-5 scene withheld on day 9 would stay readable on day 5's graph permanently. The view reads
+`character:<id>` live per node instead, which is rebuilt whenever the character changes.
+
+A trailing rebuild window was considered and REJECTED: a withhold can be arbitrarily retroactive,
+so a window of N days widens the hole rather than closing it, and would ship a safety claim that
+holds for N days and then silently stops.
+
+## AC#2's 「關係類型篩選」 was defined, not silently chosen
+
+No relationship `type` field exists in the data model. The rule adopted is: the dominant
+dimension, ties broken on a fixed order, `neutral` when all six are zero. Documented in three
+places. The payload also publishes `RELATIONSHIP_GRAPH_NODE_ORDERING`, so the page explains the
+ordering rule it was actually subject to rather than restating a guess, with a real fallback when
+the token is unrecognised.
+
+## The ART-95 defect fixed here (user-approved scope addition)
+
+`relationshipArcProjectionFunctions.ts` REASSIGNED rather than accumulated, publishing the last
+public event's DELTA as the current LEVEL: +5,+5,+5 published 5; +50 then -1 published -1. The
+types already named the distinction (`RelationshipChange.trustDelta` vs
+`RelationshipProjection.trust`).
+
+No existing test pinned the wrong behaviour, and that is the point: the pure builder was always
+handed levels and could not tell it was being handed deltas, and there was no wiring test at all.
+The defect lived on the one seam nothing looked at — which is why this task adds
+`relationshipGraphProjectionFunctions.test.ts` that calls the real handler rather than
+re-implementing it, as the two harness ports do.
+
+`BOUNDED` only coerced non-finite values to zero while its name and the docblock above
+`buildRelationshipProjection` both claimed the dimensions were bounded. It now clamps to Canon's
+own `[-100, 100]`, and it coerces BEFORE clamping — so an unreadable value publishes 0 rather
+than maximum trust, which would have been the strongest possible claim about a relationship made
+on the strength of a garbage number.
+
+## Review findings closed before merge
+
+Three HIGH: a docblock in three sites claiming the graph is "derived from other published read
+models" when it reads Canon and has zero such call sites (the placement was right, the second
+stated reason invented — and it contradicted this task's own ART-95 independence argument); the
+retroactive-withhold gap above; and the untested wiring layer. Four MEDIUM including a
+tautological edge arm in the bound assertion (`n + (m - n) === m`, which no change to the edge
+filter could make fire) and a `buildTextEquivalent` that was computed, tested and documented as
+ART-94's baseline but never rendered.
+
+## Public surface
+
+No new public function. The page reads through the existing `getPublishedReadModel` with a new
+`modelRef`, so `publicReadOnlyGuarantee.test.ts`, `architecture/module-boundaries.json` and
+`fixtureConvexClient.ts` are untouched and `readModelFunctions.ts` gains one line. Every guard
+file has zero deletions.
+
+## Not absorbed
+
+ART-43 AC#1 (character page primary relationships) may now be satisfiable, since this is the
+first client consumer of relationship data. Mentioned, not built toward and not checked — it is
+ART-43's box. ART-94 retains the cross-surface P1 accessibility EVIDENCE pass over graph and
+timeline together; the a11y baseline ships here because this task's own Test Requirements line
+names accessibility.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added the scoped relationship graph (FR-I007) as a new server-built published read model: current-arc core characters, one hop out, relationships changed in the last seven world days, capped at NFR-002's thirty nodes with a deterministic ordering and an explicit omitted-count rather than a silent cut. Server-side is forced rather than preferred, because relationship projections are one modelRef per pair and nothing enumerates the pairs, so a client cannot discover its own edges. It reads Canon rather than the published relationship model, whose payload carries three of six deltas and no world day; it also avoids Canon's own accumulated state, because that fold mixes private changes in with public ones. Nodes carry no character text at all, since a past day's graph is never rebuilt and a baked summary could not honour a retroactive withhold; the view reads character:<id> live instead. Also fixes a confirmed defect in merged ART-95 code that this graph would otherwise have rendered: the projection reassigned rather than accumulated, publishing the last event's delta as the current level, and BOUNDED claimed to bound while only coercing non-finite values. No existing test pinned the wrong behaviour because the pure builder could not tell levels from deltas and the wiring layer had no test, which this task adds. Verified on the branch merged with origin/main: npm run check exit 0 with 188 suites and 3022 tests passing, npm run e2e 82 passed run alone, and six fault injections each failing for the right reason. Three HIGH and four MEDIUM review findings closed before merge. PR #211.
+<!-- SECTION:FINAL_SUMMARY:END -->
