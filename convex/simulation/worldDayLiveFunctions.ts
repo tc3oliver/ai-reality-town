@@ -44,6 +44,8 @@ import { rowToAcceptedEvent } from '../canon/serialize';
 import { isActiveArcStatus } from '../story/lifecycle';
 import { guardWorldDayStageHandlers } from './emergencyStop';
 import { resolveModuleConfig } from './moduleConfig';
+import { createConvexBudgetPort } from './tokenBudgetGate';
+import { FAKE_SCENE_MODEL } from './fakeSceneNarrator';
 import { assertWorldAdmitsSimulation, isWorldEmergencyStopped } from './emergencyStopOperations';
 import { executeWorldDay, type WorldDayRun } from './worldDayOrchestration';
 import { createConvexWorldDayRunStore } from './worldDayOrchestrationFunctions';
@@ -219,6 +221,17 @@ function createConvexWorldDayLivePort(ctx: MutationCtx, now: number): WorldDayLi
     // here keeps `worldDayLive.ts` free of any database handle, exactly like every other port
     // method.
     loadModuleConfig: (worldId, module) => resolveModuleConfig(ctx.db, worldId, module),
+    // FR-M003 / ART-59: the durable accountant. Bound to `ctx.db` and to the surrounding
+    // mutation's `now`, which reaches only the audit row's timestamp — never the decision, so
+    // the same reservation always names the same bound limit (AC#2).
+    //
+    // `deploymentModelId` answers FAKE_SCENE_MODEL because that is the model this path actually
+    // calls: `createWorldDayStageHandlers` is invoked below WITHOUT a provider argument, so it
+    // defaults to the deterministic FakeWholeSceneProvider. ART-72 injecting a real adapter has
+    // to change both together — the per-model daily cap is keyed on whatever this returns, and a
+    // key that did not match the model the provider reports would leave the cap counting an empty
+    // bucket while the real model spent freely.
+    budget: createConvexBudgetPort(ctx.db, now, () => Promise.resolve(FAKE_SCENE_MODEL)),
     // PRD §12 stage 2. Scheduled environment events originate from the daily viewer vote
     // (FR-J001) — see {@link loadQueuedEnvironmentEvents} for why the queue is read as rows
     // rather than through an import.

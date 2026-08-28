@@ -12,6 +12,7 @@ import {
   type LiveWorldSnapshot,
   type WorldDayLivePort,
   type WorldDaySlotIdentity,
+  unmeteredWorldDayBudgetPort,
 } from '../simulation/worldDayLive';
 import {
   executeWorldDay,
@@ -493,6 +494,10 @@ function mistwoodRuleContext(): CanonRuleContext {
 /** Minimal in-memory {@link WorldDayLivePort} that produces REAL accepted events. */
 function createWorldDayPort(store: InMemoryCanonStore, activeArcsFor: () => LiveWorldSnapshot['activeArcs']): WorldDayLivePort {
   return {
+    // ART-59 requires every port to state whether it meters spend. This fixture does not:
+    // it exercises a different capability, and an unmetered gate keeps its behaviour
+    // identical to before ART-59 while leaving the choice visible rather than absent.
+    budget: unmeteredWorldDayBudgetPort(),
     canonStore: store,
     // FR-K005 / ART-52: this spec runs an UNCONFIGURED world, so the port returns the documented
     // defaults -- which are the pre-ART-52 hardcoded values.

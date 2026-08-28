@@ -217,9 +217,11 @@ This is a scope boundary taken from the task graph, not an omission.
 **`fallbackModel` and `dailyTokenBudget` are stored, versioned, authorized, audited and readable —
 and nothing spends, meters, or switches on them.**
 
-- **ART-59 (FR-M003) owns enforcement.** Its AC#1 is "Enforce daily token, per-module, per-model,
-  concurrency, and retry-budget limits" and its AC#2 is the over-budget policy. It depends on
-  ART-52 — this table is the thing it will read the limits from.
+- **ART-59 (FR-M003) owns enforcement, and has now shipped it** for `dailyTokenBudget`. The
+  per-module cap is read from THIS table by `convex/simulation/tokenBudgetGate.ts` and handed to
+  `evaluateReservation` as a parameter — it is delegated, never copied into ART-59's own policy
+  row, so a console change here takes effect in enforcement without a second write. See
+  `docs/token-budget-controls.md` §1. `fallbackModel` remains stored-only.
 - **ART-91 owns the ordered degradation path** (same-model retry → compatible model → fewer scenes
   → …). It depends on both.
 
@@ -228,7 +230,15 @@ would do it without the spend ledger and concurrency model they define. `wholeSc
 therefore omits both fields from the call options rather than passing values the call cannot
 honour — passing them would *look* like they were being applied.
 `moduleConfigSelection.test.ts` pins the omission so a later change cannot start forwarding them
-silently.
+silently, and that pin still holds after ART-59: enforcement reads `dailyTokenBudget` through the
+budget gate, not through the call options.
+
+ART-59 also preserved the **`null` model** invariant this document's §3 sets out. Budget
+enforcement needs a concrete model id before the call — a per-model cap has to name a model — so
+the world-day port supplies the deployment's model id for a module that configured `model: null`.
+That id is used for **metering only**: `simulateWholeScene` sends a `model` override only when the
+gate actually *changed* the model (a fast-class routing decision or an over-budget downgrade), so
+an unconfigured module still sends no override at all and `LLM_MODEL` still decides.
 
 ## 8. Deployment notes
 

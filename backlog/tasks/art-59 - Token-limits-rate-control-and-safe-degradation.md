@@ -1,10 +1,11 @@
 ---
 id: ART-59
 title: Token budget rate and concurrency controls
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-02 16:45'
+updated_date: '2026-08-28 18:44'
 labels:
   - prd-1.0
   - epic-o

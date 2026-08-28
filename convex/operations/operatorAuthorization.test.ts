@@ -156,6 +156,10 @@ describe('resolveOperatorPrincipal', () => {
 describe('capability matrix', () => {
   it('covers every FR-K001 control exactly once, plus the FR-K006 emergency, FR-K003 remediation, FR-P004 safety and FR-Q002 dynamic-view controls', () => {
     expect([...OPS_CAPABILITIES].sort()).toEqual([
+      // FR-M003 / ART-59. Two, for the reason FR-K005 has two, and separated from
+      // `model_config.*` because they govern different things: model configuration decides HOW a
+      // world is authored, a budget decides WHETHER it is authored at all today.
+      'budget.inspect', 'budget.write',
       'canon.compensate', 'canon.correct', 'canon.retcon',
       // FR-Q002 / ART-134. Named individually rather than counted, so adding a capability
       // is a reviewed edit here as well as there — which is the whole point of an
@@ -178,9 +182,10 @@ describe('capability matrix', () => {
     // that do change it.
     // `model_config.inspect` joins it for the same reason: reading what a world is configured
     // to do is not the authority to change it, and `model_config.write` is `admin`.
-    viewer: ['world.inspect', 'schedule.inspect', 'dynamic.inspect', 'model_config.inspect'],
+    viewer: ['world.inspect', 'schedule.inspect', 'dynamic.inspect', 'model_config.inspect',
+      'budget.inspect'],
     operator: ['world.pause', 'world.resume', 'slot.advance', 'run.retry', 'scene.cancel',
-      'world.inspect', 'schedule.inspect', 'model_config.inspect',
+      'world.inspect', 'schedule.inspect', 'model_config.inspect', 'budget.inspect',
       'dynamic.inspect', 'dynamic.pause', 'dynamic.pin_snapshot', 'dynamic.hide', 'dynamic.rebuild'],
     admin: [...OPS_CAPABILITIES],
   };
@@ -201,6 +206,7 @@ describe('capability matrix', () => {
     // not — which is the direction that matters.
     const readOnly: readonly OpsCapability[] = [
       'world.inspect', 'schedule.inspect', 'dynamic.inspect', 'model_config.inspect',
+      'budget.inspect',
     ];
     for (const capability of OPS_CAPABILITIES) {
       if (readOnly.includes(capability)) continue;

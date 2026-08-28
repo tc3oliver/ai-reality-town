@@ -115,6 +115,26 @@ export const OPS_CAPABILITIES = [
    */
   'model_config.write',
   'model_config.inspect',
+  /**
+   * FR-M003 / ART-59. World-level token, concurrency and retry budgets, the over-budget strategy,
+   * and the §16.3 resource report.
+   *
+   * Separated from `model_config.*` rather than folded into it, and the reason is the same one
+   * that separates `dynamic.pause` from `world.pause`: they govern different things. Model
+   * configuration decides HOW a world is authored — which model, which prompt, what temperature.
+   * A budget decides WHETHER it is authored at all today: setting `worldDailyTokenBudget` to a
+   * number below the day's cost stops the world producing scenes, which is closer to a pause than
+   * to a configuration change. An operator trusted to pick a model is not thereby trusted to
+   * halt the world by arithmetic.
+   *
+   * `budget.write` is `admin` for the reason `model_config.write` is, and more so: it is the
+   * lever that decides spend directly, it takes effect on every subsequent call in the world, and
+   * a wrong value is not visible in the output until scenes have already stopped being authored.
+   * `budget.inspect` is `viewer` — reading what a world is allowed to spend, and what it has
+   * spent, does not require the authority to change it.
+   */
+  'budget.write',
+  'budget.inspect',
 ] as const;
 export type OpsCapability = (typeof OPS_CAPABILITIES)[number];
 
@@ -160,6 +180,10 @@ const CAPABILITY_MINIMUM_ROLE: Readonly<Record<OpsCapability, OperatorRole>> = {
   // the world costs, so `admin`; reading it is as read-only as `world.inspect`, so `viewer`.
   'model_config.write': 'admin',
   'model_config.inspect': 'viewer',
+  // FR-M003. Writing a budget can halt a world's authoring by arithmetic, so `admin`; reading
+  // what it may spend and has spent is as read-only as `world.inspect`, so `viewer`.
+  'budget.write': 'admin',
+  'budget.inspect': 'viewer',
 };
 
 /** Capabilities that only ever read; used to keep read entry points side-effect free. */

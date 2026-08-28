@@ -172,7 +172,10 @@ describe('NFR-007 fixed-seed 7-day simulation (AC#1/#3)', () => {
     expect(findings.schemaVersion).toBe(1);
     expect(Object.keys(findings).sort()).toEqual([
       'acceptedEvents', 'appearance', 'arcs', 'canonConflicts', 'completionRate', 'digest',
-      'recapCoverage', 'repetition', 'replay', 'safety', 'schemaVersion', 'seed', 'slots',
+      'recapCoverage', 'repetition', 'replay',
+      // FR-M003 §16.3 (ART-59): the resource report the run's own budget accountant produced.
+      'resources',
+      'safety', 'schemaVersion', 'seed', 'slots',
       'slotsCompleted', 'slotsExecuted', 'tokens',
     ]);
     expect(findings.slots).toHaveLength(SEVEN_DAY_SLOTS);
@@ -187,6 +190,78 @@ describe('NFR-007 fixed-seed 7-day simulation (AC#1/#3)', () => {
 
   it('reports the gaps the fixed seed exposes instead of hiding them', () => {
     expectKnownFindings(findings, 7);
+  });
+
+  /**
+   * FR-M003 / PRD §16.3 (ART-59 AC#3/#4/#5).
+   *
+   * This is the repository's only measured-over-a-real-run evidence for the two §16.3 ratios, and
+   * both are ratios, so both can be made vacuous by an empty sample. Every assertion below states
+   * its denominator before it states its threshold.
+   *
+   * The run is enforced by the SAME accountant production uses, under the unlimited default
+   * policy — so these numbers describe the pipeline, not the budget. `tokenBudgetEnforcement.test.ts`
+   * drives the same fixture against real limits.
+   */
+  describe('FR-M003 §16.3 resource measurement (ART-59)', () => {
+    it('AC#3 — measures the run: settled tokens, granted calls, no refusals', () => {
+      // The denominator, asserted first. Everything below is a statement about a non-empty sample.
+      expect(findings.resources.totalTokens).toBeGreaterThan(0);
+      expect(findings.resources.grantedCalls).toBe(findings.repetition.scenes);
+      expect(findings.resources.refusedCalls).toBe(0);
+      expect(findings.resources.worldDays).toEqual([0, 1, 2, 3, 4, 5, 6]);
+      expect(findings.resources.tokensByWorldDay).toHaveLength(7);
+      expect(findings.resources.tokensByWorldDay.every(({ tokens }) => tokens > 0)).toBe(true);
+    });
+
+    it('AC#3 — the accountant and the provider traces agree on what was spent', () => {
+      // Two independent records of the same run: `tokens` is derived from the scene results the
+      // simulation stage observed, `resources` from the counters the ENFORCEMENT path settled.
+      // A gate that saw a different set of calls from the one that ran would show up here.
+      expect(findings.resources.totalTokens)
+        .toBe(findings.tokens.totalInputTokens + findings.tokens.totalOutputTokens);
+    });
+
+    it('AC#4 — retry tokens stay under 10% of a NON-EMPTY total', () => {
+      expect(findings.resources.totalTokens).toBeGreaterThan(0);
+      expect(findings.resources.retryTokenShare).not.toBeNull();
+      expect(findings.resources.retryTokenShareThreshold).toBe(0.1);
+      expect(findings.resources.retryTokenShare!)
+        .toBeLessThanOrEqual(findings.resources.retryTokenShareThreshold);
+      expect(findings.resources.retryTokenShareCompliant).toBe(true);
+      // Honest about WHY it passes: the deterministic author never fails, so this run's numerator
+      // is zero. A run whose numerator is positive is measured in
+      // `tokenBudgetEnforcement.test.ts` under an injected transient provider failure, and the
+      // enforceable ceiling is proven there and in `tokenBudget.test.ts`.
+      expect(findings.resources.retryTokens).toBe(0);
+      expect(findings.resources.retryTokenShareEnforced).toBe(false);
+    });
+
+    it('AC#5 — the fast-model routing share is UNMEASURABLE here, and says so', () => {
+      // The honest answer, not a fabricated one. Every LLM call on this path is a Director MAJOR
+      // scene, so the low-importance denominator is empty by construction. Reporting 0 or 1 would
+      // be a measurement this deployment cannot make; `routeModelForWork` enforces the routing
+      // whenever low-importance work does appear, and that is proven in `tokenBudget.test.ts`.
+      expect(findings.resources.lowImportanceCalls).toBe(0);
+      expect(findings.resources.fastModelRoutingShare).toBeNull();
+      expect(findings.resources.fastModelRoutingShareCompliant).toBeNull();
+      expect(findings.resources.fastModelRoutingShareReason).toContain('MAX_MAJOR_SCENES_PER_SLOT');
+      expect(findings.resources.fastModelRoutingShareThreshold).toBe(0.8);
+    });
+
+    it('AC#3 — public-read LLM calls are zero, and the report says why it is structural', () => {
+      expect(findings.resources.publicReadLlmCalls).toBe(0);
+      expect(findings.resources.publicReadLlmCallsReason).toContain('publicReadOnlyGuarantee.test.ts');
+    });
+
+    it('AC#3 — daily cap compliance is null on an unconfigured world, not a green tick', () => {
+      // "Complied with no limit" and "complied with a limit" are different statements, and a
+      // dashboard cannot tell a green tick apart from a missing one.
+      expect(findings.resources.worldDailyTokenBudget).toBeNull();
+      expect(findings.resources.dailyCapCompliant).toBeNull();
+      expect(findings.resources.dailyCapReason).not.toBeNull();
+      expect(findings.resources.maxObservedDailyTokens).toBeGreaterThan(0);
+    });
   });
 });
 
