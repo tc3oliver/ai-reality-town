@@ -38,6 +38,7 @@ import {
   emptyBudgetCounters,
   evaluateReservation,
   applyReservationDecision,
+  classifyPriorLedgerState,
   isReplayableGrant,
   releaseReservation,
   resolveEffectiveTokenBudgetPolicy,
@@ -328,7 +329,7 @@ export function createConvexBudgetPort(
         // cumulative call counts live in the counters, which is where they can exceed 1.
         await db.patch(existing._id, row);
         await writeCounters(db, applyReservationDecision(counters, decision,
-          prior?.outcome === 'over_budget' ? 'refusal' : 'resolved_grant'));
+          classifyPriorLedgerState(prior)));
         return decision;
       }
 
