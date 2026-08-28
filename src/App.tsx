@@ -12,6 +12,7 @@ import Homepage from './components/public/Homepage.tsx';
 import LiveView from './components/public/LiveView.tsx';
 import { OperatorEntry } from './components/public/OperatorEntry.tsx';
 import RelationshipGraphView from './components/public/RelationshipGraphView.tsx';
+import ReturnRecapPage from './components/public/ReturnRecapPage.tsx';
 import TimelineView from './components/public/TimelineView.tsx';
 
 /** Deployment path prefix (`/ai-town/`). Vite inlines this at build time. */
@@ -86,6 +87,12 @@ function PublicRoute() {
   // a particular day is shareable.
   if (window.location.hash.startsWith('#graph/')) {
     return <RelationshipGraphView />;
+  }
+  // ART-39 (FR-H004): the device-aware return recap. A route of its own rather than a homepage
+  // section, so the homepage keeps the exact query set and the zero-write assertion that
+  // ART-127/ART-137's browser evidence rests on. See `docs/device-return-recap.md` §7.
+  if (window.location.hash.startsWith('#recap/')) {
+    return <ReturnRecapPage />;
   }
   if (window.location.hash.startsWith('#help')) {
     return <HelpPage />;

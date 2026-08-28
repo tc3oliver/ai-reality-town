@@ -57,8 +57,20 @@ const surface = READ_ONLY_ROOTS.flatMap(sourceFiles).map((path) => ({
 
 const worldModule = surface.filter((file) => file.path.startsWith('src/components/world/'));
 
-/** The single client root a write-API exemption may be granted inside (ART-45 / FR-J001). */
-const VOTE_ROOT = 'src/components/vote';
+/**
+ * The client roots a write-API exemption may be granted inside.
+ *
+ * Read off the policy rather than restated, because ART-39 (FR-H004) added a second one and a
+ * hard-coded `src/components/vote` would have had to be edited to admit it — which is the shape
+ * where a guard quietly stops covering what it claims to. The property being asserted is not
+ * "there is one write root"; it is that EVERY viewing surface is outside whatever roots the
+ * policy declares, and that the policy declares few of them.
+ */
+const WRITE_CLIENT_ROOTS: string[] = (
+  JSON.parse(readFileSync(join(ROOT, 'architecture/module-boundaries.json'), 'utf8')) as {
+    viewerWriteBoundary: { clientRoots?: string[] };
+  }
+).viewerWriteBoundary.clientRoots ?? [];
 
 /**
  * The exemptions the POLICY grants, flattened to `path: symbol` and restricted to symbols that
@@ -171,13 +183,16 @@ describe('read-only public surface', () => {
     expect(offenders).toEqual(EXEMPTED_WRITE_REFERENCES);
   });
 
-  test('every surface other than the vote module is still provably unable to write', () => {
+  test('every surface outside the declared write roots is still provably unable to write', () => {
     // The claim PRD 2.0 §22.16 actually makes -- 「公開**觀看**不執行任何成功 Mutation」 -- is
     // about viewing, and this is where it is settled. `/live`, the world renderer, the public
     // pages, the app shell and the analytics sink are checked as a group: not one of them may
-    // name a write API, exemption or no exemption. The vote module is a deliberate, separate,
-    // single-file surface a viewer reaches only by choosing to act.
-    const viewing = surface.filter((file) => !file.path.startsWith(`${VOTE_ROOT}/`));
+    // name a write API, exemption or no exemption. The declared write roots are deliberate,
+    // separate surfaces a viewer reaches only by choosing to act -- the ballot (ART-45) and the
+    // return recap's progress record (ART-39).
+    expect(WRITE_CLIENT_ROOTS.length).toBeLessThanOrEqual(2);
+    const viewing = surface.filter((file) =>
+      !WRITE_CLIENT_ROOTS.some((root) => file.path.startsWith(`${root}/`)));
     expect(viewing.length).toBeGreaterThan(20);
     const offenders = viewing.flatMap((file) =>
       ['useMutation', 'useAction', 'useConvex', 'ConvexHttpClient', 'ConvexClient', 'BaseConvexClient']
@@ -187,18 +202,28 @@ describe('read-only public surface', () => {
     expect(offenders).toEqual([]);
   });
 
-  test('the vote module is one file wide and holds no logic', () => {
+  test('every write exemption is one file wide and holds no logic', () => {
     // The exemption is only defensible while the exempted file is trivial. A decision that
-    // lived inside it would be a decision living inside the one hole in the boundary, so the
-    // model, the copy and the device token are all in sibling files that carry no exemption.
-    const exempted = EXEMPTED_WRITE_REFERENCES.map((entry) => entry.split(': ')[0]);
-    expect(exempted).toEqual(['src/components/vote/useEnvironmentVote.ts']);
-    const source = surface.find((file) => file.path === exempted[0])!.source;
-    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').trim();
-    expect(code.split('\n').filter((line) => line.trim().length > 0).length).toBeLessThan(20);
-    // It must not reach anything that could turn it into a second view layer.
-    for (const forbidden of ['useState', 'useEffect', 'localStorage', 'fetch']) {
-      expect(code).not.toMatch(new RegExp(`\\b${forbidden}\\b`));
+    // lived inside it would be a decision living inside a hole in the boundary, so the model,
+    // the copy, the device token and even the function references are all in sibling files that
+    // carry no exemption.
+    //
+    // ART-39 added the second entry. It is asserted as a LIST rather than as a count, so a third
+    // exemption cannot arrive by replacing one of these, and each is held to the same bound the
+    // first one always was.
+    const exempted = [...new Set(EXEMPTED_WRITE_REFERENCES.map((entry) => entry.split(': ')[0]))];
+    expect(exempted).toEqual([
+      'src/components/recap/useViewerProgress.ts',
+      'src/components/vote/useEnvironmentVote.ts',
+    ]);
+    for (const path of exempted) {
+      const source = surface.find((file) => file.path === path)!.source;
+      const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').trim();
+      expect(code.split('\n').filter((line) => line.trim().length > 0).length).toBeLessThan(20);
+      // It must not reach anything that could turn it into a second view layer.
+      for (const forbidden of ['useState', 'useEffect', 'localStorage', 'fetch']) {
+        expect(code).not.toMatch(new RegExp(`\\b${forbidden}\\b`));
+      }
     }
   });
 

@@ -236,16 +236,22 @@ const surfacePolicy = (allowed) => ({
 
 test('the live policy declares exactly the repo\'s client-reachable surface', () => {
   assert.deepEqual(validatePublicFunctionSurface(), []);
-  // Every declared public mutation is an operator control -- or the ONE viewer ballot, which
-  // ART-45 (FR-J001) introduced and which `viewerWriteBoundary` fences separately. Anonymous
-  // writes remain impossible: the gate is spelled `viewer`, and it costs a second declaration.
+  // Every declared public mutation is an operator control -- or one of the TWO viewer writes,
+  // which `viewerWriteBoundary` fences separately: ART-45's daily ballot (FR-J001) and ART-39's
+  // viewer progress record (FR-H004, PRD §13.12). Anonymous writes remain impossible: the gate is
+  // spelled `viewer`, and it costs a second declaration plus a cap that has to be raised on
+  // purpose. The list is exhaustive rather than counted, so a third write cannot arrive by
+  // replacing one of these.
   const writes = policy.publicFunctionSurface.allowed.filter((entry) => entry.kind !== 'query');
   for (const entry of writes) {
     assert.ok(['operator', 'viewer'].includes(entry.gate), `${entry.name} must be operator- or viewer-gated`);
   }
   assert.deepEqual(
     writes.filter((entry) => entry.gate === 'viewer').map((entry) => `${entry.path}:${entry.name}`),
-    ['convex/viewer/environmentVoteFunctions.ts:submitEnvironmentVote'],
+    [
+      'convex/viewer/environmentVoteFunctions.ts:submitEnvironmentVote',
+      'convex/viewer/viewerProgressFunctions.ts:recordViewerProgress',
+    ],
   );
 });
 
@@ -528,8 +534,15 @@ test('a viewer gate without a viewerWriteBoundary declaration fails', () => {
   );
 });
 
-test('a second viewer mutation exceeds the cap even when fully declared', () => {
+test('one more viewer mutation than the cap allows is refused even when fully declared', () => {
+  // ART-39 raised the cap from 1 to 2, which is what makes this test worth restating rather than
+  // deleting: the property under test is not the NUMBER, it is that the cap binds. It is read off
+  // the live policy so a future raise cannot make this pass by making it vacuous.
   const broken = structuredClone(policy);
+  const cap = broken.viewerWriteBoundary.maxViewerMutations;
+  const declared = broken.publicFunctionSurface.allowed
+    .filter((entry) => entry.gate === 'viewer' && entry.kind === 'mutation').length;
+  assert.equal(declared, cap, 'the live policy should sit exactly at its own cap');
   broken.publicFunctionSurface.allowed.push({
     path: 'convex/viewer/environmentVoteFunctions.ts', name: 'submitAnythingElse', kind: 'mutation', gate: 'viewer',
   });
@@ -538,7 +551,7 @@ test('a second viewer mutation exceeds the cap even when fully declared', () => 
   });
   assert.match(
     validateViewerWritePolicy(broken).join('\n'),
-    /2 viewer-gated mutations are declared; the boundary caps them at 1/,
+    new RegExp(`${cap + 1} viewer-gated mutations are declared; the boundary caps them at ${cap}`),
   );
 });
 
