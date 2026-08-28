@@ -40,6 +40,7 @@ import {
   type SimulationArtifact,
   type WorldDayLivePort,
   type WorldStateArtifact,
+  unmeteredWorldDayBudgetPort,
 } from './worldDayLive';
 import type { StageContext } from './worldDayOrchestration';
 
@@ -96,6 +97,10 @@ function portWith(config: EffectiveModuleConfig): WorldDayLivePort & { requested
   const requested: ConfigurableModule[] = [];
   return {
     requested,
+    // ART-59 requires every port to state whether it meters spend. This fixture does not:
+    // it exercises a different capability, and an unmetered gate keeps its behaviour
+    // identical to before ART-59 while leaving the choice visible rather than absent.
+    budget: unmeteredWorldDayBudgetPort(),
     canonStore: new InMemoryCanonStore(),
     loadWorldSnapshot: () => Promise.resolve(snapshot()),
     loadScheduledEnvironmentEvents: () => Promise.resolve([]),

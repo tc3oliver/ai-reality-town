@@ -65,6 +65,7 @@ import {
   type SceneGroupingResult,
 } from './sceneGrouping';
 import { simulateWholeScene, type SceneSimulationResult } from './sceneSimulation';
+import { unmeteredWorldDayBudgetPort, type WorldDayBudgetPort } from './sceneBudget';
 import { wholeSceneOptionsFor } from './moduleConfig';
 import type { ConfigurableModule, EffectiveModuleConfig } from '../shared/moduleModelConfig';
 import type { LanguageModelProvider } from './provider';
@@ -75,6 +76,15 @@ import {
   type WorldDayStage,
   type WorldDayStageHandlers,
 } from './worldDayOrchestration';
+
+/**
+ * Re-exported so a port binding can name its budget decision in one import.
+ *
+ * `WorldDayLivePort` requires a budget port, so every binding has to make a choice; keeping the
+ * "no metering" choice reachable from the same module as the port keeps that choice one word
+ * rather than a second import a reader has to go and find.
+ */
+export { unmeteredWorldDayBudgetPort };
 
 /** Upper bound on participants the Director puts in one planned scene. */
 export const MAX_PLANNED_SCENE_PARTICIPANTS = 4;
@@ -172,6 +182,15 @@ export interface WorldDayLivePort {
    * row resolves to the pre-ART-52 defaults, so an unconfigured world is unaffected.
    */
   loadModuleConfig(worldId: string, module: ConfigurableModule): Promise<EffectiveModuleConfig>;
+  /**
+   * FR-M003 / ART-59 budget accountant for this world (AC#1, AC#2).
+   *
+   * REQUIRED, not optional. An optional field would mean a future production binding could omit
+   * it and enforce nothing — silently, because nothing would fail. Bindings that genuinely do not
+   * meter spend say so by naming {@link unmeteredWorldDayBudgetPort}, which is a visible decision
+   * at the binding site rather than an absence.
+   */
+  budget: WorldDayBudgetPort;
   /** Canon repository shared with the commit pipeline; never bypassed. */
   canonStore: CanonCommitStore;
 }
@@ -840,11 +859,38 @@ export function createWorldDayStageHandlers(
       // FR-K005 / ART-52. Read ONCE per slot, not per scene: every scene in a slot is authored
       // under the same configuration, and re-reading would let a mid-slot change split one
       // slot's scenes across two configurations with nothing recording which got which.
-      const options = wholeSceneOptionsFor(await port.loadModuleConfig(slot.worldId, 'scene_simulation'));
+      const config = await port.loadModuleConfig(slot.worldId, 'scene_simulation');
+      const options = wholeSceneOptionsFor(config);
+      // FR-M003 / ART-59. The per-MODEL cap needs a model id BEFORE the call, and ART-52's
+      // `model` is `null` for a module that inherits the deployment's `LLM_MODEL`; the port
+      // supplies that id so the reservation and the settlement book against the same key.
+      const requestedModel = config.model ?? await port.budget.deploymentModelId();
       const results: SceneSimulationResult[] = [];
       const withheldSceneIds: string[] = [];
       for (const scene of grouping.result.scenes) {
-        const result = await simulateWholeScene(provider, `${scene.sceneId}:simulation`, scene, options);
+        const result = await simulateWholeScene(provider, `${scene.sceneId}:simulation`, scene, {
+          ...options,
+          budget: {
+            gate: port.budget,
+            reservation: {
+              worldId: slot.worldId,
+              worldDay: slot.worldDay,
+              module: 'scene_simulation',
+              requestedModel,
+              // Every scene the Director plans is a MAJOR scene — `parseAndValidateDirectorPlan`
+              // admits at most MAX_MAJOR_SCENES_PER_SLOT of them and calls them nothing else — so
+              // there is no low-importance LLM work on this path and saying `standard` is the
+              // only honest classification. §16.3's fast-model ratio therefore has an empty
+              // denominator in this deployment, which `summarizeResourceUsage` reports as `null`
+              // with a reason rather than as a number.
+              importance: 'standard',
+              origin: 'scheduled_simulation',
+            },
+            // Derived from the scene, so a resumed or retried slot re-uses the same decision ids
+            // and cannot double-count one call against the day's budget.
+            decisionIdPrefix: `${scene.sceneId}:budget`,
+          },
+        });
         await port.persistSceneSimulation(grouping.groupingRunId, result);
         // FR-C005 AC#5: high-risk output goes to safety review instead of Canon.
         if (result.reviewStatus === 'required') withheldSceneIds.push(scene.sceneId);

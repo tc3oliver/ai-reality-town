@@ -48,6 +48,7 @@ import * as emergencyStopFunctions from '../operations/emergencyStopFunctions';
 import * as opsConsoleFunctions from '../operations/opsConsoleFunctions';
 import * as proposalReviewFunctions from '../operations/proposalReviewFunctions';
 import * as moduleModelConfigFunctions from '../operations/moduleModelConfigFunctions';
+import * as tokenBudgetFunctions from '../operations/tokenBudgetFunctions';
 import * as traces from '../observability/traces';
 import * as liveStateFunctions from './liveStateFunctions';
 import * as readModelFunctions from './readModelFunctions';
@@ -108,6 +109,7 @@ const MODULES: Readonly<Record<string, Record<string, unknown>>> = {
   'convex/operations/dynamicViewControlFunctions.ts': dynamicViewControlFunctions,
   'convex/operations/proposalReviewFunctions.ts': proposalReviewFunctions,
   'convex/operations/moduleModelConfigFunctions.ts': moduleModelConfigFunctions,
+  'convex/operations/tokenBudgetFunctions.ts': tokenBudgetFunctions,
   'convex/observability/traces.ts': traces,
   'convex/publicRead/readModelFunctions.ts': readModelFunctions,
   'convex/publicRead/liveStateFunctions.ts': liveStateFunctions,

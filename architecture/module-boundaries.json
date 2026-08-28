@@ -534,6 +534,30 @@
         "name": "describeModuleModelDefaults",
         "kind": "query",
         "gate": "operator"
+      },
+      {
+        "path": "convex/operations/tokenBudgetFunctions.ts",
+        "name": "setTokenBudgetPolicy",
+        "kind": "mutation",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/tokenBudgetFunctions.ts",
+        "name": "inspectTokenBudget",
+        "kind": "query",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/tokenBudgetFunctions.ts",
+        "name": "listTokenBudgetLedger",
+        "kind": "query",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/tokenBudgetFunctions.ts",
+        "name": "describeTokenBudgetDefaults",
+        "kind": "query",
+        "gate": "operator"
       }
     ]
   },

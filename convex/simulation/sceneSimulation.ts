@@ -7,6 +7,8 @@ import {
 import type { ProposedEvent } from '../canon/model';
 import { classifyPostGeneration, type PostGenerationClassification } from '../safety/postGeneration';
 import { SimulationProviderError, type LanguageModelProvider, type ProviderTraceMetadata } from './provider';
+import { runBudgetedAttempt, SceneBudgetError, type SceneBudgetGate } from './sceneBudget';
+import type { BudgetReservationRequest } from '../shared/tokenBudget';
 import type { GroupedScene } from './sceneGrouping';
 
 export type SceneAction = { characterId: string; action: string };
@@ -353,6 +355,26 @@ export type WholeSceneSimulationOptions = {
   transportMaxAttempts?: number;
   /** FR-K005 "Prompt Version", already resolved to its builder. Default: the v1 prompt below. */
   buildSystemPrompt?: (scene: GroupedScene) => string;
+  /**
+   * FR-M003 / ART-59 budget enforcement, applied ONCE PER ATTEMPT.
+   *
+   * Per attempt rather than per scene because that is the only granularity at which the Retry
+   * 預算 is a limit at all: gating the whole call would offer the accountant one reservation for
+   * a scene that made three provider calls, and the second and third — the retries the budget
+   * exists to bound — would never be counted.
+   *
+   * Absent means unmetered, which is how `simulateWholeScene(provider, runId, scene)` behaved
+   * before ART-59 and how the pure scene-parsing tests still call it. The LIVE path cannot make
+   * that choice: `createWorldDayStageHandlers` requires a budget port and always supplies this,
+   * and `sceneBudgetEnforcement.test.ts` pins that a refused reservation reaches no provider.
+   */
+  budget?: {
+    gate: SceneBudgetGate;
+    /** The per-attempt fields are filled in by the retry loop; the rest is the caller's. */
+    reservation: Omit<BudgetReservationRequest, 'attempt' | 'estimatedTokens'>;
+    /** Attempt `n` records its decision as `${decisionIdPrefix}:attempt:${n}`. */
+    decisionIdPrefix: string;
+  };
 };
 
 export async function simulateWholeScene(provider: LanguageModelProvider, simulationRunId: string, scene: GroupedScene,
@@ -364,22 +386,57 @@ export async function simulateWholeScene(provider: LanguageModelProvider, simula
   if (simulationRunId.trim().length === 0 || !Number.isSafeInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 3) {
     throw new SceneSimulationError('SCENE_SIMULATION_INVALID', 'valid Run ID and 1-3 attempts are required');
   }
+  const callProvider = (model: string | undefined) => provider.structuredChat({
+    messages: [{ role: 'system', content: buildSystemPrompt(scene) },
+      { role: 'user', content: JSON.stringify(scene) }],
+    schemaName: 'whole_scene_output', jsonSchema: WHOLE_SCENE_JSON_SCHEMA, temperature, maxTokens,
+    ...(model === undefined ? {} : { model }),
+    ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+    ...(options.transportMaxAttempts === undefined ? {} : { maxAttempts: options.transportMaxAttempts }),
+  });
+
   let lastError: unknown;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      const response = await provider.structuredChat({
-        messages: [{ role: 'system', content: buildSystemPrompt(scene) },
-          { role: 'user', content: JSON.stringify(scene) }],
-        schemaName: 'whole_scene_output', jsonSchema: WHOLE_SCENE_JSON_SCHEMA, temperature, maxTokens,
-        ...(options.model === undefined ? {} : { model: options.model }),
-        ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
-        ...(options.transportMaxAttempts === undefined ? {} : { maxAttempts: options.transportMaxAttempts }),
-      });
+      const budget = options.budget;
+      let response;
+      if (budget) {
+        // ART-59. `maxTokens` is the reservation, and it is an UPPER BOUND on the completion
+        // rather than a prediction: prompt tokens are not knowable before the call without a
+        // tokenizer for the configured model, and there is none in this runtime. The settlement
+        // inside `runBudgetedAttempt` books the provider's own reported usage, so the day's
+        // accounting is exact even though the reservation is not.
+        const budgeted = await runBudgetedAttempt(budget.gate, {
+          request: { ...budget.reservation, attempt, estimatedTokens: maxTokens },
+          decisionId: `${budget.decisionIdPrefix}:attempt:${attempt}`,
+          run: async (model) => {
+            // ART-52's invariant survives ART-59. A module that inherits the deployment's
+            // `LLM_MODEL` must send NO `model` override at all — a present key always beats the
+            // provider instance, which is where the environment variable lives, so emitting the
+            // resolved id here would make `LLM_MODEL` dead for every unconfigured world.
+            //
+            // The accountant still needs a concrete id, because a per-MODEL daily cap has to
+            // name a model; the caller resolved it before reserving. So the override is sent
+            // only when the gate actually CHANGED the model — an AC#5 routing decision or an
+            // over-budget downgrade — which is exactly when the call must not use the default.
+            const changed = model !== budget.reservation.requestedModel;
+            const result = await callProvider(changed ? model : options.model);
+            return { value: result, trace: result.trace };
+          },
+        });
+        response = budgeted.value;
+      } else {
+        response = await callProvider(options.model);
+      }
       const output = parseWholeSceneOutput(response.output, scene);
       return finalizeWholeSceneOutput(simulationRunId, scene, output, attempt,
         { ...response.trace, retryCount: response.trace.retryCount + attempt - 1 });
     } catch (error) {
       lastError = error;
+      // A budget refusal is NOT retryable. Retrying it would spend the retry budget arguing with
+      // the limit that just refused the call, and every further attempt would be refused for the
+      // same reason with one more audit row to explain it.
+      if (error instanceof SceneBudgetError) throw error;
       const retryable = error instanceof SceneSimulationError
         || (error instanceof SimulationProviderError && error.kind === 'transient');
       if (!retryable || attempt === maxAttempts) break;

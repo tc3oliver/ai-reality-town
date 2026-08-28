@@ -46,6 +46,7 @@ import {
   type StructuralArtifact,
   type WorldDayLivePort,
   type WorldDaySlotIdentity,
+  unmeteredWorldDayBudgetPort,
 } from './worldDayLive';
 import {
   resolveEffectiveModuleConfig,
@@ -149,6 +150,10 @@ function createSeedPort(store: InMemoryCanonStore): WorldDayLivePort & { persist
       if (!snapshot) throw new Error('no snapshot loaded');
       return snapshot;
     },
+    // ART-59 requires every port to state whether it meters spend. This fixture does not:
+    // it exercises a different capability, and an unmetered gate keeps its behaviour
+    // identical to before ART-59 while leaving the choice visible rather than absent.
+    budget: unmeteredWorldDayBudgetPort(),
     canonStore: store,
     // FR-K005 / ART-52. Defaults unless a spec overrides this method: the port under test here
     // is an unconfigured world, and `moduleConfigSelection.test.ts` owns the configured case.

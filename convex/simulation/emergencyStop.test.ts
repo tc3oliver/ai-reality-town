@@ -30,7 +30,7 @@ import {
   summarizeEmergencyStop,
   type EmergencyStopRecord,
 } from './emergencyStop';
-import { buildLiveWorldSnapshot, createWorldDayStageHandlers, worldDayRunId, type LiveWorldSnapshot, type WorldDayLivePort, type WorldDaySlotIdentity } from './worldDayLive';
+import { buildLiveWorldSnapshot, createWorldDayStageHandlers, unmeteredWorldDayBudgetPort, worldDayRunId, type LiveWorldSnapshot, type WorldDayLivePort, type WorldDaySlotIdentity } from './worldDayLive';
 import {
   executeWorldDay,
   WORLD_DAY_STAGES,
@@ -185,6 +185,10 @@ function seededStore(): InMemoryCanonStore {
 /** In-memory {@link WorldDayLivePort} over the Mistwood seed; persistence is recorded only. */
 function createSeedPort(store: InMemoryCanonStore): WorldDayLivePort {
   return {
+    // ART-59 requires every port to state whether it meters spend. This fixture does not:
+    // it exercises a different capability, and an unmetered gate keeps its behaviour
+    // identical to before ART-59 while leaving the choice visible rather than absent.
+    budget: unmeteredWorldDayBudgetPort(),
     canonStore: store,
     // FR-K005 / ART-52: this spec runs an UNCONFIGURED world, so the port returns the documented
     // defaults -- which are the pre-ART-52 hardcoded values.

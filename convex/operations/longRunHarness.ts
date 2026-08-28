@@ -129,6 +129,16 @@ import {
   resolveEffectiveModuleConfig,
   type ConfigurableModule,
 } from '../shared/moduleModelConfig';
+import {
+  summarizeResourceUsage,
+  TOKEN_BUDGET_POLICY_DEFAULTS,
+  type ResourceUsageReport,
+  type TokenBudgetPolicy,
+} from '../shared/tokenBudget';
+import {
+  InMemoryBudgetAccountant,
+  type WorldDayBudgetPort,
+} from '../simulation/sceneBudget';
 
 // --- seed -------------------------------------------------------------------
 
@@ -315,6 +325,15 @@ export type LongRunFindings = {
   repetition: RepetitionFindings;
   recapCoverage: RecapCoverageFindings;
   tokens: TokenFindings;
+  /**
+   * FR-M003 / §16.3 resource measurement (ART-59 AC#3/#4/#5), over the whole run.
+   *
+   * Built from the accountant that ENFORCED the run, so the numbers describe the metered
+   * pipeline. Two of the five §16.3 metrics can be `null` here with a stated reason — a share
+   * over an empty sample is not zero — and the assertions in `longRunHarness.test.ts` are written
+   * against a non-empty denominator so they can actually fail.
+   */
+  resources: ResourceUsageReport;
   safety: SafetyFindings;
   /** Canonical digest of every field above except itself. Equal seeds ⇒ equal digest. */
   digest: string;
@@ -546,9 +565,14 @@ export function createWorldDayPort(
   store: InMemoryCanonStore,
   observations: Observations,
   activeArcsOf: () => LiveArc[],
+  budget: WorldDayBudgetPort,
 ): WorldDayLivePort {
   return {
     canonStore: store,
+    // FR-M003 / ART-59. The run is ENFORCED by the same pure accountant production uses, not
+    // merely observed alongside it, so the §16.3 numbers this harness reports are measurements of
+    // a metered run rather than of an unmetered one with a report bolted on.
+    budget,
     // FR-K005 / ART-52: the harness runs an UNCONFIGURED world, so the port returns the
     // documented defaults -- which are the pre-ART-52 hardcoded values.
     loadModuleConfig: (_worldId: string, module: ConfigurableModule) =>
@@ -1183,10 +1207,31 @@ export type LongRunFixture = {
   postCommitRunStore: MemoryPostCommitRunStore;
   worldDayHandlers: ReturnType<typeof createWorldDayStageHandlers>;
   postCommitHandlers: ReturnType<typeof createPostCommitStageHandlers>;
+  /** FR-M003 / ART-59. The accountant that enforced the run and holds its ledger and counters. */
+  budget: InMemoryBudgetAccountant;
 };
 
 export function createLongRunFixture(
   provider: LanguageModelProvider = new FakeWholeSceneProvider(),
+  /**
+   * ART-59 budget policy the run is enforced under.
+   *
+   * Defaults to {@link TOKEN_BUDGET_POLICY_DEFAULTS} — every limit unlimited — because the
+   * baseline run has to prove the UNCONFIGURED world is unaffected: NFR-007's whole point is that
+   * the fixed seed's findings describe the pipeline, and a harness that ran under a budget nobody
+   * configured would be measuring the budget instead. The enforcement tests pass a configured
+   * policy here to drive the same real pipeline against a real limit.
+   */
+  policy: TokenBudgetPolicy = TOKEN_BUDGET_POLICY_DEFAULTS,
+  /**
+   * ART-52's per-module cap, overridable so the DELEGATION can be driven end to end.
+   *
+   * Defaults to reading `resolveEffectiveModuleConfig`, which is what the harness's unconfigured
+   * world resolves to; a test that wants to prove the per-module limit binds supplies the number
+   * an operator would have configured, rather than a second copy of the limit inside the policy.
+   */
+  moduleDailyTokenBudget: (module: ConfigurableModule) => number | null =
+  (module) => resolveEffectiveModuleConfig(module, null).dailyTokenBudget,
 ): LongRunFixture {
   const canon = seededCanonStore();
   const readStore = new MemoryReadStore();
@@ -1194,14 +1239,15 @@ export function createLongRunFixture(
   const observations: Observations = { simulations: [], plannedAppearance: [] };
   const worldDayRunStore = new MemoryWorldDayRunStore();
   const postCommitRunStore = new MemoryPostCommitRunStore();
+  const budget = new InMemoryBudgetAccountant(FAKE_SCENE_MODEL, policy, moduleDailyTokenBudget);
   const worldDayHandlers = createWorldDayStageHandlers(
-    createWorldDayPort(canon, observations, harness.activeArcsForDirector),
+    createWorldDayPort(canon, observations, harness.activeArcsForDirector, budget),
     provider,
   );
   const postCommitHandlers = createPostCommitStageHandlers(harness.port);
   return {
     canon, readStore, harness, observations, worldDayRunStore, postCommitRunStore,
-    worldDayHandlers, postCommitHandlers,
+    worldDayHandlers, postCommitHandlers, budget,
   };
 }
 
@@ -1250,7 +1296,7 @@ export async function runLongRunSimulation(input: LongRunInput): Promise<LongRun
   if (!Number.isSafeInteger(worldDays) || worldDays < 1) throw new Error('LONG_RUN_INVALID_WORLD_DAYS');
 
   const { canon, harness, observations, worldDayRunStore, postCommitRunStore,
-    worldDayHandlers, postCommitHandlers } = createLongRunFixture();
+    worldDayHandlers, postCommitHandlers, budget } = createLongRunFixture();
 
   const slots: SlotOutcome[] = [];
   const canonConflicts: CanonConflictFinding[] = [];
@@ -1471,6 +1517,20 @@ export async function runLongRunSimulation(input: LongRunInput): Promise<LongRun
     realProviderSpendChecked: false,
   };
 
+  // --- FR-M003 / §16.3 resource measurement (ART-59) ------------------------
+  //
+  // Built from the accountant's OWN records, not re-derived from `observations.simulations`.
+  // That distinction is the point: a report computed from the same list the token findings above
+  // are computed from could only ever agree with itself, and would say nothing about whether the
+  // enforcement path saw the same calls. These counters were written by `settleReservation` on
+  // the live path, one settlement per provider attempt.
+  const resources = summarizeResourceUsage({
+    worldId: LONG_RUN_WORLD_ID,
+    policy: TOKEN_BUDGET_POLICY_DEFAULTS,
+    counters: budget.allCounters,
+    ledger: budget.ledger,
+  });
+
   // --- safety (ART-54/55 path) ---------------------------------------------
   const classifiedScenes = new Map(observations.simulations.map((result) => [result.scene.sceneId, result]));
   const withheldSceneIds = observations.simulations
@@ -1521,6 +1581,7 @@ export async function runLongRunSimulation(input: LongRunInput): Promise<LongRun
     repetition,
     recapCoverage,
     tokens,
+    resources,
     safety,
   };
   // ART-92 review seam: content only, after the fact, outside the digest.
