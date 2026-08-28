@@ -140,6 +140,14 @@ export const sharedTables = {
     refusedCalls: v.number(),
     lowImportanceCalls: v.number(),
     lowImportanceCallsOnFastModel: v.number(),
+    /**
+     * Settled calls booked against a different model from the one the provider reported.
+     *
+     * Expected to be 0 forever. It is a stored TALLY rather than a derived number because the
+     * failure it detects is silent: a per-model cap metering the wrong bucket looks healthy from
+     * every other angle, so the count has to survive independently of anyone thinking to ask.
+     */
+    modelMeteringMismatches: v.number(),
   })
     .index('by_world_and_day', ['worldId', 'worldDay']),
 
@@ -200,6 +208,15 @@ export const sharedTables = {
     resolution: v.union(v.literal('pending'), v.literal('settled'), v.literal('released')),
     /** Tokens actually booked. `null` until resolved, and for a released reservation. */
     settledTokens: v.union(v.number(), v.null()),
+    /**
+     * The model the provider REPORTED running, recorded next to the `model` it was metered under.
+     *
+     * Two fields rather than one, so a mismatch is inspectable per decision rather than only as a
+     * tally: an operator seeing a non-zero `modelMeteringMismatches` needs to know WHICH model the
+     * meter and the provider disagreed about. `null` until resolved, and for a released
+     * reservation, which ran nothing to report.
+     */
+    settledModel: v.union(v.string(), v.null()),
   })
     // The enforcement path checks this decision's own id before writing (idempotency), and the
     // operator read is always scoped to one world day. Neither is a whole-table scan.

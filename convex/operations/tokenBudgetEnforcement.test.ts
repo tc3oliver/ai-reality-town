@@ -81,6 +81,25 @@ class CountingProvider implements LanguageModelProvider {
   embed(text: string): Promise<EmbeddingResult> { return this.inner.embed(text); }
 }
 
+/**
+ * Answers correctly but REPORTS a different model in its trace.
+ *
+ * Stands in for the two ways the meter and the provider come apart in production: an ART-72
+ * adapter injected without repointing `deploymentModelId`, and a gateway that answers with a
+ * different model id from the one it was asked for.
+ */
+class MisreportingProvider implements LanguageModelProvider {
+  constructor(
+    private readonly inner: LanguageModelProvider,
+    private readonly reportedModel: string,
+  ) {}
+  async structuredChat(request: StructuredChatRequest): Promise<StructuredChatResult> {
+    const result = await this.inner.structuredChat(request);
+    return { ...result, trace: { ...result.trace, model: this.reportedModel } };
+  }
+  embed(text: string): Promise<EmbeddingResult> { return this.inner.embed(text); }
+}
+
 /** Fails the first `failFirstN` calls transiently, so the semantic retry loop really retries. */
 class FlakyProvider implements LanguageModelProvider {
   calls = 0;
@@ -405,6 +424,47 @@ describe('AC#3 — the resource report measures a real run', () => {
     expect(report.retryTokenShare).toBeGreaterThan(0);
     expect(report.retryTokenShare!).toBeLessThanOrEqual(SECTION_16_3_MAX_RETRY_TOKEN_SHARE);
     expect(report.retryTokenShareCompliant).toBe(true);
+  });
+
+  it('metering integrity — a provider reporting a DIFFERENT model is caught on the live path', async () => {
+    // The ART-72 landmine, fired end to end. `sceneBudgetProviderPin.test.ts` catches the specific
+    // case of a provider being injected in `worldDayLiveFunctions.ts`; this catches the case a
+    // source pin structurally cannot see — the provider is wired correctly but ANSWERS with a
+    // different model id from the one the meter keyed on. Without this the per-model cap would
+    // meter an empty bucket while the real model spent, and nothing else would look wrong.
+    const fixture = createLongRunFixture(new MisreportingProvider(new FakeWholeSceneProvider(), 'gpt-4o'));
+    await driveSlot(fixture, slot(0, 'morning'));
+    const report = summarizeResourceUsage({
+      worldId: WORLD_ID,
+      policy: TOKEN_BUDGET_POLICY_DEFAULTS,
+      counters: fixture.budget.allCounters,
+      ledger: fixture.budget.ledger,
+    });
+
+    // A non-empty sample first: calls really were settled, so the count below is a measurement.
+    expect(report.grantedCalls).toBeGreaterThan(0);
+    expect(report.modelMeteringMismatches).toBe(report.grantedCalls);
+    expect(report.modelMeteringMismatchReason).toContain('ART-72');
+    // The world keeps running: a mismatch is reported, never thrown. A gateway answering with a
+    // pinned revision of the requested model is legitimate and must not take the world down.
+    expect(fixture.canon.committedEvents().length).toBeGreaterThan(0);
+  });
+
+  it('metering integrity — the honest run reports zero mismatches, with no reason attached', async () => {
+    // The negative control for the case above. Without it, "mismatches were detected" would be
+    // evidence of nothing: a detector that fires on every run detects nothing at all.
+    const fixture = createLongRunFixture();
+    await driveSlot(fixture, slot(0, 'morning'));
+    const report = summarizeResourceUsage({
+      worldId: WORLD_ID,
+      policy: TOKEN_BUDGET_POLICY_DEFAULTS,
+      counters: fixture.budget.allCounters,
+      ledger: fixture.budget.ledger,
+    });
+
+    expect(report.grantedCalls).toBeGreaterThan(0);
+    expect(report.modelMeteringMismatches).toBe(0);
+    expect(report.modelMeteringMismatchReason).toBeNull();
   });
 
   it('AC#3 — no public-read or viewer file can reach the budget enforcement surface', () => {

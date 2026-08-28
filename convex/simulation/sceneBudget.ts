@@ -184,6 +184,10 @@ export async function runBudgetedAttempt<T>(
   const settlement: BudgetSettlement = {
     module: request.module,
     model: granted.model,
+    // The provider's own answer to "which model ran this", captured at the only moment both ids
+    // exist. `settleReservation` compares the two and counts the divergence; see
+    // `BudgetSettlement.reportedModel` for why that comparison is worth making at all.
+    reportedModel: result.trace.model,
     importance: request.importance,
     tokens: result.trace.inputTokens + result.trace.outputTokens,
     countedAsRetry: granted.countedAsRetry,

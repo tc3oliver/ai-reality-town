@@ -485,6 +485,11 @@ export type BudgetCounters = {
   /** Granted `low`-importance reservations, and how many of those ran on the fast class. */
   lowImportanceCalls: number;
   lowImportanceCallsOnFastModel: number;
+  /**
+   * Settled calls whose tokens were booked against a different model from the one the provider
+   * reported running. Expected to be 0 forever; see {@link BudgetSettlement.reportedModel}.
+   */
+  modelMeteringMismatches: number;
 };
 
 export function emptyBudgetCounters(worldId: string, worldDay: number): BudgetCounters {
@@ -502,6 +507,7 @@ export function emptyBudgetCounters(worldId: string, worldDay: number): BudgetCo
     refusedCalls: 0,
     lowImportanceCalls: 0,
     lowImportanceCallsOnFastModel: 0,
+    modelMeteringMismatches: 0,
   };
 }
 
@@ -773,7 +779,23 @@ function modelBudgetFor(policy: TokenBudgetPolicy, model: string): number | null
 /** What a granted call actually consumed, as the provider reported it. */
 export type BudgetSettlement = {
   module: ConfigurableModule;
+  /** The key the reservation was METERED under — the model the decision named. */
   model: string;
+  /**
+   * The model the provider itself REPORTED running, from `ProviderTraceMetadata.model`.
+   *
+   * The two are the same number in a healthy deployment and are kept as separate fields because
+   * the case where they diverge is the one failure in this whole subsystem whose symptom is
+   * SILENCE: the per-model cap would meter one bucket while a different model spent, so budgets
+   * would appear to work while the real model ran unbounded. Nothing infers this — it is
+   * compared at the moment the tokens are booked, which is the only moment both ids exist.
+   *
+   * The known way to reach it is the ART-72 provider adapter landing without re-pointing
+   * `deploymentModelId` (see `worldDayLiveFunctions.ts`), which `sceneBudgetProviderPin.test.ts`
+   * additionally catches at BUILD time. This field catches the cases a source pin cannot see —
+   * chiefly a gateway that answers with a different model id from the one it was asked for.
+   */
+  reportedModel: string;
   importance: WorkImportance;
   /** `inputTokens + outputTokens` from the provider trace. */
   tokens: number;
@@ -781,6 +803,11 @@ export type BudgetSettlement = {
   /** True when the granted call ran on the configured fast model class. */
   onFastModel: boolean;
 };
+
+/** True when the tokens were booked against a different model from the one that ran them. */
+export function isModelMeteringMismatch(settlement: BudgetSettlement): boolean {
+  return settlement.model !== settlement.reportedModel;
+}
 
 /**
  * Apply a granted reservation to the counters.
@@ -831,6 +858,11 @@ export function settleReservation(counters: BudgetCounters, settlement: BudgetSe
     tokensByModel: addModelTokens(counters.tokensByModel, settlement.model, settlement.tokens),
     inFlight: Math.max(0, counters.inFlight - 1),
     settledCalls: counters.settledCalls + 1,
+    // Counted, not thrown. A throw would take the world down on a gateway that merely answers
+    // with a pinned revision of the model it was asked for (`gpt-4o` -> `gpt-4o-2024-08-06`),
+    // which is legitimate; and the tokens are still booked under the METERED key so the cap
+    // stays internally coherent. What must not happen is that the divergence goes unrecorded.
+    modelMeteringMismatches: counters.modelMeteringMismatches + (isModelMeteringMismatch(settlement) ? 1 : 0),
     lowImportanceCalls: counters.lowImportanceCalls + (settlement.importance === 'low' ? 1 : 0),
     lowImportanceCallsOnFastModel: counters.lowImportanceCallsOnFastModel
       + (settlement.importance === 'low' && settlement.onFastModel ? 1 : 0),
@@ -967,6 +999,23 @@ export const EMPTY_SAMPLE_REASONS = {
     + 'with. Compliance with an absent limit is not the same statement as compliance with one.',
 } as const;
 
+/**
+ * What a non-zero {@link ResourceUsageReport.modelMeteringMismatches} means, and what to do.
+ *
+ * Written out rather than left to a field name, because the number is only actionable if the
+ * reader knows the known cause. The failure is silent by nature — every other signal keeps
+ * looking healthy — so the report has to explain itself the first time anyone sees it.
+ */
+export const MODEL_METERING_MISMATCH_REASON =
+  'Tokens were booked against a different model id from the one the provider reported running, so '
+  + 'the per-model daily cap is metering a bucket the real model is not spending from. The known '
+  + 'cause is a provider adapter (ART-72) being injected into createWorldDayStageHandlers without '
+  + 'repointing deploymentModelId in convex/simulation/worldDayLiveFunctions.ts; that specific case '
+  + 'also fails sceneBudgetProviderPin.test.ts at build time. The other cause is a gateway that '
+  + 'answers with a different model id from the one requested (for example a pinned revision), '
+  + 'which is legitimate and needs the configured model id updated to match. '
+  + 'See docs/token-budget-controls.md §8.';
+
 /** §16.3's "公開訪客流量不增加 LLM 呼叫", proven rather than assumed. */
 export const PUBLIC_READ_LLM_CALL_REASON =
   'Structurally zero, not counted to zero. BUDGET_ORIGINS declares no public-read origin, and a '
@@ -1011,6 +1060,18 @@ export type ResourceUsageReport = {
   /** Refusals per limit, every limit present, so a zero is a measured zero. */
   refusedByLimit: Readonly<Record<BudgetLimit, number>>;
   refusalsByStrategy: Readonly<Record<OverBudgetStrategy, number>>;
+
+  // --- metering integrity: the one silent failure this subsystem can have ---
+  /**
+   * Settled calls booked against a different model from the one the provider reported running.
+   *
+   * Surfaced on the REPORT, not merely on a row, because a per-model cap metering the wrong
+   * bucket does not look broken from anywhere else: the ledger fills, the limits appear to hold,
+   * and the real model spends unbounded. A non-zero value here means the meter and the provider
+   * have come apart, and {@link modelMeteringMismatchReason} names the way that happens.
+   */
+  modelMeteringMismatches: number;
+  modelMeteringMismatchReason: string | null;
 
   // --- §16.3 #5: daily cap compliance (AC#3) ---
   worldDailyTokenBudget: number | null;
@@ -1114,6 +1175,11 @@ export function summarizeResourceUsage(input: {
     refusedCalls: sum((row) => row.refusedCalls),
     refusedByLimit,
     refusalsByStrategy,
+
+    modelMeteringMismatches: sum((row) => row.modelMeteringMismatches),
+    modelMeteringMismatchReason: sum((row) => row.modelMeteringMismatches) === 0
+      ? null
+      : MODEL_METERING_MISMATCH_REASON,
 
     worldDailyTokenBudget: cap,
     maxObservedDailyTokens: tokensByWorldDay.reduce((max, { tokens }) => Math.max(max, tokens), 0),

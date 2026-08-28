@@ -216,15 +216,45 @@ changes nothing for a world nobody has configured. A stored policy that no longe
 resolves to the defaults too rather than throwing, and reports `source: 'default'`: a malformed
 policy must not be able to stop a world simulating, and the fallback has to be visible.
 
-## 8. Deployment notes
+## 8. Deployment notes, and the one failure that would be silent
 
 No new environment variable. `worldDayLiveFunctions.ts` binds `deploymentModelId` to
 `FAKE_SCENE_MODEL` because that is the model the live path actually calls —
 `createWorldDayStageHandlers` is invoked there without a provider argument and defaults to the
-deterministic `FakeWholeSceneProvider`. **ART-72, injecting a real adapter, must change that
-binding alongside it**: the per-model daily cap is keyed on whatever it returns, and a key that did
-not match the model the provider reports would leave the cap metering an empty bucket while the
-real model spent freely.
+deterministic `FakeWholeSceneProvider`.
+
+**ART-72, injecting a real adapter, must repoint that binding in the same change.** If it does
+not, the reservation keys on `FAKE_SCENE_MODEL` while the real model spends: the per-model cap
+meters a bucket nothing spends from, and **every other signal keeps looking healthy** — slots
+complete, the ledger fills with granted decisions, daily totals move, and the cap simply never
+binds. That is the only failure in this subsystem whose symptom is silence, so it is defended
+twice rather than documented once.
+
+**Build time — `convex/simulation/sceneBudgetProviderPin.test.ts`.** Pins that the live entry
+point still constructs its stage handlers with exactly one top-level argument, and that the meter
+is pointed at `FAKE_SCENE_MODEL`. Injecting a provider there fails the build, and the failure
+message *is* the instruction: repoint `deploymentModelId` or the cap will meter the wrong model.
+The argument counter is depth-aware — the real call contains a nested comma — and a test asserts
+the counter would actually see a second argument, so the pin cannot pass because it counts wrong.
+
+**Run time — `BudgetSettlement.reportedModel`.** The provider's own reported model
+(`ProviderTraceMetadata.model`) is compared against the metered key at the moment the tokens are
+booked, which is the only moment both ids exist. A divergence increments
+`tokenBudgetCounters.modelMeteringMismatches`, is recorded per decision as
+`tokenBudgetLedger.settledModel` next to the `model` it was metered under, and surfaces on the
+report as `modelMeteringMismatches` with `MODEL_METERING_MISMATCH_REASON` naming both known
+causes. This catches what a source pin structurally cannot see: a gateway that answers with a
+different model id from the one it was asked for.
+
+A mismatch is **counted, not thrown**. A gateway answering with a pinned revision of the requested
+model (`gpt-4o` → `gpt-4o-2024-08-06`) is legitimate, and throwing would take the world down over
+a naming convention. The tokens stay booked under the **metered** key, so the cap that was
+evaluated is the cap that is charged and the reservation and the settlement cannot disagree about
+which limit they were about.
+
+This is deliberately *not* a log line. A durable tally and a per-decision record are queryable and
+survive; a `console.warn` in a Convex mutation is visible only to whoever happens to be reading
+function logs at the time, which for a silent failure is nobody.
 
 ## 9. Tests
 
@@ -233,3 +263,4 @@ real model spent freely.
 | `convex/shared/tokenBudget.test.ts` | the pure decision: all five limits, determinism, strategy selection, day rollover, the audit record, and both §16.3 ratios over non-empty samples |
 | `convex/operations/tokenBudgetEnforcement.test.ts` | the decision reaches the provider call, through the real pipeline, with a negative control for every enforcement case |
 | `convex/operations/longRunHarness.test.ts` | the §16.3 report over the fixed-seed 7-day run, measured by the accountant that enforced it |
+| `convex/simulation/sceneBudgetProviderPin.test.ts` | the ART-72 landmine at build time: a provider injected into the live path without repointing the meter breaks the build (§8) |

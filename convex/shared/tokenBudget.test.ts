@@ -17,6 +17,7 @@ import {
   BUDGET_LIMITS,
   BUDGET_ORIGINS,
   EMPTY_SAMPLE_REASONS,
+  MODEL_METERING_MISMATCH_REASON,
   MAX_BUDGET_TOKENS,
   OVER_BUDGET_STRATEGIES,
   PUBLIC_READ_LLM_CALL_REASON,
@@ -33,6 +34,7 @@ import {
   evaluateReservation,
   grantReservation,
   hashTokenBudgetPolicy,
+  isModelMeteringMismatch,
   refuseReservation,
   releaseReservation,
   resolveEffectiveTokenBudgetPolicy,
@@ -85,20 +87,28 @@ const evaluate = (input: {
   request: request(input.request),
 });
 
-/** Settle `tokens` against a fresh day, the way the live path settles a granted call. */
+/**
+ * Settle `tokens` against a fresh day, the way the live path settles a granted call.
+ *
+ * `reportedModel` defaults to whatever `model` the caller settled under — the healthy case, where
+ * the meter and the provider agree. A test that wants the two to DISAGREE says so explicitly,
+ * which is the only way this helper can produce a metering mismatch.
+ */
 function spend(
   counters: BudgetCounters,
   tokens: number,
   overrides: Partial<Parameters<typeof settleReservation>[1]> = {},
 ): BudgetCounters {
+  const model = overrides.model ?? MODEL;
   return settleReservation(counters, {
     module: 'scene_simulation',
-    model: MODEL,
     importance: 'standard',
-    tokens,
     countedAsRetry: false,
     onFastModel: false,
     ...overrides,
+    model,
+    reportedModel: overrides.reportedModel ?? model,
+    tokens,
   });
 }
 
@@ -787,6 +797,60 @@ describe('AC#3 — public-read LLM calls are structurally zero and provably so',
     expect(result.publicReadLlmCalls).toBe(0);
     expect(result.publicReadLlmCallsReason).toBe(PUBLIC_READ_LLM_CALL_REASON);
     expect(result.publicReadLlmCallsReason).toContain('publicReadOnlyGuarantee.test.ts');
+  });
+});
+
+describe('metering integrity — the ART-72 landmine, detected at runtime', () => {
+  const report = (counters: BudgetCounters) => summarizeResourceUsage({
+    worldId: WORLD, policy: policyWith(), counters: [counters], ledger: [],
+  });
+
+  test('a healthy settlement, where the meter and the provider agree, counts no mismatch', () => {
+    const counters = spend(emptyBudgetCounters(WORLD, 0), 500);
+    expect(counters.settledCalls).toBe(1);
+    expect(counters.modelMeteringMismatches).toBe(0);
+    // Reported as null rather than as an empty string: there is nothing to explain.
+    expect(report(counters).modelMeteringMismatches).toBe(0);
+    expect(report(counters).modelMeteringMismatchReason).toBeNull();
+  });
+
+  test('booking against a model the provider did not run is counted and explained', () => {
+    // This is the ART-72 shape exactly: the meter keys on the fake author while a real model ran.
+    const counters = spend(emptyBudgetCounters(WORLD, 0), 500, {
+      model: 'fake-whole-scene-v1',
+      reportedModel: 'gpt-4o',
+    });
+    expect(isModelMeteringMismatch({
+      module: 'scene_simulation', model: 'fake-whole-scene-v1', reportedModel: 'gpt-4o',
+      importance: 'standard', tokens: 500, countedAsRetry: false, onFastModel: false,
+    })).toBe(true);
+    expect(counters.modelMeteringMismatches).toBe(1);
+
+    const result = report(counters);
+    expect(result.modelMeteringMismatches).toBe(1);
+    // The number is only actionable if the reader is told the known cause.
+    expect(result.modelMeteringMismatchReason).toBe(MODEL_METERING_MISMATCH_REASON);
+    expect(result.modelMeteringMismatchReason).toContain('ART-72');
+    expect(result.modelMeteringMismatchReason).toContain('sceneBudgetProviderPin.test.ts');
+  });
+
+  test('the tokens are still booked under the METERED key, so the cap stays coherent', () => {
+    // Counting the mismatch must not also move the spend to the other bucket: the cap that was
+    // evaluated is the cap that has to be charged, or the reservation and the settlement would
+    // disagree about which limit they were about.
+    const counters = spend(emptyBudgetCounters(WORLD, 0), 500, {
+      model: MODEL, reportedModel: 'something-else',
+    });
+    expect(tokensForModel(counters, MODEL)).toBe(500);
+    expect(tokensForModel(counters, 'something-else')).toBe(0);
+  });
+
+  test('a mismatch is never thrown: a pinned model revision is legitimate', () => {
+    // `gpt-4o` -> `gpt-4o-2024-08-06` is a gateway answering honestly. Throwing would take the
+    // world down over a naming convention; counting it surfaces the divergence without doing so.
+    expect(() => spend(emptyBudgetCounters(WORLD, 0), 10, {
+      model: 'gpt-4o', reportedModel: 'gpt-4o-2024-08-06',
+    })).not.toThrow();
   });
 });
 

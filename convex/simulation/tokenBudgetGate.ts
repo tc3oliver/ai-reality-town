@@ -104,6 +104,7 @@ function toCounters(row: Doc<'tokenBudgetCounters'>): BudgetCounters {
     refusedCalls: row.refusedCalls,
     lowImportanceCalls: row.lowImportanceCalls,
     lowImportanceCallsOnFastModel: row.lowImportanceCallsOnFastModel,
+    modelMeteringMismatches: row.modelMeteringMismatches,
   };
 }
 
@@ -140,6 +141,7 @@ async function writeCounters(db: WriteDb, counters: BudgetCounters): Promise<voi
     refusedCalls: counters.refusedCalls,
     lowImportanceCalls: counters.lowImportanceCalls,
     lowImportanceCallsOnFastModel: counters.lowImportanceCallsOnFastModel,
+    modelMeteringMismatches: counters.modelMeteringMismatches,
   };
   if (existing) await db.patch(existing._id, row);
   else await db.insert('tokenBudgetCounters', row);
@@ -284,6 +286,7 @@ export function createConvexBudgetPort(
         // like calls still in flight.
         resolution: granted ? ('pending' as const) : ('settled' as const),
         settledTokens: granted ? null : 0,
+        settledModel: null,
       });
       await writeCounters(db, granted
         ? grantReservation(counters, decision)
@@ -300,7 +303,11 @@ export function createConvexBudgetPort(
       if (!row) return;
       const counters = await loadBudgetCounters(db, request.worldId, request.worldDay);
       await writeCounters(db, settleReservation(counters, settlement));
-      await db.patch(row._id, { resolution: 'settled', settledTokens: settlement.tokens });
+      await db.patch(row._id, {
+        resolution: 'settled',
+        settledTokens: settlement.tokens,
+        settledModel: settlement.reportedModel,
+      });
     },
 
     async release(request: BudgetReservationRequest, decisionId: string): Promise<void> {
@@ -308,7 +315,7 @@ export function createConvexBudgetPort(
       if (!row) return;
       const counters = await loadBudgetCounters(db, request.worldId, request.worldDay);
       await writeCounters(db, releaseReservation(counters));
-      await db.patch(row._id, { resolution: 'released', settledTokens: null });
+      await db.patch(row._id, { resolution: 'released', settledTokens: null, settledModel: null });
     },
   };
 }
