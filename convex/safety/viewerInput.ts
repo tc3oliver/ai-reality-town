@@ -33,8 +33,16 @@ export type ViewerInputRejectionCode = ProhibitedViewerInputCategory | Structura
 export const VIEWER_INPUT_LABELS = ['accept', 'reject'] as const;
 export type ViewerInputLabel = (typeof VIEWER_INPUT_LABELS)[number];
 
-/** Where the untrusted text came from. Kept open-ended for future viewer surfaces. */
-export type ViewerInputSurface = 'vote_choice' | 'vote_comment' | 'viewer_message';
+/**
+ * Where the untrusted text came from. Kept open-ended for future viewer surfaces.
+ *
+ * `viewer_progress` (FR-H004 / ART-39) is the follow-set and last-position ids a viewer submits
+ * to the return recap. It is named rather than folded into `vote_choice` because the surface is
+ * carried into every classification record and every refusal reason: labelling a progress id as a
+ * ballot choice would make the safety log say something untrue about where the input came from,
+ * for no benefit beyond avoiding this line.
+ */
+export type ViewerInputSurface = 'vote_choice' | 'vote_comment' | 'viewer_message' | 'viewer_progress';
 
 export type ViewerInputSubmission = {
   surface: ViewerInputSurface;

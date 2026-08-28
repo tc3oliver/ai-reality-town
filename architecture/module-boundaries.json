@@ -144,7 +144,8 @@
         "clientProvider",
         "clientLiveRoute",
         "clientAnalytics",
-        "clientViewerWrite"
+        "clientViewerWrite",
+        "clientViewerProgress"
       ]
     },
     "clientWorldReadOnly": {
@@ -227,6 +228,15 @@
         "shared",
         "clientLiveRoute"
       ]
+    },
+    "clientViewerProgress": {
+      "roots": [
+        "src/components/recap"
+      ],
+      "mayDependOn": [
+        "viewer",
+        "shared"
+      ]
     }
   },
   "readOnlyClientBoundary": {
@@ -245,6 +255,12 @@
       },
       {
         "path": "src/components/vote/useEnvironmentVote.ts",
+        "symbols": [
+          "useMutation"
+        ]
+      },
+      {
+        "path": "src/components/recap/useViewerProgress.ts",
         "symbols": [
           "useMutation"
         ]
@@ -312,6 +328,18 @@
       {
         "path": "convex/viewer/environmentVoteFunctions.ts",
         "name": "submitEnvironmentVote",
+        "kind": "mutation",
+        "gate": "viewer"
+      },
+      {
+        "path": "convex/viewer/viewerProgressFunctions.ts",
+        "name": "getViewerProgress",
+        "kind": "query",
+        "gate": "viewer"
+      },
+      {
+        "path": "convex/viewer/viewerProgressFunctions.ts",
+        "name": "recordViewerProgress",
         "kind": "mutation",
         "gate": "viewer"
       },
@@ -514,12 +542,14 @@
       "convex/viewer"
     ],
     "clientRoots": [
-      "src/components/vote"
+      "src/components/vote",
+      "src/components/recap"
     ],
-    "maxViewerMutations": 1,
+    "maxViewerMutations": 2,
     "requiredSymbols": [
       "classifyViewerInput",
-      "evaluateVoteSubmission"
+      "evaluateVoteSubmission",
+      "evaluateViewerProgressSubmission"
     ],
     "forbiddenSymbols": [
       "canonEvents",
@@ -534,6 +564,14 @@
       {
         "path": "convex/viewer/environmentVoteFunctions.ts",
         "name": "submitEnvironmentVote"
+      },
+      {
+        "path": "convex/viewer/viewerProgressFunctions.ts",
+        "name": "getViewerProgress"
+      },
+      {
+        "path": "convex/viewer/viewerProgressFunctions.ts",
+        "name": "recordViewerProgress"
       }
     ]
   },

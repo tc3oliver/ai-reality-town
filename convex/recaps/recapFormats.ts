@@ -11,6 +11,7 @@
  */
 
 import type { AcceptedEvent } from '../canon/model';
+import { countChineseCharacters } from '../shared/publicText';
 
 export const QUICK_RECAP_MIN = 80;
 export const QUICK_RECAP_MAX = 150;
@@ -48,12 +49,14 @@ export class RecapFormatError extends Error {
   }
 }
 
-/** Count CJK Unified Ideograph characters (the FR-G003 length unit is 中文字). */
-export function countChineseCharacters(text: string): number {
-  if (typeof text !== 'string') return 0;
-  const matches = text.match(/[一-鿿]/g);
-  return matches ? matches.length : 0;
-}
+/**
+ * Count CJK Unified Ideograph characters (the FR-G003 length unit is 中文字).
+ *
+ * Re-exported rather than defined here since ART-39: the return recap caps its lines by the same
+ * unit and lives in the client, which may depend on `shared` but must not depend on `editorial`.
+ * Every existing caller keeps importing it from this module unchanged.
+ */
+export { countChineseCharacters };
 
 const unique = <T>(values: readonly T[]): T[] => [...new Set(values)];
 const nonempty = (value: unknown): value is string =>

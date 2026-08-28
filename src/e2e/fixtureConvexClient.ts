@@ -81,6 +81,20 @@ const FIXTURE_QUERY_HANDLERS: Record<string, (args: Record<string, unknown>) => 
    * its fixture is a build-breaking omission, which is the trade this file already chose.
    */
   'viewer/environmentVoteFunctions:getEnvironmentVoteBallot': () => null,
+  /**
+   * `null` — this device has recorded no progress (FR-H004 / ART-39).
+   *
+   * Not a stub, and not a convenience: `null` is one of the two values `getViewerProgress`
+   * actually returns, and it is what EVERY device gets before it has pressed anything. It is also
+   * the state the E2E run must be in, because a fixture that answered with a populated progress
+   * row would be asserting the recap against a row no run created — and the only way a row gets
+   * created is a mutation, which this transport refuses by design.
+   *
+   * Registered here for the ART-146 reason `getEnvironmentVoteBallot` above is: the transport
+   * THROWS during render on an unregistered query and takes the whole page down, not just the
+   * section that asked. `fixtureCoverage.test.ts` moves that failure forward to `npm run check`.
+   */
+  'viewer/viewerProgressFunctions:getViewerProgress': () => null,
 };
 
 /**
