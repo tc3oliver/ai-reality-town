@@ -24,6 +24,12 @@ const REQUIRED_MODULES = [
   // `clientLiveRoute` is the pure URL module both it and the public pages link
   // through, kept dependency-free so neither has to depend on the other.
   'clientLive', 'clientLiveRoute',
+  // ART-36 / FR-G005. Episode-derived outreach copy. Required so the module that turns accepted
+  // Canon into share formats cannot be folded back into `editorial`, which legitimately writes
+  // to the database -- FR-G005 AC#1 (衍生內容不得產生新 Canon) is enforced by listing
+  // `derivedContent` in `canonWriteBoundary.forbiddenModules`, and a module that stopped
+  // existing would take that enforcement with it while every test still passed.
+  'derivedContent',
 ];
 
 /** Convex registration helpers that publish a function to unauthenticated clients. */

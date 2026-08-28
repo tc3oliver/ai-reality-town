@@ -1,10 +1,11 @@
 ---
 id: ART-36
 title: Safe episode-derived share formats
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 16:24'
+updated_date: '2026-08-28 17:03'
 labels:
   - prd-1.0
   - epic-i

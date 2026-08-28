@@ -70,10 +70,17 @@ async function loadCurrentRecord(
  * Create a publication record in the `generated` status for an episode content
  * reference. Idempotent: a repeated create for the same content returns the
  * existing current record without appending a new audit event.
+ *
+ * `contentKind` defaults to `episode`; ART-36 (FR-G005) passes `episode_share` for the outreach
+ * copy derived from an Episode. Optional rather than required so the FR-K004 call site that
+ * predates derived content keeps its exact meaning — and defaulted rather than inferred from
+ * `contentRef`, because a naming convention is not something a caller should be able to get
+ * wrong silently.
  */
 export const createEpisodePublication = internalMutation({
   args: {
     worldId: v.string(), contentRef: v.string(), summary: v.union(v.string(), v.null()),
+    contentKind: v.optional(v.union(v.literal('episode'), v.literal('episode_share'))),
     actor: actorArgs, reason: v.string(), now: v.number(),
   },
   handler: async (ctx, args) => {
@@ -86,7 +93,7 @@ export const createEpisodePublication = internalMutation({
     if (existing) return { publicationId: existing.record.publicationId, status: existing.record.status, version: existing.record.version, deduplicated: true };
     const record = createPublicationRecord({
       publicationId: `pub:${args.contentRef}:1`,
-      worldId: args.worldId, contentKind: 'episode', contentRef: args.contentRef,
+      worldId: args.worldId, contentKind: args.contentKind ?? 'episode', contentRef: args.contentRef,
       summary: args.summary, actor, reason: args.reason, at: args.now,
     });
     await ctx.db.insert('publicationRecords', {
