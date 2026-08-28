@@ -61,6 +61,7 @@ import {
   type WorldDayStage,
 } from '../simulation/worldDayOrchestration';
 import { buildDailyEpisode, dailyEpisodePublicText, validateDailyEpisode, MIN_EPISODE_SCENES, type DailyEpisode, type EpisodeSourceEvent } from '../editorial/episode';
+import { deriveGatedShareFormats } from '../editorial/derived/shareFormats';
 import { createPublicationRecord, transitionPublication, type PublicationRecord } from '../editorial/publicationLifecycle';
 import {
   deriveRelationshipChangeId,
@@ -610,6 +611,7 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
   const episodes = new Map<number, EpisodeRecord>();
   const recaps: RecapSnapshot[] = [];
   const publications = new Map<string, PublicationRecord>();
+  const shareFormats = new Map<number, { status: string; reasonCodes: string[] }>();
   const stagnationPrompts: Array<{ arcId: string; stagnantWorldDays: number; status: string }> = [];
   let now = 10_000;
 
@@ -787,6 +789,28 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
       const status = safe ? 'ready' : 'withheld';
       episodes.set(worldDay, { status, episodeNumber, episode: safe ? episode : undefined, safetyClassificationId: safety.classificationId });
       return Promise.resolve({ status, episodeNumber, deduplicated: false });
+    },
+
+    // FR-G005 / ART-36. Real derivation and real gate, so a long run reports how often the
+    // outreach copy was refused rather than assuming it never is.
+    generateShareFormats(worldId, worldDay) {
+      const prior = shareFormats.get(worldDay);
+      if (prior) return Promise.resolve(prior);
+      const row = episodes.get(worldDay);
+      if (!row) return Promise.resolve({ status: 'absent', reasonCodes: [] });
+      if (row.status !== 'ready' || !row.episode) {
+        const blocked = { status: 'blocked', reasonCodes: ['SHARE_SOURCE_EPISODE_NOT_READY'] };
+        shareFormats.set(worldDay, blocked);
+        return Promise.resolve(blocked);
+      }
+      const { decision } = deriveGatedShareFormats({
+        episode: row.episode,
+        acceptedSourceEventIds: events().filter((event) => event.worldDay === worldDay).map(({ eventId }) => eventId),
+        sourceEpisodeStatus: row.status,
+      });
+      const result = { status: decision.outcome, reasonCodes: [...decision.reasonCodes] };
+      shareFormats.set(worldDay, result);
+      return Promise.resolve(result);
     },
 
     generateRecap(worldId, request) {

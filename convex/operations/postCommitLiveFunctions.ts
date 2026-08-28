@@ -51,6 +51,7 @@ import type { transitionArcLifecycleRecord as transitionArcLifecycleRecordExport
 import type { updateArcProjection as updateArcProjectionExport } from '../story/projectionFunctions';
 import type { refreshArcStagnationPrompts as refreshArcStagnationPromptsExport } from '../story/resolutionFunctions';
 import type { generateAcceptedEventEpisode as generateAcceptedEventEpisodeExport } from '../editorial/episodeFunctions';
+import type { generateEpisodeShareFormats as generateEpisodeShareFormatsExport } from '../editorial/shareFormatFunctions';
 import type { generateIncrementalRecap as generateIncrementalRecapExport } from '../recaps/functions';
 import type {
   createEpisodePublication as createEpisodePublicationExport,
@@ -147,6 +148,9 @@ const generateAcceptedEventEpisodeRef = internalFunctionRef<typeof generateAccep
 );
 const generateIncrementalRecapRef = internalFunctionRef<typeof generateIncrementalRecapExport>(
   'recaps/functions:generateIncrementalRecap',
+);
+const generateEpisodeShareFormatsRef = internalFunctionRef<typeof generateEpisodeShareFormatsExport>(
+  'editorial/shareFormatFunctions:generateEpisodeShareFormats',
 );
 const createEpisodePublicationRef = internalFunctionRef<typeof createEpisodePublicationExport>(
   'editorial/publicationLifecycleFunctions:createEpisodePublication',
@@ -366,6 +370,12 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
       return row
         ? { status: row.status, safetyClassificationId: row.safetyClassificationId ?? null, hasEpisode: Boolean(row.episode) }
         : null;
+    },
+
+    async generateShareFormats(worldId, worldDay) {
+      const { status, reasonCodes } = await ctx.runMutation(generateEpisodeShareFormatsRef,
+        { worldId, worldDay, createdAt: now });
+      return { status, reasonCodes: [...reasonCodes] };
     },
 
     async createPublication(worldId, contentRef, summary) {

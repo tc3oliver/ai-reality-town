@@ -107,6 +107,11 @@ import {
   resolveEffectiveModuleConfig,
   type ConfigurableModule,
 } from '../shared/moduleModelConfig';
+import {
+  deriveGatedShareFormats,
+  SHARE_FORMAT_KINDS,
+  type EpisodeShareFormats,
+} from '../editorial/derived/shareFormats';
 
 const WORLD_ID = MISTWOOD_PUBLIC_WORLD_ID;
 const OPERATOR = { type: 'operations' as const, operatorId: 'test' };
@@ -535,6 +540,8 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
   const episodes = new Map<number, { status: string; episodeNumber: number; episode?: DailyEpisode; safetyClassificationId: string | null }>();
   const recaps: RecapSnapshot[] = [];
   const publications = new Map<string, PublicationRecord>();
+  const shareFormats = new Map<number, { status: string; reasonCodes: string[] }>();
+  const shareFormatCopy = new Map<number, EpisodeShareFormats | null>();
   const rebuilt: string[] = [];
   let now = 10_000;
 
@@ -747,6 +754,31 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
         : null);
     },
 
+    // FR-G005 / ART-36. Runs the REAL derivation and the REAL gate, like every other capability
+    // in this port. The accepted set comes from the canon store rather than from the Episode
+    // object, which is the whole reason the provenance check in `validateEpisodeShareFormats`
+    // can fail rather than being a restatement of the builder's own output.
+    generateShareFormats(worldId, worldDay) {
+      const prior = shareFormats.get(worldDay);
+      if (prior) return Promise.resolve(prior);
+      const row = episodes.get(worldDay);
+      if (!row) return Promise.resolve({ status: 'absent', reasonCodes: [] });
+      if (row.status !== 'ready' || !row.episode) {
+        const blocked = { status: 'blocked', reasonCodes: ['SHARE_SOURCE_EPISODE_NOT_READY'] };
+        shareFormats.set(worldDay, blocked);
+        return Promise.resolve(blocked);
+      }
+      const { decision } = deriveGatedShareFormats({
+        episode: row.episode,
+        acceptedSourceEventIds: events().filter((event) => event.worldDay === worldDay).map(({ eventId }) => eventId),
+        sourceEpisodeStatus: row.status,
+      });
+      const result = { status: decision.outcome, reasonCodes: [...decision.reasonCodes] };
+      shareFormats.set(worldDay, result);
+      shareFormatCopy.set(worldDay, decision.formats);
+      return Promise.resolve(result);
+    },
+
     createPublication(worldId, contentRef, summary) {
       const existing = publications.get(contentRef);
       if (existing) return Promise.resolve({ status: existing.status });
@@ -924,7 +956,7 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
     }),
   };
 
-  return { port, arcs, portfolio, episodes, recaps, publications, rebuilt };
+  return { port, arcs, portfolio, episodes, recaps, publications, shareFormats, shareFormatCopy, rebuilt };
 }
 
 /** Run ART-97's world-day pipeline for whole world days, producing real accepted events. */
@@ -1018,6 +1050,31 @@ describe('live post-commit pipeline over real world-day commits (AC#1/#2/#3/#4)'
       .every(({ publicationStatus }) => publicationStatus === 'ready')).toBe(true);
     expect(runStore.artifact<PublicationArtifact>(lastRunId, 'publication').modelRefs)
       .toEqual(expect.arrayContaining([`episodes:${WORLD_ID}`, `timeline:${WORLD_ID}`, `live:${WORLD_ID}`]));
+
+    // FR-G005 / ART-36 — the same stage derived share formats from the Episode it just gated,
+    // and derived them from REAL accepted events rather than from a fixture.
+    const canonBeforeShareCheck = JSON.stringify(canon.committedEvents());
+    expect(publicationArtifacts.some(({ shareFormatStatus }) => shareFormatStatus !== null)).toBe(true);
+    // The best status the automated pipeline reaches is `manual_release_required`. `published`
+    // is not a value this pipeline can produce -- there is nothing for it to publish TO.
+    for (const { shareFormatStatus } of publicationArtifacts) {
+      expect(['manual_release_required', 'blocked', 'absent', null]).toContain(shareFormatStatus);
+    }
+    const shareDay = [...harness.shareFormatCopy.keys()][0];
+    const copy = harness.shareFormatCopy.get(shareDay);
+    expect(copy).not.toBeUndefined();
+    if (copy) {
+      // All four FR-G005 formats, each traced to the Episode they came from (AC#2).
+      expect(copy.formats.map(({ kind }) => kind)).toEqual([...SHARE_FORMAT_KINDS]);
+      expect(copy.sourceEpisode).toMatchObject({ worldId: WORLD_ID, worldDay: shareDay });
+      const acceptedIds = new Set(canon.committedEvents().map(({ eventId }) => eventId));
+      expect(copy.sourceEpisode.sourceEventIds.every((id) => acceptedIds.has(id))).toBe(true);
+      for (const format of copy.formats) {
+        expect(format.sourceEventIds.every((id) => acceptedIds.has(id))).toBe(true);
+      }
+    }
+    // AC#1 — deriving and gating the outreach copy committed nothing.
+    expect(JSON.stringify(canon.committedEvents())).toBe(canonBeforeShareCheck);
 
     // AC#3 — a PUBLIC reader sees the new content. `serveReadModel` reads only published
     // snapshots: it has no canon access and no provider, so no read can trigger generation.

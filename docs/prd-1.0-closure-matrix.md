@@ -30,6 +30,18 @@ existing precedent for a non-P0 clause counting as delivered.
   system produces and inferring edges to fill the view is exactly what AC#2 forbids. The view
   reports what provenance supports and states the emptiness plainly.
   Gate at that commit: `npm run check` exit 0, **178 suites / 2745 tests** (2740 passed, 5 skipped).
+- **2026-08-29 — FR-G005** moved `Deferred P1` → `P1 delivered` (ART-36,
+  `docs/episode-share-formats.md`). Delivered as a DERIVED, OPERATOR-ONLY artifact. Two things are
+  worth stating plainly rather than leaving implied. First, AC#1 is a build guarantee, not a
+  convention: a new `derivedContent` module (root `convex/editorial/derived`) sits under
+  `canonWriteBoundary.forbiddenModules` and may not depend on `canon`, so naming a write symbol or
+  importing the Canon model fails `check:architecture`. Second, AC#3 is a refusal at the
+  publication-candidate boundary, NOT a check performed before transmitting — this deployment still
+  has no external publication transport of any kind, and none was added. The §6 non-goal row was
+  updated rather than retired.
+  Gate at that commit: `npm run check` exit 0, **188 suites / 2957 tests** (2952 passed, 5 skipped),
+  architecture boundaries valid (policy v1, **20 modules**); `npm run e2e` green (72 passed), run
+  on its own since it is not part of `check`.
 
 ---
 
@@ -38,7 +50,7 @@ existing precedent for a non-P0 clause counting as delivered.
 | Classification | Count | Launch-blocking? |
 |---|---:|---|
 | **P0 delivered** (in MVP scope, owning task Done, objective verification cited) | 98 | — |
-| **Deferred P1/P2** (explicitly out of MVP, owned by a backlog task, does not compromise safety / core experience) | 22 | No |
+| **Deferred P1/P2** (explicitly out of MVP, owned by a backlog task, does not compromise safety / core experience) | 21 | No |
 | **Non-goal** (matches a `§6` non-goal; verified absent — `§ Closure audit`) | 17 | — |
 | **Unowned in-scope clause (gap)** | **0** | — |
 | **P0 clause whose task is not yet Done** | **0** | — |
@@ -174,7 +186,7 @@ existing precedent for a non-P0 clause counting as delivered.
 | FR-G002 | Incremental recap pyramid (Raw → Scene → Episode → Arc → Season → Viewer Context; traceable; incremental; never full-history reload; regenerable without changing Canon) | P0 delivered | ART-34 (Done) | `convex/recaps/model.test.ts` |
 | FR-G003 | Three-level Episode recaps (Quick 80–150 chars, Standard 400–800 chars, Deep, Machine Summary with What Changed / Why / Who Affected / New+Resolved Questions / Required Prior Facts / Arc Progress) | P0 delivered | ART-66 (Done) | `convex/recaps/recapFormats.test.ts` |
 | FR-G004 | Recap coverage & spoiler validation (high-importance coverage or explicit exclusion; major relationship change mentioned; turning point mentioned; spoiler violation detected) | P1 delivered early | ART-35 (Done, PR #115) | `convex/recaps/coverageValidation.test.ts` (35/35) |
-| FR-G005 | Episode-derived share formats (local news, social short-post, share-card copy, next-day preview; no new Canon; source-tagged; no auto external publish) | Deferred P1 | ART-36 (To Do) | Does not block launch: share formats are an outreach feature; their absence has no Canon/safety impact. Non-goal §6 "auto-posting unreviewed content to external social" remains absent |
+| FR-G005 | Episode-derived share formats (local news, social short-post, share-card copy, next-day preview; no new Canon; source-tagged; no auto external publish) | P1 delivered | ART-36 (Done) | `convex/editorial/derived/shareFormats.test.ts`, `convex/editorial/derived/shareFormats.boundary.test.ts`, `convex/editorial/shareFormatFunctions.test.ts`; `docs/episode-share-formats.md`. AC#1 is enforced by the build: `derivedContent` is a declared module under `canonWriteBoundary.forbiddenModules` and may not depend on `canon`. AC#3 remains compatible with the §6 non-goal — no external transport was added; see the non-goal row below |
 
 ---
 
@@ -400,7 +412,7 @@ For each of the 17 MVP non-goals, the implemented scope is verified **absent**.
 | Unreviewed user-generated character content | Absent | No character-creation surface; viewer input is untrusted-by-default (FR-L003) and classified (ART-56); publication lifecycle (FR-K004) gates everything |
 | Blockchain / NFT / virtual-asset trading | Absent | Items & assets are projection-only (ART-80, unique ownership); no ledger, token, or trading code |
 | Production-grade payment system | Absent | No payment/billing code; no Stripe/Shopify/etc. dependency in `package.json`; `"private": true` prevents accidental publish |
-| Auto-posting unreviewed content to external social | Absent | No external-social API client; FR-G005 share formats are P1-deferred (ART-36 To Do) and explicitly constrained against auto-external publish; ART-92 manual evaluation program is the only review path |
+| Auto-posting unreviewed content to external social | Absent | Still no external-social API client, no outbound webhook, and `publicFunctionSurface.forbiddenRegistrations` bans `httpAction` repo-wide. ART-36 (FR-G005) delivered the share formats WITHOUT adding a transport: `decideShareRelease` returns `blocked \| manual_release_required` and has no released variant, derived copy rides the FR-K004 lifecycle as `episode_share` whose `publish` is administrator-only, and `shareFormats.boundary.test.ts` sweeps the whole share pipeline plus its import closure for `fetch(`/`httpAction`/`ConvexHttpClient`/`ctx.scheduler`/`runAction`. ART-92 manual evaluation remains the only review path |
 
 **Closure audit verdict (AC#28):** the implemented scope does not include any MVP non-goal. No non-goal is present accidentally.
 

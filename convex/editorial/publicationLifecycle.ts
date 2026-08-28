@@ -33,9 +33,21 @@ export function isTerminalPublicationStatus(status: PublicationStatus): boolean 
   return PUBLICATION_TERMINAL_STATUSES.includes(status);
 }
 
-/** Content a publication record governs. `episode` today; extensible. */
-export type PublicationContentKind = 'episode';
-export const PUBLICATION_CONTENT_KINDS: readonly PublicationContentKind[] = ['episode'];
+/**
+ * Content a publication record governs.
+ *
+ * `episode_share` (FR-G005 / ART-36) is the seat this type was left extensible for: the four
+ * outreach formats derived from one Episode. It is a SEPARATE content kind rather than a second
+ * summary on the Episode's record, because the two are decided separately — an Episode can be
+ * `published` while its 社群短文 is still `safety_review`, and one record cannot hold two statuses.
+ *
+ * Both kinds share this lifecycle deliberately. FR-G005 AC#3 (不適當內容不得自動外部發布) and
+ * FR-K004's rule that `publish` is reserved for an administrator are the SAME rule, so derived
+ * copy inherits it rather than restating it: the automated pipeline creates share records as the
+ * `system` actor, and {@link assertAuthorized} refuses `publish` to that actor.
+ */
+export type PublicationContentKind = 'episode' | 'episode_share';
+export const PUBLICATION_CONTENT_KINDS: readonly PublicationContentKind[] = ['episode', 'episode_share'];
 
 export type PublicationActor = { type: 'admin' | 'system'; id: string };
 
