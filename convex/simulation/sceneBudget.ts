@@ -35,6 +35,7 @@ import {
   emptyBudgetCounters,
   evaluateReservation,
   grantReservation,
+  reevaluateRefusal,
   refuseReservation,
   releaseReservation,
   settleReservation,
@@ -191,21 +192,15 @@ export async function runBudgetedAttempt<T>(
     importance: request.importance,
     tokens: result.trace.inputTokens + result.trace.outputTokens,
     countedAsRetry: granted.countedAsRetry,
-    onFastModel: granted.routingReason !== null,
+    // Read off the DECISION, not re-derived from `routingReason`. A low-importance call that
+    // already named the fast class is not re-routed and still runs on it, so `routingReason !==
+    // null` answered the wrong question and reported a fabricated AC#5 violation.
+    onFastModel: granted.onFastModel,
   };
   await gate.settle(request, decisionId, settlement);
   return { ...result, decision: granted };
 }
 
-/**
- * A port that grants everything and records nothing.
- *
- * Exported and NAMED rather than expressed as an optional port field, so that "this caller does
- * not meter spend" is a decision a reader can see at the binding site instead of an omission
- * nobody notices. Every unit fixture that does not care about budgets binds this explicitly, and
- * the compiler requires a choice from anything that constructs the port — which is the point: an
- * optional field would let a NEW production binding forget the gate and enforce nothing, silently.
- */
 /**
  * A fully working accountant over in-memory state, using the SAME pure model the Convex
  * adapter uses.
@@ -258,12 +253,18 @@ export class InMemoryBudgetAccountant implements WorldDayBudgetPort {
 
   reserve(request: BudgetReservationRequest, decisionId: string): Promise<BudgetDecision> {
     const existing = this.entries.get(decisionId);
-    if (existing) {
+    // The SAME asymmetry `createConvexBudgetPort` applies, and it has to be the same or this
+    // double would stop being evidence about the deployed path: replay a GRANT verbatim (it holds
+    // a concurrency slot and a spend that must not be double-booked), re-evaluate a REFUSAL (it
+    // booked nothing, and a permanently-replayed refusal cannot be cleared by an operator retry
+    // or by raising the cap).
+    if (existing && existing.outcome === 'allowed') {
       return Promise.resolve({
         schemaVersion: 1,
         outcome: existing.outcome,
         model: existing.model,
         routingReason: existing.routingReason,
+        onFastModel: existing.onFastModel,
         strategy: existing.strategy,
         strategyFallbackReason: existing.strategyFallbackReason,
         boundLimit: existing.boundLimit,
@@ -287,13 +288,18 @@ export class InMemoryBudgetAccountant implements WorldDayBudgetPort {
       request,
     });
     this.sequence += 1;
+    // Replaces the prior refusal's row rather than appending beside it, so `refusedCalls` keeps
+    // equalling the number of `over_budget` entries.
     this.entries.set(decisionId, buildBudgetLedgerEntry({
       request, decision, decisionId, policyVersion: this.policyVersion, recordedAt: this.sequence,
     }));
-    if (decision.outcome !== 'allowed') this.resolved.add(decisionId);
-    this.put(decision.outcome === 'allowed'
-      ? grantReservation(counters, decision)
-      : refuseReservation(counters));
+    if (decision.outcome === 'allowed') this.resolved.delete(decisionId);
+    else this.resolved.add(decisionId);
+    this.put(existing
+      ? reevaluateRefusal(counters, decision)
+      : decision.outcome === 'allowed'
+        ? grantReservation(counters, decision)
+        : refuseReservation(counters));
     return Promise.resolve(decision);
   }
 
@@ -312,6 +318,15 @@ export class InMemoryBudgetAccountant implements WorldDayBudgetPort {
   }
 }
 
+/**
+ * A port that grants everything and records nothing.
+ *
+ * Exported and NAMED rather than expressed as an optional port field, so that "this caller does
+ * not meter spend" is a decision a reader can see at the binding site instead of an omission
+ * nobody notices. Every unit fixture that does not care about budgets binds this explicitly, and
+ * the compiler requires a choice from anything that constructs the port — which is the point: an
+ * optional field would let a NEW production binding forget the gate and enforce nothing, silently.
+ */
 export function unmeteredWorldDayBudgetPort(modelId = 'unmetered'): WorldDayBudgetPort {
   return {
     deploymentModelId: () => Promise.resolve(modelId),
@@ -320,6 +335,9 @@ export function unmeteredWorldDayBudgetPort(modelId = 'unmetered'): WorldDayBudg
       outcome: 'allowed',
       model: request.requestedModel,
       routingReason: null,
+      // Nothing is metered here, so nothing is claimed about the fast class either. Reporting
+      // `true` would put unmetered calls into the AC#5 numerator.
+      onFastModel: false,
       strategy: null,
       strategyFallbackReason: null,
       boundLimit: null,

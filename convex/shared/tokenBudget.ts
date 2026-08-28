@@ -584,6 +584,17 @@ export type BudgetDecision = {
   /** The model the call must use. Routing (AC#5) is applied to an allowed decision. */
   model: string;
   routingReason: 'low_importance_fast_model' | 'over_budget_downgrade' | null;
+  /**
+   * Whether {@link model} IS the configured fast class — the §16.3 AC#5 numerator.
+   *
+   * A separate field from {@link routingReason}, because they answer different questions: that one
+   * says whether the model was CHANGED, this one says which model it is. A low-importance request
+   * that already named the fast class is not re-routed and still runs on the fast class, so
+   * deriving this from `routingReason !== null` reported a fabricated AC#5 violation for a
+   * correctly-routed call. Computed inside {@link evaluateReservation}, where the policy is in
+   * scope, so no caller has to re-derive a policy fact it cannot see.
+   */
+  onFastModel: boolean;
   /** Set only when `outcome` is `over_budget`. */
   strategy: OverBudgetStrategy | null;
   strategyFallbackReason: StrategyFallbackReason | null;
@@ -606,23 +617,39 @@ export type BudgetDecision = {
 /**
  * AC#5's routing rule, as a total function.
  *
- * Low-importance work goes to the configured fast class; everything else keeps the model it
- * asked for. With a fast class configured the low-importance share is 1.0 BY CONSTRUCTION
- * whenever any low-importance work exists — the routing decision has no other branch — which is
- * why §16.3's ">80%" is an enforceable property here rather than a hope about traffic mix.
- * Without a fast class configured there is nothing to route TO, and the request keeps its model:
- * silently pretending otherwise would report a fast-model share for a model class that does not
- * exist.
+ * Low-importance work RUNS ON the configured fast class; everything else keeps the model it asked
+ * for. With a fast class configured, every low-importance call ends up on it — so §16.3's ">80%"
+ * is an enforceable property here rather than a hope about traffic mix. Without a fast class
+ * configured there is nothing to route TO, and the request keeps its model: silently pretending
+ * otherwise would report a fast-model share for a model class that does not exist.
+ *
+ * ## `routingReason` is about the SWITCH, not about the destination
+ *
+ * There are three branches, not two, and the third is the one that used to be described away.
+ * A low-importance request that ALREADY names the fast class is returned unchanged with
+ * `routingReason: null` — nothing was re-routed, because nothing needed to be. It is still
+ * running on the fast class.
+ *
+ * Reading "did this call run on the fast model?" off `routingReason` therefore gets that third
+ * branch backwards, which is why {@link BudgetDecision.onFastModel} answers it separately and is
+ * computed HERE, where the policy is in scope. The two questions look interchangeable and are
+ * not: one is "was the model changed", the other is "which model is it". Conflating them made
+ * `summarizeResourceUsage` report a fabricated AC#5 violation for a correctly-routed call.
  */
 export function routeModelForWork(
   policy: Pick<TokenBudgetPolicy, 'fastModelClass'>,
   requestedModel: string,
   importance: WorkImportance,
-): { model: string; routingReason: BudgetDecision['routingReason'] } {
-  if (importance === 'low' && policy.fastModelClass !== null && policy.fastModelClass !== requestedModel) {
-    return { model: policy.fastModelClass, routingReason: 'low_importance_fast_model' };
-  }
-  return { model: requestedModel, routingReason: null };
+): { model: string; routingReason: BudgetDecision['routingReason']; onFastModel: boolean } {
+  const model = importance === 'low' && policy.fastModelClass !== null
+    ? policy.fastModelClass
+    : requestedModel;
+  return {
+    model,
+    // Only a real switch is a routing reason: `model !== requestedModel`, never `importance`.
+    routingReason: model === requestedModel ? null : 'low_importance_fast_model',
+    onFastModel: policy.fastModelClass !== null && model === policy.fastModelClass,
+  };
 }
 
 /**
@@ -704,11 +731,22 @@ export function evaluateReservation(input: {
   if (over(modelTokens, modelBudgetFor(policy, routed.model))) breached.push('model_daily_tokens');
   if (countedAsRetry) {
     if (over(counters.retryTokens, policy.retryTokenBudget)) breached.push('retry_tokens');
-    // The share is evaluated INCLUDING this call on both sides, which is the only formulation
-    // that can hold as an invariant: `(retry + spend) / (total + spend) <= ceiling`. It has the
-    // bootstrap consequence documented in the module header — with a 10% ceiling a retry needs at
-    // least 9x its own cost already spent today before it can be granted — and that is a property
-    // of share ceilings, not a defect in this expression.
+    // The share is evaluated INCLUDING this call on both sides:
+    // `(retry + reserved) / (total + reserved) <= ceiling`.
+    //
+    // HONEST SCOPE: this bounds the share computed over the RESERVED amount, not over what the
+    // call turns out to cost. Reservations are upper bounds on the completion only and exclude
+    // prompt tokens (no tokenizer in this runtime), so a call can settle for more than it
+    // reserved and the SETTLED share can end a day above the ceiling even though every individual
+    // reservation was inside it. Worked example: ceiling 0.5, total 100 / retry 40, a retry
+    // reserving 10 is allowed at 0.4545 — and if the provider then reports 200, the settled share
+    // is 0.8. The ceiling is therefore a real admission control, not a guarantee about the final
+    // measured ratio, and `summarizeResourceUsage` measures that ratio separately for exactly
+    // this reason.
+    //
+    // It also has the bootstrap consequence documented in the module header — with a 10% ceiling a
+    // retry needs at least 9x its own reservation already spent today before it can be granted —
+    // and that is a property of share ceilings, not a defect in this expression.
     if (policy.maxRetryTokenShare !== null) {
       const projectedTotal = counters.totalTokens + spend;
       const projectedRetry = counters.retryTokens + spend;
@@ -735,6 +773,7 @@ export function evaluateReservation(input: {
       outcome: 'allowed',
       model: routed.model,
       routingReason: routed.routingReason,
+      onFastModel: routed.onFastModel,
       strategy: null,
       strategyFallbackReason: null,
       boundLimit: null,
@@ -758,6 +797,10 @@ export function evaluateReservation(input: {
     routingReason: selected.strategy === 'downgrade_to_fast_model'
       ? 'over_budget_downgrade'
       : routed.routingReason,
+    // A refused call runs nothing, so it is never ON any model. The downgrade case still reports
+    // false: the caller has not made that call yet, and `runBudgetedAttempt` re-reserves against
+    // the fast class, which is the decision that will carry `onFastModel: true`.
+    onFastModel: false,
     strategy: selected.strategy,
     strategyFallbackReason: selected.fallbackReason,
     boundLimit: breached[0],
@@ -826,6 +869,31 @@ export function grantReservation(counters: BudgetCounters, decision: BudgetDecis
     inFlight: counters.inFlight + 1,
     grantedCalls: counters.grantedCalls + 1,
   };
+}
+
+/**
+ * Move the counters when a PREVIOUSLY REFUSED decision is re-evaluated (M2).
+ *
+ * A budget refusal has to be re-evaluable, or an operator has no remedy: `decisionId` is derived
+ * from the scene, so it is identical across the original run and any later FR-K001 `run.retry`,
+ * and replaying the stored refusal verbatim made the refusal PERMANENT — raising the cap changed
+ * nothing, because the re-run never reached an evaluation. Re-evaluating is safe precisely
+ * because a refusal booked no spend and holds no concurrency slot; only a GRANT must be replayed
+ * verbatim, and {@link grantReservation} is what must not run twice.
+ *
+ * The existing ledger row is REPLACED rather than appended to, so the counters stay reconcilable
+ * with the ledger: `refusedCalls` must equal the number of `over_budget` rows. Hence
+ *
+ * - still refused → no counter movement; the refusal was already counted once, and re-counting it
+ *   would inflate `refusedCalls` by one per operator retry, making the §16.3 availability metric
+ *   a measure of how often someone pressed retry.
+ * - now allowed → grant it, AND drop the earlier refusal from the tally, because the row that
+ *   recorded that refusal no longer says `over_budget`.
+ */
+export function reevaluateRefusal(counters: BudgetCounters, decision: BudgetDecision): BudgetCounters {
+  if (decision.outcome !== 'allowed') return counters;
+  const granted = grantReservation(counters, decision);
+  return { ...granted, refusedCalls: Math.max(0, granted.refusedCalls - 1) };
 }
 
 /** Record a refused reservation. Refusals are counted so the report can measure availability. */
@@ -915,6 +983,8 @@ export type BudgetLedgerEntry = {
   attempt: number;
   countedAsRetry: boolean;
   estimatedTokens: number;
+  /** Whether {@link model} is the configured fast class — the §16.3 AC#5 numerator, per decision. */
+  onFastModel: boolean;
   outcome: BudgetDecision['outcome'];
   strategy: OverBudgetStrategy | null;
   strategyFallbackReason: StrategyFallbackReason | null;
@@ -930,6 +1000,26 @@ export type BudgetLedgerEntry = {
   policyVersion: number | null;
   recordedAt: number;
 };
+
+/**
+ * How a granted reservation ended, and what it actually cost.
+ *
+ * Kept OFF {@link BudgetLedgerEntry} because that type is the record of a DECISION and a decision
+ * does not know its own outcome yet; these three are written later, by settlement or release. They
+ * are part of the stored row all the same, so they are declared here rather than living only in
+ * the Convex schema — a field that exists on the row but in no TypeScript type is a field the
+ * ledger's own structural guard cannot see, which is how `settledModel` slipped past it once.
+ */
+export type BudgetLedgerResolution = {
+  resolution: 'pending' | 'settled' | 'released';
+  /** Tokens actually booked. `null` until resolved, and for a released reservation. */
+  settledTokens: number | null;
+  /** The model the provider REPORTED running. `null` until resolved, and for a release. */
+  settledModel: string | null;
+};
+
+/** A ledger row as an operator reads it: the decision, plus how it ended. */
+export type StoredBudgetLedgerEntry = BudgetLedgerEntry & BudgetLedgerResolution;
 
 /** Build the audit row for one decision. `recordedAt` is a parameter; nothing reads a clock. */
 export function buildBudgetLedgerEntry(input: {
@@ -954,6 +1044,7 @@ export function buildBudgetLedgerEntry(input: {
     attempt: request.attempt,
     countedAsRetry: decision.countedAsRetry,
     estimatedTokens: decision.estimatedTokens,
+    onFastModel: decision.onFastModel,
     outcome: decision.outcome,
     strategy: decision.strategy,
     strategyFallbackReason: decision.strategyFallbackReason,
@@ -1007,14 +1098,15 @@ export const EMPTY_SAMPLE_REASONS = {
  * looking healthy — so the report has to explain itself the first time anyone sees it.
  */
 export const MODEL_METERING_MISMATCH_REASON =
-  'Tokens were booked against a different model id from the one the provider reported running, so '
-  + 'the per-model daily cap is metering a bucket the real model is not spending from. The known '
-  + 'cause is a provider adapter (ART-72) being injected into createWorldDayStageHandlers without '
-  + 'repointing deploymentModelId in convex/simulation/worldDayLiveFunctions.ts; that specific case '
-  + 'also fails sceneBudgetProviderPin.test.ts at build time. The other cause is a gateway that '
-  + 'answers with a different model id from the one requested (for example a pinned revision), '
-  + 'which is legitimate and needs the configured model id updated to match. '
-  + 'See docs/token-budget-controls.md §8.';
+  'Tokens were booked against a different model id from the one the provider reported running. '
+  + 'The METERED bucket is still charged and its cap still binds — but a per-model cap an operator '
+  + 'configured against the model that ACTUALLY ran will never bind, because nothing is ever booked '
+  + 'under that id. The known cause is a provider adapter (ART-72) being injected into '
+  + 'createWorldDayStageHandlers without repointing deploymentModelId in '
+  + 'convex/simulation/worldDayLiveFunctions.ts; that specific case also fails '
+  + 'sceneBudgetProviderPin.test.ts at build time. The other cause is a gateway that answers with a '
+  + 'different model id from the one requested (for example a pinned revision), which is legitimate '
+  + 'and needs the configured model id updated to match. See docs/token-budget-controls.md §8.';
 
 /** §16.3's "公開訪客流量不增加 LLM 呼叫", proven rather than assumed. */
 export const PUBLIC_READ_LLM_CALL_REASON =

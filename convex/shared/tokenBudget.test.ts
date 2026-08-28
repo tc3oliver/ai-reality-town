@@ -47,6 +47,7 @@ import {
   type BudgetCounters,
   type BudgetLedgerEntry,
   type BudgetReservationRequest,
+  type StoredBudgetLedgerEntry,
   type StoredTokenBudgetPolicy,
   type TokenBudgetPolicy,
   type TokenBudgetPolicyRecord,
@@ -428,18 +429,53 @@ describe('AC#2 — the over-budget strategy is selected deterministically', () =
 
 describe('AC#5 — low-importance work is routed to the fast class by construction', () => {
   test('every low-importance request routes to the fast class when one is configured', () => {
-    const routed = routeModelForWork({ fastModelClass: FAST }, MODEL, 'low');
-    expect(routed).toEqual({ model: FAST, routingReason: 'low_importance_fast_model' });
+    expect(routeModelForWork({ fastModelClass: FAST }, MODEL, 'low'))
+      .toEqual({ model: FAST, routingReason: 'low_importance_fast_model', onFastModel: true });
   });
 
-  test('standard work keeps its model', () => {
+  test('standard work keeps its model and is not counted as fast-model work', () => {
     expect(routeModelForWork({ fastModelClass: FAST }, MODEL, 'standard'))
-      .toEqual({ model: MODEL, routingReason: null });
+      .toEqual({ model: MODEL, routingReason: null, onFastModel: false });
   });
 
   test('with no fast class configured there is nothing to route to, and nothing is claimed', () => {
     expect(routeModelForWork({ fastModelClass: null }, MODEL, 'low'))
-      .toEqual({ model: MODEL, routingReason: null });
+      .toEqual({ model: MODEL, routingReason: null, onFastModel: false });
+  });
+
+  test('a low request ALREADY on the fast class is on the fast model, with no routing reason', () => {
+    // The third branch, which two docblocks used to deny existed. Nothing is re-routed — so
+    // `routingReason` is null — but the call runs on the fast class all the same. Deriving
+    // `onFastModel` from `routingReason !== null` reported this correctly-routed call as an AC#5
+    // violation, which is the exact fabrication null-with-a-reason exists to prevent.
+    expect(routeModelForWork({ fastModelClass: FAST }, FAST, 'low'))
+      .toEqual({ model: FAST, routingReason: null, onFastModel: true });
+  });
+
+  test('standard work that happens to name the fast class still counts as fast-model work', () => {
+    // `onFastModel` asks which model ran, not why. A standard call on the fast class is a real
+    // fast-model call; it simply has no bearing on AC#5, whose denominator is low-importance work.
+    expect(routeModelForWork({ fastModelClass: FAST }, FAST, 'standard'))
+      .toEqual({ model: FAST, routingReason: null, onFastModel: true });
+  });
+
+  test('the decision carries onFastModel, so no caller re-derives it from routingReason', () => {
+    const decision = evaluate({
+      policy: policyWith({ fastModelClass: FAST }),
+      request: { importance: 'low', requestedModel: FAST },
+    });
+    expect(decision.outcome).toBe('allowed');
+    expect(decision.routingReason).toBeNull();
+    expect(decision.onFastModel).toBe(true);
+  });
+
+  test('a REFUSED decision is never on any model: it ran nothing', () => {
+    const decision = evaluate({
+      policy: policyWith({ fastModelClass: FAST, worldDailyTokenBudget: 1 }),
+      request: { importance: 'low' },
+    });
+    expect(decision.outcome).toBe('over_budget');
+    expect(decision.onFastModel).toBe(false);
   });
 
   test('the importance vocabulary is exactly two classes', () => {
@@ -476,6 +512,29 @@ describe('AC#2 — every decision produces a durable, inspectable record', () =>
     // Counters move; a refusal explained by "the world was at N" is unreconstructable later
     // unless the snapshot travels with the decision.
     expect(row.observedTotalTokens).toBe(0);
+  });
+
+  test('the guard covers the STORED row, resolution fields included', () => {
+    // `settledModel` was added to the Convex schema and the settle path but to no TypeScript type,
+    // so a guard that iterates `BudgetLedgerEntry` could not see it — it was exactly "a string
+    // field added later" of the kind this guard exists to catch, and it walked straight past.
+    // `StoredBudgetLedgerEntry` is what closes that, and this asserts the resolution fields are
+    // really in it rather than trusting the type name.
+    const stored: StoredBudgetLedgerEntry = {
+      ...entry(),
+      resolution: 'settled',
+      settledTokens: 1_200,
+      settledModel: 'gpt-4o',
+    };
+    expect(Object.keys(stored)).toEqual(expect.arrayContaining([
+      'resolution', 'settledTokens', 'settledModel',
+    ]));
+    // `settledModel` is a model identifier, and `resolution` is a closed enumeration — the same
+    // two categories every other string on the row falls into.
+    expect(['pending', 'settled', 'released']).toContain(stored.resolution);
+    for (const field of FORBIDDEN_CONFIG_FIELDS) {
+      expect(String(stored.settledModel).toLowerCase()).not.toContain(`${field}=`);
+    }
   });
 
   test('every string on the record is an identifier or a closed-enum member — no free text', () => {
@@ -770,12 +829,20 @@ describe('AC#5 — §16.3 fast-model routing share above 80%', () => {
   });
 
   test('the routing rule makes 100% the only reachable share for a metered path', () => {
-    // Not a measurement of traffic: a property of the router. Every `low` request takes the same
-    // branch, so a run in which low-importance work exists AND a fast class is configured cannot
-    // produce a share below 1 unless `routeModelForWork` itself changes.
-    const models = Array.from({ length: 50 }, (_, index) =>
-      routeModelForWork({ fastModelClass: FAST }, `model-${index}`, 'low').model);
-    expect(new Set(models)).toEqual(new Set([FAST]));
+    // Not a measurement of traffic: a property of the router. Every `low` request ends up on the
+    // fast class, so a run in which low-importance work exists AND a fast class is configured
+    // cannot produce a share below 1 unless `routeModelForWork` itself changes.
+    //
+    // The generator INCLUDES `FAST` itself. An earlier version drew from `model-${index}`, none of
+    // which can equal the fast class — so it excluded the single input that breaks the property
+    // (a request already naming the fast class takes the no-switch branch) and proved nothing
+    // about it. A universal claim tested only over inputs chosen to satisfy it is not evidence.
+    const requested = [FAST, MODEL, ...Array.from({ length: 48 }, (_, index) => `model-${index}`)];
+    const routed = requested.map((model) => routeModelForWork({ fastModelClass: FAST }, model, 'low'));
+    expect(routed.every((entry) => entry.model === FAST)).toBe(true);
+    // And every one of them counts toward the AC#5 numerator, including the no-switch branch.
+    expect(routed.every((entry) => entry.onFastModel)).toBe(true);
+    expect(requested).toContain(FAST);
   });
 });
 

@@ -1,6 +1,12 @@
 /**
  * The ART-72 landmine, disarmed at BUILD time (FR-M003 / ART-59).
  *
+ * THIS PIN IS A TRIPWIRE, NOT A CONDITION. Doing what its failure message says — injecting a
+ * provider AND repointing the meter — leaves it red, because the assertions below describe the
+ * CURRENT wiring. That is deliberate: the pin's job is to force the two decisions in front of a
+ * reviewer together, and a tripwire that silently re-arms itself would let the second half be
+ * skipped. The instruction says so, so nobody has to guess whether the red is a bug.
+ *
  * ## The failure this exists to prevent
  *
  * FR-M003's per-MODEL daily cap has to name a model BEFORE the call, so `createConvexBudgetPort`
@@ -83,10 +89,12 @@ describe('ART-72 pin — the metered model id and the live provider cannot drift
     for (const argumentCount of counts) {
       const injectedProvider = argumentCount > 1;
       expect({ file: LIVE_ENTRY, injectedProvider, instruction: injectedProvider
-        ? 'ART-72: a provider was injected into createWorldDayStageHandlers. Repoint '
+        ? 'ART-72: a provider was injected into createWorldDayStageHandlers. (1) Repoint '
           + 'deploymentModelId in createConvexBudgetPort to that provider\'s model id in the same '
           + 'change, or the FR-M003 per-model daily cap will meter FAKE_SCENE_MODEL while the real '
-          + 'model spends unbounded. See docs/token-budget-controls.md §8.'
+          + 'model spends unbounded. (2) THEN update this pin to assert the new provider and the '
+          + 'new model id — it stays red until you do, on purpose, so the change is reviewed '
+          + 'rather than merely made. See docs/token-budget-controls.md §8.'
         : null,
       }).toEqual({ file: LIVE_ENTRY, injectedProvider: false, instruction: null });
     }

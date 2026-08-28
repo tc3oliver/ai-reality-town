@@ -46,6 +46,7 @@ import {
   type EffectiveTokenBudgetPolicy,
   type OverBudgetStrategy,
   type ResourceUsageReport,
+  type StoredBudgetLedgerEntry,
   type StoredTokenBudgetPolicy,
   type TokenBudgetPolicy,
   type TokenBudgetPolicyRecord,
@@ -64,6 +65,15 @@ import {
 
 /** How many world days of counters one report may span. */
 const MAX_REPORT_WORLD_DAYS = 90;
+/**
+ * Total ledger rows one report may read, across every world day in its range.
+ *
+ * A Convex query refuses to read more than 16,384 documents. This budget is deliberately well
+ * under that: the same query also reads one counter row per world day (up to 90), one
+ * configuration row per module, and the policy, and a limit set at the platform ceiling would turn
+ * a wide inspect into a thrown query rather than a clamped answer.
+ */
+const MAX_REPORT_LEDGER_ROWS = 8_000;
 /** How many ledger rows one read returns, clamped the way `listOperatorAudit` clamps its own. */
 const DEFAULT_LEDGER_LIMIT = 50;
 const MAX_LEDGER_LIMIT = 500;
@@ -221,7 +231,9 @@ export const inspectTokenBudget = query({
     fromWorldDay: v.number(),
     toWorldDay: v.number(),
   },
-  handler: async (ctx, args): Promise<TokenBudgetInspection & { clampedToWorldDay: number | null }> => {
+  handler: async (ctx, args): Promise<
+    TokenBudgetInspection & { clampedToWorldDay: number | null; ledgerScanLimitReached: boolean }
+  > => {
     await requireOperator(ctx, 'budget.inspect', args);
     const from = Math.trunc(args.fromWorldDay);
     const requestedTo = Math.trunc(args.toWorldDay);
@@ -239,6 +251,25 @@ export const inspectTokenBudget = query({
       // A day with no row has spent nothing, and that IS a measurement: dropping it would make a
       // quiet day indistinguishable from a day outside the window.
       counters.push(row);
+    }
+
+    // The ledger fan-out is bounded ACROSS the whole range, not per day. Convex refuses a query
+    // that reads more than 16,384 documents, and 90 world days x MAX_LEDGER_LIMIT would ask for
+    // 45,000 — so a wide inspect on a busy world used to THROW rather than answer. A total budget
+    // well under the platform ceiling leaves headroom for the counter and configuration reads
+    // above, and the flag makes a truncated answer distinguishable from a complete one.
+    const ledgerRows: StoredBudgetLedgerEntry[] = [];
+    let ledgerScanLimitReached = false;
+    for (const { worldDay } of counters) {
+      const remaining = MAX_REPORT_LEDGER_ROWS - ledgerRows.length;
+      if (remaining <= 0) { ledgerScanLimitReached = true; break; }
+      const rows = await listBudgetLedger(ctx.db, args.worldId, worldDay, remaining + 1);
+      if (rows.length > remaining) {
+        ledgerRows.push(...rows.slice(0, remaining));
+        ledgerScanLimitReached = true;
+        break;
+      }
+      ledgerRows.push(...rows);
     }
 
     const moduleDailyTokenBudgets = [];
@@ -262,12 +293,18 @@ export const inspectTokenBudget = query({
         worldId: args.worldId,
         policy: effective,
         counters,
-        // The report's refusal counts come from the ledger, which is read per world day below;
-        // an inspection that spans days reads them all rather than sampling one.
-        ledger: (await Promise.all(counters.map(({ worldDay }) =>
-          listBudgetLedger(ctx.db, args.worldId, worldDay, MAX_LEDGER_LIMIT)))).flat(),
+        ledger: ledgerRows,
       }),
       clampedToWorldDay: to === requestedTo ? null : to,
+      /**
+       * True when the ledger fan-out hit {@link MAX_REPORT_LEDGER_ROWS} before reading every day
+       * in the range, so the report's REFUSAL counts describe a prefix of the window.
+       *
+       * The settled-spend numbers are unaffected — those come from the counters, one row per world
+       * day — but a truncated refusal count is a different statement from a complete one, and
+       * reporting it as complete is the failure this flag exists to prevent.
+       */
+      ledgerScanLimitReached,
     };
   },
 });

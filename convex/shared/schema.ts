@@ -179,6 +179,8 @@ export const sharedTables = {
     attempt: v.number(),
     countedAsRetry: v.boolean(),
     estimatedTokens: v.number(),
+    /** Whether `model` is the configured fast class — §16.3 AC#5's numerator, per decision. */
+    onFastModel: v.boolean(),
     outcome: v.string(),
     strategy: v.union(v.string(), v.null()),
     strategyFallbackReason: v.union(v.string(), v.null()),

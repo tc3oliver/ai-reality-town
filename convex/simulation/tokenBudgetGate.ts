@@ -38,6 +38,7 @@ import {
   emptyBudgetCounters,
   evaluateReservation,
   grantReservation,
+  reevaluateRefusal,
   refuseReservation,
   releaseReservation,
   resolveEffectiveTokenBudgetPolicy,
@@ -46,6 +47,7 @@ import {
   type BudgetCounters,
   type BudgetDecision,
   type BudgetLedgerEntry,
+  type StoredBudgetLedgerEntry,
   type BudgetLimit,
   type BudgetReservationRequest,
   type BudgetSettlement,
@@ -147,7 +149,7 @@ async function writeCounters(db: WriteDb, counters: BudgetCounters): Promise<voi
   else await db.insert('tokenBudgetCounters', row);
 }
 
-function toLedgerEntry(row: Doc<'tokenBudgetLedger'>): BudgetLedgerEntry {
+function toLedgerEntry(row: Doc<'tokenBudgetLedger'>): StoredBudgetLedgerEntry {
   return {
     schemaVersion: 1,
     worldId: row.worldId,
@@ -161,6 +163,7 @@ function toLedgerEntry(row: Doc<'tokenBudgetLedger'>): BudgetLedgerEntry {
     attempt: row.attempt,
     countedAsRetry: row.countedAsRetry,
     estimatedTokens: row.estimatedTokens,
+    onFastModel: row.onFastModel,
     outcome: row.outcome as BudgetDecision['outcome'],
     strategy: row.strategy as OverBudgetStrategy | null,
     strategyFallbackReason: row.strategyFallbackReason as BudgetLedgerEntry['strategyFallbackReason'],
@@ -174,6 +177,12 @@ function toLedgerEntry(row: Doc<'tokenBudgetLedger'>): BudgetLedgerEntry {
     observedInFlight: row.observedInFlight,
     policyVersion: row.policyVersion,
     recordedAt: row.recordedAt,
+    // How it ENDED, carried through to the operator read. A ledger that stopped at the decision
+    // could not answer "did this call actually run, and on which model" — which is precisely the
+    // question a metering mismatch makes someone ask.
+    resolution: row.resolution,
+    settledTokens: row.settledTokens,
+    settledModel: row.settledModel,
   };
 }
 
@@ -183,7 +192,7 @@ export async function listBudgetLedger(
   worldId: string,
   worldDay: number,
   limit: number,
-): Promise<BudgetLedgerEntry[]> {
+): Promise<StoredBudgetLedgerEntry[]> {
   const rows = await db
     .query('tokenBudgetLedger')
     .withIndex('by_world_and_day', (q) => q.eq('worldId', worldId).eq('worldDay', worldDay))
@@ -212,6 +221,37 @@ async function resolvablePending(
 }
 
 /**
+ * Rebuild the stored decision from its ledger row, for the grant-replay path.
+ *
+ * Every field comes off the row, including the counter snapshot: a replay must return what was
+ * DECIDED, not what a fresh look at the counters would decide now. That is the whole point of
+ * replaying rather than re-evaluating.
+ */
+function replayDecision(row: Doc<'tokenBudgetLedger'>): BudgetDecision {
+  const entry = toLedgerEntry(row);
+  return {
+    schemaVersion: 1,
+    outcome: entry.outcome,
+    model: entry.model,
+    routingReason: entry.routingReason,
+    onFastModel: entry.onFastModel,
+    strategy: entry.strategy,
+    strategyFallbackReason: entry.strategyFallbackReason,
+    boundLimit: entry.boundLimit,
+    breachedLimits: entry.breachedLimits,
+    countedAsRetry: entry.countedAsRetry,
+    estimatedTokens: entry.estimatedTokens,
+    observed: {
+      totalTokens: entry.observedTotalTokens,
+      retryTokens: entry.observedRetryTokens,
+      moduleTokens: entry.observedModuleTokens,
+      modelTokens: entry.observedModelTokens,
+      inFlight: entry.observedInFlight,
+    },
+  };
+}
+
+/**
  * Bind the pure accountant to `ctx.db` for one mutation.
  *
  * `now` is a parameter of the surrounding mutation, exactly as `operatorNow` is for the console.
@@ -227,37 +267,23 @@ export function createConvexBudgetPort(
     deploymentModelId: deploymentModel,
 
     async reserve(request: BudgetReservationRequest, decisionId: string): Promise<BudgetDecision> {
-      // Idempotency FIRST. A Convex mutation can be retried, and a re-run that re-evaluated and
-      // re-recorded would charge one provider call against the day's budget twice — the
-      // "resist duplicate counting" this task's Security Impact names. The stored decision is
-      // returned verbatim, so a retry also cannot flip a refusal into a grant because the
-      // counters moved in between.
       const existing = await db
         .query('tokenBudgetLedger')
         .withIndex('by_decision_id', (q) => q.eq('decisionId', decisionId))
         .unique();
-      if (existing) {
-        const entry = toLedgerEntry(existing);
-        return {
-          schemaVersion: 1,
-          outcome: entry.outcome,
-          model: entry.model,
-          routingReason: entry.routingReason,
-          strategy: entry.strategy,
-          strategyFallbackReason: entry.strategyFallbackReason,
-          boundLimit: entry.boundLimit,
-          breachedLimits: entry.breachedLimits,
-          countedAsRetry: entry.countedAsRetry,
-          estimatedTokens: entry.estimatedTokens,
-          observed: {
-            totalTokens: entry.observedTotalTokens,
-            retryTokens: entry.observedRetryTokens,
-            moduleTokens: entry.observedModuleTokens,
-            modelTokens: entry.observedModelTokens,
-            inFlight: entry.observedInFlight,
-          },
-        };
-      }
+
+      // A GRANT is replayed verbatim, and only a grant. A Convex mutation can be retried, and a
+      // re-run that re-granted would take a second concurrency slot and let the same provider
+      // call be settled twice — the "resist duplicate counting" this task's Security Impact
+      // names.
+      //
+      // A REFUSAL is deliberately NOT replayed. `decisionId` is derived from the scene, so it is
+      // identical across the original run and any later operator `run.retry`; replaying the
+      // refusal made it permanent, and neither retrying the slot nor raising the cap could clear
+      // it, because the re-run never reached an evaluation at all. A refusal booked no spend and
+      // holds no slot, so re-evaluating it is safe — which is exactly the asymmetry that makes
+      // replaying only grants both sufficient and necessary.
+      if (existing && existing.outcome === 'allowed') return replayDecision(existing);
 
       const policy = await resolveTokenBudgetPolicy(db, request.worldId);
       // ART-52 owns the per-module cap. Read from there, never copied into the policy row.
@@ -271,7 +297,7 @@ export function createConvexBudgetPort(
       });
 
       const granted = decision.outcome === 'allowed';
-      await db.insert('tokenBudgetLedger', {
+      const row = {
         ...buildBudgetLedgerEntry({
           request,
           decision,
@@ -287,7 +313,18 @@ export function createConvexBudgetPort(
         resolution: granted ? ('pending' as const) : ('settled' as const),
         settledTokens: granted ? null : 0,
         settledModel: null,
-      });
+      };
+
+      if (existing) {
+        // Re-evaluating a refusal REPLACES its row rather than appending a second one, so
+        // `refusedCalls` keeps equalling the number of `over_budget` rows instead of counting how
+        // many times an operator pressed retry.
+        await db.patch(existing._id, row);
+        await writeCounters(db, reevaluateRefusal(counters, decision));
+        return decision;
+      }
+
+      await db.insert('tokenBudgetLedger', row);
       await writeCounters(db, granted
         ? grantReservation(counters, decision)
         : refuseReservation(counters));

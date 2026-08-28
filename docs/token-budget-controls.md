@@ -58,6 +58,13 @@ counting them before the call needs a tokenizer for the configured model and the
 Convex runtime. A limit can therefore be crossed by up to one call's prompt before it binds. The
 settlement is exact, so the day's totals and every subsequent decision are correct.
 
+**Two bindings, one protocol, and both are tested.** `createConvexBudgetPort` is the binding that
+runs in the deployment; `InMemoryBudgetAccountant` is the same protocol over in-memory state, used
+by the long-run harness so the run being measured is the run being enforced. They are written
+twice, so `tokenBudgetGate.test.ts` drives the DEPLOYED one directly against a database and asserts
+on the rows it writes. Without that, an injection disabling enforcement in the deployed path alone
+left the whole suite green — the double agreed with the tests while production enforced nothing.
+
 ## 3. Determinism (AC#2)
 
 `evaluateReservation` is a pure function of `(policy, moduleDailyTokenBudget, counters, request)`.
@@ -108,17 +115,41 @@ Two records, and neither replaces the other:
   counters, so the snapshot travels with the decision.
 
 Secret-safe by construction: the row carries **no free text**. Every string on it is either an
-identifier or a member of a closed enumeration, asserted structurally in `tokenBudget.test.ts` so
-that a string field added later fails the test until it is one or the other.
+identifier or a member of a closed enumeration, asserted structurally in `tokenBudget.test.ts`
+over `StoredBudgetLedgerEntry` — the decision fields **and** the three resolution fields
+(`resolution`, `settledTokens`, `settledModel`) that settlement writes later.
+
+That type exists because the guard once missed a field. `settledModel` was added to the Convex
+schema and to the settle path but to no TypeScript type, so it was invisible to a guard that
+iterates a type — literally "a string field added later" of the kind the guard is meant to catch.
+Declaring the stored shape in the type layer is what makes the structural claim true rather than
+merely stated.
 
 `tokenBudgetCounters` is the one mutable row ART-59 owns, and deliberately so: a counter is a
 running total, and appending a row per token would make the per-attempt read an unbounded scan.
 The audit of how the total moved is the ledger; the two reconcile because every ledger row names
 the snapshot it saw.
 
-Reservation, settlement and release are each **idempotent** on the decision id
-(`tokenBudgetLedger.resolution`), because a Convex mutation can be retried and a second evaluation
-could otherwise flip a refusal into a grant, or book one provider call's tokens twice.
+Settlement and release are **idempotent** on the decision id (`tokenBudgetLedger.resolution`),
+because a Convex mutation can be retried and a second settlement would book one provider call's
+tokens twice.
+
+Reservation is idempotent **asymmetrically**, and the asymmetry is the point:
+
+- A **grant** is replayed verbatim. It holds a concurrency slot and a spend that must not be
+  double-booked, so a retried mutation must get the same answer.
+- A **refusal** is re-evaluated, and its ledger row is replaced rather than appended to.
+
+`decisionId` is derived from the scene (`${sceneId}:budget:attempt:${n}`), so it is identical
+across the original run and any later FR-K001 `run.retry`. Replaying refusals verbatim therefore
+made an over-budget refusal **permanent**: re-driving the slot produced no new ledger row at all
+and the same refusal, so neither the documented operator remedy nor raising the cap could clear it.
+Re-evaluating is safe precisely because a refusal booked no spend and holds no slot — which is
+exactly what makes replaying only grants both sufficient and necessary.
+
+Replacing the row rather than appending keeps the counters reconcilable with the ledger:
+`refusedCalls` equals the number of `over_budget` rows. Appending would have made the §16.3
+availability metric a measure of how often an operator pressed retry.
 
 ## 5. §16.3: what is enforced and what is measured
 
@@ -126,10 +157,17 @@ could otherwise flip a refusal into a grant, or book one provider call's tokens 
 
 **Enforceable, and measured; not enforced by default.**
 
-Setting `maxRetryTokenShare` makes the threshold hold by construction: a retry whose tokens would
-push the day's share past the ceiling is refused. The evaluation includes the request on both
-sides — `(retry + spend) / (total + spend) <= ceiling` — which is the only formulation that can
-hold as an invariant.
+Setting `maxRetryTokenShare` refuses a retry whose reservation would push the day's share past the
+ceiling. The evaluation includes the request on both sides —
+`(retry + reserved) / (total + reserved) <= ceiling`.
+
+**What that does and does not guarantee.** It is admission control over *reserved* tokens, not a
+guarantee about the final measured ratio. Reservations are upper bounds on the completion only and
+exclude prompt tokens (§2), so a call can settle for more than it reserved. Worked example: with a
+ceiling of 0.5 and a day at total 100 / retry 40, a retry reserving 10 is admitted at 0.4545 — and
+if the provider then reports 200 tokens, the settled share is 0.8. The ceiling bounds what is let
+through; `summarizeResourceUsage` measures what actually happened, and the two are reported
+separately for precisely this reason.
 
 It is **not** on by default, and the reason is a real property of share ceilings rather than an
 oversight: at the start of a world day total spend is 0, so the very first retry of the day always
@@ -149,8 +187,18 @@ that would breach it, and that the threshold assertion fails at 20%.
 
 **Enforceable by routing, and honestly unmeasurable in this deployment.**
 
-`routeModelForWork` sends every `low`-importance request to the configured fast class — there is no
-other branch — so whenever the sample is non-empty the share is 1.0 by construction.
+`routeModelForWork` puts every `low`-importance request on the configured fast class, so whenever
+the sample is non-empty the share is 1.0 by construction.
+
+There are **three** branches, not two, and an earlier version of this document denied the third.
+A low-importance request that already NAMES the fast class is returned unchanged, with
+`routingReason: null` — nothing was re-routed, because nothing needed to be — and it is still
+running on the fast class. The AC#5 numerator is therefore `BudgetDecision.onFastModel`, computed
+where the policy is in scope, and **not** `routingReason !== null`: reading it off the routing
+reason reported that correctly-routed call as a violation, giving
+`fastModelRoutingShare: 0 / compliant: false`. That is a fabricated violation — exactly what
+null-with-a-reason exists to prevent — and it was latent only because the denominator is empty
+today.
 
 But **this deployment produces no low-importance LLM work.** The only LLM call path is whole-scene
 simulation, and `parseAndValidateDirectorPlan` admits at most `MAX_MAJOR_SCENES_PER_SLOT` **major**
@@ -264,3 +312,4 @@ function logs at the time, which for a silent failure is nobody.
 | `convex/operations/tokenBudgetEnforcement.test.ts` | the decision reaches the provider call, through the real pipeline, with a negative control for every enforcement case |
 | `convex/operations/longRunHarness.test.ts` | the §16.3 report over the fixed-seed 7-day run, measured by the accountant that enforced it |
 | `convex/simulation/sceneBudgetProviderPin.test.ts` | the ART-72 landmine at build time: a provider injected into the live path without repointing the meter breaks the build (§8) |
+| `convex/simulation/tokenBudgetGate.test.ts` | **the deployed binding itself** — `createConvexBudgetPort` driven against a database: the three reads, the ledger insert/patch protocol, `writeCounters`' insert-vs-patch, settle/release idempotency, the metering-mismatch record, and the grant-replay / refusal-re-evaluation asymmetry |

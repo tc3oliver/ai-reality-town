@@ -273,6 +273,43 @@ describe('inspectTokenBudget', () => {
     expect(result.clampedToWorldDay).toBe(89);
   });
 
+  it('bounds the ledger fan-out across the whole range, and reports when it truncated', async () => {
+    // A Convex query refuses to read more than 16,384 documents. Fanning MAX_LEDGER_LIMIT (500)
+    // over 90 world days asks for 45,000, so a wide inspect on a busy world used to THROW rather
+    // than answer. The budget is total across the range, and truncation is REPORTED — a partial
+    // refusal count is a different statement from a complete one.
+    const tables = emptyTables();
+    for (let worldDay = 0; worldDay < 3; worldDay += 1) {
+      for (let index = 0; index < 4_000; index += 1) {
+        tables.tokenBudgetLedger.push({
+          schemaVersion: 1, worldId: WORLD_ID, worldDay, decisionId: `d-${worldDay}-${index}`,
+          module: 'scene_simulation', requestedModel: 'writer', model: 'writer',
+          importance: 'standard', origin: 'scheduled_simulation', attempt: 1, countedAsRetry: false,
+          estimatedTokens: 4_000, onFastModel: false, outcome: 'over_budget', strategy: 'refuse',
+          strategyFallbackReason: null, routingReason: null, boundLimit: 'world_daily_tokens',
+          breachedLimits: ['world_daily_tokens'], observedTotalTokens: 0, observedRetryTokens: 0,
+          observedModuleTokens: 0, observedModelTokens: 0, observedInFlight: 0, policyVersion: null,
+          recordedAt: NOW, resolution: 'settled', settledTokens: 0, settledModel: null,
+        });
+      }
+    }
+
+    const result = await inspect._handler(memoryCtx(tables), {
+      ...VIEWER, worldId: WORLD_ID, fromWorldDay: 0, toWorldDay: 2,
+    }) as { ledgerScanLimitReached: boolean; report: { refusedByLimit: Record<string, number> } };
+
+    expect(result.ledgerScanLimitReached).toBe(true);
+    // It still answers, over the prefix it did read, rather than throwing.
+    expect(result.report.refusedByLimit.world_daily_tokens).toBe(8_000);
+  });
+
+  it('a range within the budget reports no truncation — the negative control', async () => {
+    const result = await inspect._handler(memoryCtx(emptyTables()), {
+      ...VIEWER, worldId: WORLD_ID, fromWorldDay: 0, toWorldDay: 2,
+    }) as { ledgerScanLimitReached: boolean };
+    expect(result.ledgerScanLimitReached).toBe(false);
+  });
+
   it('refuses a descending range rather than returning an empty report', async () => {
     await expect(inspect._handler(memoryCtx(emptyTables()), {
       ...VIEWER, worldId: WORLD_ID, fromWorldDay: 5, toWorldDay: 1,

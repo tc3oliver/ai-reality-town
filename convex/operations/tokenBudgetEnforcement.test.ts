@@ -40,6 +40,7 @@ import {
   type BudgetLedgerEntry,
   type TokenBudgetPolicy,
 } from '../shared/tokenBudget';
+import { InMemoryBudgetAccountant, runBudgetedAttempt } from '../simulation/sceneBudget';
 import { createLongRunFixture, type LongRunFixture } from './longRunHarness';
 
 const WORLD_ID = MISTWOOD_PUBLIC_WORLD_ID;
@@ -195,6 +196,34 @@ describe('AC#1 — the daily token limit stops a real world day', () => {
     }
     expect(perScene.size).toBeGreaterThan(0);
     expect([...perScene.values()].every((count) => count === 1)).toBe(true);
+  });
+
+  it('a cap that binds PARTWAY through a slot lets the earlier scenes through', async () => {
+    // Every other AC#1 test refuses the very first scene, which only exercises the all-or-nothing
+    // shape: a limit that refused everything and a limit that refused nothing would both produce
+    // "the slot failed". This sizes the cap so the day admits some scenes and then stops, which is
+    // the shape a real budget actually has.
+    const unbounded = createLongRunFixture(new CountingProvider());
+    await driveSlot(unbounded, slot(0, 'morning'));
+    const oneSceneCost = unbounded.budget.allCounters[0].totalTokens
+      / unbounded.observations.simulations.length;
+    expect(unbounded.observations.simulations.length).toBeGreaterThan(1);
+
+    // Room for the first scene's settled spend plus one more reservation, and no further.
+    const cap = Math.ceil(oneSceneCost) + 4_000;
+    const fixture = createLongRunFixture(new CountingProvider(), policyWith({ worldDailyTokenBudget: cap }));
+    await driveSlot(fixture, slot(0, 'morning'));
+
+    // Both outcomes present in ONE slot: this is the assertion the all-or-nothing tests cannot make.
+    expect(grants(fixture).length).toBeGreaterThan(0);
+    expect(refusals(fixture).length).toBeGreaterThan(0);
+    expect(refusals(fixture).every(({ boundLimit }) => boundLimit === 'world_daily_tokens')).toBe(true);
+    // The scenes that were granted really ran, and their spend is what closed the budget.
+    expect(fixture.budget.allCounters[0].totalTokens).toBeGreaterThan(0);
+    expect(fixture.budget.allCounters[0].totalTokens).toBeLessThanOrEqual(cap);
+    // The refusal is measured against a NON-zero observation — the earlier scenes' spend — rather
+    // than against an empty day, so the counter snapshot on the audit row is load-bearing here.
+    expect(refusals(fixture)[0].observedTotalTokens).toBeGreaterThan(0);
   });
 
   it('the world day rolls over: day 1 starts from a fresh budget', async () => {
@@ -467,14 +496,74 @@ describe('AC#3 — the resource report measures a real run', () => {
     expect(report.modelMeteringMismatchReason).toBeNull();
   });
 
+  it('AC#5 — the SETTLEMENT counts fast-model work, including the no-switch branch', async () => {
+    // `runBudgetedAttempt` builds the settlement, and the settlement is what feeds §16.3's
+    // numerator. The live pipeline only ever sends `standard` importance, so this drives
+    // `runBudgetedAttempt` directly — otherwise the one field AC#5's ratio is computed from has
+    // no coverage at all, and deriving it from `routingReason` again would go unnoticed.
+    const accountant = new InMemoryBudgetAccountant(
+      FAKE_SCENE_MODEL,
+      policyWith({ fastModelClass: FAKE_SCENE_MODEL }),
+    );
+    const base = {
+      worldId: WORLD_ID, worldDay: 0, module: 'scene_simulation' as const,
+      importance: 'low' as const, estimatedTokens: 100, attempt: 1,
+      origin: 'scheduled_simulation' as const,
+    };
+    const trace = {
+      provider: 'fake' as const, model: FAKE_SCENE_MODEL,
+      inputTokens: 40, outputTokens: 10, latencyMs: 1, retryCount: 0,
+    };
+
+    // The no-switch branch: the request ALREADY names the fast class, so nothing is re-routed.
+    await runBudgetedAttempt(accountant, {
+      request: { ...base, requestedModel: FAKE_SCENE_MODEL },
+      decisionId: 'already-fast',
+      run: () => Promise.resolve({ value: null, trace }),
+    });
+    // And the switching branch, for contrast.
+    await runBudgetedAttempt(accountant, {
+      request: { ...base, requestedModel: 'writer-large' },
+      decisionId: 'switched',
+      run: () => Promise.resolve({ value: null, trace }),
+    });
+
+    const [counters] = accountant.allCounters;
+    expect(counters.lowImportanceCalls).toBe(2);
+    // BOTH count. The no-switch call has `routingReason: null` and ran on the fast class all the
+    // same; counting only the switch would report a 50% share for a run in which every
+    // low-importance call was correctly on the fast model.
+    expect(counters.lowImportanceCallsOnFastModel).toBe(2);
+
+    const report = summarizeResourceUsage({
+      worldId: WORLD_ID,
+      policy: policyWith({ fastModelClass: FAKE_SCENE_MODEL }),
+      counters: accountant.allCounters,
+      ledger: accountant.ledger,
+    });
+    expect(report.fastModelRoutingShare).toBe(1);
+    expect(report.fastModelRoutingShareCompliant).toBe(true);
+  });
+
   it('AC#3 — no public-read or viewer file can reach the budget enforcement surface', () => {
     // §16.3's "公開訪客流量不增加 LLM 呼叫" measured as a PROOF rather than as a count of zero.
-    // `BUDGET_ORIGINS` declares no public-read origin (pinned in `tokenBudget.test.ts`), but
-    // `architecture/module-boundaries.json` does allow `publicRead -> shared`, so nothing in the
-    // dependency policy alone stops a public read module importing the accountant and reserving.
-    // This is the check that does: a public surface that could reserve could call a provider, and
-    // the honest zero above would stop being structural.
-    const forbidden = ['reserveTokenBudget', 'createConvexBudgetPort', 'tokenBudgetLedger',
+    //
+    // CORRECTED PREMISE. An earlier version of this comment claimed the dependency policy did not
+    // stop a public read module reaching the accountant. It does: `check-boundaries.mjs` rejects
+    // `publicRead -> simulation`, which is where the enforcement lives, and the reviewer confirmed
+    // that by injecting `createConvexBudgetPort` into `convex/publicRead/liveState.ts` and
+    // watching the boundary check refuse it.
+    //
+    // What the policy does NOT stop is `publicRead -> shared`, so a public read module may import
+    // `shared/tokenBudget`'s pure functions. Those cannot spend: they take counters and return
+    // decisions, and only the `simulation` binding turns a decision into a row. So this test is a
+    // DEFENCE IN DEPTH over the boundary check rather than the sole guard — it catches a spending
+    // symbol arriving in `publicRead` or `viewer` by a route the module graph would allow, and it
+    // fails loudly rather than relying on a second file's rule staying correct.
+    //
+    // Every symbol below is asserted to exist, because a guard entry naming nothing guards
+    // nothing — `reserveTokenBudget` was such an entry and never existed anywhere in the tree.
+    const forbidden = ['createConvexBudgetPort', 'tokenBudgetLedger',
       'tokenBudgetCounters', 'runBudgetedAttempt', 'InMemoryBudgetAccountant'];
     const offenders: string[] = [];
     for (const root of ['convex/publicRead', 'convex/viewer']) {
@@ -487,6 +576,15 @@ describe('AC#3 — the resource report measures a real run', () => {
       }
     }
     expect(offenders).toEqual([]);
+
+    // A forbidden-symbol list is only a guard if every symbol on it is real. Each one must occur
+    // somewhere under `convex/` OUTSIDE the two scanned roots, or it is guarding a typo.
+    const searched = ['convex/shared', 'convex/simulation', 'convex/operations']
+      .flatMap((root) => readdirSync(join(ROOT, root))
+        .filter((name) => name.endsWith('.ts'))
+        .map((name) => readFileSync(join(ROOT, root, name), 'utf8')))
+      .join('\n');
+    for (const symbol of forbidden) expect(searched).toContain(symbol);
   });
 
   it('AC#3 — refusals are attributed to the limit that caused them', async () => {
