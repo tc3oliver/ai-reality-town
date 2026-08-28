@@ -164,6 +164,13 @@ export interface PostCommitLivePort {
   generateRecap(worldId: string, request: RecapRequest): Promise<{ snapshotId: string; deduplicated: boolean }>;
   /** ART-33 episode row, carrying the safety classification decided at generation time. */
   loadEpisodeStatus(worldId: string, worldDay: number): Promise<{ status: string; safetyClassificationId: string | null; hasEpisode: boolean } | null>;
+  /**
+   * ART-36 / FR-G005 episode-derived share formats (idempotent per world day).
+   *
+   * Runs in the publication stage, AFTER the Episode's own publication record has been created:
+   * derived copy is an output of an Episode that already passed the gate, never an input to one.
+   */
+  generateShareFormats(worldId: string, worldDay: number): Promise<{ status: string; reasonCodes: string[] }>;
   /** ART-51 publication lifecycle. */
   createPublication(worldId: string, contentRef: string, summary: string | null): Promise<{ status: string }>;
   advancePublication(worldId: string, contentRef: string, action: 'validate' | 'begin_safety_review' | 'pass_safety_review' | 'withhold'): Promise<{ status: string }>;
@@ -445,6 +452,12 @@ export type SafetyArtifact = {
 export type PublicationArtifact = {
   contentRef: string | null;
   publicationStatus: string | null;
+  /**
+   * FR-G005. `null` when no Episode was assembled for this day. `blocked` is a NORMAL outcome,
+   * not a failure: it is what the gate returns when the copy or its source Episode was refused.
+   */
+  shareFormatStatus: string | null;
+  shareFormatReasonCodes: string[];
   reassessedArcIds: string[];
   modelRefs: string[];
 };
@@ -662,7 +675,10 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
       const arcs = artifact<ArcArtifact>(context, 'arc');
       let contentRef: string | null = null;
       let publicationStatus: string | null = null;
-      if (safety.episodeStatus !== null) {
+      let shareFormatStatus: string | null = null;
+      let shareFormatReasonCodes: string[] = [];
+      const hasEpisode = safety.episodeStatus !== null;
+      if (hasEpisode) {
         contentRef = episodeContentRef(context.worldId, safety.worldDay);
         publicationStatus = (await port.createPublication(context.worldId, contentRef, null)).status;
         const actions = safety.publishable
@@ -687,6 +703,30 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
       }
       modelRefs.push(await port.rebuildLiveProjection(context.worldId));
       modelRefs.push(await port.rebuildOnboardingSummary(context.worldId));
+      /**
+       * FR-G005 / ART-36 — DOWNSTREAM of the two safety-bearing rebuilds, for the reason stated
+       * below for ART-46 and again for ART-44.
+       *
+       * It shipped upstream of them, at the end of the publication block. That was wrong for the
+       * exact reason this handler already documents twice: the stage is not failure-isolated, so a
+       * throw anywhere in the share wiring aborts stage 19 and the withhold never reaches
+       * `live:<world>` or the onboarding summary. The wiring's own `try` does not cover its first
+       * two `.unique()` reads or its first insert, so the throw is reachable rather than
+       * hypothetical — outreach copy, the least critical artifact in the pipeline, could stop a
+       * safety decision from propagating.
+       *
+       * Still UNCONDITIONAL rather than gated on `safety.publishable`: the generator re-reads the
+       * Episode row and refuses a non-`ready` one itself, so running it on a withheld day records
+       * the REFUSAL — `blocked`, with its reason — where an operator can see it. Skipping the call
+       * would leave the day silently absent from the derived table, which reads identically to
+       * "not generated yet". It stays gated on an Episode existing at all, which is what
+       * `hasEpisode` preserves from the original placement.
+       */
+      if (hasEpisode) {
+        const share = await port.generateShareFormats(context.worldId, safety.worldDay);
+        shareFormatStatus = share.status;
+        shareFormatReasonCodes = share.reasonCodes;
+      }
       /**
        * FR-J002 / ART-46 — LAST, and deliberately so.
        *
@@ -737,7 +777,7 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
        * would republish identical payloads and dedup them, which is work with no result.
        */
       modelRefs.push(await port.rebuildRelationshipGraphProjection(context.worldId, context.worldDay));
-      return { contentRef, publicationStatus, reassessedArcIds, modelRefs };
+      return { contentRef, publicationStatus, shareFormatStatus, shareFormatReasonCodes, reassessedArcIds, modelRefs };
     },
 
     // Stage 20: the daily canon snapshot, taken once a world day is finished and is still

@@ -141,6 +141,7 @@ Run a single project with `npx jest --selectProjects a11y` (or `unit`).
 - **Accepted-event daily Episodes:** `docs/accepted-event-episodes.md`.
 - **Incremental recap pyramid:** `docs/incremental-recap-pyramid.md`.
 - **Recap coverage and spoiler validation:** `docs/recap-coverage-validation.md`.
+- **Episode-derived share formats (FR-G005):** `docs/episode-share-formats.md`.
 - **Mistwood production seed and public-world registry:** `docs/mistwood-seed.md`.
 - **World emergency stop and recovery:** `docs/world-emergency-stop.md`.
 - **Audited Canon correction workflows:** `docs/canon-correction-workflows.md`.

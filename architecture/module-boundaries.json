@@ -51,6 +51,16 @@
         "canon",
         "story",
         "safety",
+        "shared",
+        "derivedContent"
+      ]
+    },
+    "derivedContent": {
+      "roots": [
+        "convex/editorial/derived"
+      ],
+      "mayDependOn": [
+        "safety",
         "shared"
       ]
     },
@@ -106,6 +116,7 @@
         "knowledge",
         "story",
         "editorial",
+        "derivedContent",
         "publicRead",
         "safety",
         "observability",
@@ -614,7 +625,8 @@
     "forbiddenModules": [
       "visualRuntime",
       "clientPublic",
-      "clientWorldReadOnly"
+      "clientWorldReadOnly",
+      "derivedContent"
     ],
     "forbiddenSymbols": [
       "internalMutation",
