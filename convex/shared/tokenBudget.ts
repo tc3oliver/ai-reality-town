@@ -872,6 +872,66 @@ export function grantReservation(counters: BudgetCounters, decision: BudgetDecis
 }
 
 /**
+ * What the ledger already held for this decision id when a reservation is evaluated.
+ *
+ * Three states, because they need three different counter transitions and collapsing any two of
+ * them loses a provider call:
+ *
+ * - `none` — a first evaluation.
+ * - `refusal` — a refusal being re-evaluated. Already counted once in `refusedCalls`.
+ * - `resolved_grant` — a grant whose call already COMPLETED (settled or released). The new
+ *   evaluation describes a genuinely new provider call, so it is counted like a first one; the
+ *   earlier call's tokens stay booked, because they were really spent.
+ *
+ * A PENDING grant is absent from this list on purpose: it is never re-evaluated at all, it is
+ * replayed. See {@link isReplayableGrant}.
+ */
+export type PriorLedgerState = 'none' | 'refusal' | 'resolved_grant';
+
+/**
+ * Whether a stored decision may be handed back verbatim instead of re-evaluated.
+ *
+ * ONLY a grant that is still awaiting resolution. Both halves matter and the second was missing:
+ *
+ * - Not a refusal — a replayed refusal is permanent, and an operator retry could never clear it
+ *   (M2).
+ * - Not a RESOLVED grant — a settled or released row describes a call that already finished. The
+ *   caller is about to make a NEW provider call, and handing it the old grant gives it a
+ *   reservation that no longer exists: `settleReservation` then declines the settlement as
+ *   already-resolved, so the new call's tokens are spent and never booked. That is the one
+ *   outcome this whole subsystem exists to prevent, and it is silent — no ledger row, no counter
+ *   movement, nothing in the report.
+ *
+ * The property this restores: EVERY PROVIDER CALL IS METERED EXACTLY ONCE.
+ */
+export function isReplayableGrant(
+  prior: { outcome: BudgetDecision['outcome']; resolution: BudgetLedgerResolution['resolution'] },
+): boolean {
+  return prior.outcome === 'allowed' && prior.resolution === 'pending';
+}
+
+/**
+ * Apply an evaluated decision to the counters, given what the ledger already held.
+ *
+ * One function rather than a ternary duplicated across the two accountants, because the deployed
+ * port and the in-memory double must not drift: a transition implemented twice is a transition
+ * that can disagree, and only one of the two is what production runs.
+ */
+export function applyReservationDecision(
+  counters: BudgetCounters,
+  decision: BudgetDecision,
+  prior: PriorLedgerState,
+): BudgetCounters {
+  if (prior === 'refusal') return reevaluateRefusal(counters, decision);
+  // `none` and `resolved_grant` are the same transition: both describe a provider call that has
+  // not been counted yet. A resolved grant's earlier spend is already in `totalTokens` and stays
+  // there — the retry is an additional call, not a correction of the first.
+  return decision.outcome === 'allowed'
+    ? grantReservation(counters, decision)
+    : refuseReservation(counters);
+}
+
+/**
  * Move the counters when a PREVIOUSLY REFUSED decision is re-evaluated (M2).
  *
  * A budget refusal has to be re-evaluable, or an operator has no remedy: `decisionId` is derived

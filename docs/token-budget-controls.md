@@ -134,11 +134,13 @@ Settlement and release are **idempotent** on the decision id (`tokenBudgetLedger
 because a Convex mutation can be retried and a second settlement would book one provider call's
 tokens twice.
 
-Reservation is idempotent **asymmetrically**, and the asymmetry is the point:
+Reservation is idempotent **asymmetrically**, over three cases rather than two:
 
-- A **grant** is replayed verbatim. It holds a concurrency slot and a spend that must not be
-  double-booked, so a retried mutation must get the same answer.
+- A **pending grant** is replayed verbatim. It describes a call that is still in flight, and
+  re-granting would take a second concurrency slot for one provider call.
 - A **refusal** is re-evaluated, and its ledger row is replaced rather than appended to.
+- A **resolved grant** — settled or released — is also re-evaluated. Its call already finished, so
+  the caller asking again is about to make a **new** one.
 
 `decisionId` is derived from the scene (`${sceneId}:budget:attempt:${n}`), so it is identical
 across the original run and any later FR-K001 `run.retry`. Replaying refusals verbatim therefore
@@ -149,7 +151,34 @@ exactly what makes replaying only grants both sufficient and necessary.
 
 Replacing the row rather than appending keeps the counters reconcilable with the ledger:
 `refusedCalls` equals the number of `over_budget` rows. Appending would have made the §16.3
-availability metric a measure of how often an operator pressed retry.
+availability metric a measure of how often an operator pressed retry. The ledger therefore holds
+**one row per scene-attempt**, always describing its most recent decision and resolution; the
+cumulative call counts live on the counters, which is where they can exceed one.
+
+### The property: every provider call is metered exactly once
+
+The third case above is not a refinement — it closes a hole that spent real tokens. Replay was
+gated on the outcome but **not** on the resolution, so a settled grant was handed back verbatim.
+The caller believed it held a reservation, called the provider, and `settle` then declined as
+already-resolved. Measured end to end on the retry workflow this section documents as the operator
+remedy: four provider calls, three settlements, and the day's cap exceeded by the full cost of
+every already-succeeded scene — **silently**, with nothing in the ledger, the counters or the
+report to show it.
+
+`isReplayableGrant` is the single predicate both accountants use, and `applyReservationDecision`
+the single counter transition, so the deployed port and the in-memory double cannot answer this
+differently. Replay and settlement have to agree on what "already resolved" means: declining a
+duplicate settlement is only safe if the caller could not have been handed a stale reservation to
+settle against, or the failure simply inverts.
+
+**Consequence, stated rather than hidden.** A retried slot re-authors and re-spends scenes that
+already succeeded in the failed run. That spend is now metered and visible instead of silent, which
+is the property this task owes. Avoiding it entirely means skipping scenes already persisted —
+`persistValidatedSceneSimulation` is already idempotent and `getSceneSimulationForOperations`
+already reads a stored result back, so the pieces exist — but that is a change to the world-day
+stage's resume semantics (ART-97), not to the accountant, and it would not remove the need for
+this fix: the property has to hold at the accountant rather than depend on every caller being
+careful.
 
 ## 5. §16.3: what is enforced and what is measured
 

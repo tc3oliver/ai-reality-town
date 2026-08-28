@@ -322,6 +322,54 @@ describe('a GRANT is replayed verbatim; a REFUSAL is re-evaluated (M2)', () => {
     expect(await counters(tables)).toMatchObject({ grantedCalls: 1, inFlight: 1 });
   });
 
+  it('a SETTLED grant is re-evaluated, so the retry\'s call is metered instead of spent silently', async () => {
+    // The stale-grant hazard, on the deployed port. Replay was gated on `outcome` but not on
+    // `resolution`, so a settled grant was handed back verbatim: the caller believed it held a
+    // reservation, called the provider, and `settle` then no-opped via `resolvablePending`. The
+    // tokens were spent and never booked — no row, no counter, nothing in the report.
+    const tables = emptyTables();
+    const port = portFor(tables);
+    await port.reserve(request(), 'd-1');
+    await port.settle(request(), 'd-1', settlement({ tokens: 1_200 }));
+
+    const again = await port.reserve(request(), 'd-1');
+    expect(again.outcome).toBe('allowed');
+    // Pending again, so the NEXT settlement is accepted rather than declined as already-resolved.
+    expect((await ledger(tables))[0]).toMatchObject({ resolution: 'pending', settledTokens: null });
+
+    await port.settle(request(), 'd-1', settlement({ tokens: 900 }));
+
+    const after = await counters(tables);
+    // Two calls, two grants, two settlements, both spends booked. THE property.
+    expect(after).toMatchObject({ grantedCalls: 2, settledCalls: 2, totalTokens: 2_100, inFlight: 0 });
+    expect(tables.tokenBudgetLedger).toHaveLength(1);
+  });
+
+  it('a RELEASED grant is re-evaluated too: the retry after a provider failure is a new call', async () => {
+    const tables = emptyTables();
+    const port = portFor(tables);
+    await port.reserve(request(), 'd-1');
+    await port.release(request(), 'd-1');
+
+    const again = await port.reserve(request(), 'd-1');
+    expect(again.outcome).toBe('allowed');
+    await port.settle(request(), 'd-1', settlement({ tokens: 900 }));
+
+    // The released call booked nothing; the retried one books its own spend.
+    expect(await counters(tables)).toMatchObject({ grantedCalls: 2, settledCalls: 1, totalTokens: 900 });
+  });
+
+  it('a PENDING grant is still replayed verbatim, so one in-flight call holds one slot', async () => {
+    // The narrower situation replay is actually for: a Convex mutation retried MID-FLIGHT.
+    const tables = emptyTables();
+    const port = portFor(tables);
+    const first = await port.reserve(request(), 'd-1');
+    const replay = await port.reserve(request({ estimatedTokens: 999_999 }), 'd-1');
+
+    expect(replay).toEqual(first);
+    expect(await counters(tables)).toMatchObject({ grantedCalls: 1, inFlight: 1 });
+  });
+
   it('a refusal does NOT become permanent: raising the cap lets the same decision id through', async () => {
     // The operator remedy. `decisionId` is derived from the scene, so an FR-K001 `run.retry`
     // re-drives the slot with the SAME id; replaying the stored refusal made the refusal
@@ -351,6 +399,35 @@ describe('a GRANT is replayed verbatim; a REFUSAL is re-evaluated (M2)', () => {
     const after = await counters(tables);
     expect(after.refusedCalls).toBe(1);
     expect(after.refusedCalls).toBe((await ledger(tables)).filter((row) => row.outcome === 'over_budget').length);
+  });
+
+  it('re-evaluating a resolved GRANT leaves an unrelated refusal in the tally', async () => {
+    // The two prior states need different counter transitions, and this is the case that tells
+    // them apart. `reevaluateRefusal` drops one from `refusedCalls` because the row it replaced
+    // stopped saying `over_budget`; applying that to a resolved GRANT would decrement a tally
+    // that no row of its own contributed to, silently erasing an unrelated refusal.
+    //
+    // Invisible when the world has no refusals — the tally floors at 0 — so the fixture below
+    // deliberately banks one first.
+    const tables = emptyTables();
+    seedPolicy(tables, { worldDailyTokenBudget: 1_000 });
+    await portFor(tables).reserve(request(), 'd-refused');
+    expect((await counters(tables)).refusedCalls).toBe(1);
+
+    tables.tokenBudgetPolicies[0].worldDailyTokenBudget = 100_000;
+    const port = portFor(tables);
+    await port.reserve(request(), 'd-grant');
+    await port.settle(request(), 'd-grant', settlement());
+
+    // The retry: a resolved grant re-evaluated, with an unrelated refusal on the books.
+    await portFor(tables).reserve(request(), 'd-grant');
+
+    const after = await counters(tables);
+    expect(after.refusedCalls).toBe(1);
+    // The invariant M2 rests on: the tally equals the number of `over_budget` rows.
+    expect(after.refusedCalls)
+      .toBe((await ledger(tables)).filter((row) => row.outcome === 'over_budget').length);
+    expect(after.grantedCalls).toBe(2);
   });
 
   it('a refusal that becomes a grant drops out of the refusal tally, matching the row it replaced', async () => {

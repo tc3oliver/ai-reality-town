@@ -34,9 +34,8 @@ import {
   buildBudgetLedgerEntry,
   emptyBudgetCounters,
   evaluateReservation,
-  grantReservation,
-  reevaluateRefusal,
-  refuseReservation,
+  applyReservationDecision,
+  isReplayableGrant,
   releaseReservation,
   settleReservation,
   TOKEN_BUDGET_POLICY_DEFAULTS,
@@ -71,9 +70,14 @@ export interface SceneBudgetGate {
    * Book the real spend of a granted reservation and free its concurrency slot.
    *
    * Takes the SAME `decisionId` the grant was recorded under, so the settlement can be made
-   * idempotent against it. A Convex mutation can be retried, and a settlement that could not
-   * recognise its own second run would book one provider call's tokens against the day twice —
-   * the duplicate counting this task's Security Impact names.
+   * idempotent against it: a Convex mutation retried mid-flight would otherwise book one provider
+   * call's tokens against the day twice.
+   *
+   * That idempotency has a sharp edge, and it is why {@link isReplayableGrant} exists. Declining
+   * an already-resolved settlement is only safe if the caller could not have been given a stale
+   * reservation to settle against — otherwise the failure inverts: a SECOND provider call runs,
+   * its settlement is declined as a duplicate, and its spend is dropped. Replay and settlement
+   * have to agree on what "already resolved" means, or one of them silently loses a call.
    */
   settle(request: BudgetReservationRequest, decisionId: string, settlement: BudgetSettlement): Promise<void>;
   /**
@@ -253,12 +257,14 @@ export class InMemoryBudgetAccountant implements WorldDayBudgetPort {
 
   reserve(request: BudgetReservationRequest, decisionId: string): Promise<BudgetDecision> {
     const existing = this.entries.get(decisionId);
-    // The SAME asymmetry `createConvexBudgetPort` applies, and it has to be the same or this
-    // double would stop being evidence about the deployed path: replay a GRANT verbatim (it holds
-    // a concurrency slot and a spend that must not be double-booked), re-evaluate a REFUSAL (it
-    // booked nothing, and a permanently-replayed refusal cannot be cleared by an operator retry
-    // or by raising the cap).
-    if (existing && existing.outcome === 'allowed') {
+    // The SAME rule `createConvexBudgetPort` applies, through the SAME pure predicate — it has to
+    // be, or this double stops being evidence about the deployed path. `this.resolved` is exactly
+    // the stored row's `resolution !== 'pending'`: refusals join it at reserve, grants at settle
+    // or release.
+    const priorResolution = existing === undefined
+      ? 'pending'
+      : this.resolved.has(decisionId) ? 'settled' as const : 'pending' as const;
+    if (existing && isReplayableGrant({ outcome: existing.outcome, resolution: priorResolution })) {
       return Promise.resolve({
         schemaVersion: 1,
         outcome: existing.outcome,
@@ -293,13 +299,12 @@ export class InMemoryBudgetAccountant implements WorldDayBudgetPort {
     this.entries.set(decisionId, buildBudgetLedgerEntry({
       request, decision, decisionId, policyVersion: this.policyVersion, recordedAt: this.sequence,
     }));
+    // A fresh grant is pending again; a refusal is born resolved because it granted nothing.
     if (decision.outcome === 'allowed') this.resolved.delete(decisionId);
     else this.resolved.add(decisionId);
-    this.put(existing
-      ? reevaluateRefusal(counters, decision)
-      : decision.outcome === 'allowed'
-        ? grantReservation(counters, decision)
-        : refuseReservation(counters));
+    this.put(applyReservationDecision(counters, decision, existing === undefined
+      ? 'none'
+      : existing.outcome === 'over_budget' ? 'refusal' : 'resolved_grant'));
     return Promise.resolve(decision);
   }
 

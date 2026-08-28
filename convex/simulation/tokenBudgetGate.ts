@@ -37,9 +37,8 @@ import {
   buildBudgetLedgerEntry,
   emptyBudgetCounters,
   evaluateReservation,
-  grantReservation,
-  reevaluateRefusal,
-  refuseReservation,
+  applyReservationDecision,
+  isReplayableGrant,
   releaseReservation,
   resolveEffectiveTokenBudgetPolicy,
   settleReservation,
@@ -271,19 +270,26 @@ export function createConvexBudgetPort(
         .query('tokenBudgetLedger')
         .withIndex('by_decision_id', (q) => q.eq('decisionId', decisionId))
         .unique();
+      // Projected once, so `outcome` and `resolution` are the pure model's narrowed unions rather
+      // than the schema's `v.string()`. Both are decided by the pure model, so both are read
+      // through its own projection rather than re-narrowed by hand here.
+      const prior = existing === null ? null : toLedgerEntry(existing);
 
-      // A GRANT is replayed verbatim, and only a grant. A Convex mutation can be retried, and a
-      // re-run that re-granted would take a second concurrency slot and let the same provider
-      // call be settled twice — the "resist duplicate counting" this task's Security Impact
-      // names.
+      // Replay ONLY a grant that is still pending. `decisionId` is derived from the scene, so the
+      // same id recurs across the original run and any later operator `run.retry`, and the three
+      // cases need three different answers:
       //
-      // A REFUSAL is deliberately NOT replayed. `decisionId` is derived from the scene, so it is
-      // identical across the original run and any later operator `run.retry`; replaying the
-      // refusal made it permanent, and neither retrying the slot nor raising the cap could clear
-      // it, because the re-run never reached an evaluation at all. A refusal booked no spend and
-      // holds no slot, so re-evaluating it is safe — which is exactly the asymmetry that makes
-      // replaying only grants both sufficient and necessary.
-      if (existing && existing.outcome === 'allowed') return replayDecision(existing);
+      // - PENDING GRANT — replay verbatim. A Convex mutation can be retried mid-flight, and
+      //   re-granting would take a second concurrency slot for one in-flight provider call.
+      // - REFUSAL — re-evaluate. Replaying it made the refusal permanent, so neither retrying the
+      //   slot nor raising the cap could clear it (M2). It booked no spend and holds no slot.
+      // - RESOLVED GRANT — re-evaluate. This is the case that made the retry path spend unmetered
+      //   tokens. The row describes a call that already COMPLETED; the caller asking again is
+      //   about to make a NEW provider call. Handing back the old grant gave it a reservation that
+      //   no longer existed, and `settle` then declined as already-resolved — so the call happened
+      //   and its tokens were never booked. Silently: no row, no counter, nothing in the report.
+      //   Re-evaluating counts it like the new call it is.
+      if (existing && prior && isReplayableGrant(prior)) return replayDecision(existing);
 
       const policy = await resolveTokenBudgetPolicy(db, request.worldId);
       // ART-52 owns the per-module cap. Read from there, never copied into the policy row.
@@ -316,18 +322,18 @@ export function createConvexBudgetPort(
       };
 
       if (existing) {
-        // Re-evaluating a refusal REPLACES its row rather than appending a second one, so
-        // `refusedCalls` keeps equalling the number of `over_budget` rows instead of counting how
-        // many times an operator pressed retry.
+        // The row is REPLACED rather than appended beside, so `refusedCalls` keeps equalling the
+        // number of `over_budget` rows instead of counting how many times an operator pressed
+        // retry. One row per scene-attempt, always describing its most recent decision; the
+        // cumulative call counts live in the counters, which is where they can exceed 1.
         await db.patch(existing._id, row);
-        await writeCounters(db, reevaluateRefusal(counters, decision));
+        await writeCounters(db, applyReservationDecision(counters, decision,
+          prior?.outcome === 'over_budget' ? 'refusal' : 'resolved_grant'));
         return decision;
       }
 
       await db.insert('tokenBudgetLedger', row);
-      await writeCounters(db, granted
-        ? grantReservation(counters, decision)
-        : refuseReservation(counters));
+      await writeCounters(db, applyReservationDecision(counters, decision, 'none'));
       return decision;
     },
 

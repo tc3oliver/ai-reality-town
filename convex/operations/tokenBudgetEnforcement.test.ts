@@ -226,6 +226,46 @@ describe('AC#1 — the daily token limit stops a real world day', () => {
     expect(refusals(fixture)[0].observedTotalTokens).toBeGreaterThan(0);
   });
 
+  it('every provider call is metered exactly once, across an operator retry', async () => {
+    // THE property, over the exact workflow the M2 fix endorses: a cap binds mid-slot, the
+    // operator raises it, the slot is retried with the same deterministic run id.
+    //
+    // Asserting calls == settlements is deliberately stronger than counting either side alone. A
+    // stale grant replayed to the retry gave the caller a reservation that no longer existed, so
+    // the provider ran and `settle` then declined as already-resolved: calls went up, settlements
+    // did not, and the difference was spent silently — nothing in the ledger, the counters or the
+    // report showed it.
+    const probe = createLongRunFixture(new CountingProvider());
+    await driveSlot(probe, slot(0, 'morning'));
+    const oneSceneCost = probe.budget.allCounters[0].totalTokens
+      / probe.observations.simulations.length;
+    expect(probe.observations.simulations.length).toBeGreaterThan(1);
+
+    // Held by reference and mutated below, the way an operator raising the cap would.
+    const policy = policyWith({ worldDailyTokenBudget: Math.ceil(oneSceneCost) + 4_000 });
+    const provider = new CountingProvider();
+    const fixture = createLongRunFixture(provider, policy);
+
+    const first = await driveSlot(fixture, slot(0, 'morning'));
+    expect(first.status).toBe('failed');
+    expect(first.errorCode).toBe('SCENE_BUDGET_REFUSED');
+
+    policy.worldDailyTokenBudget = 1_000_000;
+    const retry = await driveSlot(fixture, slot(0, 'morning'));
+    expect(retry.status).toBe('completed');
+
+    const counters = fixture.budget.allCounters[0];
+    // A non-empty sample, and one that really spans two runs.
+    expect(provider.calls).toBeGreaterThan(probe.observations.simulations.length);
+    expect(counters.settledCalls).toBe(provider.calls);
+    expect(counters.grantedCalls).toBe(provider.calls);
+    // And the tokens: every one the provider reported is on the counters. `observations` records
+    // one entry per SUCCESSFUL simulation, so its total is what was actually spent.
+    const providerTokens = fixture.observations.simulations
+      .reduce((total, { trace }) => total + trace.inputTokens + trace.outputTokens, 0);
+    expect(counters.totalTokens).toBe(providerTokens);
+  });
+
   it('the world day rolls over: day 1 starts from a fresh budget', async () => {
     // Sized so one world day fits and the second is measured independently rather than against
     // the first day's accumulated spend.
@@ -386,22 +426,63 @@ describe('AC#2 — the decision is audited, and the audit is deterministic', () 
     expect(first.length).toBeGreaterThan(2);
   });
 
-  it('re-reserving the same decision id returns the stored decision and books nothing twice', async () => {
-    // Idempotency: a retried Convex mutation re-runs the whole attempt, and a second evaluation
-    // could flip a refusal into a grant simply because the counters moved.
+  it('a PENDING grant is replayed verbatim, so an in-flight call keeps one slot', async () => {
+    // Idempotency for the case it is actually for: a Convex mutation retried MID-FLIGHT, before
+    // the call it granted has settled. Re-granting there would take a second concurrency slot for
+    // one in-flight provider call.
+    const fixture = createLongRunFixture(new CountingProvider(), policyWith({ worldDailyTokenBudget: 200_000 }));
+    const reservation = {
+      worldId: WORLD_ID, worldDay: 0, module: 'scene_simulation' as const,
+      requestedModel: FAKE_SCENE_MODEL, importance: 'standard' as const,
+      estimatedTokens: 4_000, attempt: 1, origin: 'scheduled_simulation' as const,
+    };
+    const first = await fixture.budget.reserve(reservation, 'pending-grant');
+    // Deliberately NOT settled: the reservation is still outstanding.
+    const replay = await fixture.budget.reserve({ ...reservation, estimatedTokens: 999_999 }, 'pending-grant');
+
+    expect(replay).toEqual(first);
+    expect(fixture.budget.ledger).toHaveLength(1);
+    expect(fixture.budget.allCounters[0]).toMatchObject({ grantedCalls: 1, inFlight: 1 });
+  });
+
+  it('a RESOLVED grant is re-evaluated, because the next call is a NEW call', async () => {
+    // The stale-grant hazard. A settled row describes a call that already finished; replaying it
+    // would hand the caller a reservation that no longer exists, and `settle` would then decline
+    // as already-resolved — so the new call's tokens would be spent and never booked.
     const fixture = createLongRunFixture(new CountingProvider(), policyWith({ worldDailyTokenBudget: 200_000 }));
     await driveSlot(fixture, slot(0, 'morning'));
-    const before = fixture.budget.ledger.length;
-    const granted = grants(fixture)[0];
+    const settledGrant = grants(fixture)[0];
+    const before = fixture.budget.allCounters[0];
 
-    const replay = await fixture.budget.reserve({
+    const again = await fixture.budget.reserve({
+      worldId: WORLD_ID, worldDay: 0, module: 'scene_simulation', requestedModel: FAKE_SCENE_MODEL,
+      importance: 'standard', estimatedTokens: 4_000, attempt: 1, origin: 'scheduled_simulation',
+    }, settledGrant.decisionId);
+
+    // Re-evaluated against the CURRENT counters, and granted as the new call it is.
+    expect(again.outcome).toBe('allowed');
+    expect(again.observed.totalTokens).toBe(before.totalTokens);
+    expect(fixture.budget.allCounters[0].grantedCalls).toBe(before.grantedCalls + 1);
+    // Still one row per scene-attempt; the cumulative call count lives on the counters.
+    expect(fixture.budget.ledger.filter(({ decisionId }) => decisionId === settledGrant.decisionId))
+      .toHaveLength(1);
+    // The first call's spend stays booked — it was really spent, and this is an additional call
+    // rather than a correction of it.
+    expect(fixture.budget.allCounters[0].totalTokens).toBe(before.totalTokens);
+  });
+
+  it('a resolved grant that is now over budget is refused, not silently replayed as allowed', async () => {
+    const fixture = createLongRunFixture(new CountingProvider(), policyWith({ worldDailyTokenBudget: 200_000 }));
+    await driveSlot(fixture, slot(0, 'morning'));
+    const settledGrant = grants(fixture)[0];
+
+    const again = await fixture.budget.reserve({
       worldId: WORLD_ID, worldDay: 0, module: 'scene_simulation', requestedModel: FAKE_SCENE_MODEL,
       importance: 'standard', estimatedTokens: 999_999, attempt: 1, origin: 'scheduled_simulation',
-    }, granted.decisionId);
+    }, settledGrant.decisionId);
 
-    expect(replay.outcome).toBe(granted.outcome);
-    expect(replay.estimatedTokens).toBe(granted.estimatedTokens);
-    expect(fixture.budget.ledger).toHaveLength(before);
+    expect(again.outcome).toBe('over_budget');
+    expect(again.boundLimit).toBe('world_daily_tokens');
   });
 });
 
