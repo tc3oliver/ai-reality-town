@@ -34,7 +34,9 @@ import {
   evaluateReservation,
   grantReservation,
   hashTokenBudgetPolicy,
+  classifyPriorLedgerState,
   isModelMeteringMismatch,
+  isReplayableGrant,
   refuseReservation,
   releaseReservation,
   resolveEffectiveTokenBudgetPolicy,
@@ -979,5 +981,39 @@ describe('AC#3 — availability under refusal, and daily cap compliance', () => 
     });
     expect(result.dailyCapCompliant).toBeNull();
     expect(result.dailyCapReason).toBe(EMPTY_SAMPLE_REASONS.dailyCap);
+  });
+});
+
+describe('the replay predicate — both halves falsifiable', () => {
+  /**
+   * `isReplayableGrant` is `outcome === 'allowed' && resolution === 'pending'`, and until this
+   * test only the second half was pinned: dropping the outcome check caused zero failures,
+   * because a refusal is born `resolved` in both accountants and so never reaches the replay
+   * branch anyway.
+   *
+   * That makes the first half real defence-in-depth with nothing holding it — if a refusal were
+   * ever made `pending` (a plausible future change, since a re-evaluated refusal is conceptually
+   * unresolved), the outcome check is the only thing that would still stop M2's fix regressing
+   * into "an over-budget refusal is permanent". So it is asserted directly rather than left to be
+   * true by an accident of how refusals happen to be recorded today.
+   */
+  test('a refusal is never replayed, even with its resolution forced to pending', () => {
+    expect(isReplayableGrant({ outcome: 'over_budget', resolution: 'pending' })).toBe(false);
+    expect(isReplayableGrant({ outcome: 'over_budget', resolution: 'settled' })).toBe(false);
+  });
+
+  test('only a grant that is still pending is replayed', () => {
+    expect(isReplayableGrant({ outcome: 'allowed', resolution: 'pending' })).toBe(true);
+    expect(isReplayableGrant({ outcome: 'allowed', resolution: 'settled' })).toBe(false);
+    expect(isReplayableGrant({ outcome: 'allowed', resolution: 'released' })).toBe(false);
+  });
+
+  test('the prior-state classifier answers the same way for both accountants', () => {
+    // The tag used to be a ternary written once per accountant, and only the port's copy was
+    // covered. One function means the double cannot classify differently from production.
+    expect(classifyPriorLedgerState(undefined)).toBe('none');
+    expect(classifyPriorLedgerState(null)).toBe('none');
+    expect(classifyPriorLedgerState({ outcome: 'over_budget' })).toBe('refusal');
+    expect(classifyPriorLedgerState({ outcome: 'allowed' })).toBe('resolved_grant');
   });
 });

@@ -874,8 +874,18 @@ export function grantReservation(counters: BudgetCounters, decision: BudgetDecis
 /**
  * What the ledger already held for this decision id when a reservation is evaluated.
  *
- * Three states, because they need three different counter transitions and collapsing any two of
- * them loses a provider call:
+ * Three states, but only TWO counter transitions — `none` and `resolved_grant` share one, as
+ * {@link applyReservationDecision} says at the point it applies them. The states are still three
+ * because the REPLAY decision distinguishes all three even where the counter movement does not:
+ * a pending grant is replayed, and the other two are re-evaluated.
+ *
+ * Collapsing `none` into `resolved_grant` is what the implementation already does and costs
+ * nothing. Collapsing `refusal` into either corrupts `refusedCalls` — it would count a refusal
+ * twice, or drop one that is still on the books — which makes the §16.3 availability figure a
+ * measure of how often someone pressed retry rather than of how often the world was refused.
+ *
+ * An earlier version of this docblock claimed three transitions and that collapsing any two
+ * "loses a provider call". Both were wrong, and the function three lines below said so.
  *
  * - `none` — a first evaluation.
  * - `refusal` — a refusal being re-evaluated. Already counted once in `refusedCalls`.
@@ -917,6 +927,26 @@ export function isReplayableGrant(
  * port and the in-memory double must not drift: a transition implemented twice is a transition
  * that can disagree, and only one of the two is what production runs.
  */
+/**
+ * Classify a stored decision so both accountants tag it the same way.
+ *
+ * The tag used to be a ternary written at each call site — once in `createConvexBudgetPort` and
+ * once in `InMemoryBudgetAccountant`. They agreed, but only the port's copy was covered: forcing
+ * the double to pass `'none'` unconditionally failed nothing, while the same injection against
+ * the port failed two tests. A drifted double would not touch production, but it would inflate
+ * the harness's `refusedCalls` while the ledger disagreed — and `longRunHarness` reports that as
+ * a §16.3 availability figure.
+ *
+ * Sharing the predicate makes that drift INEXPRESSIBLE rather than merely tested, which is the
+ * same reason {@link isReplayableGrant} is shared.
+ */
+export function classifyPriorLedgerState(
+  prior: { outcome: BudgetDecision['outcome'] } | null | undefined,
+): PriorLedgerState {
+  if (prior === null || prior === undefined) return 'none';
+  return prior.outcome === 'over_budget' ? 'refusal' : 'resolved_grant';
+}
+
 export function applyReservationDecision(
   counters: BudgetCounters,
   decision: BudgetDecision,

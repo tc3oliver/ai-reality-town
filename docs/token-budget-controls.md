@@ -146,8 +146,12 @@ Reservation is idempotent **asymmetrically**, over three cases rather than two:
 across the original run and any later FR-K001 `run.retry`. Replaying refusals verbatim therefore
 made an over-budget refusal **permanent**: re-driving the slot produced no new ledger row at all
 and the same refusal, so neither the documented operator remedy nor raising the cap could clear it.
-Re-evaluating is safe precisely because a refusal booked no spend and holds no slot — which is
-exactly what makes replaying only grants both sufficient and necessary.
+Re-evaluating is safe precisely because a refusal booked no spend and holds no slot.
+
+Replaying only *grants* was necessary but **not sufficient**, which is what the three-case list
+above records: a grant whose call had already resolved was still replayed verbatim, so the caller
+believed it held a reservation, called the provider again, and the settlement no-opped. The rule
+is replay only a grant that is still **pending**.
 
 Replacing the row rather than appending keeps the counters reconcilable with the ledger:
 `refusedCalls` equals the number of `over_budget` rows. Appending would have made the §16.3

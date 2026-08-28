@@ -35,6 +35,7 @@ import {
   emptyBudgetCounters,
   evaluateReservation,
   applyReservationDecision,
+  classifyPriorLedgerState,
   isReplayableGrant,
   releaseReservation,
   settleReservation,
@@ -302,9 +303,7 @@ export class InMemoryBudgetAccountant implements WorldDayBudgetPort {
     // A fresh grant is pending again; a refusal is born resolved because it granted nothing.
     if (decision.outcome === 'allowed') this.resolved.delete(decisionId);
     else this.resolved.add(decisionId);
-    this.put(applyReservationDecision(counters, decision, existing === undefined
-      ? 'none'
-      : existing.outcome === 'over_budget' ? 'refusal' : 'resolved_grant'));
+    this.put(applyReservationDecision(counters, decision, classifyPriorLedgerState(existing)));
     return Promise.resolve(decision);
   }
 
