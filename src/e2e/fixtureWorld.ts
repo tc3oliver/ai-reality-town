@@ -356,6 +356,42 @@ export function fixtureReadModel(modelRef: string): { payload: unknown } | null 
       },
     };
   }
+  if (modelRef === `episodes:${FIXTURE_WORLD_ID}`) {
+    /**
+     * The published Episode Index (FR-I004), which the return recap (FR-H004 / ART-39) reads for
+     * three separate things: the episodes a returning viewer missed, the world's followable
+     * character and arc vocabulary, and the latest world day — which is what names the
+     * `voteConsequence:` model the recap then asks for.
+     *
+     * The last episode sits on `FIXTURE_WORLD_DAY` on purpose, so that derived key is exactly the
+     * one the branch above already answers. A fixture whose latest day disagreed would send the
+     * recap at a `modelRef` nothing handles, and `fixtureReadModel` returning null there would
+     * silently degrade the vote section rather than fail — the quieter half of the ART-146 shape.
+     *
+     * Ids are DERIVED, per ART-107 §8: characters from the production visual roster, arcs from
+     * the same two the fixture's scenes and live projection already use.
+     */
+    const arcIds = ['arc-mill', 'arc-truce'];
+    const episodes = [3, 5, FIXTURE_WORLD_DAY].map((worldDay, index) => ({
+      worldDay,
+      episodeNumber: index + 1,
+      title: `第 ${index + 1} 集`,
+      headline: index === 2 ? '眾人見證休戰簽署。' : '磨坊之爭持續升溫。',
+      arcIds: index === 2 ? ['arc-truce'] : ['arc-mill'],
+      characterIds: [FIXTURE_CHARACTER_IDS[index], FIXTURE_CHARACTER_IDS[index + 1]],
+      isRecommendedEntry: index === 1,
+      isTurningPoint: index === 2,
+    }));
+    return {
+      payload: {
+        schemaVersion: 1,
+        worldId: FIXTURE_WORLD_ID,
+        episodes,
+        arcIds,
+        characterIds: [...FIXTURE_CHARACTER_IDS],
+      },
+    };
+  }
   if (modelRef.startsWith('character:')) {
     const characterId = modelRef.slice('character:'.length);
     const visual = MISTWOOD_CHARACTER_VISUALS.find((c) => c.characterId === characterId);

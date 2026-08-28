@@ -502,6 +502,61 @@ test.describe('the homepage first screen (FR-P001 / ART-129)', () => {
 });
 
 /**
+ * The device-aware return recap (FR-H004 / ART-39).
+ *
+ * One criterion, and it is the one no unit test can settle: opening this page must perform ZERO
+ * writes. `#recap/<worldId>` is the only public route that CAN write — it holds the follow
+ * controls and the spoiler selector — and a page that quietly recorded a visit on mount would
+ * look identical in the source to one that does not. Only a run that loads the page and then
+ * asks what the transport was asked to do can tell them apart.
+ *
+ * The route is separate from the homepage on purpose, and the assertion above is why: the
+ * homepage's query set is pinned exhaustively, so mounting the recap there would have made
+ * ART-127 / ART-137's evidence about a surface that also writes.
+ */
+test.describe('the return recap performs no write on load (FR-H004 / ART-39)', () => {
+  const RECAP = `${BASE}/#recap/${WORLD}`;
+
+  test('opening the recap reads published models and this device row, and writes nothing', async ({ page }) => {
+    const network = watchNetwork(page);
+    await page.goto(RECAP);
+    await expect(page.locator('.recap-highlights')).toBeVisible();
+    // Long enough for any mount effect to have fired. A write that happens on a timer would
+    // otherwise land after the assertion.
+    await page.waitForTimeout(1_500);
+
+    const recorded = await recorder(page);
+    // The transport RECORDS and throws on any non-query call, so this is not merely "no write was
+    // observed" -- a write would have taken the page down before `.recap-highlights` appeared.
+    expect(recorded.writes).toEqual([]);
+    // Named exhaustively, like the homepage's. `getViewerProgress` is a per-viewer READ; the
+    // write a follow control performs is a mutation and would land in `recorded.writes`.
+    expect([...new Set(recorded.queries)].sort()).toEqual([
+      'publicRead/readModelFunctions:getPublishedReadModel',
+      'viewer/viewerProgressFunctions:getViewerProgress',
+    ]);
+    expect(network.writes).toEqual([]);
+    expect(network.offSite).toEqual([]);
+  });
+
+  test('a device with no recorded progress still gets a usable first-visit page', async ({ page }) => {
+    // Retitled from "the recap is bounded (AC#1)", which it did not prove: the fixture timeline
+    // holds ONE entry, so `count() <= 5` was satisfied by arithmetic rather than by the cap. AC#1's
+    // boundedness is settled in `src/components/recap/returnRecap.test.ts`, where a 30-day absence
+    // can actually be constructed; what only a browser can settle is that the first-visit state --
+    // which is what every E2E run's device genuinely is, since the fixture answers
+    // `getViewerProgress` with `null` -- renders as a page rather than an error.
+    await page.goto(RECAP);
+    await expect(page.locator('.recap-continue')).toBeVisible();
+    await expect(page.locator('.recap-continue a')).toHaveCount(1);
+    await expect(page.locator('.recap-following')).toBeVisible();
+    // The honest statement about where progress lives is on screen, not merely in a constant.
+    await expect(page.locator('.recap-following')).toContainText('清除瀏覽器資料後就會失效');
+    await expect(page.locator('.recap-following')).not.toContainText('只存在這個裝置');
+  });
+});
+
+/**
  * The degradation ladder in a real browser (FR-O010 / ART-127).
  *
  * The rung that matters most here is the STATIC MAP, and it is the one no unit test can reach

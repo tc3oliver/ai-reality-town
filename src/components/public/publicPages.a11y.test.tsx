@@ -26,6 +26,13 @@ import { EpisodeListView } from './EpisodeList';
 import { HelpView } from './HelpPage';
 import { HomepageView } from './Homepage';
 import { LiveViewBody } from './LiveView';
+import { PublicPageFrame } from './PublicPageFrame';
+import { ReturnRecapView } from '../recap/ReturnRecapView';
+import {
+  composeReturnRecapViewModel,
+  LOADING_STATUS,
+  VOTE_UNAVAILABLE_NOTE,
+} from '../recap/returnRecap';
 import { composeArcViewModel } from './arcRoute';
 import { composeCharacterViewModel } from './characterRoute';
 import { composeHelpViewModel } from './helpRoute';
@@ -326,6 +333,65 @@ function arcViewModel(overrides: { status?: string; outcome?: { summary: string;
   });
 }
 
+/** The return-recap render model (FR-H004 / ART-39), from published-shaped inputs. */
+function recapViewModel(
+  overrides: Partial<Parameters<typeof composeReturnRecapViewModel>[0]> = {},
+) {
+  return composeReturnRecapViewModel({
+    worldId: WORLD_ID,
+    progress: {
+      lastViewedEpisodeId: `episode:${WORLD_ID}:2`,
+      followedCharacterIds: ['char-anna'],
+      followedArcIds: ['arc-mill'],
+      spoilerMode: 'publicOnly',
+      updatedAt: 1_000,
+    },
+    episodes: {
+      episodes: [
+        { worldDay: 2, episodeNumber: 2, title: '第 2 集', headline: '磨坊停工。', arcIds: ['arc-mill'], characterIds: ['char-anna'] },
+        { worldDay: 4, episodeNumber: 3, title: '第 3 集', headline: '審計被要求公開。', arcIds: ['arc-mill'], characterIds: ['char-anna'] },
+      ],
+      arcIds: ['arc-mill'],
+      characterIds: ['char-anna'],
+    },
+    timeline: {
+      entries: [{
+        eventId: 'mistwood#event#102',
+        worldDay: 4,
+        timeSlot: 'noon',
+        publicSummary: '眾人見證休戰簽署。',
+        arcIds: ['arc-mill'],
+        characterIds: ['char-anna'],
+        episodeNumber: 3,
+      }],
+    },
+    voteConsequence: {
+      targetWorldDay: 4,
+      trigger: {
+        eventId: 'mistwood#event#100',
+        worldDay: 4,
+        timeSlot: 'evening',
+        publicSummary: '全鎮停電。',
+        publicationStatus: 'published',
+      },
+      explicitCausalEdgeCount: 0,
+    },
+    ...overrides,
+  });
+}
+
+/** No-op handlers. `renderToStaticMarkup` fires no events, so nothing here is ever called. */
+function recapHandlers() {
+  return {
+    onToggleCharacter: () => undefined,
+    onToggleArc: () => undefined,
+    onSpoilerModeChange: () => undefined,
+    onMarkWatched: () => undefined,
+    statusMessage: null,
+    controlsEnabled: true,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // AC#1 / AC#2 / AC#4 — every P0 experience, populated and empty.
 // ---------------------------------------------------------------------------
@@ -392,6 +458,64 @@ describe('P0 public experiences pass automated accessibility checks (NFR-009)', 
   test('watch-only help page (ART-113)', async () => {
     await expectAccessible(
       <HelpView worldId={WORLD_ID} vm={composeHelpViewModel({ worldId: WORLD_ID, base: BASE })} />,
+    );
+  });
+
+  /**
+   * The return recap (FR-H004 / ART-39).
+   *
+   * Rendered here rather than in a suite of its own because `ReturnRecapView` is deliberately
+   * pure — no hooks, no Convex client, no effects — which is what lets it be checked by a
+   * harness that runs `renderToStaticMarkup`. The container that owns the reads and the one
+   * write (`ReturnRecapPage`) is NOT rendered: it would need a Convex client, and the markup it
+   * produces is exactly what is asserted here.
+   */
+  test('return recap', async () => {
+    await expectAccessible(
+      <PublicPageFrame worldId={WORLD_ID}>
+        <ReturnRecapView vm={recapViewModel()} handlers={recapHandlers()} />
+      </PublicPageFrame>,
+    );
+  });
+
+  test('return recap for a device with no recorded progress', async () => {
+    await expectAccessible(
+      <PublicPageFrame worldId={WORLD_ID}>
+        <ReturnRecapView vm={recapViewModel({ progress: null })} handlers={recapHandlers()} />
+      </PublicPageFrame>,
+    );
+  });
+
+  test('return recap with nothing published at all', async () => {
+    // The degraded state a brand-new world produces: no episodes, no timeline, no vote model.
+    // It still has to be a page rather than an empty document.
+    await expectAccessible(
+      <PublicPageFrame worldId={WORLD_ID}>
+        <ReturnRecapView
+          vm={composeReturnRecapViewModel({
+            worldId: WORLD_ID,
+            progress: null,
+            episodes: null,
+            timeline: null,
+            voteConsequence: null,
+          })}
+          handlers={recapHandlers()}
+        />
+      </PublicPageFrame>,
+    );
+  });
+
+  test('return recap while its reads are still in flight', async () => {
+    // A loading page still has to be a page: one h1, one main, a labelled nav, and no control
+    // without an accessible name. It also must not yet claim anything about the world -- the
+    // assertion for that is in the block below, which needs the same markup.
+    await expectAccessible(
+      <PublicPageFrame worldId={WORLD_ID}>
+        <ReturnRecapView
+          vm={recapViewModel({ progress: null, episodes: null, timeline: null, loading: true })}
+          handlers={recapHandlers()}
+        />
+      </PublicPageFrame>,
     );
   });
 
@@ -1246,5 +1370,51 @@ describe('the homepage first screen (FR-P001 / ART-129)', () => {
 
   test('the whole homepage is still axe-clean', async () => {
     await expectAccessible(<HomepageView worldId={WORLD_ID} vm={homeViewModel()} />);
+  });
+});
+
+/**
+ * The return recap's rendered claims (FR-H004 / ART-39).
+ *
+ * Here rather than in `src/components/recap/returnRecap.test.ts` because these assertions are
+ * about MARKUP, and this is the only project that compiles JSX — the unit project has no DOM and
+ * `jsx: preserve`. The view model half of each claim is asserted there.
+ */
+describe('the return recap says nothing false about the world (FR-H004 / ART-39)', () => {
+  const recapMarkup = (
+    overrides: Parameters<typeof recapViewModel>[0] = {},
+  ) => renderToStaticMarkup(
+    <ReturnRecapView vm={recapViewModel(overrides)} handlers={recapHandlers()} />,
+  );
+
+  test('while loading, it asserts none of the four absences it used to', () => {
+    // `vm.loading` was computed, carried on the view model, and read by nobody, so first paint
+    // announced four factual absences before any data existed. Each is a claim about the world,
+    // and each was false. This is the same defect `voteConsequenceModel.ts` documents fixing.
+    const markup = recapMarkup({ progress: null, episodes: null, timeline: null, loading: true });
+    expect(markup).toContain(LOADING_STATUS);
+    for (const claim of [
+      '目前沒有可以接續的集數。',
+      '離開期間沒有新的重大事件。',
+      VOTE_UNAVAILABLE_NOTE,
+      '尚無可追蹤的',
+    ]) {
+      expect(markup).not.toContain(claim);
+    }
+  });
+
+  test('once settled with nothing published, it DOES state the absences', () => {
+    // Loading suppresses the claims; it must not delete them. A page that never says
+    // 「沒有可以接續的集數」leaves a viewer unable to tell empty from broken.
+    const markup = recapMarkup({ progress: null, episodes: null, timeline: null, loading: false });
+    expect(markup).toContain('目前沒有可以接續的集數。');
+    expect(markup).not.toContain(LOADING_STATUS);
+  });
+
+  test('the only sentence about where progress lives is the honest one', () => {
+    // It said 「這些設定只存在這個裝置上」, which is the opposite of what was built.
+    const markup = recapMarkup();
+    expect(markup).not.toContain('只存在這個裝置');
+    expect(markup).toContain('清除瀏覽器資料後就會失效');
   });
 });

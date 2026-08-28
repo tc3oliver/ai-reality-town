@@ -66,6 +66,10 @@ import {
   type StoredReadModel,
 } from './readModel';
 import * as environmentVoteFunctions from '../viewer/environmentVoteFunctions';
+// FR-H004 / ART-39. The second viewer-gated write, plus its per-viewer read. Named here for the
+// same reason ART-134's six were: the enumeration below refuses to resolve a declared function
+// whose module it has not imported.
+import * as viewerProgressFunctions from '../viewer/viewerProgressFunctions';
 import { PUBLIC_DYNAMIC_FORBIDDEN_FIELDS } from './publicDynamicProjection';
 import { serveRuntimeSnapshot, type RuntimeSnapshotReadStore } from './runtimeSnapshot';
 
@@ -108,6 +112,7 @@ const MODULES: Readonly<Record<string, Record<string, unknown>>> = {
   'convex/publicRead/runtimeSnapshotFunctions.ts': runtimeSnapshotFunctions,
   'convex/publicRead/visualReplayFunctions.ts': visualReplayFunctions,
   'convex/viewer/environmentVoteFunctions.ts': environmentVoteFunctions,
+  'convex/viewer/viewerProgressFunctions.ts': viewerProgressFunctions,
 };
 
 /** A Convex-registered function, as it exists at runtime. */
@@ -330,8 +335,14 @@ describe('AC#1 — the client-reachable surface is exactly what policy declares'
     expect(PUBLIC_MUTATIONS.length).toBeGreaterThan(0);
     expect(ALLOWED.filter((entry) => entry.gate === 'anonymous').every((entry) => entry.kind === 'query')).toBe(true);
     expect(OPERATOR_MUTATIONS.length).toBe(PUBLIC_MUTATIONS.length - VIEWER_MUTATIONS.length);
+    // ART-39 (FR-H004) is the second entry, and the cap in `viewerWriteBoundary` moved 1 -> 2 to
+    // admit it. Listed rather than counted: a count would have let a THIRD write replace this one
+    // silently, and the point of an exhaustive pin is that each addition is argued for. §13.12
+    // defines Viewer Progress as a persisted per-viewer record, so device-level progress without
+    // login (AC#3) cannot be delivered by a read alone.
     expect(VIEWER_MUTATIONS.map((entry) => `${entry.path}:${entry.name}`)).toEqual([
       'convex/viewer/environmentVoteFunctions.ts:submitEnvironmentVote',
+      'convex/viewer/viewerProgressFunctions.ts:recordViewerProgress',
     ]);
     // No action is reachable by anyone but an operator, viewer gate included. An action can
     // reach a provider, and "public reads never trigger LLM generation" depends on that.
@@ -359,9 +370,19 @@ describe('AC#1 — the client-reachable surface is exactly what policy declares'
       // which function it is and which single file may name it.
       'viewer/environmentVoteFunctions:getEnvironmentVoteBallot',
       'viewer/environmentVoteFunctions:submitEnvironmentVote',
+      // ART-39 (FR-H004). A per-viewer READ and the progress write. The read is gated `viewer`
+      // rather than `anonymous` because it has no world-wide answer -- the row IS the caller's --
+      // and both are resolved through the caller's own digest on `by_world_and_viewer`, so
+      // neither is a way to name another viewer's row.
+      'viewer/viewerProgressFunctions:getViewerProgress',
+      'viewer/viewerProgressFunctions:recordViewerProgress',
     ]);
     expect(refs.filter((entry) => entry.ref.endsWith(':submitEnvironmentVote')).map((entry) => entry.path))
       .toEqual(['src/components/vote/useEnvironmentVote.ts']);
+    // The same file-granular pin for the second write. Two exemptions exist in the product and
+    // the policy names both; this asserts that neither has spread to a third file.
+    expect(refs.filter((entry) => entry.ref.endsWith(':recordViewerProgress')).map((entry) => entry.path))
+      .toEqual(['src/components/recap/viewerProgressRefs.ts']);
     expect(readModelFunctions.getPublishedReadModel).toHaveProperty('isQuery', true);
     expect(liveStateFunctions.getPublicDynamicProjection).toHaveProperty('isQuery', true);
     expect(visualReplayFunctions.getPublicVisualReplay).toHaveProperty('isQuery', true);
@@ -893,31 +914,64 @@ describe('the deployment routes zero public HTTP endpoints', () => {
 });
 
 /**
- * FR-J001 / ART-45 — the one viewer write, and the fence around it.
+ * FR-J001 / ART-45 and FR-H004 / ART-39 — the two viewer writes, and the fence around them.
  *
  * The rest of this suite proves the surface reaches nothing but reads. This block covers the
- * single exception, and the burden is the opposite one: not "it refuses everybody" (it must not,
- * or the vote would not exist) but "the most it can do is bounded, and nothing else joined it".
+ * exceptions, and the burden is the opposite one: not "they refuse everybody" (they must not, or
+ * neither the vote nor device-level progress would exist) but "the most they can do is bounded,
+ * and nothing else joined them".
+ *
+ * ART-39 is the second, and the argument for admitting it is recorded in
+ * `docs/device-return-recap.md` §3: PRD §13.12 defines Viewer Progress as a persisted per-viewer
+ * record, and FR-H004 AC#3 requires an unauthenticated viewer to have one, so the capability
+ * cannot be delivered by a read. The cap moved from 1 to 2 rather than the gate becoming
+ * uncapped, and every rule below applies to both.
  */
-describe('the declared viewer write is exactly one bounded ballot', () => {
-  const viewerWrite = VIEWER_MUTATIONS[0];
-
-  test('there is exactly one, it is a mutation, and it lives in the viewer module', () => {
-    expect(VIEWER_MUTATIONS).toHaveLength(1);
-    expect(viewerWrite.path.startsWith('convex/viewer/')).toBe(true);
-    const fn = registered(viewerWrite);
-    expect(fn.isMutation).toBe(true);
-    expect(fn.isPublic).toBe(true);
-    expect(fn.isAction).toBeUndefined();
+describe('the declared viewer writes are exactly two bounded surfaces', () => {
+  /** Every argument each write accepts. Exhaustive: an added field fails here. */
+  const DECLARED_ARGS: Readonly<Record<string, readonly string[]>> = {
+    submitEnvironmentVote: ['candidateId', 'deviceKey', 'worldId'],
+    recordViewerProgress: [
+      'deviceKey', 'followedArcIds', 'followedCharacterIds',
+      'lastViewedEpisodeId', 'spoilerMode', 'worldId',
+    ],
+  };
+  test('there are exactly two, both mutations, both in the viewer module', () => {
+    expect(VIEWER_MUTATIONS).toHaveLength(2);
+    for (const entry of VIEWER_MUTATIONS) {
+      expect(entry.path.startsWith('convex/viewer/')).toBe(true);
+      const fn = registered(entry);
+      expect(fn.isMutation).toBe(true);
+      expect(fn.isPublic).toBe(true);
+      expect(fn.isAction).toBeUndefined();
+    }
   });
 
-  test('it accepts three arguments and not one of them can name a character or a world change', () => {
-    // The stronger half of AC#7 applied to the write: these are not rejected inputs, they are
+  test('neither accepts an argument that can name a character or a world change', () => {
+    // The stronger half of AC#7 applied to the writes: these are not rejected inputs, they are
     // not inputs. Convex validates against `exportArgs()` before the handler runs.
-    const declared = Object.keys(
-      (JSON.parse(registered(viewerWrite).exportArgs()) as { value?: Record<string, unknown> }).value ?? {},
-    );
-    expect(declared.sort()).toEqual(['candidateId', 'deviceKey', 'worldId']);
+    //
+    // `recordViewerProgress` takes `followedCharacterIds` -- a LIST of characters to prioritise
+    // in a recap, checked against the published episode index and stored on the caller's own
+    // row. It is not `characterId`, and it offers no way to act as anyone: the vocabulary the
+    // guard forbids is singular-and-imperative for exactly that reason.
+    for (const entry of VIEWER_MUTATIONS) {
+      const declared = Object.keys(
+        (JSON.parse(registered(entry).exportArgs()) as { value?: Record<string, unknown> }).value ?? {},
+      );
+      expect(DECLARED_ARGS[entry.name]).toBeDefined();
+      expect(declared.sort()).toEqual([...DECLARED_ARGS[entry.name]]);
+    }
+  });
+
+  test('the per-viewer progress READ is a query, and is gated `viewer` rather than anonymous', () => {
+    // It has no world-wide answer -- the row IS the caller's -- so an identifier is intrinsic to
+    // the request rather than added to it, and the gate records that this is not part of the
+    // anonymous public surface. It spends none of the mutation cap.
+    const progressRead = ALLOWED.find((entry) => entry.name === 'getViewerProgress')!;
+    expect(progressRead.gate).toBe('viewer');
+    expect(progressRead.kind).toBe('query');
+    expect(registered(progressRead).isQuery).toBe(true);
   });
 
   test('the ballot read beside it is an ordinary anonymous query', () => {
@@ -958,9 +1012,15 @@ describe('the declared viewer write is exactly one bounded ballot', () => {
     const boundary = (JSON.parse(readFileSync(join(ROOT, 'architecture/module-boundaries.json'), 'utf8')) as {
       viewerWriteBoundary: { maxViewerMutations: number; allowed: Array<{ path: string; name: string }> };
     }).viewerWriteBoundary;
-    expect(boundary.maxViewerMutations).toBe(1);
+    // ART-39 raised the cap 1 -> 2 for FR-H004's progress record. The cap is asserted alongside
+    // the exhaustive list on purpose: the list is what stops a third write, and the number is
+    // what makes raising it a deliberate edit to a file a reviewer reads. `getViewerProgress` is
+    // viewer-gated too but is a QUERY, so it appears in `allowed` and spends none of the cap.
+    expect(boundary.maxViewerMutations).toBe(2);
     expect(boundary.allowed).toEqual([
       { path: 'convex/viewer/environmentVoteFunctions.ts', name: 'submitEnvironmentVote' },
+      { path: 'convex/viewer/viewerProgressFunctions.ts', name: 'getViewerProgress' },
+      { path: 'convex/viewer/viewerProgressFunctions.ts', name: 'recordViewerProgress' },
     ]);
   });
 });
