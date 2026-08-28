@@ -402,6 +402,49 @@ p[contenteditable='true']:empty::before {
   font-weight: 700;
 }
 
+/* --------------------------------------------------------------------------
+ * The scoped relationship diagram (FR-I007 / ART-44).
+ *
+ * Drawn from the shared tokens, not from its own colours, for the same reason the live surface
+ * is (ART-131 AC#4): a second palette here would be each element picking its own rather than a
+ * decision the design system made.
+ *
+ * SIZED BY ITS COLUMN, never by a pixel width. The `<svg>` carries a `viewBox` and no `width`
+ * or `height` attribute, so `max-width: 100%` is all it takes to reflow on a narrow viewport
+ * (WCAG 1.4.10) — the aspect ratio does the rest. `height: auto` rather than a fixed height, so
+ * it cannot become a letterboxed strip on a phone.
+ *
+ * The diagram is decoration in the strict sense: it is `role="img"` with a summarising label,
+ * and everything it encodes is written out in the section beneath it. Distance from the centre
+ * carries `hop`, and the core ring is drawn in the accent AND at a larger radius, so the two
+ * groups differ by shape and not only by colour.
+ * -------------------------------------------------------------------------- */
+.graph-canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  background: var(--public-surface-sunken);
+  border: 1px solid var(--public-border);
+  border-radius: 8px;
+}
+
+.graph-edge {
+  stroke: var(--public-border-strong);
+  stroke-width: 0.6;
+}
+
+.graph-node {
+  fill: var(--public-surface);
+  stroke: var(--public-border-strong);
+  stroke-width: 0.6;
+}
+
+.graph-node-core {
+  fill: var(--public-accent-soft);
+  stroke: var(--public-accent);
+  stroke-width: 1.2;
+}
+
 /* The responsive live stage (FR-O008 / ART-126 AC#1, AC#2).
  *
  * Holds exactly two children — `.live-map-canvas` and `.live-story-overlay` — as siblings, in

@@ -49,6 +49,12 @@ export const READ_MODEL_KINDS = [
   // down, and the two change on different cadences (one per world day with a vote, versus
   // every commit), so sharing a `contentHash` would defeat dedup for both.
   'voteConsequence',
+  // FR-I007 / ART-44. The scoped relationship graph, per world day. A kind of its own for the
+  // same reason as the two above: a graph-rebuild failure must not be able to take the live map
+  // down with it, and the two change on different cadences — one row per world day, published
+  // while that day is current and then never again, against a live projection rebuilt on every
+  // commit — so sharing a `contentHash` would defeat dedup for both.
+  'relationshipGraph',
 ] as const;
 export type ReadModelKind = (typeof READ_MODEL_KINDS)[number];
 
