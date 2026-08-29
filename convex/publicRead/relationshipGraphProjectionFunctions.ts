@@ -21,11 +21,16 @@
  * `sceneSimulationRuns.result`) is touched; those were the ART-46 review finding, and they are
  * what "no unbounded whole-world collect in a rebuild path" is actually about.
  *
- * `canonEvents` IS read whole. That is the same read `rebuildTimelineProjection`,
- * `rebuildLiveProjection` and `rebuildRelationshipProjection` already make on this path, and it is
- * unavoidable for an accumulated level: a relationship's current standing is a fold over its
- * entire history, so no suffix of the log answers it. ART-100 tracks making these incremental;
- * when it lands this rebuild moves with the others rather than needing its own design.
+ * `canonEvents` is NOT read whole. An earlier revision of this comment argued the whole-log read
+ * was unavoidable because "a relationship's current standing is a fold over its entire history, so
+ * no suffix of the log answers it". The premise is right and the conclusion does not follow: a
+ * snapshot already IS that fold. `readProjectionViaSnapshot` (ART-100) resumes from the newest
+ * daily snapshot and replays only the events after it, which is exact rather than approximate
+ * because `reduceWorldEvent` is a pinned pure left fold.
+ *
+ * This rebuild reads `relationshipHistory` only, which is not one of `SEED_BASELINE_FIELDS`, so
+ * the snapshot's seeded baseline cannot perturb it — the precondition that makes the substitution
+ * legal here. See `convex/canon/snapshotReplay.ts` for why that distinction exists.
  *
  * ## No character text is published here
  *
@@ -58,9 +63,7 @@ import { v } from 'convex/values';
 import type { GenericMutationCtx } from 'convex/server';
 import { internalMutation } from '../_generated/server';
 import type { DataModel } from '../_generated/dataModel';
-import { emptyProjection } from '../canon/model';
-import { replayWorldEvents } from '../canon/replay';
-import { rowToAcceptedEvent } from '../canon/serialize';
+import { readProjectionViaSnapshot } from '../canon/snapshotReplay';
 import { parseArcProjectionFields } from '../story/projection';
 import { relationshipGraphModelRef } from '../shared/relationshipGraphRef';
 import { commitReadModelVersion } from './readModel';
@@ -99,17 +102,13 @@ async function rebuildForDay(
     );
   }
 
-  const [canonRows, lifecycleRows, projectionRows] = await Promise.all([
-    db.query('canonEvents')
-      .withIndex('by_world_and_sequence', (q) => q.eq('worldId', args.worldId)).collect(),
+  const [projection, lifecycleRows, projectionRows] = await Promise.all([
+    readProjectionViaSnapshot(db, args.worldId),
     db.query('storyArcLifecycles')
       .withIndex('by_world_and_arc', (q) => q.eq('worldId', args.worldId)).collect(),
     db.query('storyArcProjectionEvents')
       .withIndex('by_world_arc_and_revision', (q) => q.eq('worldId', args.worldId)).collect(),
   ]);
-
-  const acceptedEvents = canonRows.map(rowToAcceptedEvent);
-  const projection = replayWorldEvents(emptyProjection(args.worldId), acceptedEvents);
 
   /**
    * Canon's relationship history, flattened.
