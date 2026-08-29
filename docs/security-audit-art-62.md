@@ -18,7 +18,220 @@
   implementation, not the docstring. Several modules carry docstrings asserting a
   property that the code does not have; those are recorded as findings.
 
-## 1. Verdict
+## 0. Re-audit — 2026-08-29 against `origin/main` @ `b9fa935`
+
+This audit was re-run in full rather than re-read. Every original finding was re-derived from
+today's code; the status labels below **supersede** the ones in the sections that follow, which
+are preserved unedited as the historical record of what was true on 2026-08-04.
+
+Two things made this necessary. First, the original audit closed with **"RELEASE IS NOT CLEAR"**
+while the task carried `status: Done` and all five acceptance criteria unchecked — the audit's own
+conclusion contradicted its task metadata. Second, substantial work has landed since, and a
+finding's label can move in either direction: one the report called FIXED can regress, and one it
+called UNRESOLVED can be closed by unrelated work. Both happened.
+
+### Original findings — current status
+
+| # | Finding | 2026-08-04 | 2026-08-29 | Evidence |
+|---|---|---|---|---|
+| C-1 | Canon commit was a public unauthenticated mutation | FIXED | **RESOLVED** | `convex/canon/commit.ts:241` is `internalMutation`. The only write to `canonEvents` anywhere is `:200`, inside `commitProposedEvent`; every caller is server-side. `architecture/module-boundaries.json` lists all four symbols under `viewerWriteBoundary.forbiddenSymbols`, CI-enforced |
+| C-2 | CC art credits deleted while assets ship; docs relicensed as MIT | FIXED | **RESOLVED**, hardened further | `ASSETS-LICENSE.md` registers 53 assets. `ATTRIBUTION.md:27-34`, `docs/upstream.md:129`, `README.md:130-137` all scope MIT to source only. ART-108/ART-144 added `scripts/assets/check-asset-licenses.mjs` to `npm run check` and both CI workflows, and deleted sixteen files that could not be cleared |
+| H-1 | Operator identity path dead; shared bearer token in a mutation argument is the only credential | UNRESOLVED | **STILL OPEN** (partly ENVIRONMENT BLOCKED) | See §0.1 — the remediation is real but incomplete |
+| H-2 | Public unauthenticated engine stop/resume | PARTLY FIXED | **SUPERSEDED** | `convex/testing.ts` no longer exists. ART-112 (`893961f`) retired the a16z engine. Pinned against return by `emergencyStopControls.test.ts:445` and `publicReadOnlyGuarantee.test.ts:427` |
+| H-3 | Raw prompts and raw model output logged on the live agent path | FIXED | **RESOLVED** | Ten `console.*` sites remain in `convex/`; none logs prompt or completion content. `util/llm.ts:161` logs `{model, messageCount, stream}`, `:197` logs `{completionChars}`. `convex/simulation/providers/` — the live path today — has zero `console.*` |
+| H-4 | Pre-generation safety classifier has zero production callers | UNRESOLVED | **STILL OPEN** (partial fix) | See §0.2 — it now has callers, but coverage is incomplete and the policy is inert for this project's content language |
+| H-5 | Emergency stop does not halt the upstream AI Town engine | UNRESOLVED | **SUPERSEDED** | The named engine and its 60-second restart cron are deleted; `convex/crons.ts:29-31` records the removal. **Not closed by ART-102**, whose helpers `assertPublicWorldAdmitsSimulation`/`isPublicWorldEmergencyStopped` (`emergencyStopOperations.ts:98`,`:107`) have zero production callers and whose docstring still describes deleted files. The stop is effective today by a different route: `assertWorldAdmitsSimulation` at `worldDayLiveFunctions.ts:343` and `opsConsoleFunctions.ts:183`, plus schedule pausing in `schedulerOperations.ts:176-190` |
+| H-6 | `runFoundationSimulation` was a public unauthenticated mutation | FIXED | **RESOLVED** | `convex/simulation/workflow.ts:132` is `internalMutation` |
+| D-1 | `vercel.json` present and unguarded; auto-deploy unprovable from repo | RESOLVED | **RESOLVED**, re-verified live | `gh api repos/tc3oliver/ai-reality-town/hooks` → `[]`; `/deployments` → `[]`. No deploy job, no `secrets.*`, `permissions: contents: read` in both workflows, zero `convex deploy` in `package.json` |
+| M-1 | Viewer input classifier has zero callers | UNRESOLVED | **RESOLVED** | `classifyViewerInput` is called at `viewer/environmentVote.ts:221`,`:283` and `viewer/viewerProgress.ts:314`, and is a `viewerWriteBoundary.requiredSymbols` entry — machine-enforced |
+| M-5 | `package.json` SPDX field overstates the grant | UNRESOLVED | **STILL OPEN** (Low) | `package.json:6` still declares flat `"license": "MIT"`. `"private": true` at `:4` prevents publish |
+
+**Both Criticals are closed. Of the six Highs: two resolved, two superseded by the ART-112 engine
+retirement, two still open.** The retirement closed more of this audit than any remediation task
+did — which is worth stating plainly, because it means the improvement is partly a consequence of
+deleting code rather than of securing it.
+
+### 0.1 H-1 — the remediation is real, and incomplete
+
+`convex/auth.config.ts` now exists (ART-104). Four sub-questions, answered against code rather
+than against its runbook comment:
+
+**(a) With `CLERK_JWT_ISSUER_DOMAIN` unset, the identity branch is still dead.** `auth.config.ts:26`
+emits `providers: []`, so `ctx.auth.getUserIdentity()` returns null and the subject lookup at
+`operatorAuthorization.ts:360-365` cannot match. Unchanged from the original finding.
+
+**(b) The token is still accepted and is still a function argument.** `opsConsoleFunctions.ts:98-99`
+computes `allowTokenFallback = ... || !process.env.CLERK_JWT_ISSUER_DOMAIN`, which is `true` while
+the domain is unset, so the token branch at `operatorAuthorization.ts:367-380` is the sole working
+credential. It remains declared as `operatorToken: v.optional(v.string())` at
+`opsConsoleFunctions.ts:66-69`.
+
+**(c) The argument-logging exposure is unchanged.** Nothing in the code altered the transport.
+**This remains unobserved rather than confirmed** — proving it requires a live deployment log, and
+that limitation is inherited verbatim from the original audit.
+
+**(d) Setting the env var does NOT close the token path everywhere.** `requireOperator`
+(`opsConsoleFunctions.ts:86`) computes `allowTokenFallback` and passes it. `requireReviewer`
+(`proposalReviewFunctions.ts:64-75`) calls `authorizeOperator` **without it**, and
+`operatorAuthorization.ts:419` defaults it to `true`.
+
+Consequence: after a Clerk cutover, the public queries `listProposedEventReviews`
+(`proposalReviewFunctions.ts:109`) and `reviewProposedEvent` (`:132`) still accept the shared
+static token. Anyone holding a leaked operator token keeps read access to the proposed-event
+review queue — raw model output, traces, safety labels — permanently, revocable only by editing
+`SIMULATION_OPS_OPERATORS`. The file's docstring at `:9-14` claims its authorization is "ART-48's,
+unchanged"; it is ART-48's minus the H-1 remediation. That is the same defect class this audit was
+created to catch: a docstring asserting a property the code does not have.
+
+Disposition: **the two-line fix is CODE_BLOCKER; the remaining exposure is ENVIRONMENT_BLOCKED.**
+
+### 0.2 H-4 — it now has callers, and the gate is still not effective
+
+`assertPreGenerationSafe` is called at `convex/simulation/providers/openAICompatible.ts:73` and
+`convex/util/llm.ts:154`, so the literal finding ("zero production callers") no longer holds. It
+does not follow that content is screened. Complete egress inventory — six network calls under
+`convex/`, zero under `src/`:
+
+| Path | Provider call | Pre-generation safety |
+|---|---|---|
+| `OpenAICompatibleProvider.structuredChat` | `openAICompatible.ts:76` | `:73` — covered |
+| `OpenAICompatibleProvider.proposeEvent` | `:110` → structuredChat | inherited |
+| **`OpenAICompatibleProvider.embed`** | **`:94`** | **none** |
+| `util/llm.ts chatCompletion` | `llm.ts:167` | `:154` — covered |
+| **`util/llm.ts` embeddings** | **`llm.ts:239`, `:710`** | **none** |
+| **`util/llm.ts` moderations** | **`llm.ts:281`** | **none** |
+
+Four gaps, in descending severity:
+
+1. **The policy is inert for the content this project generates.** `RULES` (`preGeneration.ts:61-83`)
+   is sixteen English phrase regexes — `/\bexplicit sexual content\b/u`,
+   `/\bextreme violence detail\b/u` — and `normalizeForSafety` lowercases with
+   `.toLocaleLowerCase('en-US')`. Meanwhile `openAICompatible.ts:110` instructs the model to
+   "Write every narrative text field in Traditional Chinese (zh-TW)" and the seed world is zh-TW.
+   Prohibited zh-TW content matches no pattern, and `\b` does not fire between CJK codepoints in
+   any case. **This makes the two covered rows above nominal rather than real**, and it is the most
+   consequential item in this re-audit.
+2. **`embed()` is ungated and live.** `openAICompatible.ts:93-94` sends character memories and
+   retrieved private knowledge to the third-party provider unscreened. Reachable via `probes.ts:27`
+   and the `probeConfiguredOpenAICompatibleProvider` action.
+3. **The gate is in the adapter, not at the port.** `LanguageModelProvider`
+   (`convex/simulation/provider.ts:76-79`) imposes no safety obligation, and `simulateWholeScene`
+   (`sceneSimulation.ts:389`) dispatches through the bare interface, so a second adapter loses
+   coverage with no test failure. `callWithPreGenerationSafety` (`preGeneration.ts:135`) — the one
+   combinator that structurally prevents the callback firing on a block — has zero production
+   callers; production uses the non-structural `assertPreGenerationSafe` throw.
+4. **Unscreened side-channels on the covered paths.** `structuredChat` screens `request.messages`
+   only, while `request.schemaName`/`request.jsonSchema` are serialized into the body at
+   `openAICompatible.ts:79` (a JSON Schema `description` is a prompt channel). `chatCompletion`
+   screens `body.messages` only; `body.tools[].function.description` and `body.user` go out
+   unscreened at `llm.ts:174`.
+
+**The coverage test does not test coverage.** `preGeneration.test.ts:109-118` proves it by
+`readFileSync` + `toContain` on source text. That passes for dead code and asserts nothing about
+`embed`, `fetchEmbedding`, `ollamaFetchEmbedding` or `fetchModeration`.
+
+Disposition: **CODE_BLOCKER.**
+
+### 0.3 New findings — the risk has moved to code written after this audit
+
+The 2026-08-04 surface has been largely secured. The residual risk is now concentrated in the
+viewer voting surface, which did not exist when this audit ran.
+
+**N-1 (HIGH, CODE_BLOCKER) — ~16k anonymous calls permanently break the public ballot and deadlock
+its cron.** `environmentVoteFunctions.ts:108-111` (the public ballot read) and `:244-247` (the
+round-closing cron) both `.collect()` every ballot row in a round, unbounded. A Convex query
+refuses to read more than 16,384 documents — a limit this repository already cites at
+`operations/tokenBudgetFunctions.ts:71`. Past that, `getEnvironmentVoteBallot` throws for every
+visitor **and** `tickEnvironmentVoteRounds` can no longer close the round, so it never elects a
+winner and never resets: permanent DoS of a public feature, remote, unauthenticated, no rate limit.
+`MAX_SUBMISSIONS_PER_ROUND = 100_000` (`environmentVote.ts:72`) is **six times above the limit that
+actually bites**, so the declared ceiling provides no protection at all. Durable fix: maintain
+per-candidate tallies on the round row so the read is O(catalog), not O(ballots).
+
+**N-2 (MEDIUM, CODE_BLOCKER) — `VOTE_ROUND_FULL` still allocates a row.** The early return at
+`environmentVoteFunctions.ts:184-186` covers only `VOTE_DEVICE_ATTEMPTS_EXHAUSTED`.
+`VOTE_ROUND_FULL` falls through to the insert at `:196`, so the ceiling caps accepted votes but not
+rows, and `environmentVoteBallots` is not in `TablesToVacuum` (`crons.ts:60-84`), making the growth
+permanent. This contradicts the module's own comment at `environmentVote.ts:66-71`, and it is the
+mechanism that makes N-1 reachable. The sibling surface gets this right — `viewerProgress.ts:190-195`
+includes `PROGRESS_WORLD_FULL` in `NON_WRITING_REJECTION_CODES`.
+
+**N-3 (MEDIUM) — ballot stuffing; no rate limiter exists and a docstring claims one is required.**
+`submitEnvironmentVote` identifies callers by `args.deviceKey`, a raw client string hashed with
+non-cryptographic FNV-1a; rotating it resets both per-device caps. The module admits this at
+`environmentVote.ts:22-23`. `environmentVoteFunctions.ts:11` claims the boundary policy requires
+naming "the safety classifier and the rate limiter" — `viewerWriteBoundary.requiredSymbols` is
+`["classifyViewerInput","evaluateVoteSubmission","evaluateViewerProgressSubmission"]`. **There is no
+rate limiter and the policy does not require one.** Blast radius is bounded: the winner becomes a
+queued intervention that still faces full Canon validation, so an attacker chooses which of seven
+sanctioned catalog events happens, not arbitrary Canon. Enough to defeat the feature's purpose; not
+a canon-integrity break.
+
+**N-4 (MEDIUM) — `getPublishedReadModel` (`readModelFunctions.ts:152-155`) is the only public read
+with no `returns` validator.** Correcting a natural overstatement: this does **not** leak a raw
+`Doc<>` or the row id — `toServed` (`readModel.ts:216-222`) builds an explicit `Pick` and omits
+`id`. It does return `sourceEventIds`, `contentHash`, `status`, `version`, `publishedAt`,
+`servedFrom` to anonymous callers, and `sanitizeForPublic` is applied to `payload` only, not the
+envelope. Bounded by construction rather than by a declared contract; the finding is the missing
+defence-in-depth every sibling query has.
+
+**N-5 (LOW) — `getTracePublic` (`observability/traces.ts:51-60`) is an enumerable anonymous status
+oracle.** Bare `traceId`, no `worldId` scoping, no rate limit — and trace ids are deterministic
+(`worldDayLive.ts:259` derives them from world + day + slot, all public), so the space is
+enumerable. The projection is sound (five fields, no prompts or token counts, pinned by the
+guarantee test). The finding is an authorization inconsistency: per-slot generation success is
+operator-gated as a metric but anonymously enumerable here.
+
+**N-6 (LOW)** — `recordViewerProgress` performs three `ctx.db` reads (`viewerProgressFunctions.ts:193-198`)
+before validating key shape, while its read sibling validates first at `:141`. No write results;
+hygiene rather than a hole.
+
+**N-7 (MEDIUM) — dependency CVEs, and still no CI gate.** Against installed `node_modules`: 1
+critical (`shell-quote`, dev-only), 12 high / 9 production-high (`convex`→`ws` DoS is the genuine
+runtime one; most others are build-toolchain packages that sit in `dependencies`). The original
+audit's recommendation #9 — add a licence/audit gate to CI — was implemented for licences
+(`check:asset-licenses`) but **not** for `npm audit`.
+
+**N-8 (LOW) — `SECURITY.md:32-33` materially understates the posture**, stating that server-side
+authorization "is not implemented beyond Convex defaults" and that client access "is anonymous
+today". Both clauses are now false: 36 routes carry an enforced capability gate, and the upstream
+app referred to was deleted. Understating is safer than overstating, but this is the file external
+researchers read first.
+
+### 0.4 What improved most, and it was not a remediation task
+
+`architecture/module-boundaries.json` `publicFunctionSurface` plus `scripts/architecture/check-boundaries.mjs`
+is now the strongest control in the repository, and it is the right answer to this audit's core
+methodological complaint. The public surface is machine-derived and CI-enforced **bidirectionally** —
+`:421` fails on an undeclared registration, `:432` fails on a declaration whose function no longer
+exists — so it cannot go stale the way a hand-maintained inventory does. The declared count (45:
+36 operator, 6 anonymous, 3 viewer) matched an independent grep exactly, and
+`publicReadOnlyGuarantee.test.ts` passes 44/44 while remaining exhaustive. The asset-licence gate
+is the same pattern applied to C-2. Both exceed what this audit asked for.
+
+### 0.5 Limits of this re-audit — stated rather than glossed
+
+1. **Whether `operatorToken` actually appears in the Convex function log is unobserved.** It requires
+   a live deployment log. The code path is unchanged from what was assessed on 2026-08-04, so that
+   reasoning carries — but it is inference, not observation.
+2. **Whether `CLERK_JWT_ISSUER_DOMAIN`, `SIMULATION_OPS_ALLOW_TOKEN_FALLBACK` and
+   `SIMULATION_OPS_OPERATORS` are set on the production deployment cannot be determined from the
+   repository.** These are Convex deployment environment variables. `.env.local` says nothing about
+   the backend.
+3. **The Convex per-query document limit used for N-1 is 16,384**, the figure this repository itself
+   cites at `tokenBudgetFunctions.ts:71`, not one measured against a live deployment.
+
+### 0.6 Release decision
+
+**Not clear.** Three open High findings: N-1, H-4, H-1. Two of the three are pure code and can be
+fixed in this repository today; the third is code plus one deployment configuration action.
+
+Secrets scan is clean — tracked tree and full `git log --all -p` history, no matches for any
+credential pattern.
+
+---
+
+## 1. Verdict (2026-08-04 — superseded by §0)
 
 **Release is NOT clear for public test.**
 

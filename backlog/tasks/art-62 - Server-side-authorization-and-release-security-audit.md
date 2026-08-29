@@ -1,11 +1,11 @@
 ---
 id: ART-62
 title: Server-side authorization and release security audit
-status: Done
+status: To Do
 assignee:
-  - '@agent-art62'
+  - '@claude'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-04 10:32'
+updated_date: '2026-08-29 12:43'
 labels:
   - prd-1.0
   - epic-q
@@ -76,27 +76,27 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 Every public API and administrative mutation route has server-side authorization evidence.
-- [ ] #2 Public/private data, trace/log redaction, viewer input, publication, and emergency-control boundaries are audited.
+- [x] #2 Public/private data, trace/log redaction, viewer input, publication, and emergency-control boundaries are audited.
 - [ ] #3 No unresolved Critical or High security finding remains before public test.
-- [ ] #4 License/attribution is retained and production deployment remains disabled.
-- [ ] #5 Audit evidence identifies tested routes, roles, data classes, findings, and remediation.
+- [x] #4 License/attribution is retained and production deployment remains disabled.
+- [x] #5 Audit evidence identifies tested routes, roles, data classes, findings, and remediation.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
 - [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
+- [x] #2 Relevant automated tests are added or updated
 - [ ] #3 Typecheck passes
 - [ ] #4 Lint passes
 - [ ] #5 Relevant tests pass
 - [ ] #6 Build passes when applicable
 - [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
 - [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -157,4 +157,40 @@ UNRESOLVED CRITICAL/HIGH - RELEASE IS NOT CLEAR:
 No live deployment exercised - all findings are source review. The H-1 'token reaches the log' claim follows from Convex's documented argument-logging behaviour and was NOT observed in a real log. No network access, so asset license versions were inferred from source URLs. node_modules not installed, so dependency scan was lockfile-only (~88% of entries declare no license). The authorize->act->audit wrapper bodies remain typecheck-only with no end-to-end unauthorized-caller test.
 
 Reconciled to Done: implementation merged via PR #131/#134 (verified on origin/main). Status hygiene sync.
+
+## 重新稽核 2026-08-29(對 origin/main @ b9fa935)
+
+完整重跑,非重讀。每一條原始發現都從今日程式碼重新推導,詳見 `docs/security-audit-art-62.md` §0。
+
+**status 由 Done 改為 To Do。** 理由:AC#3(公開測試前不得有未解決的 Critical/High)實測**不成立**,且原稽核自己的結論就寫著「RELEASE IS NOT CLEAR」—— 任務中繼資料與稽核結論當時互相矛盾。剩餘阻塞以**程式碼**為主而非僅環境,故不標 Blocked。
+
+### 原始 2 Critical / 6 High 的現況
+
+Critical **兩條全部 RESOLVED**。六條 High:兩條 RESOLVED、兩條 SUPERSEDED、兩條 STILL OPEN。
+
+- C-1 RESOLVED —— `commit.ts:241` 為 internalMutation;全樹唯一寫入 `canonEvents` 之處為 `:200`,所有呼叫端皆伺服器端;四個符號列於 `viewerWriteBoundary.forbiddenSymbols` 並由 CI 強制。
+- C-2 RESOLVED 且更強 —— `ASSETS-LICENSE.md` 登錄 53 項素材;ART-108/144 加上 `check-asset-licenses.mjs` 進入 `npm run check` 與兩個 CI workflow,並刪除十六個無法釐清授權的檔案。
+- H-2、H-5 **SUPERSEDED** —— ART-112(`893961f`)退役了整個 a16z 引擎,`convex/testing.ts` 已不存在。**值得明說:退役刪碼比任何一個修復任務關閉了更多本稽核的發現。** 另注意 H-5 **不是** ART-102 關閉的:ART-102 新增的 `assertPublicWorldAdmitsSimulation`/`isPublicWorldEmergencyStopped` 今日**零 production 呼叫者**,其 docstring 仍描述已被刪除的檔案 —— 是殘留死碼,不是活的控制。緊急停止今日有效是靠另一條路徑(`worldDayLiveFunctions.ts:343`、`opsConsoleFunctions.ts:183` 加上排程暫停)。
+- H-3、H-6 RESOLVED —— 全樹十處 `console.*` 皆不記錄 prompt 或 completion 內容;今日的活路徑 `convex/simulation/providers/` 零 `console.*`。
+- D-1 RESOLVED,**今日重新對 GitHub 實測**:`hooks` → `[]`,`deployments` → `[]`,無部署 job,兩個 workflow 皆 `permissions: contents: read`。
+
+### 仍然開啟(三條 High)
+
+**H-1 STILL OPEN(部分 ENVIRONMENT BLOCKED)** —— `auth.config.ts` 已存在但未設 `CLERK_JWT_ISSUER_DOMAIN` 時輸出 `providers: []`,identity 分支仍是死碼,共享 token 仍是唯一憑證且仍以函式參數傳遞。**且修復不完整**:`requireOperator` 會計算並傳入 `allowTokenFallback`,`requireReviewer`(`proposalReviewFunctions.ts:64-75`)**沒有傳**,而 `operatorAuthorization.ts:419` 預設 `?? true`。因此 Clerk 切換後,公開查詢 `listProposedEventReviews` 與 `reviewProposedEvent` **仍永久接受共享 token**,而該介面回傳原始模型輸出、trace 與安全標籤。該檔 docstring 宣稱其授權「與 ART-48 相同,未變」—— 此宣稱為**假**,正是本稽核設立目的所要抓的缺陷類型。
+
+**H-4 STILL OPEN(部分修復)** —— 字面發現(零呼叫者)已不成立,但覆蓋不完整,且**政策對本專案的內容語言是失效的**:`RULES`(`preGeneration.ts:61-83`)是十六條英文片語 regex 且 `normalizeForSafety` 以 `en-US` 轉小寫,而 `openAICompatible.ts:110` 指示模型「以繁體中文書寫每個敘事欄位」。CJK 之間不會觸發 `\b`。**這使得「已覆蓋」的兩條路徑只是名義上覆蓋。** 另有三處:`embed()` 完全未設閘門(送出角色記憶與私有知識)、閘門位於 adapter 而非 port(`LanguageModelProvider` 不課予安全義務,第二個 adapter 會無聲失去覆蓋)、以及 `jsonSchema.description` / `tools[].function.description` / `body.user` 等未經篩檢的旁通道。且**覆蓋測試不測覆蓋**:`preGeneration.test.ts:109-118` 用 `readFileSync` + `toContain` 檢查原始碼字串,對死碼一樣會過。
+
+**N-1 STILL OPEN(HIGH,新發現)** —— 風險已移至本稽核之後才寫的投票介面。`environmentVoteFunctions.ts:108-111`(公開票匭讀取)與 `:244-247`(收盤 cron)對整輪票列做無界 `.collect()`。Convex 單次查詢上限 16,384(本 repo 自己在 `tokenBudgetFunctions.ts:71` 引用此數)。超過後公開查詢對每位訪客拋錯,且 cron 再也無法收盤 —— 永久卡住。`MAX_SUBMISSIONS_PER_ROUND = 100_000` 是**真正會咬的那條線的六倍**,等於毫無保護。匿名、無速率限制、遠端可觸發。
+
+### AC 對帳
+
+- AC#2 / #4 / #5 已勾,證據見 §0 各節。
+- **AC#1 未勾** —— `requireReviewer` 的憑證政策缺陷屬於授權證據的範圍。
+- **AC#3 未勾** —— 三條 High 未解決。
+
+DoD#1(所有 AC 滿足)、#3-#7 等未勾者維持未勾,因本輪不含程式碼變更故無對應證據。
+
+### 本輪未做(依指示)
+
+未修復任何發現、未實作功能、未處理 ART-74/86/152/153、未為了關閉發現而降低安全標準。
 <!-- SECTION:NOTES:END -->
