@@ -122,14 +122,13 @@ export const rebuildArcProjection = internalMutation({
     if (args.worldId.trim().length === 0 || args.arcId.trim().length === 0 || !Number.isFinite(args.now)) {
       throw new RelationshipArcError('ARC_INVALID', 'worldId, arcId, and a finite now are required');
     }
-    const [lifecycleRow, projectionRows, entryRow, episodeRows, consequenceRows, classificationRows, canonRows] = await Promise.all([
+    const [lifecycleRow, projectionRows, entryRow, episodeRows, consequenceRows, classificationRows] = await Promise.all([
       ctx.db.query('storyArcLifecycles').withIndex('by_world_and_arc', (q) => q.eq('worldId', args.worldId).eq('arcId', args.arcId)).unique(),
       ctx.db.query('storyArcProjectionEvents').withIndex('by_world_arc_and_revision', (q) => q.eq('worldId', args.worldId).eq('arcId', args.arcId)).collect(),
       ctx.db.query('storyArcRecommendedEntries').withIndex('by_world_and_arc', (q) => q.eq('worldId', args.worldId).eq('arcId', args.arcId)).unique(),
       ctx.db.query('dailyEpisodes').withIndex('by_world_and_day', (q) => q.eq('worldId', args.worldId)).collect(),
       ctx.db.query('arcConsequenceSummaries').withIndex('by_world_and_arc', (q) => q.eq('worldId', args.worldId).eq('arcId', args.arcId)).collect(),
       ctx.db.query('storyArcEventClassifications').withIndex('by_world', (q) => q.eq('worldId', args.worldId)).collect(),
-      ctx.db.query('canonEvents').withIndex('by_world_and_sequence', (q) => q.eq('worldId', args.worldId)).collect(),
     ]);
     if (!lifecycleRow) throw new RelationshipArcError('ARC_NOT_FOUND', 'arc has no lifecycle');
     const latestProjection = [...projectionRows].sort((a, b) => b.revision - a.revision)[0];
@@ -153,7 +152,21 @@ export const rebuildArcProjection = internalMutation({
         .filter((row) => (row.memberships as ClassificationMembership[] | undefined)?.some((membership) => membership.arcId === args.arcId))
         .map((row) => row.sourceEventSequenceNumber),
     );
-    const arcEvents = canonRows.filter((row) => arcSourceSequences.has(row.sequenceNumber)).map(rowToAcceptedEvent);
+    // `arcSourceSequences` is the exact, already-known set of sequence numbers this arc's events
+    // live at, so each is a point lookup on `worldId + sequenceNumber` rather than a scan of the
+    // world's whole event log. `by_world_and_sequence` bound only on `worldId` (the prior read)
+    // walked every accepted event in the world to keep the handful that matched.
+    const canonRows = (await Promise.all(
+      [...arcSourceSequences].map((sequenceNumber) =>
+        ctx.db.query('canonEvents')
+          .withIndex('by_world_and_sequence', (q) => q.eq('worldId', args.worldId).eq('sequenceNumber', sequenceNumber))
+          .unique()),
+    )).filter((row): row is NonNullable<typeof row> => row !== null);
+    // Sorted explicitly: the point lookups above resolve in `Promise.all` order (Set iteration
+    // order), not accepted order, and `facts`/`sourceEventIds` below are sequence-ordered.
+    const arcEvents = canonRows
+      .map(rowToAcceptedEvent)
+      .sort((left, right) => left.sequenceNumber - right.sequenceNumber);
     const facts: PublicFact[] = arcEvents.flatMap(publicFactsIn);
 
     const outcomeEntries = consequenceRows

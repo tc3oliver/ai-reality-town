@@ -70,10 +70,10 @@ import type { rebuildLiveProjection as rebuildLiveProjectionExport } from '../pu
 import type { rebuildOnboardingSummary as rebuildOnboardingSummaryExport } from '../publicRead/onboardingSummaryFunctions';
 import type { persistDailySnapshot as persistDailySnapshotExport } from '../canon/snapshotOperations';
 import type { runQueuedWorldDaySlot as runQueuedWorldDaySlotExport } from '../simulation/worldDayLiveFunctions';
-import { emptyProjection, type AcceptedEvent } from '../canon/model';
+import type { AcceptedEvent } from '../canon/model';
 import { TIME_SLOTS } from '../canon/eventTypes';
-import { replayWorldEvents } from '../canon/replay';
 import { rowToAcceptedEvent } from '../canon/serialize';
+import { readProjectionViaSnapshot } from '../canon/snapshotReplay';
 import { deriveEventId } from '../shared/ids';
 import { authorizeKnowledgeRead } from '../knowledge/authorization';
 import { authorizeMemoryRead } from '../knowledge/memoryAuthorization';
@@ -197,11 +197,37 @@ const runQueuedWorldDaySlotRef = internalFunctionRef<typeof runQueuedWorldDaySlo
  * produced an event in the final time slot. Only finished days get an episode, a recap
  * close-out, or a daily snapshot.
  */
-function completedWorldDays(events: readonly AcceptedEvent[]): number[] {
+export function completedWorldDays(events: readonly AcceptedEvent[]): number[] {
   const days = [...new Set(events.map(({ worldDay }) => worldDay))].sort((left, right) => left - right);
   const latest = days[days.length - 1];
   return days.filter((day) => day < latest
     || events.some((event) => event.worldDay === day && event.timeSlot === LAST_TIME_SLOT));
+}
+
+/**
+ * {@link completedWorldDays} without reading the whole accepted-event log (ART-100).
+ *
+ * Identical semantics, derived differently. The original folds a full replay to get the distinct
+ * day set; this probes one row per day across `[min, max]` on `by_world_and_day`, so a day that
+ * produced no events is absent from both. Every day below the latest is finished by definition,
+ * so only the latest day needs its time slots examined — one day's rows, not the world's.
+ *
+ * The cost is one row per world day rather than one row per accepted event. That is a change of
+ * order, not a removal: a world thousands of days old still pays per day. Recording that plainly
+ * because the alternative — a maintained completed-day summary — is a schema change this task did
+ * not take, and the next person to hit this ceiling should know the option was considered.
+ */
+export async function completedWorldDaysBounded(
+  bounds: { min: number; max: number },
+  latestDayEvents: readonly AcceptedEvent[],
+  dayExists: (worldDay: number) => Promise<boolean>,
+): Promise<number[]> {
+  const days: number[] = [];
+  for (let day = bounds.min; day <= bounds.max; day += 1) {
+    if (await dayExists(day)) days.push(day);
+  }
+  const latestIsFinished = latestDayEvents.some((event) => event.timeSlot === LAST_TIME_SLOT);
+  return days.filter((day) => day < bounds.max || latestIsFinished);
 }
 
 /**
@@ -213,17 +239,50 @@ function completedWorldDays(events: readonly AcceptedEvent[]): number[] {
  * needs invalidating: this pipeline never writes Canon.
  */
 function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostCommitLivePort {
-  let canonRows: Doc<'canonEvents'>[] | null = null;
   let worldState: PostCommitWorldState | null = null;
-  const loadCanonRows = async (worldId: string): Promise<Doc<'canonEvents'>[]> => {
-    if (!canonRows) {
-      canonRows = await ctx.db.query('canonEvents')
-        .withIndex('by_world_and_sequence', (q) => q.eq('worldId', worldId)).collect();
-    }
-    return canonRows;
+  /**
+   * Resumed from the newest daily snapshot rather than replayed from the whole log (ART-100).
+   *
+   * Only `characterKnowledge` and `characterMemories` are read off this projection (see
+   * `loadCharacterKnowledge` / `loadCharacterMemories` below), and neither is one of
+   * `SEED_BASELINE_FIELDS`, so the snapshot's seeded baseline cannot perturb the answer. Read
+   * `convex/canon/snapshotReplay.ts` before widening what this projection is used for.
+   */
+  const loadProjection = async (worldId: string) => readProjectionViaSnapshot(ctx.db, worldId);
+
+  /** One accepted event by sequence number: a point lookup on the index's full key. */
+  const eventAtSequence = async (worldId: string, sequenceNumber: number) => {
+    const row = await ctx.db.query('canonEvents')
+      .withIndex('by_world_and_sequence', (q) => q.eq('worldId', worldId).eq('sequenceNumber', sequenceNumber))
+      .unique();
+    return row ?? null;
   };
-  const loadProjection = async (worldId: string) =>
-    replayWorldEvents(emptyProjection(worldId), (await loadCanonRows(worldId)).map(rowToAcceptedEvent));
+
+  /** Every event of one world day, on the index that exists for exactly this question. */
+  const eventsOnDay = async (worldId: string, worldDay: number) => {
+    const rows = await ctx.db.query('canonEvents')
+      .withIndex('by_world_and_day', (q) => q.eq('worldId', worldId).eq('worldDay', worldDay))
+      .collect();
+    return rows.map(rowToAcceptedEvent);
+  };
+
+  /**
+   * The world's lowest and highest `worldDay`, each a single row.
+   *
+   * Read off `by_world_and_day`, NOT off the first/last event by sequence. Those coincide only
+   * if `worldDay` never decreases as `sequenceNumber` grows, which is true in practice and is
+   * not enforced anywhere — and `completedWorldDays` feeds `episodeNumberFor`, which numbers
+   * episodes by position, so being wrong here silently renumbers published episodes. The index
+   * whose second field IS `worldDay` answers the question directly and assumes nothing.
+   */
+  const dayBounds = async (worldId: string): Promise<{ min: number; max: number } | null> => {
+    const [lowest, highest] = await Promise.all([
+      ctx.db.query('canonEvents').withIndex('by_world_and_day', (q) => q.eq('worldId', worldId)).order('asc').first(),
+      ctx.db.query('canonEvents').withIndex('by_world_and_day', (q) => q.eq('worldId', worldId)).order('desc').first(),
+    ]);
+    if (!lowest || !highest) return null;
+    return { min: lowest.worldDay, max: highest.worldDay };
+  };
   /** Any story/editorial/recap write makes the cached view stale. */
   const invalidate = <T>(value: T): T => {
     worldState = null;
@@ -234,9 +293,8 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
     async loadWorldState(source: PostCommitSource): Promise<PostCommitWorldState> {
       if (worldState) return worldState;
       const { worldId } = source;
-      const rows = await loadCanonRows(worldId);
-      const events = rows.map(rowToAcceptedEvent);
-      const event = events.find(({ sequenceNumber }) => sequenceNumber === source.sourceEventSequenceNumber);
+      const sourceRow = await eventAtSequence(worldId, source.sourceEventSequenceNumber);
+      const event = sourceRow ? rowToAcceptedEvent(sourceRow) : null;
       if (!event || event.eventId !== source.sourceEventId) throw new Error('POST_COMMIT_SOURCE_NOT_ACCEPTED');
 
       const [lifecycles, projectionRows, transitionRows, portfolioRows, characterRows, episodeRows, recapRows] = await Promise.all([
@@ -251,7 +309,17 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
 
       const tierByArc = new Map<string, ArcTier>(portfolioRows.map((row) =>
         [row.arcId, (row.entry as { tier: ArcTier }).tier]));
-      const worldDayBySequence = new Map(events.map(({ sequenceNumber, worldDay }) => [sequenceNumber, worldDay]));
+      /**
+       * `worldDay` for exactly the sequence numbers the arc transitions name — the only thing the
+       * old whole-log map was ever consulted for (see `lastTransitionWorldDay` below). Point
+       * lookups on the full index key, deduped so an arc with several transitions on one event
+       * does not pay twice.
+       */
+      const transitionSequences = [...new Set(transitionRows.map((row) => row.sourceEventSequenceNumber))];
+      const worldDayBySequence = new Map(await Promise.all(transitionSequences.map(async (sequenceNumber) => {
+        const row = await eventAtSequence(worldId, sequenceNumber);
+        return [sequenceNumber, row?.worldDay] as const;
+      })));
       const arcs: LiveArcState[] = lifecycles.flatMap((lifecycle): LiveArcState[] => {
         const latest = projectionRows
           .filter((row) => row.arcId === lifecycle.arcId)
@@ -275,17 +343,29 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
         const key = `${row.recapType}:${row.targetId}`;
         recapCursors[key] = Math.max(recapCursors[key] ?? -1, row.sourceToSequenceNumber);
       }
-      const dayEvents = events.filter(({ worldDay }) => worldDay === event.worldDay);
+      const dayEvents = await eventsOnDay(worldId, event.worldDay);
+      const bounds = (await dayBounds(worldId)) ?? { min: event.worldDay, max: event.worldDay };
+      const latestWorldDay = Math.max(bounds.max, event.worldDay);
+      // The latest day's own events, reused when it is the day being committed to.
+      const latestDayEvents = latestWorldDay === event.worldDay
+        ? dayEvents
+        : await eventsOnDay(worldId, latestWorldDay);
 
       worldState = {
         event,
         arcs,
         characterIds: characterRows.map(({ characterId }) => characterId),
-        completedWorldDays: completedWorldDays(events),
+        completedWorldDays: await completedWorldDaysBounded(
+          { min: bounds.min, max: latestWorldDay },
+          latestDayEvents,
+          async (worldDay) => (await ctx.db.query('canonEvents')
+            .withIndex('by_world_and_day', (q) => q.eq('worldId', worldId).eq('worldDay', worldDay))
+            .first()) !== null,
+        ),
         episodeWorldDays: episodeRows.map(({ worldDay }) => worldDay),
         worldDayFirstSequenceNumber: dayEvents.reduce(
           (lowest, candidate) => Math.min(lowest, candidate.sequenceNumber), event.sequenceNumber),
-        latestWorldDay: events.reduce((highest, candidate) => Math.max(highest, candidate.worldDay), event.worldDay),
+        latestWorldDay,
         recapCursors,
       };
       return worldState;

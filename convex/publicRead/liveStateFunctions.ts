@@ -283,6 +283,25 @@ export const rebuildLiveProjection = internalMutation({
       canonRows, lifecycleRows, projectionRows, episodeRows, characterRows, scheduleRow, classificationRows,
       publicationRows, withheldSceneRecord,
     ] = await Promise.all([
+      // ART-100: left as a full log collect, deliberately, after checking. `readProjectionViaSnapshot`
+      // (`canon/snapshotReplay.ts`) cannot substitute here: `buildLiveProjection`'s `locations` is a
+      // last-write-wins fold over every `location_state_changed` change in history, and that field is
+      // one of `SEED_BASELINE_FIELDS` on the stored `WorldProjection` — pointing it at a snapshot would
+      // silently publish seed locations that today's replay-from-empty never shows, breaking AC#3. Nor
+      // can the read be bounded to a tail: `buildVisualReplay` (`visualReplay.ts:539`) ranks candidate
+      // scenes for importance across the WHOLE accepted history before picking the top
+      // `REPLAY_MAX_SCENES`, and `foldLocations` then needs the exact location state immediately before
+      // and after whichever scene wins — which can be any day in the world's life, not just the latest
+      // one. And `redactWithheldSummaries`/`redactWithheldNarration` must re-examine every event on
+      // every call, because an operator's safety override can change the withheld verdict for an
+      // arbitrarily old event. All three read paths genuinely need the full raw event list; none of
+      // them can be served from a folded snapshot or a bounded window without changing what gets
+      // published. This handler also has three OTHER callers besides the post-commit hot path
+      // (`safetyOverrideFunctions.ts`, `dynamicViewControlFunctions.ts`,
+      // `operations/publicTextModelRefresh.ts`), each relying on a correct full rebuild whenever it is
+      // invoked, which rules out a "skip re-deriving on this call" shortcut too. A real fix would need a
+      // NEW incrementally-maintained, non-seeded cache of location/character state plus a per-scene
+      // location-fold cache keyed by scene boundary — out of scope for this task.
       ctx.db.query('canonEvents').withIndex('by_world_and_sequence', (q) => q.eq('worldId', args.worldId)).collect(),
       ctx.db.query('storyArcLifecycles').withIndex('by_world_and_arc', (q) => q.eq('worldId', args.worldId)).collect(),
       ctx.db.query('storyArcProjectionEvents').withIndex('by_world_arc_and_revision', (q) => q.eq('worldId', args.worldId)).collect(),

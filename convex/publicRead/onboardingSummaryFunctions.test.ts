@@ -41,7 +41,10 @@ const handler = rebuildOnboardingSummary as unknown as Registered;
 /**
  * The slice of Convex this handler uses. Index constraints are `eq` chains, so filtering by the
  * captured constraints reproduces them; `createdAt` ordering is modelled because
- * `readWithheldSceneLabels` reads the override ledger through it.
+ * `readWithheldSceneLabels` reads the override ledger through it. `lt` is modelled the same way
+ * `voteConsequenceProjectionFunctions.test.ts` models `gte` — a captured range constraint applied
+ * alongside the `eq` ones — because the ART-100 tail read pages with `.lt('sequenceNumber', …)`
+ * rather than an unconditional collect.
  */
 function memoryCtx(tables: Tables) {
   const db = {
@@ -49,15 +52,21 @@ function memoryCtx(tables: Tables) {
       return {
         withIndex(_index: string, build?: (q: unknown) => unknown) {
           const constraints: Row = {};
+          const rangeConstraints: Array<[string, number]> = [];
           const builder = {
             eq(field: string, value: unknown) {
               constraints[field] = value;
               return builder;
             },
+            lt(field: string, value: number) {
+              rangeConstraints.push([field, value]);
+              return builder;
+            },
           };
           if (build) build(builder);
           const matched = (tables[table] ?? []).filter((row) =>
-            Object.entries(constraints).every(([field, value]) => row[field] === value));
+            Object.entries(constraints).every(([field, value]) => row[field] === value)
+            && rangeConstraints.every(([field, value]) => Number(row[field] ?? 0) < value));
           const ascending = [...matched].sort((left, right) =>
             Number(left.createdAt ?? 0) - Number(right.createdAt ?? 0));
           const chain = (rows: Row[]) => ({
@@ -332,5 +341,217 @@ describe('rebuildOnboardingSummary — a withheld Scene never introduces the wor
     }));
     expect(payload.structured.majorEvent).toBeNull();
     expect(payload.summaryText).toBe('這個世界正等待你來探索。');
+  });
+});
+
+/**
+ * A `ctx` that records every `.take(n)` a `canonEvents` query asks for, so a test can pin the
+ * SHAPE of the tail read (a bounded page, not a whole-log `.collect()`) rather than just its
+ * result. A regression back to the old unconditional `by_world_and_sequence` collect leaves this
+ * array empty — `.collect()` is never `.take()` — which is exactly what should turn these tests
+ * red.
+ *
+ * `canonRowsRead` records the ACTUAL length each `.take()` resolved to, not the requested count —
+ * the total-rows-read guard needs the true cost, and a page near exhaustion resolves to fewer
+ * rows than it asked for.
+ */
+function recordingCtx(tables: Tables) {
+  const canonTakes: number[] = [];
+  const canonRowsRead: number[] = [];
+  const inner = memoryCtx(tables) as { db: Record<string, unknown> };
+  type Chain = {
+    order: (direction: 'asc' | 'desc') => Chain;
+    take: (count: number) => Promise<Row[]>;
+    collect: () => Promise<Row[]>;
+    first: () => Promise<Row | null>;
+    unique: () => Promise<Row | null>;
+  };
+  function wrap(chain: Chain): Chain {
+    return {
+      order: (direction) => wrap(chain.order(direction)),
+      take: (count) => {
+        canonTakes.push(count);
+        return chain.take(count).then((rows) => {
+          canonRowsRead.push(rows.length);
+          return rows;
+        });
+      },
+      collect: () => chain.collect(),
+      first: () => chain.first(),
+      unique: () => chain.unique(),
+    };
+  }
+  const db = {
+    ...inner.db,
+    query(table: string) {
+      const rawQuery = (inner.db.query as (t: string) => {
+        withIndex: (i: string, b?: (q: unknown) => unknown) => Chain;
+      })(table);
+      if (table !== 'canonEvents') return rawQuery;
+      return {
+        withIndex(index: string, build?: (q: unknown) => unknown) {
+          return wrap(rawQuery.withIndex(index, build));
+        },
+      };
+    },
+  };
+  return { ctx: { db } as Parameters<typeof handler._handler>[0], canonTakes, canonRowsRead };
+}
+
+/** `n` events, with the major-event summary and the three facts always at the very tail. */
+function tailLoadedCanonEvents(count: number): Row[] {
+  const rows: Row[] = [];
+  for (let sequenceNumber = 0; sequenceNumber < count; sequenceNumber += 1) {
+    const isTail = sequenceNumber >= count - 3;
+    rows.push(canonRow({
+      sequenceNumber,
+      publicSummary: sequenceNumber === count - 1 ? SAFE_SUMMARY : '',
+      stateChanges: isTail ? [{
+        type: 'fact_created', visibility: 'public', subjectType: 'world',
+        subjectId: WORLD_ID, factId: `fact-${sequenceNumber}`,
+        predicate: `predicate-${sequenceNumber}`, value: `value-${sequenceNumber}`,
+      }] : [],
+    }));
+  }
+  return rows;
+}
+
+describe('rebuildOnboardingSummary — the tail read stays bounded (ART-100)', () => {
+  it('reads a fixed-size page, not the whole log, when the answer sits near the tail', async () => {
+    const { ctx, canonTakes } = recordingCtx(baseTables({ canonEvents: tailLoadedCanonEvents(300) }));
+    const result = await handler._handler(ctx, { worldId: WORLD_ID, now: 5_000 }) as { modelRef: string };
+    expect(result.modelRef).toBe(`onboarding:${WORLD_ID}`);
+    // One bounded page (`START_WINDOW`), never the 300-row table a `.collect()` would have read.
+    expect(canonTakes).toEqual([25]);
+  });
+
+  it('does not grow the number of documents read as the total accepted-event count grows', async () => {
+    // The same "answer near the tail" shape at two different world sizes. If the read scaled
+    // with total accepted-event count (the regression this guards against), the larger world
+    // would need a bigger page; it must not.
+    const small = recordingCtx(baseTables({ canonEvents: tailLoadedCanonEvents(300) }));
+    const large = recordingCtx(baseTables({ canonEvents: tailLoadedCanonEvents(600) }));
+    await handler._handler(small.ctx, { worldId: WORLD_ID, now: 5_000 });
+    await handler._handler(large.ctx, { worldId: WORLD_ID, now: 5_000 });
+    expect(small.canonTakes).toEqual(large.canonTakes);
+  });
+
+  it('still finds the right answer once the log outgrows the first page', async () => {
+    // A facts harvest that needs more than one page (`START_WINDOW = 25`): the tail's newest 57
+    // events carry no facts at all, so the loop must grow the window and keep going rather than
+    // settling for whatever the first page happened to contain.
+    const rows: Row[] = [];
+    for (let sequenceNumber = 0; sequenceNumber < 60; sequenceNumber += 1) {
+      rows.push(canonRow({
+        sequenceNumber,
+        publicSummary: sequenceNumber === 59 ? SAFE_SUMMARY : '',
+        stateChanges: sequenceNumber < 3 ? [{
+          type: 'fact_created', visibility: 'public', subjectType: 'world',
+          subjectId: WORLD_ID, factId: `fact-${sequenceNumber}`,
+          predicate: `predicate-${sequenceNumber}`, value: `value-${sequenceNumber}`,
+        }] : [],
+      }));
+    }
+    const tables = baseTables({ canonEvents: rows });
+    const { ctx, canonTakes, canonRowsRead } = recordingCtx(tables);
+    await handler._handler(ctx, { worldId: WORLD_ID, now: 5_000 });
+    const published = (tables.publishedReadModels ?? []).at(-1);
+    const payload = published!.payload as {
+      structured: { facts: Array<{ factId: string }> };
+    };
+    // Reverse-chronological: event 2's fact is reached first, then event 1's, then event 0's.
+    expect(payload.structured.facts.map((fact) => fact.factId)).toEqual([
+      `${eventId(2)}:fact:0`, `${eventId(1)}:fact:0`, `${eventId(0)}:fact:0`,
+    ]);
+    // The page grew (25 -> 50) to reach the early facts, and each page continued from a
+    // `.lt('sequenceNumber', …)` cursor rather than re-taking the tail — so the second page (50
+    // requested) only had 35 rows left to give (60 total - the first page's 25), which is what
+    // ends the loop, rather than a third page ever being asked for.
+    expect(canonTakes).toEqual([25, 50]);
+    // Exactly the log size: the first page's 25 rows plus the second page's 35 remaining rows,
+    // each row counted once. The pre-fix code re-took the tail at each doubling instead of
+    // continuing from a cursor, so it would have read 25 + 50 + 60 = 135 rows here — more than
+    // double the log.
+    expect(canonRowsRead.reduce((total, count) => total + count, 0)).toBe(60);
+  });
+});
+
+describe('rebuildOnboardingSummary — total rows read never exceeds the log (ART-100 regression)', () => {
+  it('never reads more canonEvents rows than the log contains, even in the pathological case that ' +
+    'never satisfies the loop', async () => {
+    // The shape the reviewer flagged: fewer than 3 qualifying facts (zero, here) AND no showable
+    // major event (every `publicSummary` is empty), so `majorEventSource !== null && facts.length
+    // >= 3` never holds. The loop can only stop on `exhausted`, so it pages all the way to the
+    // end of a 60-event log on every post-commit run — and a re-take-the-tail implementation
+    // would pay for that tail again at every doubling (25 + 50 + 60 = 135 rows for this same log).
+    // A cursor that continues past what it has already read must still finish at exactly 60.
+    const rows: Row[] = [];
+    for (let sequenceNumber = 0; sequenceNumber < 60; sequenceNumber += 1) {
+      rows.push(canonRow({ sequenceNumber, publicSummary: '' }));
+    }
+    const tables = baseTables({ canonEvents: rows });
+    const { ctx, canonTakes, canonRowsRead } = recordingCtx(tables);
+    await handler._handler(ctx, { worldId: WORLD_ID, now: 5_000 });
+    const totalRowsRead = canonRowsRead.reduce((total, count) => total + count, 0);
+    expect(totalRowsRead).toBeLessThanOrEqual(60);
+    expect(totalRowsRead).toBe(60);
+    expect(canonTakes).toEqual([25, 50]);
+  });
+
+  it('never exceeds the log size in the normal (non-pathological) multi-page case either', async () => {
+    // Same 60-event log as "still finds the right answer once the log outgrows the first page",
+    // restated here as an explicit total-reads bound rather than an exact page-size pin, so this
+    // test keeps failing the same way even if the paging chunk size ever changes.
+    const rows: Row[] = [];
+    for (let sequenceNumber = 0; sequenceNumber < 60; sequenceNumber += 1) {
+      rows.push(canonRow({
+        sequenceNumber,
+        publicSummary: sequenceNumber === 59 ? SAFE_SUMMARY : '',
+        stateChanges: sequenceNumber < 3 ? [{
+          type: 'fact_created', visibility: 'public', subjectType: 'world',
+          subjectId: WORLD_ID, factId: `fact-${sequenceNumber}`,
+          predicate: `predicate-${sequenceNumber}`, value: `value-${sequenceNumber}`,
+        }] : [],
+      }));
+    }
+    const tables = baseTables({ canonEvents: rows });
+    const { ctx, canonRowsRead } = recordingCtx(tables);
+    await handler._handler(ctx, { worldId: WORLD_ID, now: 5_000 });
+    expect(canonRowsRead.reduce((total, count) => total + count, 0)).toBeLessThanOrEqual(60);
+  });
+});
+
+describe('rebuildOnboardingSummary — key-scene redaction reaches outside the tail window (ART-100)', () => {
+  it('still redacts a withheld key scene whose source event sits far before the read window', async () => {
+    // The major-event pick and the fact harvest both settle within the first page (near the
+    // tail, sequence ~300), but the latest episode's key scene narrates a much OLDER event
+    // (sequence 5) that the bounded tail window never reads. `withheldEvents` from that window
+    // must not be reused to judge this scene — it would wrongly read as "not withheld" simply
+    // because the window never saw it.
+    const rows = tailLoadedCanonEvents(300);
+    rows[5] = canonRow({ sequenceNumber: 5, publicSummary: '', sceneId: WITHHELD_SCENE });
+    const payload = await publishedSummary(baseTables({
+      canonEvents: rows,
+      dailyEpisodes: [{
+        worldId: WORLD_ID, worldDay: 3, episodeNumber: 3, status: 'ready',
+        episode: { keyScenes: [{ title: '很久以前', summary: REFUSED_NARRATION, sourceEventIds: [eventId(5)] }] },
+      }],
+      postGenerationSafetyClassifications: [classificationRow(WITHHELD_SCENE, 'withhold')],
+    }));
+    expect(payload.structured.scene).toBeNull();
+    expect(JSON.stringify(payload)).not.toContain('POISONED');
+  });
+
+  it('publishes that same key scene once its Scene is allowed — proving the fixture really reaches it', async () => {
+    const rows = tailLoadedCanonEvents(300);
+    rows[5] = canonRow({ sequenceNumber: 5, publicSummary: '', sceneId: CLEAN_SCENE });
+    const payload = await publishedSummary(baseTables({
+      canonEvents: rows,
+      dailyEpisodes: [{
+        worldId: WORLD_ID, worldDay: 3, episodeNumber: 3, status: 'ready',
+        episode: { keyScenes: [{ title: '很久以前', summary: SAFE_NARRATION, sourceEventIds: [eventId(5)] }] },
+      }],
+    }));
+    expect(payload.structured.scene).toEqual({ title: '很久以前', summary: SAFE_NARRATION });
   });
 });

@@ -20,6 +20,10 @@
 
 import { rebuildRelationshipGraphProjection } from './relationshipGraphProjectionFunctions';
 import { relationshipGraphModelRef } from '../shared/relationshipGraphRef';
+import { emptyProjection } from '../canon/model';
+import { replayWorldEvents } from '../canon/replay';
+import { rowToAcceptedEvent } from '../canon/serialize';
+import { buildSnapshot } from '../canon/snapshots';
 import {
   RELATIONSHIP_GRAPH_MAX_NODES,
   RELATIONSHIP_GRAPH_MODEL_KIND,
@@ -35,29 +39,45 @@ type Tables = Record<string, Row[]>;
 type Registered = { _handler: (ctx: unknown, args: unknown) => Promise<unknown> };
 const handler = rebuildRelationshipGraphProjection as unknown as Registered;
 
-function memoryCtx(tables: Tables) {
+function memoryCtx(tables: Tables, reads?: Record<string, number>) {
+  const count = (table: string, rows: Row[]) => {
+    if (reads) reads[table] = (reads[table] ?? 0) + rows.length;
+    return rows;
+  };
   const db = {
     query(table: string) {
       return {
         withIndex(_index: string, build?: (q: unknown) => unknown) {
           const constraints: Row = {};
+          // ART-100 reads a bounded tail (`gt('sequenceNumber', …)`), so the double has to model
+          // the range bound. Modelling it as a no-op would let an unbounded collect pass the
+          // read-cost assertions below, which is the whole thing they exist to catch.
+          const lowerExclusive: Record<string, number> = {};
           const builder = {
             eq(field: string, value: unknown) {
               constraints[field] = value;
               return builder;
             },
+            gt(field: string, value: number) {
+              lowerExclusive[field] = value;
+              return builder;
+            },
           };
           if (build) build(builder);
           const matched = (tables[table] ?? []).filter((row) =>
-            Object.entries(constraints).every(([field, value]) => row[field] === value));
+            Object.entries(constraints).every(([field, value]) => row[field] === value)
+            && Object.entries(lowerExclusive).every(([field, value]) => Number(row[field]) > value));
+          // Order by the index's own second field where the row has one, so `.order('desc')`
+          // means "highest sequence" rather than "most recently created".
           const ascending = [...matched].sort((left, right) =>
-            Number(left.createdAt ?? 0) - Number(right.createdAt ?? 0));
+            Number(left.sequenceNumber ?? left.lastSequenceNumber ?? left.createdAt ?? 0)
+            - Number(right.sequenceNumber ?? right.lastSequenceNumber ?? right.createdAt ?? 0));
           const chain = (rows: Row[]) => ({
             order: (direction: 'asc' | 'desc') => chain(direction === 'desc' ? [...rows].reverse() : rows),
-            take: (count: number) => Promise.resolve(rows.slice(0, count)),
-            collect: () => Promise.resolve(rows),
-            first: () => Promise.resolve(rows[0] ?? null),
-            unique: () => Promise.resolve(rows[0] ?? null),
+            take: (n: number) => Promise.resolve(count(table, rows.slice(0, n))),
+            collect: () => Promise.resolve(count(table, rows)),
+            first: () => Promise.resolve(count(table, rows.slice(0, 1))[0] ?? null),
+            unique: () => Promise.resolve(count(table, rows.slice(0, 1))[0] ?? null),
           });
           return chain(ascending);
         },
@@ -166,8 +186,8 @@ function baseTables(over: Partial<Tables> = {}): Tables {
   };
 }
 
-async function rebuild(tables: Tables, targetWorldDay = TODAY) {
-  const result = await handler._handler(memoryCtx(tables), {
+async function rebuild(tables: Tables, targetWorldDay = TODAY, reads?: Record<string, number>) {
+  const result = await handler._handler(memoryCtx(tables, reads), {
     worldId: WORLD_ID, targetWorldDay, now: 5_000,
   }) as { modelRef: string; version: number; deduplicated: boolean };
   return result;
@@ -391,5 +411,72 @@ describe('the published payload honours the scope at the wiring layer too', () =
     const payload = publishedPayload(tables);
     expect(row.sourceEventIds).toEqual(payload.sourceEventIds);
     expect(payload.sourceEventIds.length).toBeGreaterThan(0);
+  });
+});
+
+describe('ART-100: resuming from a snapshot instead of replaying the whole log', () => {
+  /**
+   * A daily snapshot over the events through `throughSequence`, built the way stage 20 builds
+   * one — `buildSnapshot` computes the integrity hash, so a hand-rolled row would be rejected by
+   * `validateSnapshot` rather than exercising the path.
+   *
+   * This world has no seeded `initial` snapshot, so its baseline is the empty projection and the
+   * substitution must be EXACT here. The seeded case — where the baseline is non-empty and the
+   * two forms legitimately differ on four fields — is pinned in `canon/snapshotReplay.test.ts`.
+   */
+  function snapshotRow(canonEvents: Row[], throughSequence: number): Row {
+    const prefix = canonEvents
+      .filter((row) => Number(row.sequenceNumber) <= throughSequence)
+      .map((row) => rowToAcceptedEvent(row as Parameters<typeof rowToAcceptedEvent>[0]));
+    const snapshot = buildSnapshot(replayWorldEvents(emptyProjection(WORLD_ID), prefix), 900, TODAY - 1);
+    return { ...snapshot, kind: 'daily' };
+  }
+
+  function longHistory(): Row[] {
+    return Array.from({ length: 40 }, (_unused, index) => relationshipEvent({
+      sequenceNumber: index,
+      worldDay: index < 36 ? TODAY - 1 : TODAY,
+      source: 'he-jun',
+      target: 'zhao-ming',
+      visibility: 'public',
+      trustDelta: 1,
+    }));
+  }
+
+  it('publishes an identical payload whether or not a snapshot exists', async () => {
+    const canonEvents = longHistory();
+
+    const withoutSnapshot = baseTables({ canonEvents });
+    await rebuild(withoutSnapshot);
+
+    const withSnapshot = baseTables({ canonEvents, canonSnapshots: [snapshotRow(canonEvents, 35)] });
+    await rebuild(withSnapshot);
+
+    expect(publishedPayload(withSnapshot)).toEqual(publishedPayload(withoutSnapshot));
+  });
+
+  /**
+   * The cost claim, measured rather than asserted in prose.
+   *
+   * Without a snapshot the rebuild must read all 40 events; with one covering the first 36 it
+   * reads the snapshot row plus the 4 after it. Reverting to an unbounded collect makes the
+   * second number equal the first.
+   */
+  it('reads only the events after the snapshot', async () => {
+    const canonEvents = longHistory();
+
+    const fullReads: Record<string, number> = {};
+    await rebuild(baseTables({ canonEvents }), TODAY, fullReads);
+
+    const tailReads: Record<string, number> = {};
+    await rebuild(
+      baseTables({ canonEvents, canonSnapshots: [snapshotRow(canonEvents, 35)] }),
+      TODAY,
+      tailReads,
+    );
+
+    expect(fullReads.canonEvents).toBe(40);
+    expect(tailReads.canonEvents).toBe(4);
+    expect(tailReads.canonSnapshots).toBe(1);
   });
 });

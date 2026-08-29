@@ -19,12 +19,22 @@ async function acceptedEvent(
 }
 
 async function validateReferences(ctx: Pick<GenericQueryCtx<DataModel>, 'db'>, worldId: string, fields: ArcProjectionFields): Promise<void> {
-  const [characters, events] = await Promise.all([
-    ctx.db.query('worldCharacters').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).collect(),
-    ctx.db.query('canonEvents').withIndex('by_world_and_sequence', (q) => q.eq('worldId', worldId)).collect(),
-  ]);
+  const characters = await ctx.db.query('worldCharacters').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).collect();
   const characterIds = new Set(characters.map((row) => row.characterId));
-  const eventIds = new Set(events.map((row) => deriveEventId(worldId, row.sequenceNumber)));
+  // `validateArcProjectionReferences` checks membership of exactly these three ids and no other
+  // event reference, so each is a point lookup on `worldId + sequenceNumber` rather than a scan
+  // of the world's whole event log — the same shape as `admitArcToPortfolio`'s source-event check.
+  const candidateEventIds = [fields.incitingEventId, fields.latestTurningPointEventId, fields.recommendedEntryEventId]
+    .filter((eventId): eventId is string => eventId !== null);
+  const resolved = await Promise.all(candidateEventIds.map(async (eventId) => {
+    const sequenceNumber = Number(eventId.split('#').at(-1));
+    if (!Number.isSafeInteger(sequenceNumber)) return null;
+    const row = await ctx.db.query('canonEvents')
+      .withIndex('by_world_and_sequence', (q) => q.eq('worldId', worldId).eq('sequenceNumber', sequenceNumber))
+      .unique();
+    return row !== null && deriveEventId(worldId, sequenceNumber) === eventId ? eventId : null;
+  }));
+  const eventIds = new Set(resolved.filter((eventId): eventId is string => eventId !== null));
   validateArcProjectionReferences(fields, characterIds, eventIds);
 }
 

@@ -11,7 +11,7 @@ import { internalMutation } from '../_generated/server';
 import type { DailyEpisode } from '../editorial/episode';
 import { rowToAcceptedEvent } from '../canon/serialize';
 import { readWithheldSceneLabels } from '../safety/effectiveSafetyLabels';
-import { EpisodeTimelineError, buildEpisodeProjection, buildTimelineProjection, EPISODE_MODEL_KIND, TIMELINE_MODEL_KIND, type TimelineEntryInput } from './episodeTimelineProjection';
+import { EpisodeTimelineError, buildEpisodeProjection, buildTimelineProjection, EPISODE_MODEL_KIND, TIMELINE_MAJOR_IMPORTANCE, TIMELINE_MODEL_KIND, type TimelineEntryInput } from './episodeTimelineProjection';
 import { sceneEventRows, withheldEventIds } from './liveStateFunctions';
 import { commitReadModelVersion } from './readModel';
 import { writeStore } from './readModelFunctions';
@@ -60,6 +60,28 @@ export const rebuildEpisodeProjection = internalMutation({
  * about, and dropping the row would silently renumber a public history. `publicSummary: null` is
  * an existing, already-handled state on both consumers — the character page prints `(無摘要)`
  * and the card does the same — so no client change is needed.
+ *
+ * CANON READ (ART-100). This used to `collect()` the world's whole `canonEvents` log — one of
+ * the last full-replay sites on the post-commit path, since this rebuild runs after every
+ * accepted event. It no longer needs to: every field this projection reads off a canon row
+ * (`worldDay`, `timeSlot`, `eventType`, `publicSummary`, `participantIds`) is a property of that
+ * ROW alone, not a fold over history, and `buildTimelineProjection`'s default `minImportance`
+ * means an event can never appear in the published Timeline unless its classification already
+ * clears `TIMELINE_MAJOR_IMPORTANCE`. `storyArcEventClassifications` is read in full regardless
+ * (unchanged from before this task; it is not the log this task was asked to bound), which makes
+ * its already-known qualifying sequence numbers the exact, small set to look Canon rows up by —
+ * one `worldId + sequenceNumber` point query each, the same WINDOW pattern
+ * `relationshipArcProjectionFunctions.ts` uses for `rebuildArcProjection` — rather than a scan of
+ * the world's whole event log to keep the handful that matter.
+ *
+ * This is not append-then-invalidate: `entries` is still rebuilt FROM SCRATCH on every call,
+ * exactly as it was before, from data (`classificationRows`, `episodeRows`,
+ * `withheldSceneLabels`) that is ALSO read fresh and in full on every call. So a reclassification
+ * that moves an old event's importance across the threshold in either direction, an episode
+ * renumbering that changes `episodeNumberByDay` for a past world day, and a safety override that
+ * changes which Scenes are withheld are all picked up correctly on the very next rebuild — the
+ * same as a full replay would show, because nothing here is cached or diffed against the prior
+ * publish. Only the CANON ROW READS for events that were never going to qualify are avoided.
  */
 export const rebuildTimelineProjection = internalMutation({
   args: { worldId: v.string(), now: v.number() },
@@ -67,8 +89,7 @@ export const rebuildTimelineProjection = internalMutation({
     if (args.worldId.trim().length === 0 || !Number.isFinite(args.now)) {
       throw new EpisodeTimelineError('TIMELINE_INVALID', 'worldId and a finite now are required');
     }
-    const [canonRows, classificationRows, episodeRows, withheldSceneLabels] = await Promise.all([
-      ctx.db.query('canonEvents').withIndex('by_world_and_sequence', (q) => q.eq('worldId', args.worldId)).collect(),
+    const [classificationRows, episodeRows, withheldSceneLabels] = await Promise.all([
       ctx.db.query('storyArcEventClassifications').withIndex('by_world', (q) => q.eq('worldId', args.worldId)).collect(),
       ctx.db.query('dailyEpisodes').withIndex('by_world_and_day', (q) => q.eq('worldId', args.worldId)).collect(),
       // The inverted, history-independent question. See `effectiveSafetyLabels.ts` on why a
@@ -77,14 +98,40 @@ export const rebuildTimelineProjection = internalMutation({
     ]);
 
     const membershipsBySequence = new Map<number, ClassificationMembership[]>();
+    const importanceBySequence = new Map<number, number>();
     for (const row of classificationRows) {
       const memberships = row.memberships as ClassificationMembership[] | undefined;
-      if (Array.isArray(memberships)) membershipsBySequence.set(row.sourceEventSequenceNumber, memberships);
+      if (!Array.isArray(memberships)) continue;
+      membershipsBySequence.set(row.sourceEventSequenceNumber, memberships);
+      importanceBySequence.set(
+        row.sourceEventSequenceNumber,
+        memberships.reduce((max, membership) => Math.max(max, membership.importance), 0),
+      );
     }
     const episodeNumberByDay = new Map<number, number>();
     for (const row of episodeRows) {
       if (row.episode) episodeNumberByDay.set(row.worldDay, row.episodeNumber);
     }
+
+    // The already-known set of sequence numbers a Canon row is worth reading for — see the
+    // docblock above. An event absent from `importanceBySequence` (no classification row, or one
+    // whose `memberships` failed the shape check) defaults to importance 0 exactly as the old
+    // full-scan code did via `?? []`, so it is excluded here rather than fetched and filtered out
+    // downstream — same outcome, fewer reads.
+    const majorSequenceNumbers = [...importanceBySequence.entries()]
+      .filter(([, importance]) => importance >= TIMELINE_MAJOR_IMPORTANCE)
+      .map(([sequenceNumber]) => sequenceNumber);
+
+    const canonRows = (await Promise.all(
+      majorSequenceNumbers.map((sequenceNumber) =>
+        ctx.db.query('canonEvents')
+          .withIndex('by_world_and_sequence', (q) => q.eq('worldId', args.worldId).eq('sequenceNumber', sequenceNumber))
+          .unique()),
+    ))
+      .filter((row): row is NonNullable<typeof row> => row !== null)
+      // Point lookups resolve in `Promise.all`/Map-insertion order, not accepted order; entries
+      // below and `withheldEventIds` above both need Canon's actual sequence order.
+      .sort((left, right) => left.sequenceNumber - right.sequenceNumber);
 
     const acceptedEvents = canonRows.map(rowToAcceptedEvent);
     // Keyed on the EVENT ID, never on a position in a parallel array — the reason
@@ -98,14 +145,13 @@ export const rebuildTimelineProjection = internalMutation({
     const entries: TimelineEntryInput[] = canonRows.map((row, index) => {
       const event = acceptedEvents[index];
       const memberships = membershipsBySequence.get(row.sequenceNumber) ?? [];
-      const importance = memberships.reduce((max, membership) => Math.max(max, membership.importance), 0);
       return {
         eventId: event.eventId,
         worldDay: event.worldDay,
         timeSlot: event.timeSlot,
         eventType: event.eventType,
         publicSummary: withheldEvents.has(event.eventId) ? null : (event.publicSummary ?? null),
-        importance,
+        importance: importanceBySequence.get(row.sequenceNumber) ?? 0,
         arcIds: memberships.map((membership) => membership.arcId),
         characterIds: [...event.participantIds],
         episodeNumber: episodeNumberByDay.get(event.worldDay) ?? null,
