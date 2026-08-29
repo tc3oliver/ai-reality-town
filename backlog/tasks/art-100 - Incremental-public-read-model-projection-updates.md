@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-08-04 06:21'
-updated_date: '2026-08-29 06:16'
+updated_date: '2026-08-29 06:44'
 labels:
   - prd-1.0
   - epic-i
@@ -195,4 +195,54 @@ AC#1 測試目前是**有紀錄的已知紅**(skipped,註解內含上述數字),
 ### 待處理
 
 harness 檔案中殘留一條 `DEBUG multiday numbers` 測試(含 `console.log`),不得進入 PR。
+
+## 獨立審查(code-reviewer,對 14bb46a/456bb9e/400a67b)
+
+結論 **REQUEST CHANGES**:0 CRITICAL / 3 HIGH / 6 MEDIUM / 3 LOW。AC#3 未被攻破 —— 審查者嘗試四條攻擊路線,全部回報「確認實作正確」。失守的是 AC#1 與量測本身。
+
+### HIGH-1:onboarding 成長視窗是讀取量「回歸」(已修)
+
+每次迭代從尾端重讀而非續接游標,總量為 `Σ min(25·2ⁱ, N)` 而非 `N`。分支自己的測試把它釘死:60 筆日誌讀 **135 列**(25+50+60),改動前為 60。而且無法累積 3 筆合格 fact 或無可展示重大事件的世界,**每一次 post-commit 都會跑到耗盡**。這落在本任務存在目的所要疏通的交易位元組預算路徑上,等於把 16 MiB 天花板推得更近。
+
+修法:改為 `.lt(sequenceNumber, lowestSeenSoFar)` 游標分頁並跨迭代累積,頁面不重疊,總量 ≤ N。實測 60 筆日誌:正常型態 135 → 60,病態型態 135 → 60。注入(還原成從頂端重讀)→ 3 條轉紅,全部 `Received: 135`,與審查者算出的數字一致。
+
+三項正確性性質經逐行 diff 確認未受影響:`importanceBySequence` 仍只在 `majorEventSource.sequenceNumber` 查詢;`withheldEventIds`/`redactWithheldSummaries` 仍為逐事件、以 eventId 為鍵;key-scene 點查遮蔽區塊零 diff。
+
+### HIGH-2:`readProjectionViaSnapshot` 未過濾 kind、未防不可用列(已修)
+
+`snapshotVersion` 與 `projectionHash` 在 schema 中是 `v.optional`,`rowToCanonSnapshot` 只能強制轉型,`validateSnapshot` 隨即拋錯 —— 而 **stage 19 沒有 failure isolation**,一拋就中止其後所有階段。ART-100 之前這些 rebuild 根本不讀 `canonSnapshots`,所以這是本任務**新造的**故障模式。
+
+修法:`isResumableSnapshotRow` 要求兩欄位齊備且 `kind ∈ {daily, initial}`(排除 `manual` —— 無人約束營運者何時取、對應哪段歷史);不可用時降級為全量重播而非拋錯。讀取形狀為 `.first()`(常見路徑 O(1)),僅在最新列不可用時才 `.take(8)` 往回找。新增 3 條參數化測試涵蓋缺 hash、缺 version、manual 三種列。
+
+明確不做 `assertSnapshotMatchesHistory`:該檢查要重播整段前綴,正是本 helper 要避免的成本。已在 docblock 寫明「對列的信任委託給寫它的人」,並指出 `readOperationalWorldProjection` 仍是會證明而非信任的讀取者。
+
+### HIGH-3:AC#1 閘門測試無法區分線性與常數
+
+`ratio < 1.5` 在 N=30/60 下,對 `total = C + kN`,只要 `C > 30k` 就會通過 —— 一個完全線性的 O(N) 項可以偽裝成過關。應改為直接斷言 `large.byTable.canonEvents === small.byTable.canonEvents`,那正是 AC#1 的字面意思。已回饋 harness 作者。
+
+### MEDIUM:我自己寫的測試在斷言 `{}` 等於 `{}`(已修)
+
+`snapshotReplay.test.ts` 的 fixture 只發 `fact_created`(world subject),導致 `relationshipHistory` 在兩份投影中皆為空 —— 而那是 `rebuildRelationshipGraphProjection` **唯一**消費的欄位,也是本 commit 的核心主張,該斷言不可能失敗。這正是本任務稍早已經咬過一次的「測試名稱指涉的性質根本沒被觸及」失敗模式,換了個形狀再犯。
+
+修法:fixture 改發三種 state change(fact / relationship_changed / character_location_changed),使 `relationshipHistory`、`characterLocations` 非空;斷言改為**先驗非空再驗相等**;並反向斷言 `locationOccupancy`(seed 欄位)確實分歧,證明四欄位邊界是真實邊界而非不可達分支。
+
+### 審查者獨立確認為正確的部分
+
+- 投票後果兩階段讀取:`selectTrigger` 只讀三個欄位,佔位值永不被觸及;Phase 1 與 Phase 2 可證同選 —— 後綴只會捨棄嚴格早於 trigger 的候選,而捨棄它們不改變選擇。append-only 前提是**被強制而非假設**(`validators.ts:459-463` 拒絕指向未接受事件的 `causedByEventIds`)。
+- onboarding 三項正確性性質全部安全,key-scene 修正**完整且正確**,雙向皆有測試。
+- story/ 點查語意不僅保留且**更強**:`deriveEventId` 往返檢查會拒絕 `Number(0x10)` 之類能找到列卻不該通過的 id,以及跨世界 id。
+- harness 機制誠實:`INDEX_REGISTRY` 未隱藏全日誌讀取,`UNDISPATCHED_MUTATION` 拋錯而非 no-op。
+
+## Slice 3 部分結果
+
+- `rebuildTimelineProjection`:改為僅對達到重要性門檻的 sequence 做點查(門檻與 `buildTimelineProjection` 相同)。200 事件 / 10 個重大 → 10 次讀取。兩次注入:還原為 collect → 僅讀取量測試轉紅(證明它隔離的正是這類回歸);停用 `importanceBySequence` → 全部 11 條轉紅(證明測試確實走到活路徑)。
+- **`rebuildLiveProjection` 停手未做,理由成立**:`buildLiveProjection` 的 `locations` 欄位是整段 `location_state_changed` 歷史的 LWW fold,而 `locations` **正是 `SEED_BASELINE_FIELDS` 之一** —— 快照替換會洩漏今日 replay-from-empty 從不呈現的 seed 資料,直接違反 AC#3。另外 `buildVisualReplay` 需在**整段**已接受歷史上排序場景重要性才能挑前三,再對勝出場景做 `foldLocations`,既非尾端可導出亦非日快照在所需子日粒度上可導出。真正的解需要一個增量維護的非 seed 位置/角色快取加上逐場景的位置 fold 快取。已寫入該檔 docblock。
+
+## AC#1 現況(誠實)
+
+比值 **1.895**(基線 1.898)。我拆掉 `loadCanonRows` 移除一處全量讀取,但 `loadProjection` 的兩個獨立呼叫點在無快照的 fixture 下各加回一次 —— 對該 fixture 而言是打平,不是回歸。多日含快照變體為 1.754(三處呼叫點同時修好)。
+
+仍在做全量 collect 的呼叫點:`rebuildWorldProjection`、`rebuildCharacterProjection`(進行中)、`rebuildLiveProjection`(結構性阻塞,見上)、`loadCharacterKnowledge`/`loadCharacterMemories` 的無快照回退、`rebuildRelationshipGraphProjection` 的無快照回退。
+
+已確認消失:`rebuildTimelineProjection` 與 `rebuildEpisodeIndexProjection` 完全不再觸碰 `canonEvents`。
 <!-- SECTION:NOTES:END -->

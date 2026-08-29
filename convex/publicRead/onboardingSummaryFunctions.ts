@@ -11,7 +11,7 @@
 import { v } from 'convex/values';
 import { internalMutation } from '../_generated/server';
 import type { AcceptedEvent } from '../canon/model';
-import { rowToAcceptedEvent } from '../canon/serialize';
+import { rowToAcceptedEvent, type CanonEventRow } from '../canon/serialize';
 import { readWithheldSceneLabels } from '../safety/effectiveSafetyLabels';
 import { deriveEventId } from '../shared/ids';
 import {
@@ -87,22 +87,35 @@ export const rebuildOnboardingSummary = internalMutation({
      * before (or long after) it finds a showable major event — so the loop keeps growing until
      * BOTH are settled rather than assuming one bounded window serves both. `START_WINDOW` is a
      * paging chunk size, not a correctness bound: a world whose last N events give the loop
-     * everything it needs never reads past that page, and one that doesn't just doubles the
-     * window and tries again, so the worst case (nothing ever satisfies both) still reads the
-     * whole log once, at ~2x cost, exactly as the old unconditional collect always did.
+     * everything it needs never reads past that page. A world that doesn't asks for the NEXT
+     * page instead — `.lt('sequenceNumber', lowestSeenSoFar)` — rather than re-taking the same
+     * tail at double the size, so every row is read at most once and accumulates across
+     * iterations. Total reads across the whole loop are therefore bounded by the log size N,
+     * with equality only in the pathological case where the loop pages all the way to
+     * exhaustion without ever satisfying both consumers — never the `Σ min(pageSize·2ⁱ, N)`
+     * over-read a re-take from the tail would produce, and never worse than the old
+     * unconditional collect's N.
      */
     const START_WINDOW = 25;
-    let windowSize = START_WINDOW;
+    let pageSize = START_WINDOW;
     let majorEventSource: AcceptedEvent | null = null;
     let majorImportance = 0;
     let facts: OnboardingFact[] = [];
+    const rowsDescSoFar: CanonEventRow[] = [];
+    let lowestSequenceSeen: number | undefined;
     for (;;) {
-      const rowsDesc = await ctx.db.query('canonEvents')
-        .withIndex('by_world_and_sequence', (q) => q.eq('worldId', args.worldId))
-        .order('desc')
-        .take(windowSize);
-      const exhausted = rowsDesc.length < windowSize;
-      const acceptedEvents = [...rowsDesc].reverse().map(rowToAcceptedEvent);
+      const cursor = lowestSequenceSeen;
+      const pageQuery = cursor === undefined
+        ? ctx.db.query('canonEvents').withIndex('by_world_and_sequence', (q) => q.eq('worldId', args.worldId))
+        : ctx.db.query('canonEvents')
+          .withIndex('by_world_and_sequence', (q) => q.eq('worldId', args.worldId).lt('sequenceNumber', cursor));
+      const pageRowsDesc = await pageQuery.order('desc').take(pageSize);
+      const exhausted = pageRowsDesc.length < pageSize;
+      if (pageRowsDesc.length > 0) {
+        lowestSequenceSeen = pageRowsDesc[pageRowsDesc.length - 1].sequenceNumber;
+      }
+      rowsDescSoFar.push(...pageRowsDesc);
+      const acceptedEvents = [...rowsDescSoFar].reverse().map(rowToAcceptedEvent);
       // Keyed on the EVENT ID, never on a position in a parallel array — the reason
       // `withheldEventIds` returns ids at all.
       const withheldEvents = withheldEventIds(sceneEventRows(acceptedEvents), withheldSceneMap);
@@ -138,7 +151,7 @@ export const rebuildOnboardingSummary = internalMutation({
       }
 
       if (exhausted || (majorEventSource !== null && facts.length >= 3)) break;
-      windowSize *= 2;
+      pageSize *= 2;
     }
 
     const majorEvent = majorEventSource

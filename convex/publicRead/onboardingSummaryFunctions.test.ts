@@ -41,7 +41,10 @@ const handler = rebuildOnboardingSummary as unknown as Registered;
 /**
  * The slice of Convex this handler uses. Index constraints are `eq` chains, so filtering by the
  * captured constraints reproduces them; `createdAt` ordering is modelled because
- * `readWithheldSceneLabels` reads the override ledger through it.
+ * `readWithheldSceneLabels` reads the override ledger through it. `lt` is modelled the same way
+ * `voteConsequenceProjectionFunctions.test.ts` models `gte` — a captured range constraint applied
+ * alongside the `eq` ones — because the ART-100 tail read pages with `.lt('sequenceNumber', …)`
+ * rather than an unconditional collect.
  */
 function memoryCtx(tables: Tables) {
   const db = {
@@ -49,15 +52,21 @@ function memoryCtx(tables: Tables) {
       return {
         withIndex(_index: string, build?: (q: unknown) => unknown) {
           const constraints: Row = {};
+          const rangeConstraints: Array<[string, number]> = [];
           const builder = {
             eq(field: string, value: unknown) {
               constraints[field] = value;
               return builder;
             },
+            lt(field: string, value: number) {
+              rangeConstraints.push([field, value]);
+              return builder;
+            },
           };
           if (build) build(builder);
           const matched = (tables[table] ?? []).filter((row) =>
-            Object.entries(constraints).every(([field, value]) => row[field] === value));
+            Object.entries(constraints).every(([field, value]) => row[field] === value)
+            && rangeConstraints.every(([field, value]) => Number(row[field] ?? 0) < value));
           const ascending = [...matched].sort((left, right) =>
             Number(left.createdAt ?? 0) - Number(right.createdAt ?? 0));
           const chain = (rows: Row[]) => ({
@@ -341,9 +350,14 @@ describe('rebuildOnboardingSummary — a withheld Scene never introduces the wor
  * result. A regression back to the old unconditional `by_world_and_sequence` collect leaves this
  * array empty — `.collect()` is never `.take()` — which is exactly what should turn these tests
  * red.
+ *
+ * `canonRowsRead` records the ACTUAL length each `.take()` resolved to, not the requested count —
+ * the total-rows-read guard needs the true cost, and a page near exhaustion resolves to fewer
+ * rows than it asked for.
  */
 function recordingCtx(tables: Tables) {
   const canonTakes: number[] = [];
+  const canonRowsRead: number[] = [];
   const inner = memoryCtx(tables) as { db: Record<string, unknown> };
   type Chain = {
     order: (direction: 'asc' | 'desc') => Chain;
@@ -357,7 +371,10 @@ function recordingCtx(tables: Tables) {
       order: (direction) => wrap(chain.order(direction)),
       take: (count) => {
         canonTakes.push(count);
-        return chain.take(count);
+        return chain.take(count).then((rows) => {
+          canonRowsRead.push(rows.length);
+          return rows;
+        });
       },
       collect: () => chain.collect(),
       first: () => chain.first(),
@@ -378,7 +395,7 @@ function recordingCtx(tables: Tables) {
       };
     },
   };
-  return { ctx: { db } as Parameters<typeof handler._handler>[0], canonTakes };
+  return { ctx: { db } as Parameters<typeof handler._handler>[0], canonTakes, canonRowsRead };
 }
 
 /** `n` events, with the major-event summary and the three facts always at the very tail. */
@@ -436,7 +453,7 @@ describe('rebuildOnboardingSummary — the tail read stays bounded (ART-100)', (
       }));
     }
     const tables = baseTables({ canonEvents: rows });
-    const { ctx, canonTakes } = recordingCtx(tables);
+    const { ctx, canonTakes, canonRowsRead } = recordingCtx(tables);
     await handler._handler(ctx, { worldId: WORLD_ID, now: 5_000 });
     const published = (tables.publishedReadModels ?? []).at(-1);
     const payload = published!.payload as {
@@ -446,9 +463,61 @@ describe('rebuildOnboardingSummary — the tail read stays bounded (ART-100)', (
     expect(payload.structured.facts.map((fact) => fact.factId)).toEqual([
       `${eventId(2)}:fact:0`, `${eventId(1)}:fact:0`, `${eventId(0)}:fact:0`,
     ]);
-    // The window doubled (25 -> 50 -> 100) to reach the early facts, and stopped once the table
-    // was exhausted — it never asked for a single page sized to the whole 60-row table up front.
-    expect(canonTakes).toEqual([25, 50, 100]);
+    // The page grew (25 -> 50) to reach the early facts, and each page continued from a
+    // `.lt('sequenceNumber', …)` cursor rather than re-taking the tail — so the second page (50
+    // requested) only had 35 rows left to give (60 total - the first page's 25), which is what
+    // ends the loop, rather than a third page ever being asked for.
+    expect(canonTakes).toEqual([25, 50]);
+    // Exactly the log size: the first page's 25 rows plus the second page's 35 remaining rows,
+    // each row counted once. The pre-fix code re-took the tail at each doubling instead of
+    // continuing from a cursor, so it would have read 25 + 50 + 60 = 135 rows here — more than
+    // double the log.
+    expect(canonRowsRead.reduce((total, count) => total + count, 0)).toBe(60);
+  });
+});
+
+describe('rebuildOnboardingSummary — total rows read never exceeds the log (ART-100 regression)', () => {
+  it('never reads more canonEvents rows than the log contains, even in the pathological case that ' +
+    'never satisfies the loop', async () => {
+    // The shape the reviewer flagged: fewer than 3 qualifying facts (zero, here) AND no showable
+    // major event (every `publicSummary` is empty), so `majorEventSource !== null && facts.length
+    // >= 3` never holds. The loop can only stop on `exhausted`, so it pages all the way to the
+    // end of a 60-event log on every post-commit run — and a re-take-the-tail implementation
+    // would pay for that tail again at every doubling (25 + 50 + 60 = 135 rows for this same log).
+    // A cursor that continues past what it has already read must still finish at exactly 60.
+    const rows: Row[] = [];
+    for (let sequenceNumber = 0; sequenceNumber < 60; sequenceNumber += 1) {
+      rows.push(canonRow({ sequenceNumber, publicSummary: '' }));
+    }
+    const tables = baseTables({ canonEvents: rows });
+    const { ctx, canonTakes, canonRowsRead } = recordingCtx(tables);
+    await handler._handler(ctx, { worldId: WORLD_ID, now: 5_000 });
+    const totalRowsRead = canonRowsRead.reduce((total, count) => total + count, 0);
+    expect(totalRowsRead).toBeLessThanOrEqual(60);
+    expect(totalRowsRead).toBe(60);
+    expect(canonTakes).toEqual([25, 50]);
+  });
+
+  it('never exceeds the log size in the normal (non-pathological) multi-page case either', async () => {
+    // Same 60-event log as "still finds the right answer once the log outgrows the first page",
+    // restated here as an explicit total-reads bound rather than an exact page-size pin, so this
+    // test keeps failing the same way even if the paging chunk size ever changes.
+    const rows: Row[] = [];
+    for (let sequenceNumber = 0; sequenceNumber < 60; sequenceNumber += 1) {
+      rows.push(canonRow({
+        sequenceNumber,
+        publicSummary: sequenceNumber === 59 ? SAFE_SUMMARY : '',
+        stateChanges: sequenceNumber < 3 ? [{
+          type: 'fact_created', visibility: 'public', subjectType: 'world',
+          subjectId: WORLD_ID, factId: `fact-${sequenceNumber}`,
+          predicate: `predicate-${sequenceNumber}`, value: `value-${sequenceNumber}`,
+        }] : [],
+      }));
+    }
+    const tables = baseTables({ canonEvents: rows });
+    const { ctx, canonRowsRead } = recordingCtx(tables);
+    await handler._handler(ctx, { worldId: WORLD_ID, now: 5_000 });
+    expect(canonRowsRead.reduce((total, count) => total + count, 0)).toBeLessThanOrEqual(60);
   });
 });
 

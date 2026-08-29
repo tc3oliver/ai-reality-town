@@ -28,10 +28,32 @@ function dailyFact(day: number): AcceptedEvent {
     eventType: 'world_event',
     participantIds: [],
     causedByEventIds: [],
-    stateChanges: [{
-      type: 'fact_created', subjectType: 'world', subjectId: WORLD_ID,
-      predicate: `day-${day}-complete`, value: true, visibility: 'canon',
-    }],
+    // Three state changes on purpose, not one. An earlier version of this fixture emitted only
+    // `fact_created` on a world subject, which left `relationshipHistory` empty in BOTH
+    // projections — so the assertion below that named it as the field the relationship-graph
+    // rebuild consumes was comparing {} with {} and could not have failed. A relationship change
+    // makes the consumed field real, and a location change makes `locationOccupancy` (a seeded
+    // field) and `characterLocations` (a non-seeded one) both non-trivial, so the seed-boundary
+    // assertion has something to separate.
+    stateChanges: [
+      {
+        type: 'fact_created', subjectType: 'world', subjectId: WORLD_ID,
+        predicate: `day-${day}-complete`, value: true, visibility: 'canon',
+      },
+      {
+        type: 'relationship_changed',
+        sourceCharacterId: 'he-jun', targetCharacterId: 'zhao-ming',
+        trustDelta: 1, affectionDelta: 0, resentmentDelta: 2, fearDelta: 0,
+        dependencyDelta: 0, familiarityDelta: 1,
+        reason: `第 ${day} 天的爭執`, visibility: day % 2 === 0 ? 'public' : 'private',
+      },
+      {
+        type: 'character_location_changed',
+        characterId: 'he-jun',
+        fromLocationId: day % 2 === 0 ? 'mistwood-mill' : 'mistwood-square',
+        toLocationId: day % 2 === 0 ? 'mistwood-square' : 'mistwood-mill',
+      },
+    ],
     eventId: `${WORLD_ID}#event#${sequenceNumber}`,
     sequenceNumber,
     acceptedAt: 1_000 + day,
@@ -91,9 +113,20 @@ describe('ART-100 snapshot-resumed replay', () => {
 
     expect(differingFields(resumed, full)).toEqual([...SEED_BASELINE_FIELDS].sort());
     expect(resumed.lastSequenceNumber).toBe(full.lastSequenceNumber);
-    // Spot-check the field the rebuilds actually consume rather than trusting the diff helper.
-    expect(resumed.facts).toEqual(full.facts);
+
+    // Spot-check the consumed fields directly rather than trusting the diff helper — and assert
+    // they are NON-EMPTY first, because an equality check between two empty objects passes for
+    // the wrong reason and would leave the whole substitution claim untested.
+    expect(Object.keys(resumed.relationshipHistory).length).toBeGreaterThan(0);
     expect(resumed.relationshipHistory).toEqual(full.relationshipHistory);
+    expect(Object.keys(resumed.characterLocations).length).toBeGreaterThan(0);
+    expect(resumed.characterLocations).toEqual(full.characterLocations);
+    expect(resumed.facts.length).toBeGreaterThan(0);
+    expect(resumed.facts).toEqual(full.facts);
+
+    // The other half of the claim: a seeded field genuinely DOES diverge, so the four-field
+    // carve-out is a real boundary and not an unreachable branch.
+    expect(resumed.locationOccupancy).not.toEqual(full.locationOccupancy);
   });
 
   /**
@@ -136,10 +169,19 @@ describe('ART-100 snapshot-resumed replay', () => {
                 }))
               : [{ ...snapshot, worldId: WORLD_ID }];
             const chain = {
-              order: () => chain,
+              // `.order('desc')` reverses; the helper relies on the newest row coming first.
+              order: (direction: 'asc' | 'desc') => {
+                if (direction === 'desc') rows.reverse();
+                return chain;
+              },
+              take: (n: number) => {
+                const taken = rows.slice(0, n);
+                if (table === 'canonEvents') canonRowsRead += taken.length;
+                return Promise.resolve(taken);
+              },
               first: () => {
                 if (table === 'canonEvents') canonRowsRead += Math.min(rows.length, 1);
-                return Promise.resolve(rows[rows.length - 1] ?? null);
+                return Promise.resolve(rows[0] ?? null);
               },
               collect: () => {
                 if (table === 'canonEvents') canonRowsRead += rows.length;
@@ -160,5 +202,57 @@ describe('ART-100 snapshot-resumed replay', () => {
     expect(canonRowsRead).toBe(1);
     expect(projection.lastSequenceNumber).toBe(199);
     expect(projection.facts).toHaveLength(200);
+  });
+
+  /**
+   * `snapshotVersion` and `projectionHash` are optional in the schema, so a partially written
+   * row is representable. Before ART-100 these rebuilds never read `canonSnapshots`, so this is
+   * a new failure mode — and it lands in stage 19, which is not failure-isolated, meaning a
+   * throw here would abort every stage after it. It must degrade to a full replay instead.
+   */
+  it.each([
+    ['a row missing projectionHash', { projectionHash: undefined }],
+    ['a row missing snapshotVersion', { snapshotVersion: undefined }],
+    ['a manual snapshot', { kind: 'manual' }],
+  ])('falls back to a full replay rather than throwing on %s', async (_name, over) => {
+    const events = Array.from({ length: 6 }, (_unused, index) => dailyFact(index + 1));
+    const seeded = buildWorldImportPlan(mistwoodWorldConfiguration, 0).initialSnapshot.projection;
+    const snapshot = buildSnapshot(replayWorldEvents(cloneProjection(seeded), events.slice(0, 5)), 10_000, 5);
+
+    const db = {
+      query(table: string) {
+        return {
+          withIndex(_index: string, bind: (q: unknown) => unknown) {
+            let lowerExclusive: number | null = null;
+            const q = { eq: () => q, gt: (_f: string, v: number) => { lowerExclusive = v; return q; } };
+            bind(q);
+            const rows = table === 'canonEvents'
+              ? events
+                .filter((event) => lowerExclusive === null || event.sequenceNumber > lowerExclusive)
+                .map((event) => ({
+                  worldId: event.worldId, sequenceNumber: event.sequenceNumber,
+                  acceptedAt: event.acceptedAt, validationVersion: event.validationVersion,
+                  traceId: event.traceId, payload: event,
+                }))
+              : [{ ...snapshot, worldId: WORLD_ID, kind: 'daily', ...over }];
+            const chain = {
+              order: (direction: 'asc' | 'desc') => { if (direction === 'desc') rows.reverse(); return chain; },
+              take: (n: number) => Promise.resolve(rows.slice(0, n)),
+              first: () => Promise.resolve(rows[0] ?? null),
+              collect: () => Promise.resolve(rows),
+            };
+            return chain;
+          },
+        };
+      },
+    };
+
+    const projection = await readProjectionViaSnapshot(
+      db as unknown as Parameters<typeof readProjectionViaSnapshot>[0],
+      WORLD_ID,
+    );
+    // The full-replay answer, not a throw and not a partial one.
+    expect(projection.facts).toHaveLength(6);
+    expect(projection.lastSequenceNumber).toBe(5);
   });
 });
