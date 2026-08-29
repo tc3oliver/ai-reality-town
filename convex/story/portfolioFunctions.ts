@@ -24,10 +24,24 @@ export const admitArcToPortfolio = internalMutation({
     if (!Number.isFinite(args.decidedAt)) throw new ArcPortfolioError('ARC_PORTFOLIO_INVALID', 'finite decision time required');
     const candidate = structuredClone(args.candidate) as ArcPortfolioEntry;
     if (candidate.projection?.worldId !== args.worldId) throw new ArcPortfolioError('ARC_PORTFOLIO_INVALID', 'candidate belongs to another world');
-    const accepted = await ctx.db.query('canonEvents')
-      .withIndex('by_world_and_sequence', (q) => q.eq('worldId', args.worldId)).collect();
-    const acceptedIds = new Set(accepted.map((row) => deriveEventId(args.worldId, row.sequenceNumber)));
-    if (!Array.isArray(candidate.sourceEventIds) || candidate.sourceEventIds.some((id) => !acceptedIds.has(id))) {
+    if (!Array.isArray(candidate.sourceEventIds)) {
+      throw new ArcPortfolioError('ARC_PORTFOLIO_EVENT_NOT_ACCEPTED', 'every retained source Event must be accepted');
+    }
+    // `candidate.sourceEventIds` is already the exact, bounded set of ids this check needs — an
+    // event id is `deriveEventId(worldId, sequenceNumber)`, so each is a point lookup on
+    // `worldId + sequenceNumber` rather than a scan of the world's whole event log. The
+    // `deriveEventId` re-check (not just row existence) guards against an id that parses to a
+    // real sequence number but was never actually derived from it — e.g. malformed or another
+    // world's id — the same defence `story/functions.ts`'s `requireAcceptedEvent` makes.
+    const accepted = await Promise.all(candidate.sourceEventIds.map(async (sourceEventId) => {
+      const sequenceNumber = Number(sourceEventId.split('#').at(-1));
+      if (!Number.isSafeInteger(sequenceNumber)) return false;
+      const row = await ctx.db.query('canonEvents')
+        .withIndex('by_world_and_sequence', (q) => q.eq('worldId', args.worldId).eq('sequenceNumber', sequenceNumber))
+        .unique();
+      return row !== null && deriveEventId(args.worldId, sequenceNumber) === sourceEventId;
+    }));
+    if (accepted.some((isAccepted) => !isAccepted)) {
       throw new ArcPortfolioError('ARC_PORTFOLIO_EVENT_NOT_ACCEPTED', 'every retained source Event must be accepted');
     }
     const existingRow = await ctx.db.query('storyArcPortfolioEntries')

@@ -44,17 +44,23 @@ function memoryCtx(tables: Tables) {
       return {
         withIndex(_index: string, build?: (q: unknown) => unknown) {
           const constraints: Row = {};
+          const rangeConstraints: Array<[string, number]> = [];
           const builder = {
             eq(field: string, value: unknown) {
               constraints[field] = value;
               return builder;
             },
+            gte(field: string, value: number) {
+              rangeConstraints.push([field, value]);
+              return builder;
+            },
           };
           if (build) build(builder);
           const matched = (tables[table] ?? []).filter((row) =>
-            Object.entries(constraints).every(([field, value]) => row[field] === value));
+            Object.entries(constraints).every(([field, value]) => row[field] === value)
+            && rangeConstraints.every(([field, value]) => Number(row[field] ?? 0) >= value));
           const ascending = [...matched].sort((left, right) =>
-            Number(left.createdAt ?? 0) - Number(right.createdAt ?? 0));
+            Number(left.sequenceNumber ?? left.createdAt ?? 0) - Number(right.sequenceNumber ?? right.createdAt ?? 0));
           const chain = (rows: Row[]) => ({
             order: (direction: 'asc' | 'desc') => chain(direction === 'desc' ? [...rows].reverse() : rows),
             take: (count: number) => Promise.resolve(rows.slice(0, count)),
@@ -92,6 +98,9 @@ function canonRow(sequenceNumber: number, over: {
   return {
     worldId: WORLD_ID,
     sequenceNumber,
+    // Denormalized onto the row itself, exactly as `convex/canon/schema.ts` stores it — the fake
+    // db's `by_world_and_day` index reads this column directly, not `payload.worldDay`.
+    worldDay: over.worldDay ?? DAY,
     acceptedAt: 1_000 + sequenceNumber,
     validationVersion: '1',
     traceId: `trace-${sequenceNumber}`,
@@ -342,6 +351,40 @@ describe('rebuildVoteConsequenceProjection — the ART-132 safety gate (FR-P004)
   });
 });
 
+/**
+ * A `ctx` that also records which index — and which constraints — each `withIndex` call asked
+ * for, so a test can pin the SHAPE of a read (e.g. "the suffix from sequence N", not just "some
+ * canonEvents rows"). A regression to a whole-table `.collect()` can still produce the right
+ * result on a small fixture; only this can tell the two apart.
+ */
+function recordingCtx(tables: Tables) {
+  const reads: Array<{ table: string; index: string; constraints: Row }> = [];
+  const inner = memoryCtx(tables) as { db: Record<string, unknown> };
+  const db = {
+    ...inner.db,
+    query(table: string) {
+      const chain = (inner.db.query as (t: string) => {
+        withIndex: (i: string, b?: (q: unknown) => unknown) => unknown;
+      })(table);
+      return {
+        withIndex(index: string, build?: (q: unknown) => unknown) {
+          // A second, side-effect-free pass over the same builder shape, purely to observe
+          // which constraints the handler actually asked for.
+          const constraints: Row = {};
+          const spy = {
+            eq(field: string, value: unknown) { constraints[field] = value; return spy; },
+            gte(field: string, value: unknown) { constraints[`${field}>=`] = value; return spy; },
+          };
+          if (build) build(spy);
+          reads.push({ table, index, constraints });
+          return chain.withIndex(index, build);
+        },
+      };
+    },
+  };
+  return { ctx: { db } as Parameters<typeof handler._handler>[0], reads };
+}
+
 describe('rebuildVoteConsequenceProjection — the Director chain is read run-scoped, not collected', () => {
   /**
    * The chain tables carry the raw generation blobs and this mutation runs on every accepted
@@ -349,26 +392,6 @@ describe('rebuildVoteConsequenceProjection — the Director chain is read run-sc
    * reads, not just their result: a regression to `.collect()` on the world would still produce
    * the right buckets, and only an assertion about which index was asked can catch it.
    */
-  function recordingCtx(tables: Tables) {
-    const reads: Array<{ table: string; index: string }> = [];
-    const inner = memoryCtx(tables) as { db: Record<string, unknown> };
-    const db = {
-      ...inner.db,
-      query(table: string) {
-        const chain = (inner.db.query as (t: string) => {
-          withIndex: (i: string, b?: (q: unknown) => unknown) => unknown;
-        })(table);
-        return {
-          withIndex(index: string, build?: (q: unknown) => unknown) {
-            reads.push({ table, index });
-            return chain.withIndex(index, build);
-          },
-        };
-      },
-    };
-    return { ctx: { db } as Parameters<typeof handler._handler>[0], reads };
-  }
-
   it('walks directorPlans by day and the two run hops by run id', async () => {
     const { ctx, reads } = recordingCtx(baseTables({
       canonEvents: [canonRow(1, { idempotencyKey: `vote:${WORLD_ID}:${DAY - 1}` })],
@@ -411,6 +434,76 @@ describe('rebuildVoteConsequenceProjection — the Director chain is read run-sc
       }],
     }));
     expect(payload.uncertain.map((node) => node.eventId)).toEqual([id(2)]);
+  });
+});
+
+describe('rebuildVoteConsequenceProjection — canonEvents is read in two bounded passes, not whole (ART-100)', () => {
+  /**
+   * These pin the SHAPE of the `canonEvents` reads, not just the resulting buckets: a regression
+   * back to `by_world_and_sequence` bound only on `worldId` (the old whole-log collect) would
+   * still produce the right payload on these small fixtures, and only an assertion about which
+   * index — and which constraints — the handler asked for can catch it.
+   */
+  function canonIndexFor(reads: Array<{ table: string; index: string; constraints: Row }>) {
+    return reads.filter((read) => read.table === 'canonEvents');
+  }
+
+  it('reads only the target day, on `by_world_and_day`, when the day has no trigger', async () => {
+    const { ctx, reads } = recordingCtx(baseTables({
+      canonEvents: [canonRow(0), canonRow(1)],
+    }));
+    await handler._handler(ctx, { worldId: WORLD_ID, targetWorldDay: DAY, now: 5_000 });
+
+    const canonReads = canonIndexFor(reads);
+    expect(canonReads).toEqual([
+      { table: 'canonEvents', index: 'by_world_and_day', constraints: { worldId: WORLD_ID, worldDay: DAY } },
+    ]);
+    // No second pass at all — an empty payload references no event, so nothing further to read.
+    expect(canonReads.some((read) => read.index === 'by_world_and_sequence')).toBe(false);
+  });
+
+  it('reads the day, then the suffix from the trigger\'s sequenceNumber — never the whole table', async () => {
+    const { ctx, reads } = recordingCtx(baseTables({
+      canonEvents: [
+        canonRow(0),
+        canonRow(1, { idempotencyKey: `vote:${WORLD_ID}:${DAY - 1}` }),
+        canonRow(2, { causedByEventIds: [id(1)] }),
+      ],
+      environmentVoteInterventions: [interventionRow(id(1))],
+    }));
+    await handler._handler(ctx, { worldId: WORLD_ID, targetWorldDay: DAY, now: 5_000 });
+
+    const canonReads = canonIndexFor(reads);
+    expect(canonReads).toEqual([
+      { table: 'canonEvents', index: 'by_world_and_day', constraints: { worldId: WORLD_ID, worldDay: DAY } },
+      {
+        table: 'canonEvents', index: 'by_world_and_sequence',
+        constraints: { worldId: WORLD_ID, 'sequenceNumber>=': 1 },
+      },
+    ]);
+    // The suffix bound is the TRIGGER's own sequence number (1), never 0 — a bound of 0 is what
+    // an unconditional `by_world_and_sequence` collect on `worldId` alone would look like.
+    expect(canonReads[1].constraints['sequenceNumber>=']).toBe(1);
+  });
+
+  it('produces byte-identical output whether or not events precede the trigger', async () => {
+    // AC#3: the suffix read must change nothing about the published payload. Event 0 sits
+    // BEFORE the trigger and is excluded from the bounded read; the assertions below are exactly
+    // the ones the pre-ART-100 whole-log read satisfied.
+    const { payload } = await published(baseTables({
+      canonEvents: [
+        canonRow(0, { publicSummary: '與投票無關的較早事件。' }),
+        canonRow(1, { idempotencyKey: `vote:${WORLD_ID}:${DAY - 1}`, publicSummary: '全鎮停電。' }),
+        canonRow(2, { causedByEventIds: [id(1)] }),
+      ],
+      environmentVoteInterventions: [interventionRow(id(1))],
+    }));
+    expect(payload.trigger?.eventId).toBe(id(1));
+    expect(payload.direct.map((node) => node.eventId)).toEqual([id(2)]);
+    expect(payload.explicitCausalEdgeCount).toBe(1);
+    // Event 0 — before the trigger — appears in no bucket and is not part of the payload at all.
+    expect(payload.sourceEventIds).not.toContain(id(0));
+    expect(JSON.stringify(payload)).not.toContain('與投票無關');
   });
 });
 

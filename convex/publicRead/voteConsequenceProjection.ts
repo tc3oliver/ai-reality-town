@@ -193,8 +193,14 @@ function nodeFrom(
  * A day with more than one applied intervention resolves to the earliest by sequence number, so
  * the choice is deterministic. FR-J001 elects one winner per round, so this is a tie-break for
  * an operational edge case, not a design for multiple triggers.
+ *
+ * Exported (ART-100) so the Convex wiring can call it directly on just the target day's rows to
+ * learn the trigger's `sequenceNumber` BEFORE deciding how much of Canon to read — `input.events`
+ * used to be the whole world's log for exactly that reason. Assumes `events` is already sorted
+ * ascending by `sequenceNumber`, the same contract {@link buildVoteConsequenceProjection} upholds
+ * internally.
  */
-function selectTrigger(
+export function selectTrigger(
   events: readonly VoteConsequenceEventInput[],
   targetWorldDay: number,
   appliedEventIds: readonly string[],

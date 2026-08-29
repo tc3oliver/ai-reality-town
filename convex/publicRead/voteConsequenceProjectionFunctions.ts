@@ -34,6 +34,7 @@ import { commitReadModelVersion } from './readModel';
 import { writeStore } from './readModelFunctions';
 import {
   buildVoteConsequenceProjection,
+  selectTrigger,
   validateVoteConsequenceLinks,
   VoteConsequenceError,
   VOTE_CONSEQUENCE_LOOKAHEAD_DAYS,
@@ -84,10 +85,20 @@ type MutationDb = GenericMutationCtx<DataModel>['db'];
  * because the Director's context window is the last ten accepted events, not the last day. See
  * the constant for the derivation and for what the bound does not cover.
  *
- * `canonEvents` is still read whole. That is unavoidable for a causal closure — a
- * `causedByEventIds` chain may reach any earlier event — and it is the same read
- * `rebuildTimelineProjection` and `rebuildLiveProjection` already make on this path. ART-100
- * tracks making these incremental.
+ * ## `canonEvents` is read in two bounded passes, not whole (ART-100)
+ *
+ * The docblock above this used to call a whole-log read "unavoidable for a causal closure",
+ * reasoning that a `causedByEventIds` chain "may reach any earlier event". That is true of the
+ * chain in the abstract, but not of what THIS rebuild does with it: {@link selectTrigger} only
+ * ever considers events with `event.worldDay === targetWorldDay`, and the BFS below only admits
+ * an event whose `causedByEventIds` names an id ALREADY reached from the trigger — i.e. it walks
+ * strictly FORWARD. Canon is append-only, so `causedByEventIds` can only name an event accepted
+ * BEFORE the one that carries it, which means nothing the BFS (or the `uncertain` pass below,
+ * gated on the same day-windowed Director-plan chain) ever admits can have a sequenceNumber lower
+ * than the trigger's own. So the read is: (1) the target day's own rows, on `by_world_and_day`,
+ * to learn whether this day has a trigger and, if so, its `sequenceNumber`; then (2), only if a
+ * trigger exists, the suffix `sequenceNumber >= trigger.sequenceNumber` on `by_world_and_sequence`
+ * — never the whole table, and zero further Canon reads at all on a day with no trigger.
  */
 async function rebuildForDay(
   db: MutationDb,
@@ -107,9 +118,10 @@ async function rebuildForDay(
     (_unused, offset) => args.targetWorldDay + offset,
   );
 
-  const [canonRows, interventionRows, planRows, withheldSceneLabels] = await Promise.all([
+  const [dayRows, interventionRows, planRows, withheldSceneLabels] = await Promise.all([
     db.query('canonEvents')
-      .withIndex('by_world_and_sequence', (q) => q.eq('worldId', args.worldId)).collect(),
+      .withIndex('by_world_and_day', (q) => q.eq('worldId', args.worldId).eq('worldDay', args.targetWorldDay))
+      .collect(),
     db.query('environmentVoteInterventions')
       .withIndex('by_world_and_target_day', (q) => q
         .eq('worldId', args.worldId).eq('targetWorldDay', args.targetWorldDay).eq('status', 'applied'))
@@ -130,6 +142,59 @@ async function rebuildForDay(
   const sceneRuns = await Promise.all(groupingRuns.map((run) => db.query('sceneSimulationRuns')
     .withIndex('by_grouping_run', (q) => q.eq('worldId', args.worldId).eq('groupingRunId', run.groupingRunId))
     .collect())).then((groups) => groups.flat());
+
+  const appliedEventIds = interventionRows.flatMap((row) => (row.appliedEventId === undefined ? [] : [row.appliedEventId]));
+
+  /**
+   * PHASE 1 — does this day have a trigger, and if so, what is its `sequenceNumber`?
+   *
+   * `selectTrigger` filters to `event.worldDay === targetWorldDay` itself, and `by_world_and_day`
+   * already reads exactly that set, so `dayRows` is already its complete candidate pool — sorted
+   * here because `selectTrigger`'s earliest-by-sequence tie-break assumes ascending input, the
+   * same contract `buildVoteConsequenceProjection` upholds when it calls the same function
+   * internally in Phase 2.
+   *
+   * The fields `selectTrigger` never reads (`causedByEventIds`, `publicSummary`,
+   * `publicationStatus`, `sceneId`) are left at inert placeholders: the real values are only
+   * assembled for the suffix below, and Phase 2 re-derives the authoritative trigger from those
+   * — so a placeholder here can only ever narrow the read, never change the answer.
+   */
+  const dayCandidates: VoteConsequenceEventInput[] = dayRows
+    .map(rowToAcceptedEvent)
+    .sort((left, right) => left.sequenceNumber - right.sequenceNumber)
+    .map((event) => ({
+      eventId: event.eventId,
+      sequenceNumber: event.sequenceNumber,
+      worldDay: event.worldDay,
+      timeSlot: event.timeSlot,
+      eventType: event.eventType,
+      idempotencyKey: event.idempotencyKey,
+      causedByEventIds: [],
+      publicSummary: null,
+      publicationStatus: 'published',
+      sceneId: null,
+    }));
+  const triggerCandidate = selectTrigger(dayCandidates, args.targetWorldDay, appliedEventIds);
+
+  /**
+   * PHASE 2 — read only the suffix a trigger can possibly reach.
+   *
+   * Canon is append-only, so `causedByEventIds` can only ever name an event accepted BEFORE the
+   * one that carries it — meaning every `direct`/`downstream` node the BFS below admits has a
+   * strictly later `sequenceNumber` than the trigger. Likewise `uncertain` only admits an event
+   * whose Director-plan context lists the trigger's id, which `buildLiveWorldSnapshot` can only
+   * have written after the trigger itself was accepted. So no consumer below ever needs an event
+   * with a LOWER sequenceNumber than the trigger's, and the suffix is the exact window rather
+   * than an approximation of it. A day with no trigger needs no further Canon at all — the empty
+   * payload references no event.
+   */
+  const canonRows = triggerCandidate === null
+    ? []
+    : await db.query('canonEvents')
+      .withIndex('by_world_and_sequence', (q) => q
+        .eq('worldId', args.worldId).gte('sequenceNumber', triggerCandidate.sequenceNumber))
+      .order('asc')
+      .collect();
 
   const acceptedEvents = canonRows.map(rowToAcceptedEvent);
   const sceneEvents = sceneEventRows(acceptedEvents);
@@ -189,8 +254,7 @@ async function rebuildForDay(
     targetWorldDay: args.targetWorldDay,
     events,
     acceptedEventIds,
-    appliedEventIds: interventionRows.flatMap((row) =>
-      row.appliedEventId === undefined ? [] : [row.appliedEventId]),
+    appliedEventIds,
     contextInterventionEventIdsByScene,
   });
   // Again, here, against Canon — defence in depth rather than ceremony. The call above proves

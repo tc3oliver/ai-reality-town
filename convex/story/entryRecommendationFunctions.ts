@@ -49,12 +49,14 @@ async function reassessOne(ctx: Ctx, worldId: string, arcId: string, now: number
   const portfolio = structuredClone(portfolioRow.entry) as ArcPortfolioEntry;
   if (portfolio.tier !== 'major' || !isActiveArcStatus(portfolio.projection.status)) return null;
 
-  const [episodeRows, canonRows] = await Promise.all([
+  // Only the single HIGHEST sequence number is ever used below, so this is the last row on
+  // `by_world_and_sequence` rather than a collect of the world's whole event log.
+  const [episodeRows, latestCanonRow] = await Promise.all([
     ctx.db.query('dailyEpisodes').withIndex('by_world_and_day', (q) => q.eq('worldId', worldId)).collect(),
-    ctx.db.query('canonEvents').withIndex('by_world_and_sequence', (q) => q.eq('worldId', worldId)).collect(),
+    ctx.db.query('canonEvents').withIndex('by_world_and_sequence', (q) => q.eq('worldId', worldId)).order('desc').first(),
   ]);
   const worldEpisodes = episodeRows.map(toEpisodeRef).filter((value): value is ArcEpisodeRef => value !== null);
-  const latestSequenceNumber = canonRows.length > 0 ? canonRows[canonRows.length - 1].sequenceNumber : 0;
+  const latestSequenceNumber = latestCanonRow?.sequenceNumber ?? 0;
   const arcEpisodes = arcEpisodesFor(worldEpisodes, episodeRows, arcId);
 
   const entry = recommendArcEntry({
