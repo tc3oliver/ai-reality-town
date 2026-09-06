@@ -294,6 +294,9 @@ describe('AC#3/#10 — text is resolved at read time, behind a version-and-statu
 // ---------------------------------------------------------------------------
 
 class MemoryReadStore implements PublicReadStore {
+  /** ART-162: this fixture is not exercising the publication gate, so it publishes. */
+  publicationEnabled(): Promise<boolean> { return Promise.resolve(true); }
+
   readonly rows: StoredReadModel[] = [];
   private counter = 0;
   async loadTargetVersions(worldId: string, modelKind: string, modelRef: string) {

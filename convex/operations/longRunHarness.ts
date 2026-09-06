@@ -510,6 +510,9 @@ export class MemoryPostCommitRunStore implements PostCommitRunStore {
 }
 
 export class MemoryReadStore implements PublicReadStore {
+  /** ART-162: this fixture is not exercising the publication gate, so it publishes. */
+  publicationEnabled(): Promise<boolean> { return Promise.resolve(true); }
+
   readonly rows: StoredReadModel[] = [];
   private counter = 0;
   loadTargetVersions(worldId: string, modelKind: ReadModelKind, modelRef: string): Promise<readonly StoredReadModel[]> {

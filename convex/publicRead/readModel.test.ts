@@ -18,6 +18,9 @@ import {
 type MarkCurrentPatch = Parameters<PublicReadStore['markCurrent']>[1];
 
 class MemoryReadStore implements PublicReadStore {
+  /** ART-162: this fixture is not exercising the publication gate, so it publishes. */
+  publicationEnabled(): Promise<boolean> { return Promise.resolve(true); }
+
   readonly rows: StoredReadModel[] = [];
   private counter = 0;
   /** Toggled to simulate a projection-write outage (AC#7 availability). */
