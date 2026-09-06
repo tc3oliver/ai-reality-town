@@ -29,10 +29,26 @@
  * un-gated invocation reports zero live tests rather than a pass.
  */
 
+import {
+  foldProviderCall, summarizeProviderRates, type ProviderCallRecord,
+} from '../../shared/providerRateWindow';
 import { loadOpenAICompatibleConfig } from './config';
+import { createProviderCallRecorder } from './providerCallRecorder';
 import { createLiveSceneAuthor, resolveLiveSceneAuthoringModel, LIVE_ROUTE_CHAIN_ENV } from './liveSceneAuthor';
 
 const describeLive = process.env.ART159_LIVE_SMOKE === '1' ? describe : describe.skip;
+
+/**
+ * Every upstream call this file makes, captured through the SAME recorder the live driver
+ * installs — so what is asserted below is what production would have written.
+ */
+const observed: ProviderCallRecord[] = [];
+const { fetch: recordingFetch } = createProviderCallRecorder({
+  inner: (url, init) => globalThis.fetch(url, init),
+  fallbackModel: 'auto',
+  clock: () => Date.now(),
+  sink: (record) => { observed.push(record); return Promise.resolve(); },
+});
 
 /** A trivial structured request. Small on purpose: this spends a real allowance unit. */
 const probeRequest = {
@@ -94,6 +110,70 @@ describeLive('ART-159 live gateway smoke', () => {
       expect(JSON.stringify(result.trace)).not.toContain(apiKey);
     } else {
       expect(process.env.LLM_ALLOW_UNAUTHENTICATED).toBe('true');
+    }
+  }, 60_000);
+
+  /**
+   * ART-158 AC#2, live: real calls land in real buckets and the rates reflect them.
+   *
+   * The fixture suite proves the window arithmetic and that the recorder is wired. What it cannot
+   * prove is that THIS gateway's responses carry what the recorder reads — usage in `usage`, the
+   * route in `_routed_via`, the allowance in `x-ratelimit-*`. That is the only gap this closes.
+   */
+  it('records real upstream calls into the rate window, with what the gateway reported', async () => {
+    const provider = createLiveSceneAuthor(process.env, { fetch: recordingFetch });
+    const before = observed.length;
+
+    await provider.structuredChat(probeRequest);
+
+    const recorded = observed.slice(before);
+    expect(recorded).toHaveLength(1);
+    const [call] = recorded;
+    expect(call.outcome).toBe('served');
+    expect(call.requestedModel.trim().length).toBeGreaterThan(0);
+
+    const summaries = summarizeProviderRates(
+      recorded.map((record) => foldProviderCall(null, record)), Date.now());
+    expect(summaries).toHaveLength(1);
+    // RPM increments for a real call.
+    expect(summaries[0].requestsPerMinute).toBe(1);
+
+    // eslint-disable-next-line no-console
+    console.log('[ART-159 live] rpm=%d tpm=%d tokensReported=%s allowance=%s reset=%s',
+      summaries[0].requestsPerMinute, summaries[0].tokensPerMinute,
+      summaries[0].callsWithoutUsage === 0,
+      summaries[0].allowance === null ? 'none' : `${summaries[0].allowance.remaining}/${summaries[0].allowance.limit}`,
+      summaries[0].allowance === null ? 'none' : String(summaries[0].allowance.resetAtEpochSeconds));
+
+    if (summaries[0].callsWithoutUsage === 0) {
+      // TPM increments only when the gateway actually reported usage. If it did not, that is an
+      // EVIDENCE BOUNDARY rather than a failure — the branch below records it instead of
+      // inventing a number.
+      expect(summaries[0].tokensPerMinute).toBeGreaterThan(0);
+    } else {
+      // eslint-disable-next-line no-console
+      console.log('[ART-159 live] EVIDENCE BOUNDARY: this gateway reported no token usage, so TPM '
+        + 'is unverified live and is covered only by the fixture suite.');
+      expect(summaries[0].tokensPerMinute).toBe(0);
+    }
+  }, 60_000);
+
+  it('reports an allowance and a reset an operator can act on', async () => {
+    const provider = createLiveSceneAuthor(process.env, { fetch: recordingFetch });
+    const before = observed.length;
+
+    await provider.structuredChat(probeRequest);
+    const [call] = observed.slice(before);
+
+    if (call.allowance === null) {
+      // eslint-disable-next-line no-console
+      console.log('[ART-159 live] EVIDENCE BOUNDARY: this gateway sent no x-ratelimit-* headers.');
+      expect(call.allowance).toBeNull();
+    } else {
+      expect(call.allowance.limit).toBeGreaterThan(0);
+      expect(call.allowance.remaining).toBeLessThanOrEqual(call.allowance.limit);
+      // A reset an operator can act on: a real epoch-seconds instant, not a duration or a zero.
+      expect(call.allowance.resetAtEpochSeconds).toBeGreaterThan(1_600_000_000);
     }
   }, 60_000);
 

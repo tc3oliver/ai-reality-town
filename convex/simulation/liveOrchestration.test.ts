@@ -34,7 +34,10 @@ import type {
 import type { SceneSimulationResult } from './sceneSimulation';
 import { buildLiveWorldSnapshot } from './worldDayLive';
 import { FakeWholeSceneProvider } from './fakeSceneNarrator';
-import { claimLiveSlot, LIVE_SLOT_LEASE_MS, liveClaimHolder, type SlotClaim } from './schedulerOperations';
+import { prepareQueuedWorldDaySlot } from './worldDayLiveFunctions';
+import {
+  claimLiveSlot, drivableWorldIds, LIVE_SLOT_LEASE_MS, liveClaimHolder, type SlotClaim,
+} from './schedulerOperations';
 import {
   authorSlotScenes,
   buildSceneAuthoringPlan,
@@ -430,6 +433,38 @@ describe('AC#2/#6 — a repeated sequence commits once', () => {
     expect(provider.calls).toBe(callsAfterFirst);
   });
 
+  /**
+   * A duplicate FINALIZE, with the run record gone.
+   *
+   * Fault injection found the previous test insufficient: re-driving a completed slot is
+   * short-circuited by `executeWorldDay` at the run record, so mangling every `idempotencyKey`
+   * still passed. That proved the RUN is idempotent and said nothing about the COMMIT — and the
+   * commit is the layer that has to hold when a finalize is redelivered against a world whose run
+   * record was lost, rolled back, or never written.
+   *
+   * A fresh run store is exactly that case: the orchestrator has no memory, so it replays every
+   * stage and offers the same proposals to Canon a second time.
+   */
+  it('a redelivered finalize with no run record commits nothing new', async () => {
+    const store = seededStore();
+    const { port } = livePort(store);
+    const provider = new CountingProvider();
+    const slot = slotOf('morning');
+
+    await driveSlotLive({ store, runStore: new MemoryRunStore(), port, slot, provider });
+    const afterFirst = await store.loadAcceptedEvents(WORLD_ID);
+    expect(afterFirst.length).toBeGreaterThan(0);
+
+    // Same Canon, same persisted scenes, brand-new run record: every stage runs again.
+    const replayed = await driveSlotLive({ store, runStore: new MemoryRunStore(), port, slot, provider });
+
+    expect(replayed.final.status).toBe('completed');
+    const afterSecond = await store.loadAcceptedEvents(WORLD_ID);
+    // Dedup at the COMMIT, on `idempotencyKey` — the run record cannot help here.
+    expect(afterSecond.map((event) => event.eventId)).toEqual(afterFirst.map((event) => event.eventId));
+    expect(afterSecond).toHaveLength(afterFirst.length);
+  });
+
   it('a slot interrupted after authoring resumes without paying for the scenes again', async () => {
     const store = seededStore();
     const runStore = new MemoryRunStore();
@@ -477,5 +512,106 @@ describe('AC#1 — concurrency changes timing, not the world', () => {
     // change how long a slot takes and nothing else about the world it produces.
     expect(canon[1]).toEqual(canon[0]);
     expect(canon[2]).toEqual(canon[0]);
+  });
+});
+
+describe('AC#5 — which worlds a driver may advance', () => {
+  const scheduleRow = (over: Row = {}): Row => ({
+    _id: 'worldSchedules:1', worldId: WORLD_ID, mode: 'public', status: 'running',
+    baseSeed: 1, anchorRealTimeMs: T0, anchorWorldDay: 0, nextWorldDay: 0, nextTimeSlot: 'morning',
+    publishEnabled: true, createdAt: T0, updatedAt: T0, ...over,
+  });
+
+  const drivable = (rows: Row[]) => drivableWorldIds(claimDb(rows) as never);
+
+  it('lists a running public world', async () => {
+    expect(await drivable([scheduleRow()])).toEqual([WORLD_ID]);
+  });
+
+  it('excludes a PAUSED world, so a paused world is never authored', async () => {
+    // FR-K001. The driver must not even claim a slot for a paused world; excluding it here costs
+    // the tick nothing, whereas discovering it at the claim would take and release a lease.
+    expect(await drivable([scheduleRow({ status: 'paused' })])).toEqual([]);
+  });
+
+  it('excludes a non-public world, which has no clock to be due against', async () => {
+    expect(await drivable([scheduleRow({ mode: 'development' })])).toEqual([]);
+  });
+
+  it('returns worlds in a stable order, so two ticks drive them the same way', async () => {
+    const rows = [
+      scheduleRow({ _id: 'worldSchedules:2', worldId: 'zeta' }),
+      scheduleRow({ _id: 'worldSchedules:1', worldId: 'alpha' }),
+    ];
+
+    expect(await drivable(rows)).toEqual(['alpha', 'zeta']);
+  });
+});
+
+describe('AC#5 — the kill switch is honoured BEFORE a slot is claimed', () => {
+  /**
+   * Fault injection found this untested: deleting `assertWorldAdmitsSimulation` from
+   * `prepareQueuedWorldDaySlot` left `emergencyStop.test.ts` green, because that suite covers the
+   * stage handlers and the deterministic entry point — not the live prepare path ART-159 added.
+   *
+   * The ordering matters as much as the check. A stop discovered AFTER the claim would leave a
+   * lease on a world nothing is allowed to advance, and the world would then look busy for the
+   * lease's whole duration.
+   */
+  const stopRow = (over: Row = {}): Row => ({
+    _id: 'worldEmergencyStops:1', schemaVersion: 1, worldId: WORLD_ID, state: 'engaged',
+    engagedAt: T0, engagedBy: 'ops', reason: 'operator halt', scheduleStatusBefore: 'running',
+    preservedSlotKeys: [], activationCount: 1, ...over,
+  });
+
+  const prepare = (rows: Record<string, Row[]>) =>
+    (prepareQueuedWorldDaySlot as unknown as Registered)._handler(
+      { db: multiTableDb(rows), runMutation: () => Promise.resolve({ kind: 'idle' }) },
+      { worldId: WORLD_ID, now: T0 });
+
+  function multiTableDb(tables: Record<string, Row[]>) {
+    return {
+      query(table: string) {
+        let matched = [...(tables[table] ?? [])];
+        const chain = {
+          withIndex(_name: string, build: (q: unknown) => unknown) {
+            const eqs: Array<[string, unknown]> = [];
+            const q = { eq(field: string, value: unknown) { eqs.push([field, value]); return q; } };
+            build(q);
+            matched = matched.filter((row) => eqs.every(([field, value]) => row[field] === value));
+            return chain;
+          },
+          first: () => Promise.resolve(matched[0] ?? null),
+          collect: () => Promise.resolve(matched),
+          unique: () => Promise.resolve(matched[0] ?? null),
+        };
+        return chain;
+      },
+      get: () => Promise.resolve(null),
+      patch: () => Promise.resolve(),
+    };
+  }
+
+  it('refuses to prepare a slot for an emergency-stopped world', async () => {
+    await expect(prepare({
+      worldEmergencyStops: [stopRow()],
+      scheduledSlots: [slotRow()],
+    })).rejects.toThrow();
+  });
+
+  it('leaves the slot QUEUED — a refused world must not be left holding a lease', async () => {
+    const slots = [slotRow()];
+    await prepare({ worldEmergencyStops: [stopRow()], scheduledSlots: slots }).catch(() => undefined);
+
+    expect(slots[0].status).toBe('queued');
+    expect(slots[0].leaseExpiresAt).toBeUndefined();
+  });
+
+  it('prepares normally once the stop is lifted — the negative control', async () => {
+    // Without this, the two tests above would pass against a prepare that always threw.
+    await expect(prepare({
+      worldEmergencyStops: [stopRow({ state: 'released' })],
+      scheduledSlots: [slotRow()],
+    })).resolves.toEqual({ kind: 'idle' });
   });
 });

@@ -341,6 +341,35 @@ describe('AC#6 — a general failure is classified differently from a 429', () =
     expect(requests.map(({ model }) => model)).toEqual(['auto', 'gemini-2.5-flash']);
   });
 
+  /**
+   * A broken gateway is not an exhausted allowance.
+   *
+   * Fault injection found this untested: reporting EVERY retryable status as rate-limited passed
+   * every assertion here, because the tests above only counted ATTEMPTS. `LLM_HTTP_RETRYABLE`
+   * covers 408, 429 and all 5xx — they are all worth retrying — but only one of them says the key
+   * ran out, and an operator reading `rateLimited` on a 500 goes hunting for a quota problem while
+   * the gateway is simply down.
+   */
+  it('books a 500 as a failure, NOT as rate limiting', async () => {
+    const { tables } = await authorLive({
+      responses: [jsonResponse({}, 500), jsonResponse({}, 500)],
+    });
+
+    const usage = countersOf(tables).usageByRoute as Array<Row>;
+    expect(usage.some((entry) => Number(entry.failures) > 0)).toBe(true);
+    expect(usage.every((entry) => Number(entry.rateLimited) === 0)).toBe(true);
+  });
+
+  it('books a 429 as rate limiting, NOT as a plain failure — the paired control', async () => {
+    const { tables } = await authorLive({
+      responses: [jsonResponse({}, 429), jsonResponse({}, 429)],
+    });
+
+    const usage = countersOf(tables).usageByRoute as Array<Row>;
+    expect(usage.some((entry) => Number(entry.rateLimited) > 0)).toBe(true);
+    expect(usage.every((entry) => Number(entry.failures) === 0)).toBe(true);
+  });
+
   it('a 429 and a 400 do not produce the same number of attempts', async () => {
     // The comparison the two tests above imply, made explicit so a change that collapsed both
     // onto one classification fails HERE with a message about classification rather than as two
