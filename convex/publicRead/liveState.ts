@@ -13,6 +13,7 @@
  */
 
 import type { AcceptedEvent, TimeSlot } from '../canon/model';
+import { emptyLiveFold, foldLiveEvents, type LiveFoldState, type LiveLocation } from './liveFold';
 import { toPublicActiveScene } from './publicDynamicProjection';
 import type {
   PublicActiveSceneInput,
@@ -39,9 +40,11 @@ export const LIVE_RECENT_EVENT_DEFAULT = 20;
 export const ACTIVE_ARC_STATUSES = ['active', 'escalating', 'climax', 'resolving'] as const;
 
 export type LiveWorldTime = { worldDay: number; timeSlot: TimeSlot };
-export type LiveLocation = {
-  locationId: string; name: string; description: string; locationType: string; active: boolean;
-};
+/**
+ * Re-exported, not re-declared: the fold that produces these lives one layer down and may not
+ * import from here (see `liveFold.ts`). Every existing caller keeps naming it from this module.
+ */
+export type { LiveLocation } from './liveFold';
 export type LiveCharacter = { characterId: string; locationId: string | null; alive: boolean };
 export type LiveRecentEvent = { eventId: string; summary: string | null; worldDay: number; timeSlot: TimeSlot };
 export type LiveActiveArc = { arcId: string; title: string; currentQuestion: string; status: string };
@@ -115,36 +118,36 @@ export function buildLiveProjection(input: {
   activeScenes?: readonly PublicActiveSceneInput[];
   recentEventCount?: number;
   dynamic?: PublicDynamicProjection | null;
+  /**
+   * A fold state covering every event BEFORE `acceptedEvents` (ART-100). Lets a caller that holds
+   * a checkpoint pass only the tail. Omitted means "start from empty", i.e. the full-replay
+   * behaviour every pre-ART-100 caller relies on.
+   */
+  priorFold?: LiveFoldState;
 }): LiveProjectionPayload {
   if (input.worldId.trim().length === 0) {
     throw new LiveStateError('LIVE_STATE_INVALID', 'worldId must be non-empty');
   }
   const events = [...input.acceptedEvents].sort((a, b) => a.sequenceNumber - b.sequenceNumber);
 
-  const locations = new Map<string, LiveLocation>();
-  const positionByCharacter = new Map<string, string>();
-  const aliveByCharacter = new Map<string, boolean>();
-  const knownCharacters = new Set<string>();
-
   for (const event of events) {
     if (event.worldId !== input.worldId) {
       throw new LiveStateError('LIVE_STATE_INVALID', 'accepted event worldId mismatch');
     }
-    for (const change of event.stateChanges) {
-      if (change.type === 'location_state_changed') {
-        locations.set(change.locationId, {
-          locationId: change.locationId, name: change.name, description: change.description,
-          locationType: change.locationType, active: change.active,
-        });
-      } else if (change.type === 'character_location_changed') {
-        knownCharacters.add(change.characterId);
-        positionByCharacter.set(change.characterId, change.toLocationId);
-      } else if (change.type === 'character_life_changed') {
-        knownCharacters.add(change.characterId);
-        aliveByCharacter.set(change.characterId, change.alive);
-      }
-    }
   }
+
+  /**
+   * ART-100: the location/character maps come from the shared fold in `liveFold.ts` rather than
+   * from a loop here, so a checkpoint resumed from stored state and a replay from raw events
+   * cannot come to disagree. `priorFold` is what a caller supplies when it has such a checkpoint;
+   * omitted, this is byte-for-byte the full replay it always was.
+   *
+   * The worldId check above stays a separate pass. It is a validation of the INPUT, not part of
+   * the fold, and a caller resuming from a checkpoint has no events to check for the prefix the
+   * checkpoint covers — folding it in would make the check silently weaker in exactly that case.
+   */
+  const { locations, positionByCharacter, aliveByCharacter, knownCharacters } =
+    foldLiveEvents(input.priorFold ?? emptyLiveFold(), events);
 
   const characters: LiveCharacter[] = [...knownCharacters].sort().map((characterId) => ({
     characterId,

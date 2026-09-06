@@ -157,6 +157,15 @@ describe('FR-O011 AC#2 — the ambient client boundary', () => {
       // which is what this pin is for — and the module imports nothing but that same type, so
       // it cannot be a route to the Canon seed. The bundled list above is unchanged.
       'convex/publicRead/conversationState.ts',
+      // ART-100 Slice 6. Reached because `excludedCharacterIds` now derives from a shared
+      // last-write-wins fold instead of walking the log itself. This pin caught the first attempt,
+      // which declared `LiveLocation` in `liveState.ts` and imported it back down — that single
+      // type edge pulled four `convex/canon/` modules into this closure and tripped the
+      // forbidden-roots test above. (They are deliberately not named here: one of them is a
+      // Canon-internal detector whose own boundary test greps every client file for its name, and
+      // this file counts as one — prose is scanned too.) The type is now declared in
+      // `liveFold.ts` itself, which imports nothing at all, so this stays a leaf.
+      'convex/publicRead/liveFold.ts',
       'convex/publicRead/publicDynamicProjection.ts',
       'convex/visual/locationVisualBinding.ts',
       'convex/visualRuntime/pathPlanner.ts',
