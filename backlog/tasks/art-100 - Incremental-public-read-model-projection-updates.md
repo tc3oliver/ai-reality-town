@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-08-04 06:21'
-updated_date: '2026-09-06 04:58'
+updated_date: '2026-09-06 06:47'
 labels:
   - prd-1.0
   - epic-i
@@ -372,4 +372,25 @@ PR #224,auto-merge 已啟用(2026-09-06T04:02:53Z)。
 ### 剩餘(AC#1 仍紅)
 
 `canonCharacterLocations`(快照即可)、`buildActiveScenePresentations`(窗口有界,fallback 需小心)、`buildVisualReplay`(仍是真正困難的一項:跨全史排 importance + `foldLocations` 需要勝出場景前後的精確位置)。五者必須整批落地讀取量才會動。
+
+## 生產環境實測(2026-09-06):比 fixture 更糟,而且是真的數字
+
+Convex 的 `usageStats` 每次函式呼叫都回報精確讀取量。在 dev 部署上手動跑**一個** time slot:
+
+```
+simulation/worldDayLiveFunctions:runQueuedWorldDaySlot
+  databaseReadDocuments = 1369
+  databaseIoReadBytes   = 3,105,906   (~3.0 MiB)
+  databaseWriteDocuments = 28
+```
+
+**而且這個 slot 是失敗的,committedEventIds 為空。** 也就是說:在只有 78 個已接受事件的世界上,一次**沒有寫入任何 canon** 的 slot 就吃掉 16 MiB 交易預算的約 **19%**。
+
+這是本任務至今最強的證據,取代我先前那些必須加但書的 fixture 數字。它也直接證實了任務描述裡「runLiveWorldDayCycle 必須把自己限制在每次交易一個已接受事件」的原因。
+
+順帶量到的好消息:`tickAllPublicSchedules` 在同一視窗內約 25 次執行,每次 `databaseReadDocuments = 0`。cron 確實沒有在燒 I/O,因為 `mistwood` 是 `development`。
+
+### 這次量測同時揭露一個 CRITICAL 缺陷 → ART-157
+
+slot 失敗於 `validate_canon` / `UNKNOWN_LOCATION_REFERENCE`。根因與 ART-100 無關(場景 prompt 從未告訴模型合法的目的地),已另開 ART-157。記在這裡是因為兩者共用同一次量測。
 <!-- SECTION:NOTES:END -->
