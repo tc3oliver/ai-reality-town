@@ -20,6 +20,9 @@ import type { DailyEpisode } from '../editorial/episode';
 // --- in-memory public read store (mirrors the readModel test fixture) --------
 
 class AcceptanceReadStore implements PublicReadStore {
+  /** ART-162: this fixture is not exercising the publication gate, so it publishes. */
+  publicationEnabled(): Promise<boolean> { return Promise.resolve(true); }
+
   readonly rows: StoredReadModel[] = [];
   private counter = 0;
   async loadTargetVersions(worldId: string, modelKind: string, modelRef: string): Promise<readonly StoredReadModel[]> {

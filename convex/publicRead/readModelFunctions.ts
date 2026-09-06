@@ -14,6 +14,7 @@ import type { GenericMutationCtx, GenericQueryCtx } from 'convex/server';
 import { query, internalMutation, internalQuery } from '../_generated/server';
 import type { DataModel, Id } from '../_generated/dataModel';
 import type { JsonValue } from '../canon/model';
+import { isPublicationEnabled } from '../shared/publicationGate';
 import {
   commitReadModelVersion,
   invalidateReadModel,
@@ -93,6 +94,14 @@ export function readStore(db: GenericQueryCtx<DataModel>['db']): PublicReadReadS
 /** Full store adapter backed by a Convex mutation context (exported for projection builders). */
 export function writeStore(db: GenericMutationCtx<DataModel>['db']): PublicReadStore {
   return {
+    /**
+     * ART-162. The world's automatic publication gate — the SAME rule the editorial publication
+     * transition applies, shared rather than restated. Two copies could disagree about what an
+     * unscheduled world does, and the disagreement would be invisible: one surface would freeze
+     * while the other kept publishing.
+     */
+    publicationEnabled: async (worldId) => isPublicationEnabled(
+      await db.query('worldSchedules').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).unique()),
     async loadTargetVersions(worldId, modelKind, modelRef) {
       const rows = await db
         .query('publishedReadModels')

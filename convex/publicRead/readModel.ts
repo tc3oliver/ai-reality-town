@@ -206,6 +206,20 @@ export interface PublicReadStore extends PublicReadReadStore {
     status: ReadModelStatus;
     updatedAt: number;
   }): Promise<void>;
+  /**
+   * The world's automatic publication gate (ART-162): may new versions reach the public surface?
+   *
+   * On the PORT rather than as an argument to {@link commitReadModelVersion}, and that is the
+   * whole design. There are 28 projection writers; making this a parameter would put the same
+   * judgement in 28 places, and the twenty-ninth would forget it. Asking the store means the
+   * decision is made ONCE, at the boundary every writer already goes through, and a new projection
+   * inherits it without knowing it exists.
+   *
+   * Required rather than optional, for the reason `unmeteredWorldDayBudgetPort` is: an optional
+   * gate lets a new binding enforce nothing by omission, which is exactly how `publishEnabled`
+   * came to gate nothing in the first place.
+   */
+  publicationEnabled(worldId: string): Promise<boolean>;
 }
 
 export type ServedReadModel = Pick<PublishedReadModel,
@@ -304,6 +318,18 @@ export type CommitReadModelResult = {
   contentHash: string;
   status: ReadModelStatus;
   deduplicated: boolean;
+  /**
+   * True when the world's publication gate refused this version (ART-162).
+   *
+   * Reported rather than thrown: suppression is a configured STATE, not a fault. A world with
+   * publication paused should keep simulating, keep committing Canon, and keep deriving Episodes
+   * and Recaps — it simply stops showing the results. Throwing would fail the post-commit pipeline
+   * and stop all of that.
+   *
+   * Reported rather than silent, though: a caller that logged "published version 7" for a write
+   * that never happened would make a paused world indistinguishable from a broken one.
+   */
+  suppressed: boolean;
 };
 
 /**
@@ -329,6 +355,35 @@ export async function commitReadModelVersion(
   },
 ): Promise<CommitReadModelResult> {
   assertTarget(input.worldId, input.modelKind, input.modelRef);
+
+  /**
+   * THE automatic publication gate (ART-162).
+   *
+   * Checked before ANYTHING is written, so there is no partial state to reason about: nothing is
+   * inserted, nothing is demoted, and the version that is already current keeps serving untouched.
+   *
+   * That last point is the requirement, not a side effect. A world with publication paused must
+   * keep showing its last valid version; a gate that suppressed the INSERT but still demoted the
+   * current row would blank the public surface instead of freezing it.
+   *
+   * The gate can only suppress. There is deliberately no branch here that publishes something the
+   * caller did not ask to publish, no path that upgrades a status, and no way to reach this
+   * function with content the safety and editorial lifecycles have not already cleared — those run
+   * upstream and are unchanged either way.
+   */
+  if (!await store.publicationEnabled(input.worldId)) {
+    const live = await store.findCurrent(input.worldId, input.modelKind, input.modelRef);
+    return {
+      // The version that IS live, not the one that would have been written. A caller reporting
+      // `version` after a suppressed commit is reporting what a reader can actually see.
+      version: live?.version ?? 0,
+      contentHash: live?.contentHash ?? '',
+      status: live?.status ?? input.status,
+      deduplicated: false,
+      suppressed: true,
+    };
+  }
+
   const next = createReadModelVersion({
     worldId: input.worldId,
     modelKind: input.modelKind,
@@ -342,7 +397,10 @@ export async function commitReadModelVersion(
 
   const current = await store.findCurrent(input.worldId, input.modelKind, input.modelRef);
   if (current && current.contentHash === next.contentHash && current.status === next.status) {
-    return { version: current.version, contentHash: current.contentHash, status: current.status, deduplicated: true };
+    return {
+      version: current.version, contentHash: current.contentHash, status: current.status,
+      deduplicated: true, suppressed: false,
+    };
   }
 
   const retainedFallbacks = await store.loadLastKnownGood(input.worldId, input.modelKind, input.modelRef);
@@ -378,7 +436,10 @@ export async function commitReadModelVersion(
     }
   }
 
-  return { version: nextVersion, contentHash: committed.contentHash, status: committed.status, deduplicated: false };
+  return {
+    version: nextVersion, contentHash: committed.contentHash, status: committed.status,
+    deduplicated: false, suppressed: false,
+  };
 }
 
 /**

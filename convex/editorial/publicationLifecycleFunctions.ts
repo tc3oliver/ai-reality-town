@@ -25,6 +25,7 @@ import {
   type PublicationContentKind,
   type PublicationRecord,
 } from './publicationLifecycle';
+import { isPublicationEnabled, PUBLICATION_SUPPRESSED } from '../shared/publicationGate';
 
 const actorArgs = v.object({ type: v.union(v.literal('admin'), v.literal('system')), id: v.string() });
 
@@ -121,6 +122,27 @@ export const advancePublication = internalMutation({
     const action = args.action;
     const current = await loadCurrentRecord(ctx.db, args.worldId, args.contentRef);
     if (!current) throw new PublicationLifecycleError('PUBLICATION_NOT_FOUND', 'no current publication for content reference');
+    /**
+     * ART-162. The world's automatic publication gate, applied to the ONE transition that puts
+     * content in front of a reader.
+     *
+     * Only `publish` is gated. `validate`, `begin_safety_review`, `pass_safety_review`, `withhold`
+     * and `resume_to_ready` all still run with the gate closed, which is the requirement: a
+     * suppressed world keeps deriving, keeps classifying and keeps moving records to ready — it
+     * simply stops there. Gating the whole function would have frozen the editorial lifecycle as
+     * well, and a backlog of unreviewed content is not what "pause publication" means.
+     *
+     * `withhold` in particular must never be gated: refusing to record a safety withhold because
+     * publication is paused would be a gate that made a world LESS safe while claiming otherwise.
+     */
+    const schedule = action === 'publish'
+      ? await ctx.db.query('worldSchedules')
+        .withIndex('by_world_id', (q) => q.eq('worldId', args.worldId)).unique()
+      : null;
+    if (action === 'publish' && !isPublicationEnabled(schedule)) {
+      throw new PublicationLifecycleError(PUBLICATION_SUPPRESSED,
+        `world ${args.worldId} has publishEnabled=false; content may reach ready but not published`);
+    }
     const next = transitionPublication(current.record, action, actor, args.reason, args.now);
     await ctx.db.patch(current.id, {
       status: next.status, summary: next.summary ?? undefined, audit: next.audit, updatedAt: args.now,
