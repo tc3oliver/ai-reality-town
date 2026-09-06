@@ -1,4 +1,5 @@
 import { TIME_SLOTS, type TimeSlot } from '../canon/eventTypes';
+import { FakeWholeSceneProvider } from '../simulation/fakeSceneNarrator';
 import { InMemoryCanonStore } from '../canon/inMemoryStore';
 import { emptyProjection, type AcceptedEvent, type CanonRuleContext } from '../canon/model';
 import { mistwoodCharacterSeed, mistwoodWorldConfiguration, MISTWOOD_PUBLIC_WORLD_ID } from '../canon/mistwoodSeed';
@@ -969,7 +970,7 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
 /** Run ART-97's world-day pipeline for whole world days, producing real accepted events. */
 async function runWorldDays(canon: InMemoryCanonStore, days: number, activeArcs: () => LiveWorldSnapshot['activeArcs']): Promise<void> {
   const runStore = new MemoryWorldDayRunStore();
-  const handlers = createWorldDayStageHandlers(createWorldDayPort(canon, activeArcs));
+  const handlers = createWorldDayStageHandlers(createWorldDayPort(canon, activeArcs), new FakeWholeSceneProvider());
   for (let worldDay = 0; worldDay < days; worldDay += 1) {
     for (const timeSlot of TIME_SLOTS as readonly TimeSlot[]) {
       const slot: WorldDaySlotIdentity = { worldId: WORLD_ID, worldDay, timeSlot };

@@ -3,7 +3,7 @@
 ART-97 implements PRD FR-C001–FR-C005 and PRD Section 12 stages 1–10 as one runnable loop,
 which is the Milestone 2 completion criterion "一個世界日可完整跑完".
 
-`simulation/worldDayLiveFunctions:runQueuedWorldDaySlot` is the single live entry point.
+`simulation/worldDayLiveFunctions:runQueuedWorldDaySlot` is the transactional entry point.
 Given a world it takes the oldest reserved `scheduledSlots` row (or an explicit `slotId`),
 transitions it to running, and drives the resumable orchestrator `executeWorldDay` through
 its ten stages: load world state, apply scheduled environment events, load active Story
@@ -24,10 +24,47 @@ plus a deterministic, no-network, no-cost author (`convex/simulation/fakeSceneNa
 `FakeWholeSceneProvider` follows the `FakeSimulationProvider` idiom — same input, same
 output, no key, no cost — but implements the vendor-neutral `LanguageModelProvider` port
 that whole-scene simulation requires; the Phase-0 `FakeSimulationProvider` only proposes a
-single movement event and cannot author a scene. `createWorldDayStageHandlers` takes any
-`LanguageModelProvider`, so the ART-72 OpenAI-compatible adapter is injected at that seam
-without changing this wiring, and provider construction stays inside the adapter root the
-architecture boundary reserves for it.
+single movement event and cannot author a scene.
+
+## Which author, and why the live path is two mutations and an action
+
+`sceneAuthor` is a **required** argument. It used to be a default, and that is exactly how the
+deterministic fake became the production author: `createWorldDayStageHandlers` was called with no
+provider, so the choice was expressed by an absence and a reviewer saw no decision at all. ART-159
+removed the default; `createWorldDayStageHandlers` now requires its provider argument, and a
+binding that does not choose an author no longer compiles.
+
+| `sceneAuthor` | author | shape | needs |
+| --- | --- | --- | --- |
+| `deterministic_fake` | `FakeWholeSceneProvider` | one mutation, one transaction | nothing |
+| `preauthored` | the configured gateway, via an action | mutation → action → mutation | `LLM_*` in the Convex environment |
+
+The live path cannot be one transaction, because **a Convex mutation may not perform network
+I/O**. That is the whole reason ART-72's adapter sat unreachable for so long: there was no
+seam to inject it through that could also make an HTTP call. So the slot is split, and only the
+provider call leaves the transaction:
+
+```
+prepareQueuedWorldDaySlot   (mutation)  stages 1-6, claims the slot, stops at the network
+       ↓  SceneAuthoringPlan
+authorSlotScenes            (ACTION)    the provider, the route chain, the budget
+       ↓  persisted scenes
+runQueuedWorldDaySlot       (mutation)  stages 7-10: structural, Canon, safety, commit
+```
+
+`preauthored` authors nothing itself. A scene that is not already persisted raises
+`SCENE_AUTHORING_DEFERRED` rather than falling back to the fake — a fallback there would put
+invented text into Canon every time the gateway was down, which is worse than a failed slot.
+
+Both halves of the split reuse ONE authoring loop (`authorSlotScenes`), so the live path and the
+deterministic path cannot disagree about what "already authored" means. Provider construction
+stays inside `convex/simulation/providers/`, the adapter root the architecture boundary reserves
+for it — which is why the live action lives there too, and why post-commit is a separate call
+(`simulation` may not depend on `operations`). That costs nothing: stages 11–21 were never a
+callback on a slot's commits, they are a cursor over accepted events.
+
+See [`openai-compatible-provider.md`](./openai-compatible-provider.md) for the route chain,
+the failure classification and the deployment variables.
 
 ## Who gets cast, and how a stranded character gets back in
 
@@ -71,17 +108,28 @@ resumes at its last safe checkpoint, and a re-proposed event deduplicates at the
 commit boundary instead of appending a second event. Scene output classified as withhold or
 human-review-required never reaches the commit stage.
 
-Everything runs inside one Convex mutation/transaction: the deterministic author needs no
-network, so there is no action-then-mutation race. The entry point is internal — public
-reads must never trigger generation.
+On the `deterministic_fake` path everything runs inside one Convex mutation/transaction: the
+author needs no network, so there is no action-then-mutation race. On the live path only the
+provider call is outside a transaction — Canon validation, safety classification, idempotency and
+the commit are all still inside one, and are the same code on both paths. Every entry point is
+internal: public reads must never trigger generation.
 
 ```bash
 npx convex run simulation/schedulerOperations:advanceOneWorldDay '{"worldId":"mistwood","now":0}'
-npx convex run simulation/worldDayLiveFunctions:runQueuedWorldDaySlot '{"worldId":"mistwood","maxSlots":5}'
+
+# deterministic, offline
+npx convex run simulation/worldDayLiveFunctions:runQueuedWorldDaySlot \
+  '{"worldId":"mistwood","maxSlots":5,"sceneAuthor":"deterministic_fake"}'
+
+# live, through the configured provider and route chain
+npx convex run simulation/providers/liveWorldDayActions:runLiveWorldDaySlotWithProvider \
+  '{"worldId":"mistwood","maxSlots":5}'
+npx convex run operations/postCommitLiveFunctions:drainLivePostCommit '{"worldId":"mistwood"}'
 ```
 
 Focused verification:
 
 ```bash
 npm test -- --runTestsByPath convex/simulation/worldDayLive.test.ts
+npm test -- --runTestsByPath convex/simulation/providers/liveWorldDayWiring.test.ts
 ```

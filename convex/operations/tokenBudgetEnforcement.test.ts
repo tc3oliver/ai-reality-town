@@ -133,8 +133,11 @@ class RateLimitedProvider implements LanguageModelProvider {
   structuredChat(request: StructuredChatRequest): Promise<StructuredChatResult> {
     this.calls += 1;
     if (this.calls <= this.failFirstN) {
+      // `rateLimited` is stated, not inferred from the code: ART-159 separated "worth retrying"
+      // from "the allowance ran out", because `LLM_HTTP_RETRYABLE` also covers 408 and every 5xx.
+      // Without it this stub would simulate a broken gateway while claiming to be a 429.
       throw new SimulationProviderError('transient', 'LLM_HTTP_RETRYABLE',
-        'provider temporarily failed with HTTP 429');
+        'provider temporarily failed with HTTP 429', { rateLimited: true });
     }
     return this.inner.structuredChat(request);
   }

@@ -32,20 +32,29 @@ const chatRequest = (): StructuredChatRequest => ({
   schemaName: 'test', jsonSchema: { type: 'object' }, temperature: 0, maxTokens: 8,
 });
 
-/** Serves only the ids in `serves`; every other id fails with `code`. */
+/**
+ * Serves only the ids in `serves`; every other id fails with `code`.
+ *
+ * `rateLimited` defaults to true because the default `code` stands in for a 429, and ART-159 made
+ * that a separate fact from the code: `LLM_HTTP_RETRYABLE` also covers 408 and every 5xx, so the
+ * adapter now says WHICH of those it saw instead of leaving callers to infer a quota problem from
+ * a broken gateway. A stub that omitted it would simulate a 500 while the test read as a 429.
+ */
 class RoutedProvider implements LanguageModelProvider {
   readonly asked: string[] = [];
   constructor(
     private readonly serves: ReadonlySet<string>,
     private readonly code = 'LLM_HTTP_RETRYABLE',
     private readonly kind: 'transient' | 'permanent' = 'transient',
+    private readonly rateLimited = true,
   ) {}
 
   structuredChat(request: StructuredChatRequest): Promise<StructuredChatResult> {
     const model = request.model ?? '(none)';
     this.asked.push(model);
     if (!this.serves.has(model)) {
-      return Promise.reject(new SimulationProviderError(this.kind, this.code, `route ${model} refused`));
+      return Promise.reject(new SimulationProviderError(this.kind, this.code, `route ${model} refused`,
+        { rateLimited: this.rateLimited }));
     }
     return Promise.resolve({ output: { ok: true }, trace: { ...TRACE, requestedModel: model, resolvedModel: model } });
   }
@@ -80,7 +89,9 @@ describe('ART-158 free route chain', () => {
   });
 
   it('falls back on a provider failure too, not only on a 429 (AC#4)', async () => {
-    const provider = new RoutedProvider(new Set(['backup']), 'LLM_NETWORK_ERROR');
+    // Not rate limited: a network error is the gateway being unreachable, which is a different
+    // thing from the allowance running out and must not be recorded as one.
+    const provider = new RoutedProvider(new Set(['backup']), 'LLM_NETWORK_ERROR', 'transient', false);
     const result = await callWithFreeRouteFallback(provider, chatRequest(), ['auto', 'backup']);
 
     expect(result.attempts[0]).toEqual({ model: 'auto', outcome: 'failed', code: 'LLM_NETWORK_ERROR' });

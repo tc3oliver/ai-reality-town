@@ -15,6 +15,7 @@
  */
 
 import { TIME_SLOTS, type TimeSlot } from '../canon/eventTypes';
+import { FakeWholeSceneProvider } from './fakeSceneNarrator';
 import { InMemoryCanonStore } from '../canon/inMemoryStore';
 import { emptyProjection, type CanonRuleContext } from '../canon/model';
 import { mistwoodCharacterSeed, mistwoodWorldConfiguration, MISTWOOD_PUBLIC_WORLD_ID } from '../canon/mistwoodSeed';
@@ -256,7 +257,7 @@ function injectStopBefore(base: WorldDayStageHandlers, haltBefore: WorldDayStage
 /** Baseline: what an undisturbed slot commits, used to prove a resume commits no more. */
 async function undisturbedCommitCount(timeSlot: TimeSlot): Promise<number> {
   const store = seededStore();
-  await executeWorldDay(runInput(slotOf(timeSlot)), new MemoryRunStore(), createWorldDayStageHandlers(createSeedPort(store)));
+  await executeWorldDay(runInput(slotOf(timeSlot)), new MemoryRunStore(), createWorldDayStageHandlers(createSeedPort(store), new FakeWholeSceneProvider()));
   return store.committedEvents().length;
 }
 
@@ -267,7 +268,7 @@ describe('FR-K006 emergency stop injected at every world-day stage', () => {
     const calls: WorldDayStage[] = [];
     let engaged = false;
 
-    const base = recording(createWorldDayStageHandlers(createSeedPort(store)), calls);
+    const base = recording(createWorldDayStageHandlers(createSeedPort(store), new FakeWholeSceneProvider()), calls);
     const guarded = guardWorldDayStageHandlers(
       injectStopBefore(base, haltStage, () => { engaged = true; }),
       () => engaged,
@@ -302,7 +303,7 @@ describe('FR-K006 emergency stop injected at every world-day stage', () => {
     const calls: WorldDayStage[] = [];
     let engaged = false;
 
-    const base = recording(createWorldDayStageHandlers(createSeedPort(store)), calls);
+    const base = recording(createWorldDayStageHandlers(createSeedPort(store), new FakeWholeSceneProvider()), calls);
     const halted = await executeWorldDay(
       runInput(slotOf('noon')),
       runStore,
@@ -337,7 +338,7 @@ describe('FR-K006 emergency stop injected at every world-day stage', () => {
     const store = seededStore();
     const runStore = new MemoryRunStore();
     let engaged = false;
-    const base = createWorldDayStageHandlers(createSeedPort(store));
+    const base = createWorldDayStageHandlers(createSeedPort(store), new FakeWholeSceneProvider());
 
     const completed = await executeWorldDay(runInput(slotOf('afternoon')), runStore, guardWorldDayStageHandlers(base, () => engaged));
     expect(completed.status).toBe('completed');
@@ -357,7 +358,7 @@ describe('FR-K006 emergency stop injected at every world-day stage', () => {
     const runStore = new MemoryRunStore();
     const calls: WorldDayStage[] = [];
     let engaged = false;
-    const guarded = guardWorldDayStageHandlers(recording(createWorldDayStageHandlers(createSeedPort(store)), calls), () => engaged);
+    const guarded = guardWorldDayStageHandlers(recording(createWorldDayStageHandlers(createSeedPort(store), new FakeWholeSceneProvider()), calls), () => engaged);
 
     const first = await executeWorldDay(runInput(slotOf(TIME_SLOTS[0])), runStore, guarded);
     expect(first.status).toBe('completed');

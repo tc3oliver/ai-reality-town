@@ -109,19 +109,20 @@ export async function callWithFreeRouteFallback(
     throw new SimulationProviderError('permanent', FREE_ROUTES_EXHAUSTED, 'no free route is configured');
   }
   const attempts: RouteAttempt[] = [];
-  let last: unknown;
   for (const model of chain) {
     try {
       const result = await provider.structuredChat({ ...request, model });
       attempts.push({ model, outcome: 'served', code: null });
       return { ...result, attempts };
     } catch (error) {
-      last = error;
       const code = error instanceof SimulationProviderError ? error.code : null;
       const routeLevel = isRouteLevelFailure(error);
       attempts.push({
         model,
-        outcome: code === 'LLM_HTTP_RETRYABLE' ? 'rate_limited' : 'failed',
+        // Read off the error's own `rateLimited`, not off its CODE. `LLM_HTTP_RETRYABLE` covers
+        // 408, 429 and every 5xx, so keying on it reported a broken gateway as an exhausted
+        // allowance — the two need different operator responses.
+        outcome: error instanceof SimulationProviderError && error.rateLimited ? 'rate_limited' : 'failed',
         code,
       });
       // A request-level failure is rethrown as itself rather than buried under an exhaustion
@@ -131,6 +132,10 @@ export async function callWithFreeRouteFallback(
   }
   throw new SimulationProviderError('permanent', FREE_ROUTES_EXHAUSTED,
     `every free route was unavailable after ${attempts.length} attempt(s)`,
+    // PERMANENT, because retrying would spend the whole chain again for the same reason — and
+    // still rate-limited when a rate limit is what stopped it. Those are separate facts, and the
+    // second is the one an operator needs: it says the KEY ran out rather than the gateway broke.
+    { rateLimited: attempts.some((attempt) => attempt.outcome === 'rate_limited') },
     );
 }
 
@@ -150,8 +155,30 @@ export class FreeRouteChainProvider implements LanguageModelProvider {
     private readonly chain: readonly string[],
   ) {}
 
+  /**
+   * The routes to try for ONE request, first to last.
+   *
+   * An explicit `request.model` is a decision somebody already made — ART-59's over-budget
+   * downgrade to the fast class, or ART-52's per-module override — so it is tried FIRST. Without
+   * this the chain overwrote `model` on every hop and the downgrade never reached the gateway:
+   * the accountant would have granted a reservation against the fast model, recorded that it did,
+   * and the call would have run on the configured route anyway. A budget control that is decided
+   * and then discarded is worse than one that does not exist, because the ledger says it worked.
+   *
+   * The configured routes remain behind it as fallbacks rather than being replaced: a route being
+   * rate-limited says nothing about the decision that chose it, and dropping them would leave a
+   * downgraded call with no fallback at all. Nothing is escalated by doing so — every route on
+   * this endpoint is free, so a later hop is a different queue, not a more expensive one.
+   */
+  private chainFor(request: StructuredChatRequest): string[] {
+    return request.model === undefined
+      ? [...this.chain]
+      : [...new Set([request.model, ...this.chain])];
+  }
+
   async structuredChat(request: StructuredChatRequest): Promise<StructuredChatResult> {
-    const { attempts, ...result } = await callWithFreeRouteFallback(this.inner, request, this.chain);
+    const { attempts, ...result } = await callWithFreeRouteFallback(
+      this.inner, request, this.chainFor(request));
     this.lastAttempts = attempts;
     return result;
   }

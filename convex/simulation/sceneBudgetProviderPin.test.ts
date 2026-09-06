@@ -1,124 +1,118 @@
 /**
- * The ART-72 landmine, disarmed at BUILD time (FR-M003 / ART-59).
- *
- * THIS PIN IS A TRIPWIRE, NOT A CONDITION. Doing what its failure message says — injecting a
- * provider AND repointing the meter — leaves it red, because the assertions below describe the
- * CURRENT wiring. That is deliberate: the pin's job is to force the two decisions in front of a
- * reviewer together, and a tripwire that silently re-arms itself would let the second half be
- * skipped. The instruction says so, so nobody has to guess whether the red is a bug.
+ * The provider and the meter cannot drift apart (FR-M003 / ART-59, rearmed by ART-159).
  *
  * ## The failure this exists to prevent
  *
  * FR-M003's per-MODEL daily cap has to name a model BEFORE the call, so `createConvexBudgetPort`
- * is handed a `deploymentModelId`. The live path currently authors scenes with the deterministic
- * `FakeWholeSceneProvider` — `createWorldDayStageHandlers` is invoked in
- * `worldDayLiveFunctions.ts` with no provider argument, so it takes its default — and the meter is
- * pointed at `FAKE_SCENE_MODEL` to match.
+ * is handed a `deploymentModelId`. If the live path authors with one model and meters another,
+ * the cap meters a bucket nothing is spending from and **every other signal keeps looking
+ * healthy**: slots complete, the ledger fills with granted decisions, the daily totals move, and
+ * the cap simply never binds. That is the worst shape a budget bug can have.
  *
- * If ART-72 injects a real provider adapter there and does NOT repoint the meter, the reservation
- * keys on `FAKE_SCENE_MODEL` while the real model spends. The per-model cap then meters a bucket
- * nothing is spending from, and **every other signal keeps looking healthy**: slots complete, the
- * ledger fills with granted decisions, the daily totals move, and the cap simply never binds. That
- * is the worst shape a budget bug can have, and a comment is not a defence against it.
+ * ## Why this file changed shape
  *
- * ## Why a source pin rather than a type
+ * It used to be a SOURCE SCAN. It counted the arguments to `createWorldDayStageHandlers` in the
+ * live entry point and asserted the call had exactly one — because the fake author was reached by
+ * DEFAULTING, so "which provider does production use" was expressed by the absence of an argument
+ * and could only be observed by reading the text of the call.
  *
- * The two facts that must agree — "which provider does the live path construct" and "which model
- * id does the meter key on" — are two arguments to two different functions, and neither is
- * derivable from the other without widening the vendor-neutral `LanguageModelProvider` contract
- * that `architecture/module-boundaries.json` reserves as the provider boundary. Widening it is
- * ART-72's decision to make, not this task's. So the agreement is pinned where it actually lives:
- * in the one file that makes both choices.
+ * ART-159 removed the default. The provider and the metered model id are now one value returned
+ * by one function, {@link sceneAuthorFor}, and `createWorldDayStageHandlers` requires its provider
+ * argument — so a binding that does not choose an author no longer compiles. The agreement that
+ * needed a text scan to observe is now a property of a value, and this file asserts the value.
  *
- * This is the BUILD-time half. The runtime half is
- * `BudgetSettlement.reportedModel` — the provider's own reported model is compared against the
- * metered key at settlement and counted in `ResourceUsageReport.modelMeteringMismatches`. That
- * catches what a source pin cannot see: a gateway answering with a different model id from the one
- * it was asked for.
+ * That is a strictly stronger guard, and it is worth being explicit about why rather than
+ * treating the rewrite as bookkeeping: a source scan can only see the one call site it was
+ * pointed at, and it passes for a file that does not compile. These tests execute the decision.
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { FAKE_SCENE_MODEL, FakeWholeSceneProvider } from './fakeSceneNarrator';
+import { sceneAuthorFor } from './worldDayLiveFunctions';
+import { createWorldDayStageHandlers } from './worldDayLive';
+import { LIVE_ROUTE_CHAIN_ENV, resolveLiveSceneAuthoringModel } from './providers/liveSceneAuthor';
 
-import { FAKE_SCENE_MODEL } from './fakeSceneNarrator';
+const LIVE_ENV = {
+  LLM_API_URL: 'https://gateway.example.com/v1',
+  LLM_MODEL: 'auto',
+  LLM_EMBEDDING_MODEL: 'bge-m3',
+  LLM_EMBEDDING_DIMENSION: '1024',
+  LLM_API_KEY: 'test-key-not-a-real-credential',
+};
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const LIVE_ENTRY = 'convex/simulation/worldDayLiveFunctions.ts';
-const source = readFileSync(join(ROOT, LIVE_ENTRY), 'utf8');
+describe('the author and the model it is metered against are chosen together', () => {
+  it('the deterministic author is metered against exactly the model it reports', async () => {
+    const author = sceneAuthorFor('deterministic_fake');
 
-/**
- * The TOP-LEVEL argument count of every `createWorldDayStageHandlers(...)` call in the live
- * entry point.
- *
- * Depth-aware rather than a `split(',')`, and that is load-bearing: the real call is
- * `createWorldDayStageHandlers(createConvexWorldDayLivePort(ctx, now))`, whose nested comma would
- * read as a second argument under a naive split. A pin that reports a provider injection when
- * none happened is worse than no pin — it is the kind of test that gets deleted the first time it
- * cries wolf, taking the real guarantee with it.
- */
-function stageHandlerArgumentCounts(): number[] {
-  const counts: number[] = [];
-  const call = 'createWorldDayStageHandlers(';
-  for (let start = source.indexOf(call); start !== -1; start = source.indexOf(call, start + 1)) {
-    let depth = 0;
-    let topLevelCommas = 0;
-    let sawArgument = false;
-    for (let index = start + call.length - 1; index < source.length; index += 1) {
-      const character = source[index];
-      if (character === '(' || character === '[' || character === '{') depth += 1;
-      else if (character === ')' || character === ']' || character === '}') {
-        depth -= 1;
-        if (depth === 0) break;
-      } else if (character === ',' && depth === 1) topLevelCommas += 1;
-      else if (depth >= 1 && !/\s/u.test(character)) sawArgument = true;
-    }
-    counts.push(sawArgument ? topLevelCommas + 1 : 0);
-  }
-  return counts;
-}
-
-describe('ART-72 pin — the metered model id and the live provider cannot drift apart', () => {
-  test('the live entry point still constructs its stage handlers WITHOUT a provider argument', () => {
-    // A second top-level argument means a real adapter has been injected. The moment that
-    // happens this assertion fails, and the message it fails with is the instruction for what to
-    // do about it — a bare `expected 1, got 2` would send the next author looking in the wrong
-    // place entirely.
-    const counts = stageHandlerArgumentCounts();
-    expect(counts.length).toBeGreaterThan(0);
-    for (const argumentCount of counts) {
-      const injectedProvider = argumentCount > 1;
-      expect({ file: LIVE_ENTRY, injectedProvider, instruction: injectedProvider
-        ? 'ART-72: a provider was injected into createWorldDayStageHandlers. (1) Repoint '
-          + 'deploymentModelId in createConvexBudgetPort to that provider\'s model id in the same '
-          + 'change, or the FR-M003 per-model daily cap will meter FAKE_SCENE_MODEL while the real '
-          + 'model spends unbounded. (2) THEN update this pin to assert the new provider and the '
-          + 'new model id — it stays red until you do, on purpose, so the change is reviewed '
-          + 'rather than merely made. See docs/token-budget-controls.md §8.'
-        : null,
-      }).toEqual({ file: LIVE_ENTRY, injectedProvider: false, instruction: null });
-    }
-  });
-
-  test('the argument counter itself is depth-aware, and would SEE a second argument', () => {
-    // The pin above passes today. This asserts it passes for the right reason: that the counter
-    // reads the real call as ONE argument despite its nested comma, and that it would report TWO
-    // if a provider were added. Without this, a counter that always returned 1 would look
-    // identical from the outside — a green test proving nothing.
-    expect(stageHandlerArgumentCounts()).toEqual([1]);
-  });
-
-  test('the meter is pointed at exactly the model that default provider reports', () => {
-    // Asserted against the CONSTANT, not against the string, so renaming the fake author's model
-    // id cannot leave this test passing against a stale literal.
-    expect(source).toContain(`createConvexBudgetPort(ctx.db, now, () => Promise.resolve(${'FAKE_SCENE_MODEL'}))`);
+    expect(author.provider).toBeInstanceOf(FakeWholeSceneProvider);
+    expect(await author.deploymentModelId()).toBe(FAKE_SCENE_MODEL);
+    // Against the CONSTANT, not a literal, so renaming the fake author's model id cannot leave
+    // this passing against a stale string.
     expect(FAKE_SCENE_MODEL).toBe('fake-whole-scene-v1');
   });
 
-  test('the two decisions still live in the same file, so one reviewer sees both', () => {
-    // If either moved out, a change to one could be reviewed without the other ever being on
-    // screen — which is exactly how the mismatch would get merged.
-    expect(source).toContain('createWorldDayStageHandlers(');
-    expect(source).toContain('createConvexBudgetPort(');
+  it('the live author is metered against the route the caller resolved, never the fake', async () => {
+    const author = sceneAuthorFor('preauthored', 'auto');
+
+    // `null` is the point: this pass may not call a provider at all. If it ever returned one, a
+    // Convex mutation would attempt network I/O and the split this task exists for would be
+    // silently undone.
+    expect(author.provider).toBeNull();
+    expect(await author.deploymentModelId()).toBe('auto');
+    expect(await author.deploymentModelId()).not.toBe(FAKE_SCENE_MODEL);
+  });
+
+  /**
+   * The specific defect the old pin was written to catch, now reachable as behaviour.
+   *
+   * A live pass that could answer with SOME model id when none was resolved would key the cap on
+   * a bucket the real route never spends from. Rejecting is the only honest answer, and it fails
+   * the slot with a stable code rather than metering a fiction.
+   */
+  it('a live pass with no resolved route refuses to name a model rather than inventing one', async () => {
+    const author = sceneAuthorFor('preauthored');
+
+    await expect(author.deploymentModelId()).rejects.toThrow('LIVE_DEPLOYMENT_MODEL_NOT_SUPPLIED');
+  });
+
+  it('the two modes never agree on a model, so one cannot stand in for the other', async () => {
+    const fake = await sceneAuthorFor('deterministic_fake').deploymentModelId();
+    const live = await sceneAuthorFor('preauthored', 'gemini-2.5-flash').deploymentModelId();
+
+    expect(fake).not.toBe(live);
+  });
+});
+
+describe('the live meter keys on the route that will actually be called', () => {
+  it('uses the configured chat model when no chain is configured', () => {
+    expect(resolveLiveSceneAuthoringModel(LIVE_ENV)).toBe('auto');
+  });
+
+  it('uses the FIRST route of the chain when one is configured, not LLM_MODEL', () => {
+    // The chain overrides which route is tried first, so metering `LLM_MODEL` here would key the
+    // reservation on a route the call never reaches.
+    expect(resolveLiveSceneAuthoringModel({
+      ...LIVE_ENV, [LIVE_ROUTE_CHAIN_ENV]: 'gemini-2.5-flash, auto',
+    })).toBe('gemini-2.5-flash');
+  });
+
+  it('refuses to resolve a model at all when the deployment is not configured', () => {
+    // A misconfigured deployment must fail before a slot is claimed, not after its scenes are
+    // authored — hence a throw here rather than a fallback to some default id.
+    expect(() => resolveLiveSceneAuthoringModel({})).toThrow();
+  });
+});
+
+describe('no binding can select an author by saying nothing', () => {
+  /**
+   * The compiler is the guard now, and this records WHY, so a future change that restores a
+   * default parameter has to argue with a stated reason rather than an absence.
+   *
+   * `createWorldDayStageHandlers.length` counts parameters before the first defaulted one. Two
+   * means both the port and the provider are required; if a default were reintroduced for the
+   * provider it would drop to one, and production would be able to pick the fake author by
+   * omission exactly as it used to.
+   */
+  it('createWorldDayStageHandlers requires its provider argument', () => {
+    expect(createWorldDayStageHandlers).toHaveLength(2);
   });
 });

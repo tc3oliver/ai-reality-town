@@ -1,23 +1,38 @@
 /**
- * FR-C001…FR-C005 LIVE ENTRY POINT.
+ * FR-C001…FR-C005 LIVE ENTRY POINT — the transactional half.
  *
- * `runQueuedWorldDaySlot` is the only place in the codebase where a queued world time slot
- * is actually executed end to end. It takes one reserved `scheduledSlots` row and drives
- * PRD §12 stages 1–10 through the resumable orchestrator:
+ * `runQueuedWorldDaySlot` takes one reserved `scheduledSlots` row and drives PRD §12 stages 1–10
+ * through the resumable orchestrator:
  *
  *   startScheduledSlot → executeWorldDay(load world state … commit accepted events)
  *   → completeScheduledSlot(committed event) | failScheduledSlot(stable error code)
  *
- * Invoke it against a deployment with, for example:
+ * ## Which author, and why that is an ARGUMENT
  *
- *   npx convex run simulation/schedulerOperations:advanceOneWorldDay '{"worldId":"mistwood","now":0}'
- *   npx convex run simulation/worldDayLiveFunctions:runQueuedWorldDaySlot '{"worldId":"mistwood"}'
+ * `sceneAuthor` is required. There is no default, because a default is how the deterministic fake
+ * became the production author: this file used to call `createWorldDayStageHandlers` with no
+ * provider, so the choice was expressed by an absence and a reviewer saw no decision at all.
  *
- * Everything runs inside ONE Convex mutation/transaction, exactly like the foundation
- * workflow: the deterministic provider needs no network, so there is no action-then-
- * mutation race and the Canon commit stays atomic and idempotent.
+ *  - `deterministic_fake` — the whole slot runs inside ONE Convex mutation. The fake author needs
+ *    no network, so there is no action-then-mutation race and the Canon commit is trivially
+ *    atomic. This is the dev, fixture and offline-gate path.
  *
- * The function is internal on purpose — public reads must never trigger generation
+ *      npx convex run simulation/schedulerOperations:advanceOneWorldDay '{"worldId":"mistwood","now":0}'
+ *      npx convex run simulation/worldDayLiveFunctions:runQueuedWorldDaySlot '{"worldId":"mistwood","sceneAuthor":"deterministic_fake"}'
+ *
+ *  - `preauthored` — the LIVE path, and it cannot be one transaction: a Convex mutation may not
+ *    perform network I/O. `prepareQueuedWorldDaySlot` runs stages 1–6 and stops; an action authors
+ *    the scenes through the real provider; this function then resumes from those checkpoints and
+ *    carries stages 7–10 out inside a transaction again. It authors NOTHING itself — a scene that
+ *    is not already persisted raises {@link SCENE_AUTHORING_DEFERRED} rather than quietly falling
+ *    back to the fake, which would put invented text into Canon whenever the gateway was down.
+ *
+ *      npx convex run simulation/providers/liveWorldDayActions:runLiveWorldDaySlotWithProvider '{"worldId":"mistwood"}'
+ *
+ * Canon validation, safety classification, idempotency and the commit itself are inside a
+ * transaction on BOTH paths, and are the same code on both.
+ *
+ * The functions are internal on purpose — public reads must never trigger generation
  * (ADR-0001). Stages 11–21 (projection, cognition, episodes, publication) are the
  * separate post-commit pipeline in `convex/operations/postCommitOrchestration.ts`.
  */
@@ -50,19 +65,25 @@ import { isActiveArcStatus } from '../story/lifecycle';
 import { guardWorldDayStageHandlers } from './emergencyStop';
 import { resolveModuleConfig } from './moduleConfig';
 import { createConvexBudgetPort } from './tokenBudgetGate';
-import { FAKE_SCENE_MODEL } from './fakeSceneNarrator';
+import { FakeWholeSceneProvider, FAKE_SCENE_MODEL } from './fakeSceneNarrator';
 import { assertWorldAdmitsSimulation, isWorldEmergencyStopped } from './emergencyStopOperations';
-import { executeWorldDay, type WorldDayRun } from './worldDayOrchestration';
+import { executeWorldDay, type WorldDayRun, type WorldDayStage } from './worldDayOrchestration';
 import { createConvexWorldDayRunStore } from './worldDayOrchestrationFunctions';
+import type { LanguageModelProvider } from './provider';
 import {
   buildLiveWorldSnapshot,
+  buildSceneAuthoringPlan,
   buildViewerVoteProposal,
   createWorldDayStageHandlers,
   worldDayRunId,
+  SCENE_AUTHORING_DEFERRED,
+  type GroupingArtifact,
   type LiveArc,
   type LiveWorldSnapshot,
+  type SceneAuthoringPlan,
   type WorldDayLivePort,
   type WorldDaySlotIdentity,
+  type WorldStateArtifact,
 } from './worldDayLive';
 
 type MutationCtx = GenericMutationCtx<DataModel>;
@@ -242,11 +263,69 @@ async function markQueuedEnvironmentEventApplied(
 }
 
 /**
+ * Who authors this pass's scenes, and therefore which model the meter keys on.
+ *
+ * The two facts have to be chosen TOGETHER — a reservation keyed on a model the author does not
+ * call meters a bucket nothing spends from, while the real model spends unbounded and every other
+ * signal keeps looking healthy. Before ART-159 they were two arguments to two different functions
+ * held in agreement by a comment and a source-scanning pin. They are now one value, so the
+ * compiler carries the agreement instead.
+ *
+ * - `deterministic_fake` — the zero-cost {@link FakeWholeSceneProvider}, metered against
+ *   {@link FAKE_SCENE_MODEL}. The dev and fixture path; needs no network and no credential.
+ * - `preauthored` — authors NOTHING. Every scene must already be persisted, and a scene that is
+ *   not raises {@link SCENE_AUTHORING_DEFERRED}. This is the transactional half of the live path:
+ *   the network call happened in an action, which a mutation cannot make. The meter keys on the
+ *   deployment's configured route, so the plan handed to that action names the right bucket.
+ */
+export type SceneAuthorMode = 'deterministic_fake' | 'preauthored';
+
+const sceneAuthorValidator = v.union(v.literal('deterministic_fake'), v.literal('preauthored'));
+
+/**
+ * Resolve the pair. Deliberately NOT defaulted anywhere: `runQueuedWorldDaySlot` requires the
+ * argument, so a caller that has not thought about which author it wants cannot get one by
+ * omission — which is how the deterministic fake became the production author in the first place.
+ *
+ * `deploymentModelId` is supplied by the caller for `preauthored` rather than read from the
+ * environment here, for two reasons. The architectural one: constructing or configuring an adapter
+ * outside `convex/simulation/providers` is a boundary violation, and this file is outside it. The
+ * better one: the caller that passes it is the same action that BUILT the provider, so the model
+ * the reservation is keyed on is the first route of the chain that will actually be called, rather
+ * than a second reading of the environment that could resolve differently.
+ */
+export function sceneAuthorFor(mode: SceneAuthorMode, deploymentModelId?: string): {
+  provider: LanguageModelProvider | null;
+  deploymentModelId: () => Promise<string>;
+} {
+  if (mode === 'deterministic_fake') {
+    return {
+      provider: new FakeWholeSceneProvider(),
+      deploymentModelId: () => Promise.resolve(FAKE_SCENE_MODEL),
+    };
+  }
+  return {
+    provider: null,
+    deploymentModelId: () => deploymentModelId === undefined
+      // Loud rather than plausible. This is only reached when a scene still needs authoring and
+      // ART-52 left the module's model unset — so answering with a placeholder would key the
+      // per-model daily cap on a bucket nothing spends from while the real route spends freely,
+      // and every other signal would keep looking healthy.
+      ? Promise.reject(new Error('LIVE_DEPLOYMENT_MODEL_NOT_SUPPLIED'))
+      : Promise.resolve(deploymentModelId),
+  };
+}
+
+/**
  * Convex-backed {@link WorldDayLivePort}. Canon goes through the shared commit store;
  * every Director/Intent/Grouping/Scene artifact is persisted through its own already
  * tested internal mutation, so their idempotency and authorization rules run live.
  */
-function createConvexWorldDayLivePort(ctx: MutationCtx, now: number): WorldDayLivePort {
+function createConvexWorldDayLivePort(
+  ctx: MutationCtx,
+  now: number,
+  author: ReturnType<typeof sceneAuthorFor>,
+): WorldDayLivePort {
   return {
     canonStore: createConvexCanonStore(ctx.db),
     loadWorldSnapshot: (slot) => loadWorldSnapshot(ctx.db, slot),
@@ -258,13 +337,9 @@ function createConvexWorldDayLivePort(ctx: MutationCtx, now: number): WorldDayLi
     // mutation's `now`, which reaches only the audit row's timestamp — never the decision, so
     // the same reservation always names the same bound limit (AC#2).
     //
-    // `deploymentModelId` answers FAKE_SCENE_MODEL because that is the model this path actually
-    // calls: `createWorldDayStageHandlers` is invoked below WITHOUT a provider argument, so it
-    // defaults to the deterministic FakeWholeSceneProvider. ART-72 injecting a real adapter has
-    // to change both together — the per-model daily cap is keyed on whatever this returns, and a
-    // key that did not match the model the provider reports would leave the cap counting an empty
-    // bucket while the real model spent freely.
-    budget: createConvexBudgetPort(ctx.db, now, () => Promise.resolve(FAKE_SCENE_MODEL)),
+    // `deploymentModelId` comes from the SAME value that chose the provider, so the per-model
+    // daily cap cannot be keyed on a model this path does not call.
+    budget: createConvexBudgetPort(ctx.db, now, author.deploymentModelId),
     // PRD §12 stage 2. Scheduled environment events originate from the daily viewer vote
     // (FR-J001) — see {@link loadQueuedEnvironmentEvents} for why the queue is read as rows
     // rather than through an import.
@@ -317,8 +392,19 @@ export type WorldDaySlotOutcome = {
 };
 
 /** Execute one queued slot: reserve → run stages 1–10 → record the slot outcome. */
-async function executeSlot(ctx: MutationCtx, row: Doc<'scheduledSlots'>, now: number): Promise<WorldDaySlotOutcome> {
-  await ctx.runMutation(startScheduledSlotRef, { slotId: row._id, now });
+async function executeSlot(
+  ctx: MutationCtx,
+  row: Doc<'scheduledSlots'>,
+  now: number,
+  author: ReturnType<typeof sceneAuthorFor>,
+): Promise<WorldDaySlotOutcome> {
+  // Claimed only if it is not already claimed. On the live path `prepareQueuedWorldDaySlot` took
+  // this slot before the action authored its scenes, and `startScheduledSlot` admits only `queued`
+  // rows — so re-claiming here would fail the finishing pass with `INVALID_SLOT_TRANSITION` and
+  // strand a slot whose scenes have already been paid for. Re-claiming would also increment
+  // `attemptCount` a second time for one attempt, which is the number an operator reads to decide
+  // whether a slot is thrashing.
+  if (row.status === 'queued') await ctx.runMutation(startScheduledSlotRef, { slotId: row._id, now });
   const slot: WorldDaySlotIdentity = { worldId: row.worldId, worldDay: row.worldDay, timeSlot: row.timeSlot };
   const run = await executeWorldDay(
     { runId: worldDayRunId(slot), ...slot },
@@ -328,7 +414,7 @@ async function executeSlot(ctx: MutationCtx, row: Doc<'scheduledSlots'>, now: nu
     // their artifacts and nothing reaches Canon, so a later resume restarts at exactly
     // the halted stage and cannot commit the same events twice.
     guardWorldDayStageHandlers(
-      createWorldDayStageHandlers(createConvexWorldDayLivePort(ctx, now)),
+      createWorldDayStageHandlers(createConvexWorldDayLivePort(ctx, now, author), author.provider),
       () => isWorldEmergencyStopped(ctx.db, row.worldId),
     ),
   );
@@ -336,16 +422,121 @@ async function executeSlot(ctx: MutationCtx, row: Doc<'scheduledSlots'>, now: nu
   if (run.status === 'completed') {
     await ctx.runMutation(completeScheduledSlotRef,
       { slotId: row._id, committedEventId: committedEventIds[0], now });
-  } else {
+  } else if (run.errorCode !== SCENE_AUTHORING_DEFERRED) {
     await ctx.runMutation(failScheduledSlotRef,
       { slotId: row._id, errorCode: run.errorCode ?? 'WORLD_DAY_RUN_FAILED', now });
   }
+  // A deferral leaves the slot `running` on purpose. It is not a fault — it is the live path
+  // pausing at the one stage a transaction cannot perform — and failing the slot here would make
+  // every healthy live run indistinguishable from a broken one in the row an operator reads, as
+  // well as releasing a slot whose scenes another caller could then pay to author a second time.
+  // The run record still holds the failed `simulate_scenes` checkpoint, which is what lets
+  // `executeWorldDay` resume at exactly that stage.
   return {
     slotKey: row.slotKey, worldDay: row.worldDay, timeSlot: row.timeSlot, status: run.status,
     attemptCount: run.attemptCount, committedEventIds, failureStage: run.failureStage,
     errorCode: run.errorCode, errorMessage: run.errorMessage,
   };
 }
+
+/** What `prepareQueuedWorldDaySlot` found, for the action that has to decide what to do next. */
+export type PreparedSlot =
+  /** Nothing queued. The caller stops. */
+  | { kind: 'idle' }
+  /**
+   * Stages 1–6 are checkpointed and these scenes need a provider. The slot is CLAIMED (`running`)
+   * and stays that way until the finishing pass settles it, so nothing else picks it up while the
+   * network call is in flight.
+   */
+  | { kind: 'awaiting_authoring'; slotId: Id<'scheduledSlots'>; plan: SceneAuthoringPlan }
+  /**
+   * The slot reached a terminal state without needing to author anything — every scene was
+   * already persisted, the Director planned no scenes at all, or a stage before authoring failed.
+   */
+  | { kind: 'settled'; slotId: Id<'scheduledSlots'>; outcome: WorldDaySlotOutcome };
+
+/**
+ * Rebuild the authoring plan from the run's own checkpoints.
+ *
+ * Deliberately NOT returned out of the stage handler that raised the deferral. `executeWorldDay`
+ * absorbs a stage's throw into the run record, and threading a payload out through that would
+ * mean inventing a second, non-error return channel through the orchestrator.
+ *
+ * Reading it back from the persisted checkpoints is better than a shortcut anyway: these are the
+ * exact artifacts the finishing pass will resume from, so the plan the action authors against is
+ * provably the same world state the pass that commits its results validates against. A plan
+ * derived from a fresh read could differ from the checkpoint by anything that changed in between.
+ */
+async function authoringPlanFromCheckpoints(
+  ctx: MutationCtx,
+  now: number,
+  author: ReturnType<typeof sceneAuthorFor>,
+  slot: WorldDaySlotIdentity,
+): Promise<SceneAuthoringPlan | null> {
+  const store = createConvexWorldDayRunStore(ctx.db, now);
+  const checkpoints = await store.listCheckpoints(worldDayRunId(slot));
+  const latest = (stage: WorldDayStage): unknown => checkpoints
+    .filter((checkpoint) => checkpoint.stage === stage && checkpoint.status === 'completed')
+    .sort((left, right) => right.attempt - left.attempt)[0]?.artifact;
+  const world = latest('load_world_state') as WorldStateArtifact | undefined;
+  const grouping = latest('group_intents_into_scenes') as GroupingArtifact | undefined;
+  if (!world || !grouping) return null;
+  return buildSceneAuthoringPlan(
+    createConvexWorldDayLivePort(ctx, now, author), slot, grouping, world.snapshot);
+}
+
+/**
+ * The transactional first half of a LIVE world-day slot: everything up to the network call.
+ *
+ * Claims the oldest queued slot, drives PRD §12 stages 1–6 through the same resumable
+ * orchestrator the deterministic path uses, and stops at stage 7 because a Convex mutation cannot
+ * call a provider. The caller — `runLiveWorldDaySlotWithProvider` — authors the returned scenes in
+ * an action and then invokes `runQueuedWorldDaySlot` with `sceneAuthor: 'preauthored'`, which
+ * resumes from these checkpoints and carries stages 7–10 out inside a transaction again.
+ *
+ * ## What this deliberately does NOT do
+ *
+ * It does not fail the slot on a deferral. A deferral is a normal step in the live sequence, not a
+ * fault, and marking the slot `failed` would make an ordinary live run indistinguishable from a
+ * broken one in the row an operator reads. A genuine stage failure IS recorded, exactly as the
+ * one-pass path records it.
+ *
+ * It also commits no scene events. Stage 2 can reach Canon — a viewer's scheduled environment
+ * event is a proposal like any other — but that is the same commit the one-pass path performs at
+ * the same point, through the same validation, with the same idempotency key.
+ */
+export const prepareQueuedWorldDaySlot = internalMutation({
+  args: {
+    worldId: v.string(),
+    slotId: v.optional(v.id('scheduledSlots')),
+    /** The first route of the chain the caller built, for the FR-M003 reservation key. */
+    deploymentModelId: v.optional(v.string()),
+    now: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<PreparedSlot> => {
+    const now = args.now ?? Date.now();
+    await assertWorldAdmitsSimulation(ctx.db, args.worldId);
+    const author = sceneAuthorFor('preauthored', args.deploymentModelId);
+    const row = args.slotId ? await ctx.db.get(args.slotId) : await nextQueuedSlot(ctx.db, args.worldId);
+    if (!row) return { kind: 'idle' };
+    if (row.worldId !== args.worldId) throw new Error('SLOT_WORLD_MISMATCH');
+
+    const outcome = await executeSlot(ctx, row, now, author);
+    if (outcome.errorCode !== SCENE_AUTHORING_DEFERRED) {
+      return { kind: 'settled', slotId: row._id, outcome };
+    }
+
+    const slot: WorldDaySlotIdentity = { worldId: row.worldId, worldDay: row.worldDay, timeSlot: row.timeSlot };
+    const plan = await authoringPlanFromCheckpoints(ctx, now, author, slot);
+    if (!plan) {
+      // The deferral said scenes need authoring, but the checkpoints that name them are not
+      // there. That is a contradiction rather than a state to paper over, and continuing would
+      // author nothing and then report the slot as done.
+      throw new Error('WORLD_DAY_AUTHORING_PLAN_UNAVAILABLE');
+    }
+    return { kind: 'awaiting_authoring', slotId: row._id, plan };
+  },
+});
 
 /**
  * Run queued world time slots for one world.
@@ -362,6 +553,10 @@ export const runQueuedWorldDaySlot = internalMutation({
     worldId: v.string(),
     slotId: v.optional(v.id('scheduledSlots')),
     maxSlots: v.optional(v.number()),
+    /** Required, not defaulted — see {@link SceneAuthorMode} for why that is the whole point. */
+    sceneAuthor: sceneAuthorValidator,
+    /** Only meaningful for `preauthored`; the deterministic author knows its own model. */
+    deploymentModelId: v.optional(v.string()),
     now: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<{ worldId: string; executed: number; slots: WorldDaySlotOutcome[] }> => {
@@ -376,6 +571,7 @@ export const runQueuedWorldDaySlot = internalMutation({
     // Queued and running rows are left exactly as they are — the stop halts new work,
     // it does not discard work in progress.
     await assertWorldAdmitsSimulation(ctx.db, args.worldId);
+    const author = sceneAuthorFor(args.sceneAuthor, args.deploymentModelId);
     const slots: WorldDaySlotOutcome[] = [];
     let explicit: Id<'scheduledSlots'> | undefined = args.slotId;
     for (let index = 0; index < maxSlots; index += 1) {
@@ -383,7 +579,7 @@ export const runQueuedWorldDaySlot = internalMutation({
       explicit = undefined;
       if (!row) break;
       if (row.worldId !== args.worldId) throw new Error('SLOT_WORLD_MISMATCH');
-      slots.push(await executeSlot(ctx, row, now));
+      slots.push(await executeSlot(ctx, row, now, author));
       if (slots[slots.length - 1].status !== 'completed') break;
     }
     return { worldId: args.worldId, executed: slots.length, slots };

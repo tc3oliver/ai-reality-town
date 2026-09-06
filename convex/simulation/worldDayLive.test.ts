@@ -229,7 +229,7 @@ function seededStore(): InMemoryCanonStore {
 }
 
 async function runWholeDay(store: InMemoryCanonStore, runStore: MemoryRunStore, port: WorldDayLivePort): Promise<WorldDayRun[]> {
-  const handlers = createWorldDayStageHandlers(port);
+  const handlers = createWorldDayStageHandlers(port, new FakeWholeSceneProvider());
   const runs: WorldDayRun[] = [];
   for (const timeSlot of TIME_SLOTS) {
     runs.push(await executeWorldDay(runInput(slotOf(timeSlot)), runStore, handlers));
@@ -238,7 +238,7 @@ async function runWholeDay(store: InMemoryCanonStore, runStore: MemoryRunStore, 
 }
 
 async function runWorldDays(runStore: MemoryRunStore, port: WorldDayLivePort, worldDays: number): Promise<WorldDayRun[]> {
-  const handlers = createWorldDayStageHandlers(port);
+  const handlers = createWorldDayStageHandlers(port, new FakeWholeSceneProvider());
   const runs: WorldDayRun[] = [];
   for (let worldDay = 0; worldDay < worldDays; worldDay += 1) {
     for (const timeSlot of TIME_SLOTS) {
@@ -276,7 +276,7 @@ describe('FR-C001…FR-C005 live world-day execution', () => {
     const store = seededStore();
     const runStore = new MemoryRunStore();
     const port = createSeedPort(store);
-    const handlers = createWorldDayStageHandlers(port);
+    const handlers = createWorldDayStageHandlers(port, new FakeWholeSceneProvider());
     const first = await executeWorldDay(runInput(slotOf('morning')), runStore, handlers);
     const committed = store.committedEvents().length;
 
@@ -287,13 +287,13 @@ describe('FR-C001…FR-C005 live world-day execution', () => {
 
   it('resumes a partially committed slot without duplicating accepted events', async () => {
     const clean = seededStore();
-    await executeWorldDay(runInput(slotOf('noon')), new MemoryRunStore(), createWorldDayStageHandlers(createSeedPort(clean)));
+    await executeWorldDay(runInput(slotOf('noon')), new MemoryRunStore(), createWorldDayStageHandlers(createSeedPort(clean), new FakeWholeSceneProvider()));
     const expected = clean.committedEvents().length;
 
     const store = seededStore();
     const runStore = new MemoryRunStore();
     const port = createSeedPort(store);
-    const handlers = createWorldDayStageHandlers(port);
+    const handlers = createWorldDayStageHandlers(port, new FakeWholeSceneProvider());
     const partial: WorldDayStageHandlers = {
       ...handlers,
       // Commit the first proposal, then fail — exactly the crash the retry must survive.
@@ -317,7 +317,7 @@ describe('FR-C001…FR-C005 live world-day execution', () => {
   it('keeps the Director Plan inside its FR-C002 constraints when driven live', async () => {
     const store = seededStore();
     const port = createSeedPort(store);
-    await executeWorldDay(runInput(slotOf('afternoon')), new MemoryRunStore(), createWorldDayStageHandlers(port));
+    await executeWorldDay(runInput(slotOf('afternoon')), new MemoryRunStore(), createWorldDayStageHandlers(port, new FakeWholeSceneProvider()));
 
     const { context, plan } = port.persisted.directorPlans[0];
     expect(plan.scenes.length).toBeGreaterThan(0);
@@ -337,7 +337,7 @@ describe('FR-C001…FR-C005 live world-day execution', () => {
     const store = seededStore();
     const runStore = new MemoryRunStore();
     const port = createSeedPort(store);
-    await executeWorldDay(runInput(slotOf('evening')), runStore, createWorldDayStageHandlers(port));
+    await executeWorldDay(runInput(slotOf('evening')), runStore, createWorldDayStageHandlers(port, new FakeWholeSceneProvider()));
 
     const runId = worldDayRunId(slotOf('evening'));
     const { intents } = runStore.artifact<IntentsArtifact>(runId, 'generate_character_intents');
@@ -378,7 +378,7 @@ describe('FR-C001…FR-C005 live world-day execution', () => {
     const store = seededStore();
     const runStore = new MemoryRunStore();
     const port = createSeedPort(store);
-    await executeWorldDay(runInput(slotOf('night')), runStore, createWorldDayStageHandlers(port));
+    await executeWorldDay(runInput(slotOf('night')), runStore, createWorldDayStageHandlers(port, new FakeWholeSceneProvider()));
 
     const { result } = runStore.artifact<GroupingArtifact>(worldDayRunId(slotOf('night')), 'group_intents_into_scenes');
     expect(result.scenes.length).toBeGreaterThan(0);
@@ -394,7 +394,7 @@ describe('FR-C001…FR-C005 live world-day execution', () => {
   it('withholds high-risk scene output from Canon and routes it to safety review (FR-C005 AC#5)', async () => {
     const store = seededStore();
     const port = createSeedPort(store);
-    const handlers = createWorldDayStageHandlers(port);
+    const handlers = createWorldDayStageHandlers(port, new FakeWholeSceneProvider());
     const scene: GroupedScene = {
       schemaVersion: 1, sceneId: 'grouping:mistwood:0:morning:scene:1', groupingRunId: 'grouping:mistwood:0:morning',
       directorRunId: directorRunId(slotOf('morning')), worldId: WORLD_ID, worldDay: 0, timeSlot: 'morning',
@@ -422,7 +422,7 @@ describe('FR-C001…FR-C005 live world-day execution', () => {
     const store = seededStore();
     const runStore = new MemoryRunStore();
     const port = createSeedPort(store);
-    const run = await executeWorldDay(runInput(slotOf('morning')), runStore, createWorldDayStageHandlers(port));
+    const run = await executeWorldDay(runInput(slotOf('morning')), runStore, createWorldDayStageHandlers(port, new FakeWholeSceneProvider()));
     const runId = worldDayRunId(slotOf('morning'));
 
     const structural = runStore.artifact<StructuralArtifact>(runId, 'validate_structured_output');

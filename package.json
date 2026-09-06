@@ -41,7 +41,8 @@
     "e2e": "run-s build:e2e test:e2e",
     "bench:run": "playwright test --config playwright.bench.config.ts",
     "bench:report": "node scripts/bench/report.mjs",
-    "bench": "run-s build:e2e bench:run bench:report"
+    "bench": "run-s build:e2e bench:run bench:report",
+    "test:live-gateway": "ART159_LIVE_SMOKE=1 NODE_OPTIONS=--experimental-vm-modules jest --runTestsByPath convex/simulation/providers/liveGatewaySmoke.test.ts"
   },
   "dependencies": {
     "@clerk/clerk-react": "^5.61.9",
