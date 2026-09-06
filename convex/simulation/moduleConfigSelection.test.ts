@@ -109,6 +109,7 @@ function portWith(config: EffectiveModuleConfig): WorldDayLivePort & { requested
     persistCharacterIntent: () => Promise.resolve(),
     persistGroupedScenes: () => Promise.resolve(),
     persistSceneSimulation: () => Promise.resolve(),
+    loadPersistedSceneSimulation: () => Promise.resolve(null),
     loadModuleConfig: (_worldId, module) => {
       requested.push(module);
       return Promise.resolve(config);

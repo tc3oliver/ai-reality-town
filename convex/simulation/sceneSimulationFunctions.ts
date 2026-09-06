@@ -45,6 +45,30 @@ export const persistValidatedSceneSimulation = internalMutation({
   },
 });
 
+/**
+ * ART-149. The already-persisted result for a scene, so a retried slot can skip the provider call
+ * that produced it.
+ *
+ * `simulate_scenes` is ONE orchestration checkpoint covering every scene in the slot, so a failure
+ * on scene 3 discards the checkpoint and re-runs scenes 1 and 2 as well. Persistence was already
+ * idempotent on `simulationRunId` — but only after the provider had been called and the tokens
+ * spent, at which point the freshly generated result was thrown away in favour of the stored one.
+ *
+ * `groupingRunId` must match: it is the identity of the scene set this result was authored for.
+ * A row from a different grouping run is NOT reused — `persistValidatedSceneSimulation` treats
+ * that as `SCENE_SIMULATION_RUN_CONFLICT`, and silently reusing it here would bury that conflict
+ * instead of surfacing it.
+ */
+export const findReusableSceneSimulation = internalQuery({
+  args: { worldId: v.string(), simulationRunId: v.string(), groupingRunId: v.string() },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.query('sceneSimulationRuns').withIndex('by_world_and_run',
+      (q) => q.eq('worldId', args.worldId).eq('simulationRunId', args.simulationRunId)).unique();
+    if (!row || row.groupingRunId !== args.groupingRunId) return null;
+    return structuredClone(row.result) as SceneSimulationResult;
+  },
+});
+
 /** Operations-only validated results. There is deliberately no public query or raw provider-output table. */
 export const getSceneSimulationForOperations = internalQuery({
   args: { worldId: v.string(), simulationRunId: v.string() },
