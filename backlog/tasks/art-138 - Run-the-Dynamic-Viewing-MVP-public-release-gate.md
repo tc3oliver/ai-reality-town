@@ -5,7 +5,7 @@ status: Blocked
 assignee:
   - '@claude'
 created_date: '2026-08-04 16:00'
-updated_date: '2026-08-24 19:06'
+updated_date: '2026-09-06 02:40'
 labels:
   - prd-2.0
   - v2-k
@@ -108,4 +108,20 @@ Every PRD 2.0 Dynamic Viewing feature task is now Done (ART-118..ART-137, ART-14
 **AC#11** requires the ART-136 benchmark to be confirmed executed AND PASSED before release. It has been executed and is committed at `docs/benchmarks/`, but the mid-tier mobile profile measures ~28 fps against NFR2-002's 30 fps threshold. That figure was taken on a host with no usable GPU (Chromium reports ANGLE/SwiftShader even with the blocklist ignored), so it is recorded as a FAIL and as inconclusive for real mobile hardware — it needs a device or a GPU host, which is the same class of blocker.
 
 Everything else this gate aggregates already exists and is cited in `docs/prd-2.0-requirement-matrix.md`: the read-only guarantee suite (ART-128), the browser E2E on desktop and Pixel 5 (ART-137, ART-135), asset licence checks, the binding completeness assertions, and the replay publication-version contract (ART-121/ART-132).
+
+## 2026-09-06 — Convex deployment is disabled: free-plan limits exceeded (H02)
+
+The release gate stays Blocked, and this is now a second, independent reason. Verified today on three separate paths, all returning the identical server error `You have exceeded the free plan limits, so your deployments have been disabled`:
+
+- `npx convex run --inline-query ...` against the dev deployment
+- `npx convex run --prod --inline-query ...`
+- a raw `POST https://colorless-deer-917.convex.cloud/api/query`
+
+`npx convex function-spec` still succeeds, so the deployment metadata is intact and the code is still pushed — only function execution is refused. Nothing about this is repairable from the repository; it needs a paid Convex plan or a quota reset on the account.
+
+What this blocks: every acceptance criterion on this gate that requires observing the running system — live world-day execution, real end-to-end latency, and any claim about production behaviour. Fixture and harness numbers must not be substituted for them.
+
+What it does NOT block, and is being worked separately: ART-154, ART-155 and ART-156 (the three security findings that reopened ART-62) are pure code defects, reproducible and fixable offline.
+
+Also recorded while checking: the deployment environment has `CLERK_JWT_ISSUER_DOMAIN` set and `SIMULATION_OPS_ALLOW_TOKEN_FALLBACK` unset — the configuration the ART-62 re-audit asked for. That closes the environment half of finding H-1 and leaves ART-154 as the remaining code half.
 <!-- SECTION:NOTES:END -->
