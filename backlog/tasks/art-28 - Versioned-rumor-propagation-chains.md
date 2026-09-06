@@ -1,10 +1,10 @@
 ---
 id: ART-28
 title: Versioned rumor propagation chains
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 16:24'
+updated_date: '2026-09-06 17:32'
 labels:
   - prd-1.0
   - epic-g
@@ -88,3 +88,36 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+## What exists today, and what does not
+
+Surveyed before planning:
+
+- `canon/eventTypes.ts` has a `rumor` event type; nothing consumes it as a chain.
+- `sceneSimulation.ts` accepts a `rumors[]` collection on whole-scene output — but its own prompt calls these "short narrative notes about a proposed event, not state changes", with exactly `{sourceCharacterId, content, proposedEventIndex}` and explicitly no confidence or visibility.
+- `publicDynamicProjection.ts` mentions rumors only as text.
+- `knowledge/` has the ledger (ART-24) and subjective memory (ART-25), both Done, and both already model per-character belief with provenance.
+
+So FR-E005's seven obligations — origin, transmission chain, versions, credibility, objective truth, corrections, character-specific belief — are entirely unimplemented. The existing `rumors[]` is a narrative note, not a propagation record, and must not be mistaken for a partial implementation.
+
+## Approach
+
+1. Model the rumor chain as CANON, not as a derived table. Origin, each transmission, each version and each correction are events; the chain is a projection replayed from them. Anything else would let a rumor's history be edited in place, which ADR-0001 forbids.
+2. Keep OBJECTIVE TRUTH and BELIEF strictly separate. Truth is a property of the world; belief is per character and is already the knowledge ledger's job. The projection must be able to say "A believes v2, B believes v1, the world says neither" without those three living in one field.
+3. Credibility is derived, never authored. A model that could write a credibility score would be authoring the world's opinion of its own output.
+4. Corrections supersede rather than mutate: a corrected rumor keeps its prior version readable, because "who believed the wrong version, and when" is the thing the feature exists to answer.
+5. Public exposure last, and behind the existing safety/publication gates — a rumor chain is exactly the shape of content that can leak a Canon secret.
+
+## Sequence
+
+1. Extend the versioned proposed-event contract with the rumor-chain state changes, and pin the schema.
+2. Add the deterministic chain projection with replay tests, before any provider involvement.
+3. Wire the scene author's existing `rumors[]` into proposals through Canon validation, keeping the note/record distinction explicit.
+4. Integrate per-character belief with the knowledge ledger rather than duplicating it.
+5. Public read model, gated.
+
+Fault injection is required at each step; a passing test is not evidence a guarantee holds.
+<!-- SECTION:PLAN:END -->
