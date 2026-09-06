@@ -618,6 +618,17 @@ describe('ART-100 Slice 0 — post-commit document-read measurement harness', ()
     expect(small.byTable.canonEvents).toBeGreaterThan(0);
   });
 
+  /**
+   * The multi-day fixtures claim, in their own comment, to hold the SAME total event count as the
+   * single-day ones so the two sets of numbers stay directly comparable. Now that the AC#1 gate
+   * runs on the multi-day fixture, that claim is what keeps the single-day baseline meaningful as
+   * a cross-check — so it is asserted rather than left as a comment arithmetic could outgrow.
+   */
+  it('keeps the multi-day fixtures at the same canon size as the single-day ones', async () => {
+    expect((await measureMultiDay(MULTI_DAY_SMALL)).totalEvents).toBe(SMALL_N);
+    expect((await measureMultiDay(MULTI_DAY_LARGE)).totalEvents).toBe(LARGE_N);
+  });
+
   it('reports a per-table breakdown so a reader can see WHERE the reads went', async () => {
     const { byTable } = await measurePostCommitReads(SMALL_N);
     const contributingTables = Object.keys(byTable).sort();

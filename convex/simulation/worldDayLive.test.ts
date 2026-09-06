@@ -25,6 +25,7 @@ import {
   type WorldDayStage,
   type WorldDayStageHandlers,
 } from './worldDayOrchestration';
+import type { LiveLocationView } from './worldDayLive';
 import {
   buildCharacterIntentContext,
   buildLiveWorldSnapshot,
@@ -32,6 +33,7 @@ import {
   directorRunId,
   generateCharacterIntent,
   isTravelScene,
+  legalDestinationsFrom,
   withArrivalStateChanges,
   withSceneProvenance,
   worldDayRunId,
@@ -633,5 +635,64 @@ describe('FR-P004 — the deterministic fake narrator stamps the same provenance
     // test downstream of it would be testing a world where no event has provenance.
     const output = parseWholeSceneOutput(narrateGroupedScene(scene), scene);
     expect(output.proposedEvents.every((proposed) => proposed.metadata?.sceneId === scene.sceneId)).toBe(true);
+  });
+});
+
+/**
+ * ART-157 — `legalDestinationsFrom` must satisfy ALL FOUR grounds `validateCanon` refuses a
+ * movement on, not just the two that "give it some location ids" would cover.
+ *
+ * The live failure was `UNKNOWN_LOCATION_REFERENCE` on a non-existent destination, and the
+ * tempting fix is to hand the author the connected ids. That fixes the unknown and non-existent
+ * grounds and leaves the world failing on INACTIVE (`validators.ts:540`) and CAPACITY
+ * (`validators.ts:593`) instead — a fix that moves the error message rather than the problem.
+ */
+describe('ART-157 legalDestinationsFrom', () => {
+  const location = (
+    locationId: string,
+    over: Partial<LiveLocationView> = {},
+  ): LiveLocationView => ({
+    locationId, active: true, capacity: 4, occupancy: 0, connectedLocationIds: [], ...over,
+  });
+
+  const square = (connections: string[]): LiveLocationView =>
+    location('square', { connectedLocationIds: connections });
+
+  it('offers a connected, open destination with room', () => {
+    const result = legalDestinationsFrom([square(['mill']), location('mill')], 'square');
+    expect(result).toEqual(['mill']);
+  });
+
+  it('drops an INACTIVE destination, which bare connectivity would have offered', () => {
+    const locations = [square(['mill', 'station']), location('mill', { active: false }), location('station')];
+    expect(legalDestinationsFrom(locations, 'square')).toEqual(['station']);
+  });
+
+  it('drops a destination already AT capacity, and keeps one with a single place left', () => {
+    const locations = [
+      square(['full', 'nearly']),
+      location('full', { capacity: 2, occupancy: 2 }),
+      // The boundary that matters: capacity must be compared as "room for one MORE".
+      location('nearly', { capacity: 2, occupancy: 1 }),
+    ];
+    expect(legalDestinationsFrom(locations, 'square')).toEqual(['nearly']);
+  });
+
+  it('drops a connection that names a location which does not exist', () => {
+    // The exact live failure, at its source: a dangling connection must never reach the prompt.
+    expect(legalDestinationsFrom([square(['ghost', 'mill']), location('mill')], 'square')).toEqual(['mill']);
+  });
+
+  it('never offers the scene\'s own location as a destination', () => {
+    expect(legalDestinationsFrom([square(['square', 'mill']), location('mill')], 'square')).toEqual(['mill']);
+  });
+
+  it('returns nothing for an unknown origin rather than guessing', () => {
+    expect(legalDestinationsFrom([location('mill')], 'nowhere')).toEqual([]);
+  });
+
+  it('is sorted, so two identical worlds send the provider identical prompts', () => {
+    const locations = [square(['zoo', 'attic', 'mill']), location('zoo'), location('attic'), location('mill')];
+    expect(legalDestinationsFrom(locations, 'square')).toEqual(['attic', 'mill', 'zoo']);
   });
 });

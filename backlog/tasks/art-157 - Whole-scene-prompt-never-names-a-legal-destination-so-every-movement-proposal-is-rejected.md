@@ -7,7 +7,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-09-06 06:47'
-updated_date: '2026-09-06 08:10'
+updated_date: '2026-09-06 08:21'
 labels:
   - bug
   - prd-1.0
@@ -113,3 +113,46 @@ Cost evidence captured in the same run (feeds ART-100): that single FAILED slot,
 
 `npm run check`,加上對真部署再跑**一個** time slot,確認 `committedEventIds` 非空。注意每次 slot 約 3.0 MiB 讀取(見 ART-100),不要反覆重跑。
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## 第一刀:prompt 修好了,但**還不夠** —— AC#2 仍未達成
+
+已交付且已驗證的部分:
+
+- `LiveWorldSnapshot` 新增 `locations: LiveLocationView[]`(active / capacity / occupancy / connections)
+- 新增純函式 `legalDestinationsFrom()`,四道關卡全過:不存在、懸空連線、inactive、容量已滿(以 `occupancy < capacity` 比較,即「還容得下一個」)
+- `wholeSceneSystemPrompt` 改為 `(scene, context)`,明確列出合法目的地;**範例裡的佔位字串 `'destination-location-id'` 已換成真實 id**;無合法目的地時明說「不得產生任何 character_location_changed」而非給空清單
+- `GroupedScene` **未**變動(它是持久化 artifact,不該混入易變世界狀態)
+
+測試:`npm run check` 全綠,**208 suites / 3376 passed**。故障注入三次,每次都紅在該紅的地方:
+
+- 拿掉 active+capacity 過濾 → inactive 與容量兩條轉紅
+- 容量改成 `<=`(差一錯誤)→ 容量那條轉紅
+- 還原 prompt 佔位字串 → 三條轉紅
+
+AC#3 的「只知道 prompt 告訴它什麼」的 provider 已實作,並附**配對的反向案例**:prompt 不給清單時它必須退回佔位字串。若該條哪天變綠,代表上面那條已經不再證明任何事。
+
+## 但真部署仍然失敗 —— 且我找到了更深的原因
+
+重跑 `runQueuedWorldDaySlot`(day 4 afternoon):**仍然** `UNKNOWN_LOCATION_REFERENCE` / `destination location does not exist`,`committedEventIds: []`。**AC#2 未達成,本任務不得標記完成。**
+
+追下去發現的關鍵:
+
+1. `worldDayLiveFunctions.ts:138` 的 snapshot 投影是 `replayWorldEvents(emptyProjection(worldId), acceptedEvents)` —— **從空重播**。`canonRuleContext`(`worldDayLive.ts:735`)同樣如此。
+2. 因此 `projection.locations` **只含事件建立過的地點**,不含 `importWorld` 匯入的 seed 地點(seed 存在 `worldLocations` 表與 `initial` 快照,而這兩處重播都跳過它們)。這也是為何 port 必須另外傳一份 `locationConnections`(`worldDayLiveFunctions.ts:145`)—— 投影裡沒有。
+3. `validators.ts:536` 有一道保護:`projection.locations` 為空時**跳過**存在性檢查。既然錯誤發生了,代表它**非空** —— 世界處於最糟的中間狀態:一部分地點在投影裡,seed 地點不在。
+
+**最可能的真兇是 orchestrator 自己產生的抵達,不是作者。** `withArrivalStateChanges`(`worldDayLive.ts:634`)會把參與者移動到 `scene.locationId`。Director 依 **seed** 地點規劃場景,而 `scene.locationId` 若只存在於 seed、不在從空重播的投影裡,那道抵達的目的地就「不存在」。prompt 修得再好也擋不住 —— 那個 change 根本不是模型寫的。
+
+這與 ART-100 Slice 2 記錄的 `SEED_BASELINE_FIELDS` 是**同一個**根本問題:`locations` 是 seed 基準線欄位,而多處重播從空開始。
+
+## 下一步(尚未做,且需要判斷)
+
+驗證與 snapshot 所用的投影應以 **seeded baseline** 為起點(`resolveWorldBaseline` / `initial` 快照),而非 `emptyProjection`。
+
+這不是單點修改:它同時影響 `canonRuleContext` 與 `loadWorldSnapshot`,而且必須與 ART-100 對「publicRead 從空重播」的既有假設一起考量 —— **兩邊對同一份投影有相反的需求**(publicRead 刻意要避免 seed 汙染,模擬端則必須看到 seed),不能各改各的。
+
+在此之前不要宣稱本任務完成。每次重試 slot 約 3.0 MiB 讀取,不要反覆盲試。
+<!-- SECTION:NOTES:END -->

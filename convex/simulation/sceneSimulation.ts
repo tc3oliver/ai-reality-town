@@ -239,21 +239,57 @@ export const WHOLE_SCENE_JSON_SCHEMA: Record<string, unknown> = strictObject({
 // scene payload; `proposedEvents` is a canon concept it cannot infer, so it invented
 // `{ eventId, publicSummary, trigger }`. The contract therefore has to travel in the prompt.
 // The schema stays the single source of truth and is serialised into it, so the two cannot drift.
-export const wholeSceneSystemPrompt = (scene: GroupedScene): string => {
+/**
+ * World state the prompt needs but `GroupedScene` does not carry (ART-157).
+ *
+ * Passed alongside the scene rather than folded INTO it, deliberately: `GroupedScene` is a
+ * persisted grouping artifact, and mixing volatile world state into it would mean a stored
+ * artifact no longer describes what it claims to. Every field here is derived fresh from the
+ * stage-1 snapshot at the moment the scene is simulated.
+ */
+export type WholeScenePromptContext = {
+  /** Destinations `validateCanon` will accept for this scene. Empty means "nobody may leave". */
+  legalDestinationIds?: readonly string[];
+};
+
+export const wholeSceneSystemPrompt = (scene: GroupedScene, context: WholeScenePromptContext = {}): string => {
+  /**
+   * ART-157. The destinations Canon will actually accept, or none.
+   *
+   * The example below used to demonstrate the literal placeholder `'destination-location-id'`
+   * while the prompt named no real location anywhere — so a provider that knows only what the
+   * prompt told it could not produce a valid `toLocationId` except by luck, and `validateCanon`
+   * refused every movement with UNKNOWN_LOCATION_REFERENCE. Every existing suite stayed green
+   * because the fake provider knows the world independently of the prompt.
+   */
+  const destinations = context.legalDestinationIds ?? [];
+  const exampleDestination = destinations[0];
   const example = {
     schemaVersion: 1, worldId: scene.worldId, idempotencyKey: `${scene.sceneId}:1`,
     proposedBy: { type: 'system' }, worldDay: scene.worldDay, timeSlot: scene.timeSlot,
-    eventType: 'movement', locationId: scene.locationId,
+    eventType: exampleDestination === undefined ? 'interaction' : 'movement', locationId: scene.locationId,
     participantIds: scene.participantIds.slice(0, 1), causedByEventIds: [],
-    publicSummary: '角色離開原本的地點，前往下一個場所。',
-    stateChanges: [{ type: 'character_location_changed', characterId: scene.participantIds[0] ?? 'character-id',
-      fromLocationId: scene.locationId, toLocationId: 'destination-location-id' }],
+    publicSummary: exampleDestination === undefined
+      ? '角色留在原地，與同場的人交談。'
+      : '角色離開原本的地點，前往下一個場所。',
+    // With no legal destination there is nothing honest to demonstrate, so the example stops
+    // demonstrating a movement rather than showing one that cannot be accepted.
+    stateChanges: exampleDestination === undefined ? [] : [{
+      type: 'character_location_changed', characterId: scene.participantIds[0] ?? 'character-id',
+      fromLocationId: scene.locationId, toLocationId: exampleDestination,
+    }],
   };
+  const movementRule = destinations.length === 0
+    // Said explicitly rather than left as an empty list: an empty list invites the model to fill
+    // the gap, which is the behaviour being fixed.
+    ? `No character may leave ${scene.locationId} in this scene: it has no open, connected destination with room. Do not emit any character_location_changed change.`
+    : `A character_location_changed may only use a toLocationId from this exact list, and nothing else: ${JSON.stringify(destinations)}. These are the connected, open destinations with room for another character; any other value will be rejected. fromLocationId must be ${JSON.stringify(scene.locationId)}.`;
   return [
     'Simulate the entire grouped scene once. Return structured JSON only. You may propose events but never commit or mutate Canon.',
     'Write every narrative text field (sceneSummary, keyActions, dialogueHighlights, relationshipChanges, knowledgeChanges, memories, rumors, continuityWarnings, and each proposedEvents publicSummary) in Traditional Chinese (zh-TW). Field names and JSON structure stay in English.',
     `The response must conform exactly to this JSON Schema. Use only the field names and enum values it declares, include every required field, and never invent fields: ${JSON.stringify(WHOLE_SCENE_JSON_SCHEMA)}`,
     `Each proposedEvents item is a canonical world-state event, not a narrative beat: it carries the structured stateChanges that move the world forward. Never emit fields such as eventId, trigger or probability. A well-formed item for this scene looks like: ${JSON.stringify(example)}`,
+    movementRule,
     'The memories, knowledgeChanges and rumors collections are short narrative notes about a proposed event, not state changes. Each memories or knowledgeChanges item has exactly characterId, content and proposedEventIndex; each rumors item has exactly sourceCharacterId, content and proposedEventIndex, where proposedEventIndex is the zero-based position in proposedEvents. Never give them interpretation, importance, emotionalWeight, confidence or visibility -- those belong only to a character_memory_formed entry inside proposedEvents stateChanges.',
   ].join(' ');
 };
@@ -354,7 +390,15 @@ export type WholeSceneSimulationOptions = {
   /** FR-K005 "Retry", transport layer. Absent inherits the provider instance's attempt count. */
   transportMaxAttempts?: number;
   /** FR-K005 "Prompt Version", already resolved to its builder. Default: the v1 prompt below. */
-  buildSystemPrompt?: (scene: GroupedScene) => string;
+  buildSystemPrompt?: (scene: GroupedScene, context: WholeScenePromptContext) => string;
+  /**
+   * ART-157. The destinations Canon will accept for this scene, from the stage-1 snapshot.
+   *
+   * Optional, and absent means "no legal destination" rather than "unconstrained" — a caller that
+   * has not worked out the legal set must not thereby let the author invent one. That is the
+   * failure this task exists to fix, so the default is the safe end of it.
+   */
+  legalDestinationIds?: readonly string[];
   /**
    * FR-M003 / ART-59 budget enforcement, applied ONCE PER ATTEMPT.
    *
@@ -386,9 +430,13 @@ export async function simulateWholeScene(provider: LanguageModelProvider, simula
   if (simulationRunId.trim().length === 0 || !Number.isSafeInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 3) {
     throw new SceneSimulationError('SCENE_SIMULATION_INVALID', 'valid Run ID and 1-3 attempts are required');
   }
+  // ART-157: the scene payload the model sees is widened with the world state `GroupedScene`
+  // cannot carry, so "which destinations exist" is answered by the prompt rather than guessed.
+  const promptContext: WholeScenePromptContext = { legalDestinationIds: options.legalDestinationIds ?? [] };
+  const scenePayload = { ...scene, legalDestinationIds: promptContext.legalDestinationIds };
   const callProvider = (model: string | undefined) => provider.structuredChat({
-    messages: [{ role: 'system', content: buildSystemPrompt(scene) },
-      { role: 'user', content: JSON.stringify(scene) }],
+    messages: [{ role: 'system', content: buildSystemPrompt(scene, promptContext) },
+      { role: 'user', content: JSON.stringify(scenePayload) }],
     schemaName: 'whole_scene_output', jsonSchema: WHOLE_SCENE_JSON_SCHEMA, temperature, maxTokens,
     ...(model === undefined ? {} : { model }),
     ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),

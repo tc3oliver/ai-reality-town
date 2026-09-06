@@ -357,7 +357,9 @@ describe('FR-C005 whole-scene simulation', () => {
     // The configured gateway accepts `response_format: { type: 'json_schema', strict: true }` but does
     // not enforce it, so the schema only actually binds the model by travelling in the prompt.
     it('carries the request schema and the proposedEvents contract in the system prompt', () => {
-      const prompt = wholeSceneSystemPrompt(travelScene);
+      // ART-157: a movement example only appears when a movement is actually legal, so this
+      // supplies a destination. The no-destination case is covered in its own describe below.
+      const prompt = wholeSceneSystemPrompt(travelScene, { legalDestinationIds: ['mistwood-mill'] });
       expect(prompt).toContain(JSON.stringify(WHOLE_SCENE_JSON_SCHEMA));
       expect(prompt).toContain('never invent fields');
       expect(prompt).toContain('eventId');
@@ -388,5 +390,99 @@ describe('FR-C005 whole-scene simulation', () => {
       const variants = (event.properties.stateChanges as Record<string, Record<string, unknown>>).items.anyOf as Record<string, Record<string, Record<string, string>>>[];
       expect(variants.map((variant): string => variant.properties.type.const)).toEqual([...STATE_CHANGE_TYPES]);
     });
+  });
+});
+
+/**
+ * ART-157 — the defect the whole existing suite could not see.
+ *
+ * `runQueuedWorldDaySlot` failed live on 2026-09-06 with `UNKNOWN_LOCATION_REFERENCE`
+ * ("destination location does not exist"), zero events committed. The cause was not the provider
+ * and not the validator: the prompt asked for a `toLocationId` while naming no location that
+ * exists, and demonstrated the literal placeholder `'destination-location-id'`.
+ *
+ * Every one of the 3300+ tests stayed green because the fake provider knows the world
+ * independently of the prompt and proposes real ids. So the provider below is deliberately
+ * IGNORANT: it can only echo a destination the prompt actually gave it, and falls back to the old
+ * placeholder when the prompt gave it none. That is the whole point — it models the one thing a
+ * real provider has that a fixture does not, namely no access to Canon.
+ */
+describe('ART-157 — a provider that knows only what the prompt told it', () => {
+  const scene: GroupedScene = {
+    schemaVersion: 1, sceneId: 'g:scene:1', groupingRunId: 'g', directorRunId: 'd',
+    worldId: 'mistwood', worldDay: 3, timeSlot: 'morning', locationId: 'mistwood-square',
+    participantIds: ['wu-zhen'], sourceIntentIds: ['i1'], arcIds: [],
+    trigger: 'Wu Zhen leaves the square.', dramaticPressure: 'The train is about to depart.',
+  };
+
+  /** Pulls the destination list back out of the system prompt, exactly as a model would read it. */
+  function destinationsNamedIn(prompt: string): string[] {
+    const match = /toLocationId from this exact list, and nothing else: (\[[^\]]*\])/.exec(prompt);
+    return match ? (JSON.parse(match[1]) as string[]) : [];
+  }
+
+  let lastSystemPrompt = '';
+
+  const ignorantProvider: LanguageModelProvider = {
+    structuredChat: (request: StructuredChatRequest): Promise<StructuredChatResult> => {
+      lastSystemPrompt = request.messages.find((m) => m.role === 'system')?.content ?? '';
+      const offered = destinationsNamedIn(lastSystemPrompt);
+      return Promise.resolve({
+        output: {
+          schemaVersion: 1, sceneId: scene.sceneId,
+          sceneSummary: '吳真離開廣場。',
+          keyActions: [{ characterId: 'wu-zhen', action: '快步離開廣場。' }],
+          dialogueHighlights: [],
+          proposedEvents: [{
+            schemaVersion: 1, worldId: 'mistwood', idempotencyKey: 'g:scene:1:1',
+            proposedBy: { type: 'system' }, worldDay: 3, timeSlot: 'morning',
+            eventType: 'movement', locationId: 'mistwood-square',
+            participantIds: ['wu-zhen'], causedByEventIds: [], publicSummary: '吳真離開廣場。',
+            stateChanges: [{
+              type: 'character_location_changed', characterId: 'wu-zhen',
+              fromLocationId: 'mistwood-square',
+              // The crux: with nothing offered it can only invent, which is what production did.
+              toLocationId: offered[0] ?? 'destination-location-id',
+            }],
+          }],
+          relationshipChanges: [], knowledgeChanges: [], memories: [], rumors: [],
+          continuityWarnings: [],
+        },
+        trace: { provider: 'openai-compatible', model: 'test', inputTokens: 0, outputTokens: 0, latencyMs: 0, retryCount: 0 },
+      });
+    },
+    embed: () => Promise.reject(new Error('unused')),
+  };
+
+  const destinationOf = (result: { output: { proposedEvents: ProposedEvent[] } }): unknown =>
+    (result.output.proposedEvents[0].stateChanges[0] as unknown as { toLocationId: string }).toLocationId;
+
+  it('proposes a REAL destination once the prompt names the legal set', async () => {
+    const result = await simulateWholeScene(ignorantProvider, 'run-1', scene, {
+      legalDestinationIds: ['mistwood-station'],
+    });
+    expect(destinationOf(result)).toBe('mistwood-station');
+    // Not merely "not the placeholder" — the id has to come from the offered set.
+    expect(destinationOf(result)).not.toBe('destination-location-id');
+  });
+
+  it('falls back to the invented placeholder when the prompt names none — the production failure', async () => {
+    // The paired negative. If this ever passes, the test above has stopped proving anything:
+    // it would mean the provider gets real ids from somewhere other than the prompt.
+    const result = await simulateWholeScene(ignorantProvider, 'run-2', scene);
+    expect(destinationOf(result)).toBe('destination-location-id');
+  });
+
+  it('tells the author outright when nobody may leave, rather than offering an empty list', async () => {
+    await simulateWholeScene(ignorantProvider, 'run-3', scene, { legalDestinationIds: [] });
+    expect(lastSystemPrompt).toContain('No character may leave mistwood-square');
+    expect(lastSystemPrompt).toContain('Do not emit any character_location_changed change');
+    // An empty list would invite the model to fill the gap, which is the behaviour being fixed.
+    expect(lastSystemPrompt).not.toContain('toLocationId from this exact list');
+  });
+
+  it('pins fromLocationId to the scene, which Canon also requires', async () => {
+    await simulateWholeScene(ignorantProvider, 'run-4', scene, { legalDestinationIds: ['mistwood-station'] });
+    expect(lastSystemPrompt).toContain('fromLocationId must be "mistwood-square"');
   });
 });
