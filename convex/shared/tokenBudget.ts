@@ -1240,13 +1240,45 @@ export function settleReservation(counters: BudgetCounters, settlement: BudgetSe
  * reporting). Separated from {@link settleReservation} so "spent nothing" is not written as
  * "settled 0 tokens", which would inflate the low-importance call count with calls that never ran.
  */
-export function releaseReservation(counters: BudgetCounters): BudgetCounters {
+/**
+ * How a granted call failed, when it failed before reporting any usage (ART-158).
+ *
+ * `rate_limited` is separated from `failed` because they call for opposite responses: an exhausted
+ * free allowance refills on a clock and the route is fine, whereas a route that errors is a route
+ * to stop choosing. Merging them would make a healthy-but-busy route indistinguishable from a
+ * broken one, which is the whole question reliability statistics exist to answer.
+ */
+export type RouteFailure = {
+  provider: string | null;
+  model: string | null;
+  kind: 'failed' | 'rate_limited';
+};
+
+/** Attribute one failed call to its route, creating the entry if this is the route's first call. */
+function addRouteFailure(entries: ReadonlyArray<RouteUsage>, failure: RouteFailure): RouteUsage[] {
+  const provider = failure.provider ?? UNKNOWN_PROVIDER;
+  const model = failure.model ?? UNRESOLVED_MODEL;
+  const next = entries.map((entry) => ({ ...entry }));
+  const existing = next.find((entry) => entry.provider === provider && entry.model === model);
+  const target = existing ?? { provider, model, tokens: 0, requests: 0, failures: 0, rateLimited: 0, allowance: null };
+  if (failure.kind === 'rate_limited') target.rateLimited += 1;
+  else target.failures += 1;
+  if (!existing) next.push(target);
+  return next.sort((left, right) =>
+    left.provider.localeCompare(right.provider) || left.model.localeCompare(right.model));
+}
+
+export function releaseReservation(counters: BudgetCounters, failure: RouteFailure | null = null): BudgetCounters {
   return {
     ...counters,
     tokensByModule: counters.tokensByModule.map((entry) => ({ ...entry })),
     tokensByModel: counters.tokensByModel.map((entry) => ({ ...entry })),
     aliasResolutions: counters.aliasResolutions.map((entry) => ({ ...entry })),
-    usageByRoute: counters.usageByRoute.map((entry) => ({ ...entry })),
+    // A released call ran nothing, so it books no tokens and no request -- but it IS evidence
+    // about the route, and dropping it is what made a failing route read as a quiet one.
+    usageByRoute: failure === null
+      ? counters.usageByRoute.map((entry) => ({ ...entry }))
+      : addRouteFailure(counters.usageByRoute, failure),
     inFlight: Math.max(0, counters.inFlight - 1),
   };
 }

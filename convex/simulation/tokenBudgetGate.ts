@@ -51,6 +51,7 @@ import {
   type BudgetLimit,
   type BudgetReservationRequest,
   type BudgetSettlement,
+  type RouteFailure,
   type EffectiveTokenBudgetPolicy,
   type OverBudgetStrategy,
   type WorkImportance,
@@ -365,11 +366,11 @@ export function createConvexBudgetPort(
       });
     },
 
-    async release(request: BudgetReservationRequest, decisionId: string): Promise<void> {
+    async release(request: BudgetReservationRequest, decisionId: string, failure: RouteFailure | null = null): Promise<void> {
       const row = await resolvablePending(db, decisionId);
       if (!row) return;
       const counters = await loadBudgetCounters(db, request.worldId, request.worldDay);
-      await writeCounters(db, releaseReservation(counters));
+      await writeCounters(db, releaseReservation(counters, failure));
       await db.patch(row._id, { resolution: 'released', settledTokens: null, settledModel: null });
     },
   };

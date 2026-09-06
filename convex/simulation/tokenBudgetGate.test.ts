@@ -148,6 +148,39 @@ const ledger = (tables: Tables, worldDay = 0) => listBudgetLedger(dbOf(tables), 
 
 // ---------------------------------------------------------------------------
 
+describe('ART-158 the deployed release attributes a failure to its route', () => {
+  it('records a rate-limited call as rateLimited, booking no tokens and no request', async () => {
+    const tables = emptyTables();
+    const port = portFor(tables);
+    await port.reserve(request(), 'd-1');
+    await port.release(request(), 'd-1', { provider: null, model: FAKE_SCENE_MODEL, kind: 'rate_limited' });
+
+    const row = (await counters(tables)).usageByRoute[0];
+    expect(row).toMatchObject({ model: FAKE_SCENE_MODEL, rateLimited: 1, failures: 0, tokens: 0, requests: 0 });
+    // The slot is still freed -- a leaked in-flight count disables the concurrency limit for the day.
+    expect((await counters(tables)).inFlight).toBe(0);
+  });
+
+  it('records an ordinary failure separately from an exhausted allowance', async () => {
+    const tables = emptyTables();
+    const port = portFor(tables);
+    await port.reserve(request(), 'd-1');
+    await port.release(request(), 'd-1', { provider: null, model: FAKE_SCENE_MODEL, kind: 'failed' });
+
+    expect((await counters(tables)).usageByRoute[0]).toMatchObject({ failures: 1, rateLimited: 0 });
+  });
+
+  it('a release with no attributed failure writes no route row at all', async () => {
+    const tables = emptyTables();
+    const port = portFor(tables);
+    await port.reserve(request(), 'd-1');
+    await port.release(request(), 'd-1');
+
+    expect((await counters(tables)).usageByRoute).toEqual([]);
+    expect((await counters(tables)).inFlight).toBe(0);
+  });
+});
+
 describe('the deployed port reads the three rows it is supposed to read', () => {
   it('resolves the world policy from a real tokenBudgetPolicies row', async () => {
     const tables = emptyTables();

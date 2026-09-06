@@ -120,6 +120,27 @@ class FlakyProvider implements LanguageModelProvider {
   embed(text: string): Promise<EmbeddingResult> { return this.inner.embed(text); }
 }
 
+/**
+ * ART-158. A provider whose failure is an EXHAUSTED FREE ALLOWANCE (HTTP 429), which the adapter
+ * surfaces as the transient `LLM_HTTP_RETRYABLE` once its own retries are spent.
+ *
+ * Distinct from {@link FlakyProvider} on purpose: the two must be counted in different columns,
+ * and a single "it threw" fixture cannot show that they are.
+ */
+class RateLimitedProvider implements LanguageModelProvider {
+  calls = 0;
+  constructor(private readonly inner: LanguageModelProvider, private readonly failFirstN: number) {}
+  structuredChat(request: StructuredChatRequest): Promise<StructuredChatResult> {
+    this.calls += 1;
+    if (this.calls <= this.failFirstN) {
+      throw new SimulationProviderError('transient', 'LLM_HTTP_RETRYABLE',
+        'provider temporarily failed with HTTP 429');
+    }
+    return this.inner.structuredChat(request);
+  }
+  embed(text: string): Promise<EmbeddingResult> { return this.inner.embed(text); }
+}
+
 // =============================================================================
 // The negative control every enforcement case is measured against
 // =============================================================================
@@ -360,6 +381,31 @@ describe('AC#1 — the retry budget, against real retries', () => {
     const fixture = createLongRunFixture(new FlakyProvider(new FakeWholeSceneProvider(), 1));
     await driveSlot(fixture, slot(0, 'morning'));
     expect(fixture.budget.allCounters[0].inFlight).toBe(0);
+  });
+
+  it('attributes the failed attempt to its route, so a broken route is not merely quiet', async () => {
+    // ART-158 AC#8, driven through runBudgetedAttempt rather than by calling release() directly:
+    // the classification and the wiring are separate things, and a test that calls the port
+    // itself proves only the former. FlakyProvider throws a permanent error, so this is `failed`.
+    const fixture = createLongRunFixture(new FlakyProvider(new FakeWholeSceneProvider(), 1));
+    await driveSlot(fixture, slot(0, 'morning'));
+
+    const failed = fixture.budget.allCounters[0].usageByRoute.filter((entry) => entry.failures > 0);
+    expect(failed.length).toBeGreaterThan(0);
+    // A released call ran nothing: it books the failure and no usage.
+    expect(failed.every((entry) => entry.tokens === 0 && entry.requests === 0)).toBe(true);
+  });
+
+  it('counts an exhausted free allowance as rateLimited, NOT as a broken route', async () => {
+    // The two call for opposite responses -- 429 refills on a clock, an error does not -- so a
+    // fixture that only proves "it threw" cannot show they are counted apart. This drives a real
+    // 429 through runBudgetedAttempt's classifier rather than passing `kind` in by hand.
+    const fixture = createLongRunFixture(new RateLimitedProvider(new FakeWholeSceneProvider(), 1));
+    await driveSlot(fixture, slot(0, 'morning'));
+
+    const routes = fixture.budget.allCounters[0].usageByRoute;
+    expect(routes.some((entry) => entry.rateLimited > 0)).toBe(true);
+    expect(routes.every((entry) => entry.failures === 0)).toBe(true);
   });
 
   it('an exhausted absolute retry budget refuses the retry', async () => {

@@ -1198,6 +1198,43 @@ describe('ART-148 model aliases', () => {
     expect(counters.aliasResolutions).toEqual([{ alias: ALIAS, model: CONCRETE }]);
   });
 
+  it('attributes a failed call to its route without booking tokens or a request', () => {
+    // AC#8. A released call ran nothing, so it must not inflate usage -- but it IS evidence about
+    // the route. Dropping it is what made a failing route read as a quiet one.
+    const counters = releaseReservation(emptyBudgetCounters(WORLD, 0),
+      { provider: 'xkiro', model: CONCRETE, kind: 'failed' });
+
+    expect(counters.usageByRoute).toEqual([
+      route({ provider: 'xkiro', model: CONCRETE, failures: 1 }),
+    ]);
+    expect(counters.usageByRoute[0].tokens).toBe(0);
+    expect(counters.usageByRoute[0].requests).toBe(0);
+  });
+
+  it('separates an exhausted allowance from a broken route', () => {
+    // They call for opposite responses: 429 refills on a clock and the route is fine; an error is
+    // a route to stop choosing. Merged, a busy-but-healthy route is indistinguishable from a
+    // broken one -- the exact question these statistics exist to answer.
+    let counters = releaseReservation(emptyBudgetCounters(WORLD, 0),
+      { provider: 'xkiro', model: CONCRETE, kind: 'rate_limited' });
+    counters = releaseReservation(counters, { provider: 'xkiro', model: CONCRETE, kind: 'failed' });
+
+    expect(counters.usageByRoute).toEqual([
+      route({ provider: 'xkiro', model: CONCRETE, failures: 1, rateLimited: 1 }),
+    ]);
+  });
+
+  it('still frees the concurrency slot when no failure is attributed', () => {
+    // The pre-ART-158 call shape. A release with no route information must behave exactly as it
+    // did, or every existing caller would start writing phantom route entries.
+    const granted = grantReservation(emptyBudgetCounters(WORLD, 0), evaluate({}));
+    expect(granted.inFlight).toBe(1);
+
+    const released = releaseReservation(granted);
+    expect(released.inFlight).toBe(0);
+    expect(released.usageByRoute).toEqual([]);
+  });
+
   it('does not let an unresolved call overwrite a known alias resolution', () => {
     let counters = spend(emptyBudgetCounters(WORLD, 0), 10, { model: ALIAS, resolvedModel: CONCRETE });
     counters = spend(counters, 10, { model: ALIAS, resolvedModel: null });
