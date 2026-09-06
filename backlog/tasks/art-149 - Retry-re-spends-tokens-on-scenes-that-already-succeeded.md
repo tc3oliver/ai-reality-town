@@ -1,11 +1,11 @@
 ---
 id: ART-149
 title: Retry re-spends tokens on scenes that already succeeded
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-29 05:41'
-updated_date: '2026-09-06 08:41'
+updated_date: '2026-09-06 09:19'
 labels:
   - prd-1.0
   - epic-o
@@ -30,20 +30,20 @@ When a world-day run is retried after a partial failure, scenes that already com
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -112,3 +112,9 @@ Received array:     ["grouping:mistwood:0:morning:scene:1",
 - **#2** 已達成:重用路徑完全不進入 `simulateWholeScene`,因此不建立預約也不結算,帳目只反映實際執行的工作
 - **#3** 已達成:`ART-149 retry does not re-author scenes that already succeeded`,驅動部分失敗後重試,並斷言已成功場景的呼叫數為零
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+simulate_scenes is one checkpoint for the whole slot, so a mid-slot failure re-authored scenes that had already succeeded; persistence deduped on simulationRunId but only AFTER the provider call, so the retry paid for output it then discarded, while decisionIdPrefix kept the ledger looking correct. Fixed by looking up the persisted result before calling the provider (findReusableSceneSimulation + WorldDayLivePort.loadPersistedSceneSimulation). Verified: check green at 208 suites / 3382 passed; removing the reuse makes the retry re-author all three scenes of the mistwood morning slot instead of one, and the paired negative (a first attempt still authors every scene) stays green under injection. Merged in PR #229.
+<!-- SECTION:FINAL_SUMMARY:END -->
