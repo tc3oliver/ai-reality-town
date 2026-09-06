@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-08-04 06:21'
-updated_date: '2026-09-06 08:51'
+updated_date: '2026-09-06 10:37'
 labels:
   - prd-1.0
   - epic-i
@@ -22,9 +22,9 @@ Every publicRead rebuild* function re-derives its payload by replaying the whole
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A post-commit run's document reads do not grow linearly with total accepted-event count
-- [ ] #2 runLiveWorldDayCycle can process a whole time slot (3+ events) in one transaction on a world with hundreds of accepted events
-- [ ] #3 Projection payloads remain byte-identical to the full-replay output for the same canon prefix
+- [x] #1 A post-commit run's document reads do not grow linearly with total accepted-event count
+- [x] #2 runLiveWorldDayCycle can process a whole time slot (3+ events) in one transaction on a world with hundreds of accepted events
+- [x] #3 Projection payloads remain byte-identical to the full-replay output for the same canon prefix
 <!-- AC:END -->
 
 ## Definition of Done
@@ -401,4 +401,92 @@ ART-157 修正了 `commitProposedEvent` / `canonRuleContext` / `loadWorldSnapsho
 **這不影響本任務關於 `rebuildLiveProjection` 的既有結論。** 上面「`locations` 是 `SEED_BASELINE_FIELDS` 之一,直接改用快照會發布 replay-from-empty 從不呈現的 seed 資料,違反 AC#3」的論證**仍然成立**:publicRead 從空重播是刻意的產品決定,模擬與 commit 端必須看見 seed,兩者本就該不同。
 
 我在 ART-157 筆記中曾把這寫成「同一份投影上兩個相反的需求,不能各改各的」—— **那個判斷是錯的**,已在該任務更正。兩邊各自正確,不需要統一,本任務不必為此改變方向。
+
+## Slice 6 完成:五個消費端整批落地,AC#1 轉綠
+
+### 先重現,再歸因(未採信既有紀錄)
+
+解除 AC#1 gate 的 skip:**152 → 218**,gap 66。以臨時 stack 捕捉在 `recordRead` 內歸因(用完移除,未進 PR),確認 gap **恰好**由三處構成,其餘全部平坦:
+
+| 呼叫點 | 30 → 60 |
+|---|---|
+| `liveStateFunctions.ts:305` `rebuildLiveProjection` | 30 → 60 |
+| `onboardingSummaryFunctions.ts:143` 尾端掃描 | 30 → 60 |
+| `postCommitLiveFunctions.ts:346` `completedWorldDaysBounded` | 6 → 12 |
+
+第一次歸因把 recap 誤列為最大項(35→65)—— 那是把 priming 階段算進去了。在 stats 重設點同步清空歸因後才得到上表。
+
+### 交付
+
+**1. `liveRebuildCheckpoints`(新表)** —— `rebuildLiveProjection` 的續接點。存三份 fold:`LiveFoldState`、replay 的位置 fold、Visual Runtime 的 anchor chain。只讀 `gt(lastSequenceNumber)` 的尾端。
+
+**2. `replaySceneCandidates`(新表)** —— 每個 scene 一列。關鍵發現:`selectReplayGroups` 的比較器是 `(score desc, maxSequenceNumber desc, sceneId asc)`,而**第三個鍵不可達** —— `maxSequenceNumber` 是該 scene 自己某個事件的序號,每個事件只屬於一個 scene,序號唯一,所以兩個 scene 不可能共用。`(score, maxSequenceNumber)` 已是全序,因此 `by_world_and_rank` 索引倒序讀**精確重現**比較器,不是近似。已用測試釘住這個唯一性。
+
+取 `REPLAY_MAX_SCENES + 當前 slot 的 scene 數` 列是**可證明足夠**而非預算:被丟棄的只有當前 slot 的列,而那正好就是那麼多。無 cap、無翻頁、無靜默截斷。
+
+**3. Visual Runtime anchor chain 增量化** —— `resolveOrigin` 原本走遍該角色除最後一筆外的所有 location fact,對每個未綁定的 hop 各回報一個 problem。那是個左摺疊,所以整條鏈壓縮成「最後一個已綁定 hop 的 anchor + 未綁定 hop 的 id 清單 + 最新一筆 fact」。
+
+**anchor 依賴編譯進來的 map bindings**,所以存下來的 fold 會被地圖編輯無聲作廢。加上 `bindingsFingerprint`:不符即從 Canon 重建。這是唯一一個「快取的值不是資料的函數」的地方,必須有指紋而不是註解。
+
+**4. `canonCharacterLocations`** —— 改用 `readProjectionViaSnapshot`。`characterLocations` 不在 `SEED_BASELINE_FIELDS` 內,所以替換精確。零新機制。
+
+**5. `worldDayLedgers`(新表)** —— 取代每個世界日一次的 probe 與整張 `dailyEpisodes` 掃描。新日期來自 `throughSequenceNumber` 之後的事件,而 Canon 是 append-only,所以這是**精確**追上而非近似 —— 且**不假設 `worldDay` 隨 `sequenceNumber` 遞增**(沒有任何地方強制,而 `episodeNumberFor` 會因此重新編號已發布的 episode)。有反向測試。
+
+**6. `postCommitCursors`(新表,AC#2)** —— 見下。
+
+**7. onboarding 的 episode 讀取** —— 只用來取「最新有內容的那一集」,卻掃了整張表。改為索引倒序一頁,並回報 `latestEpisodeScanExhausted`。
+
+### 沒有被 checkpoint 的東西,以及為什麼
+
+安全閘的 withheld 集合、排除角色集合、episode 發布狀態、事件本身的文字 —— 這四項都是**追溯性**的,營運者一個覆寫就能改變任意舊事件的判定。所以索引存的是「哪些事件重要」,絕不是「它們說了什麼」。這條分界是整個設計的安全論證。
+
+key scene 引用的事件可能遠在所有讀取窗口之外,沿用窗口內的 withheld 集合會得到**偽陰性的「未被 withhold」**。已改為對 `sourceEventIds` 做點查 —— 與 ART-100 稍早在 onboarding 補的是同一個洞。
+
+### AC#2
+
+`runLiveWorldDayCycle` 開場就 collect 整張 `canonEvents` 與整張 `postCommitRuns`,在記憶體裡過濾 —— 就在那個 byte budget 要保護的交易裡,而且在處理任何事件之前。改為 cursor 後的一頁。
+
+cursor **只**走過連續的 completed 前綴。run 不必構成前綴(`runPostCommitPipeline` 可被直接呼叫、亂序完成),跳到最高 completed run 會讓底下的事件**永久**被跳過。有專門的負向測試。另有一條測「整頁都已 settled 時仍前進」—— 沒有 cursor 時那是停滯而非變慢。
+
+`DEFAULT_MAX_POST_COMMIT_EVENTS` 1 → 3。
+
+### 量測證據
+
+| fixture | canonEvents 讀取 |
+|---|---|
+| AC#1 gate,210 vs 410 事件 | **312 = 312** |
+| AC#2 cycle,250 vs 500 事件 | **相同** |
+
+兩組 scale point 都在 `MAX_SCANNED_EVENTS`(200)**之上**:cap 只有在兩側都超過它時才觀察得到是平的。在 30/60 量到 30/60,那是 cap 還沒生效,不是無界。
+
+harness 的 priming 改為**執行真正的 pipeline** 跑前一個事件,而不是手寫 checkpoint 列。手寫的列會變成「測試對照自己想像的格式」,而且在 rebuild 不再寫 checkpoint 時仍然通過。
+
+### 故障注入(五次,兩次抓到我自己的測試漏洞)
+
+| 注入 | 結果 |
+|---|---|
+| `positionsBefore` 改在事件自身 arrival 之後才記錄 | replay 位元相等測試轉紅 ✓ |
+| selection 缺 fold 時靜默回退成只摺自己的事件 | 拒絕測試轉紅 ✓ |
+| anchor chain 不再退役前一筆 fact | **維持綠** ✗ |
+| 未綁定 hop 不再被記住 | **維持綠** ✗ |
+| 角色首次出現順序反轉 | **維持綠** ✗ |
+
+後三者暴露同一個問題:`planCharacterTrajectories` 現在內部就走 fold,所以「用事件規劃 vs 用 fold 規劃再比較」是**同義反覆** —— 兩邊跑同一段程式碼,無論多錯都會一致。這正是 CLAUDE.md §9「驗證器不可被餵入自己的輸入」。
+
+修法:在測試內以原始 fact 清單寫出**獨立的規格**(`referenceChain`),沿用 `postCommitWorldState.test.ts` 保留全量 `completedWorldDays` 當規格的先例;並補一個真的走過未綁定 zone 的 fixture(原 fixture 全部綁定,清單恆為空,刪掉整段也會通過),以及一條獨立斷言角色順序的測試(該順序只透過 problem 的順序可見,因為 `publicDynamicProjection` 事後會依 id 排序)。三次重新注入後全部轉紅。
+
+另有兩次注入跑出 `Tests: 0 total`。那是**套件載入失敗**,依 CLAUDE.md §9 與本次交付要求一律視為失敗,已改寫成可編譯的形式重跑。
+
+### 一次自己造成的事故,記錄下來
+
+用 `git checkout <file>` 還原注入時,把該檔**尚未提交的本次修改**一併還原了 —— `visualSyncPlanner.ts` 整份 anchor chain 實作因此消失,而且是在下一次注入的 `Tests: 0` 之後才發現。已重做並改為先 commit 再注入。
+
+### 誠實的剩餘限制
+
+`dailyEpisodes` 仍有兩處 O(world days) 讀取:
+
+- `rebuildEpisodeIndexProjection` —— **payload-bound**。它發布的模型**就是**全部 episode 的清單,不分頁就不可能讀得比發布的少。這不是缺陷,是那個公開契約的形狀。
+- `rebuildTimelineProjection` —— **不是** payload-bound,只用 `episodeNumberByDay` 查它實際 timeline 的那幾天。可以收斂到點查,本次沒做。
+
+兩者都隨**世界日數**成長,不隨每日事件數成長。AC#1 gate 釘的是 `canonEvents`,上面兩項不在其中,所以是明說而非藏在綠燈後面。
 <!-- SECTION:NOTES:END -->

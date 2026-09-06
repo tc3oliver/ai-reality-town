@@ -33,10 +33,14 @@ index-scoped story reads `rebuildLiveProjection` already makes on the same commi
 
 None of the `v.any()` generation-blob tables (`directorPlans.context`, `groupedSceneRuns.result`,
 `sceneSimulationRuns.result`) is touched. Those were the ART-46 review finding, and they are what
-"no unbounded whole-world collect in a rebuild path" is actually about. `canonEvents` *is* read
-whole, which is the same read three sibling rebuilds already make here and is unavoidable for an
-accumulated level: a relationship's standing is a fold over its entire history, so no suffix of
-the log answers it. ART-100 tracks making these incremental.
+"no unbounded whole-world collect in a rebuild path" is actually about. `canonEvents` is **not** read whole.
+
+That claim used to stand here, and the premise under it was right while the conclusion was not: a
+relationship's standing genuinely is a fold over its entire history, so no suffix of the log
+answers it — but a `canonSnapshots` row already IS that fold. This rebuild resumes from the newest
+one and reads only the events after it (`readProjectionViaSnapshot`), which is sound precisely
+because `relationshipHistory` is not one of `SEED_BASELINE_FIELDS` and so cannot pick up seeded
+state the published payload has never carried. ART-100.
 
 ### Why Canon rather than the published `relationship:<pairKey>` model
 

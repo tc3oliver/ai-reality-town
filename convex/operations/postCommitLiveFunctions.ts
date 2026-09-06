@@ -105,13 +105,30 @@ const OPERATOR = { type: 'operations' as const, operatorId: 'post-commit-pipelin
 const LAST_TIME_SLOT = TIME_SLOTS[TIME_SLOTS.length - 1];
 /**
  * Accepted events one `runLiveWorldDayCycle` transaction takes through stages 11–21.
- * Every public read model is rebuilt by replaying the whole accepted-event log, so one
- * event's post-commit work already costs several megabytes of reads on a mature world and
- * the default is one event per transaction. Raising it risks the Convex per-transaction
- * byte limit; incremental projection updates are the real fix (see ART-100).
+ *
+ * WAS 1, because every public read model was rebuilt by replaying the whole accepted-event log, so
+ * one event's post-commit work already cost megabytes of reads on a mature world and a second
+ * event risked the Convex per-transaction byte limit. ART-100 removed those replays — the Live
+ * rebuild resumes from a checkpoint, the day list is maintained, and the cycle's own candidate
+ * scan is a bounded page — so a run's read cost no longer grows with canon size and a whole time
+ * slot fits in one transaction (AC#2).
+ *
+ * 3 is the size of a time slot's worth of events, which is the unit the acceptance criterion names.
+ * It is a DEFAULT, not a ceiling: callers may still pass 1..{@link MAX_POST_COMMIT_EVENTS}.
  */
-const DEFAULT_MAX_POST_COMMIT_EVENTS = 1;
+const DEFAULT_MAX_POST_COMMIT_EVENTS = 3;
 const MAX_POST_COMMIT_EVENTS = 10;
+
+/**
+ * Extra rows read past the batch so the cursor can advance over events that were settled
+ * out of band — by a direct `runPostCommitPipeline` call, or by a previous cycle that processed
+ * more than this one will.
+ *
+ * Without it a page could be entirely settled events and the cycle would return empty while work
+ * remained, one call earlier than it should. With it, catch-up is amortised: each call still
+ * advances the cursor by up to this many settled events for a constant read cost.
+ */
+const POST_COMMIT_CURSOR_CATCHUP = 32;
 
 const rebuildWorldProjectionRef = internalFunctionRef<typeof rebuildWorldProjectionExport>(
   'publicRead/worldCharacterProjectionFunctions:rebuildWorldProjection',
@@ -205,36 +222,25 @@ export function completedWorldDays(events: readonly AcceptedEvent[]): number[] {
 }
 
 /**
- * {@link completedWorldDays} without reading the whole accepted-event log (ART-100).
+ * {@link completedWorldDays} from a maintained day list instead of the accepted-event log (ART-100).
  *
  * Identical semantics, derived differently. The original folds a full replay to get the distinct
- * day set; this probes one row per day across `[min, max]` on `by_world_and_day`, so a day that
- * produced no events is absent from both. Every day below the latest is finished by definition,
- * so only the latest day needs its time slots examined — one day's rows, not the world's.
+ * day set; this takes that set as an argument, because `worldDayLedgers` maintains it
+ * incrementally (see that table). A day that produced no events is absent from both.
  *
- * The cost is one row per world day rather than one row per accepted event. That is a change of
- * order, not a removal: a world thousands of days old still pays per day. Recording that plainly
- * because the alternative — a maintained completed-day summary — is a schema change this task did
- * not take, and the next person to hit this ceiling should know the option was considered.
- *
- * It is now paid ONCE per post-commit run rather than once per cache invalidation (see
- * `CanonWorldView` below), which is a constant factor, not the remaining order. If this becomes
- * the binding cost, the summary is the fix — and the shape it needs is narrower than the full day
- * list: the three consumers want a count of completed days below a given day
- * (`episodeNumberFor`), a membership test, and the small set difference against
- * `episodeWorldDays`. None of them needs the whole array.
+ * The FILTER is not folded and must not be: whether the latest day is finished changes as that day
+ * runs, so it is recomputed from the latest day's own events on every call. Every day below the
+ * latest is finished by definition, which is why only one day's rows are ever examined.
  */
-export async function completedWorldDaysBounded(
-  bounds: { min: number; max: number },
+export function completedWorldDaysOf(
+  worldDays: readonly number[],
+  latestWorldDay: number,
   latestDayEvents: readonly AcceptedEvent[],
-  dayExists: (worldDay: number) => Promise<boolean>,
-): Promise<number[]> {
-  const days: number[] = [];
-  for (let day = bounds.min; day <= bounds.max; day += 1) {
-    if (await dayExists(day)) days.push(day);
-  }
+): number[] {
   const latestIsFinished = latestDayEvents.some((event) => event.timeSlot === LAST_TIME_SLOT);
-  return days.filter((day) => day < bounds.max || latestIsFinished);
+  return [...worldDays]
+    .sort((left, right) => left - right)
+    .filter((day) => day < latestWorldDay || latestIsFinished);
 }
 
 /**
@@ -321,6 +327,53 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
     'event' | 'completedWorldDays' | 'worldDayFirstSequenceNumber' | 'latestWorldDay'>;
   let canonView: CanonWorldView | null = null;
 
+  /**
+   * The world's day list, advanced from the ledger by the events since it was last written.
+   *
+   * Accepted Canon is append-only, so a world day can only come into existence by an event coming
+   * into existence — which makes "the days named by the events after `throughSequenceNumber`" an
+   * EXACT catch-up rather than an approximation, and one that assumes nothing about `worldDay`
+   * rising with `sequenceNumber`. The tail is one event in the steady state.
+   *
+   * Also carries the episode-day half, re-probed only for completed days not already known to
+   * have an episode. That set is what stage 16 is about to work on regardless, so the probes cost
+   * nothing the pipeline was not already going to spend.
+   */
+  const advanceDayLedger = async (
+    worldId: string,
+    completedDaysSoFar: readonly number[],
+  ): Promise<{ worldDays: number[]; episodeWorldDays: number[] }> => {
+    const row = await ctx.db.query('worldDayLedgers')
+      .withIndex('by_world', (q) => q.eq('worldId', worldId)).unique();
+    const throughSequenceNumber = row?.throughSequenceNumber ?? -1;
+    const tail = await ctx.db.query('canonEvents')
+      .withIndex('by_world_and_sequence', (q) => q.eq('worldId', worldId).gt('sequenceNumber', throughSequenceNumber))
+      .collect();
+    const worldDays = [...new Set([...(row?.worldDays ?? []), ...tail.map(({ worldDay }) => worldDay)])]
+      .sort((left, right) => left - right);
+    const highestSequenceNumber = tail.reduce(
+      (highest, candidate) => Math.max(highest, candidate.sequenceNumber), throughSequenceNumber);
+
+    const knownEpisodeDays = new Set(row?.episodeWorldDays ?? []);
+    const unprobed = completedDaysSoFar.filter((day) => !knownEpisodeDays.has(day));
+    for (const worldDay of unprobed) {
+      const episode = await ctx.db.query('dailyEpisodes')
+        .withIndex('by_world_and_day', (q) => q.eq('worldId', worldId).eq('worldDay', worldDay)).unique();
+      if (episode) knownEpisodeDays.add(worldDay);
+    }
+    const episodeWorldDays = [...knownEpisodeDays].sort((left, right) => left - right);
+
+    const ledger = {
+      schemaVersion: 1 as const, worldId, worldDays, episodeWorldDays,
+      throughSequenceNumber: highestSequenceNumber, updatedAt: now,
+    };
+    if (row) await ctx.db.patch(row._id, ledger);
+    else await ctx.db.insert('worldDayLedgers', ledger);
+    return { worldDays, episodeWorldDays };
+  };
+
+  let episodeWorldDays: number[] = [];
+
   const loadCanonView = async (source: PostCommitSource): Promise<CanonWorldView> => {
     if (canonView) return canonView;
     const { worldId } = source;
@@ -336,15 +389,17 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
       ? dayEvents
       : await eventsOnDay(worldId, latestWorldDay);
 
+    // Two passes over the ledger, deliberately: the episode probe is driven by which days are
+    // COMPLETED, and that is not known until the day list is. The first call catches the day list
+    // up and probes whatever it already knew; the second probes the days the first just revealed.
+    // Both are bounded, and both write the same row inside one transaction.
+    const firstPass = await advanceDayLedger(worldId, []);
+    const completed = completedWorldDaysOf(firstPass.worldDays, latestWorldDay, latestDayEvents);
+    episodeWorldDays = (await advanceDayLedger(worldId, completed)).episodeWorldDays;
+
     canonView = {
       event,
-      completedWorldDays: await completedWorldDaysBounded(
-        { min: bounds.min, max: latestWorldDay },
-        latestDayEvents,
-        async (worldDay) => (await ctx.db.query('canonEvents')
-          .withIndex('by_world_and_day', (q) => q.eq('worldId', worldId).eq('worldDay', worldDay))
-          .first()) !== null,
-      ),
+      completedWorldDays: completed,
       worldDayFirstSequenceNumber: dayEvents.reduce(
         (lowest, candidate) => Math.min(lowest, candidate.sequenceNumber), event.sequenceNumber),
       latestWorldDay,
@@ -358,13 +413,15 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
       const { worldId } = source;
       const canon = await loadCanonView(source);
 
-      const [lifecycles, projectionRows, transitionRows, portfolioRows, characterRows, episodeRows, recapRows] = await Promise.all([
+      // `dailyEpisodes` is deliberately absent: `episodeWorldDays` is the only thing this state
+      // ever read off it, and `worldDayLedgers` now maintains that list (ART-100). Sweeping the
+      // table grew with the world's age for a set difference against a handful of pending days.
+      const [lifecycles, projectionRows, transitionRows, portfolioRows, characterRows, recapRows] = await Promise.all([
         ctx.db.query('storyArcLifecycles').withIndex('by_world_and_arc', (q) => q.eq('worldId', worldId)).collect(),
         ctx.db.query('storyArcProjectionEvents').withIndex('by_world_arc_and_revision', (q) => q.eq('worldId', worldId)).collect(),
         ctx.db.query('storyArcLifecycleTransitions').withIndex('by_world_arc_and_revision', (q) => q.eq('worldId', worldId)).collect(),
         ctx.db.query('storyArcPortfolioEntries').withIndex('by_world_and_arc', (q) => q.eq('worldId', worldId)).collect(),
         ctx.db.query('worldCharacters').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).collect(),
-        ctx.db.query('dailyEpisodes').withIndex('by_world_and_day', (q) => q.eq('worldId', worldId)).collect(),
         ctx.db.query('recapSnapshots').withIndex('by_target_and_version', (q) => q.eq('worldId', worldId)).collect(),
       ]);
 
@@ -408,7 +465,7 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
         ...canon,
         arcs,
         characterIds: characterRows.map(({ characterId }) => characterId),
-        episodeWorldDays: episodeRows.map(({ worldDay }) => worldDay),
+        episodeWorldDays,
         recapCursors,
       };
       return worldState;
@@ -688,15 +745,56 @@ export const runLiveWorldDayCycle = internalMutation({
       runQueuedWorldDaySlotRef,
       { worldId: args.worldId, slotId: args.slotId, maxSlots: args.maxSlots ?? 1, now },
     );
-    const rows = await ctx.db.query('canonEvents')
-      .withIndex('by_world_and_sequence', (q) => q.eq('worldId', args.worldId)).collect();
-    const settled = new Set((await ctx.db.query('postCommitRuns')
-      .withIndex('by_world_and_sequence', (q) => q.eq('worldId', args.worldId)).collect())
+    /**
+     * ART-100 AC#2. One bounded page of candidates instead of the whole accepted-event log and
+     * the whole post-commit run table — both of which were read, and filtered in memory, before a
+     * single event was processed.
+     *
+     * `postCommitCursors` records how far a contiguous run of completed post-commit runs reaches.
+     * Everything at or below it is settled and is never looked at again, so the cost of a call
+     * does not grow with how much the world has already done.
+     */
+    const cursorRow = await ctx.db.query('postCommitCursors')
+      .withIndex('by_world', (q) => q.eq('worldId', args.worldId)).unique();
+    const cursor = cursorRow?.settledThroughSequenceNumber ?? -1;
+    const page = maxPostCommitEvents + POST_COMMIT_CURSOR_CATCHUP;
+    const [candidateRows, runRows] = await Promise.all([
+      ctx.db.query('canonEvents')
+        .withIndex('by_world_and_sequence', (q) => q.eq('worldId', args.worldId).gt('sequenceNumber', cursor))
+        .take(page),
+      ctx.db.query('postCommitRuns')
+        .withIndex('by_world_and_sequence', (q) =>
+          q.eq('worldId', args.worldId).gt('sourceEventSequenceNumber', cursor))
+        .take(page),
+    ]);
+    const settled = new Set(runRows
       .filter((run) => run.status === 'completed')
       .map((run) => run.sourceEventSequenceNumber));
 
+    /**
+     * Advance the cursor over the leading settled events, and only those.
+     *
+     * Stopping at the first unsettled event is what keeps a directly-invoked, out-of-order run
+     * from stranding its predecessors. Advancing here — before any work — is also what guarantees
+     * PROGRESS: a page that turns out to be entirely settled still moves the cursor, so the next
+     * call reaches new events rather than re-reading the same page forever.
+     */
+    let settledThrough = cursor;
+    for (const row of candidateRows) {
+      if (!settled.has(row.sequenceNumber)) break;
+      settledThrough = row.sequenceNumber;
+    }
+    if (settledThrough > cursor) {
+      const advanced = {
+        schemaVersion: 1 as const, worldId: args.worldId,
+        settledThroughSequenceNumber: settledThrough, updatedAt: now,
+      };
+      if (cursorRow) await ctx.db.patch(cursorRow._id, advanced);
+      else await ctx.db.insert('postCommitCursors', advanced);
+    }
+
     const postCommit: PostCommitOutcome[] = [];
-    for (const row of rows.filter(({ sequenceNumber }) => !settled.has(sequenceNumber))) {
+    for (const row of candidateRows.filter(({ sequenceNumber }) => !settled.has(sequenceNumber))) {
       if (postCommit.length >= maxPostCommitEvents) break;
       const run = await executeLivePostCommit(ctx, {
         worldId: args.worldId,

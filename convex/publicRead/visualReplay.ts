@@ -298,9 +298,33 @@ export type ReplayPublicationRecord = {
   readonly status: string;
 };
 
+/**
+ * A pre-made answer to the two questions that otherwise need the whole accepted log (ART-100).
+ *
+ * Without it this builder groups EVERY accepted event into scenes, ranks all of them, and then
+ * folds the world's location history around whichever few won — an O(total canon) read on a path
+ * that runs after every accepted event. With it, the caller supplies the winning groups and the
+ * location state around each, having derived both from a maintained index; this builder's output
+ * is unchanged, which is the property `visualReplay.test.ts` asserts by building the same world
+ * both ways and comparing the payloads byte for byte.
+ *
+ * `groups` must already be what {@link selectReplayGroups} would have returned — the completed
+ * scenes only, chronological. `locationFolds` is keyed by {@link sceneIdOf}.
+ */
+export type ReplaySelection = {
+  readonly groups: readonly SceneGroup[];
+  readonly locationFolds: ReadonlyMap<string, LocationFold>;
+};
+
 export type BuildVisualReplayInput = {
   readonly worldId: string;
+  /**
+   * The world's accepted events. Used to group, rank and fold when `selection` is absent; when
+   * `selection` is present the caller has already done all three and this may hold only the
+   * selected scenes' own events.
+   */
   readonly acceptedEvents: readonly ReplayEventLike[];
+  readonly selection?: ReplaySelection;
   readonly arcMemberships: readonly SceneArcMembership[];
   /** Characters the map already refuses to draw — the dead and the deactivated. */
   readonly excludedCharacterIds: ReadonlySet<string>;
@@ -326,11 +350,16 @@ function importanceBySequence(memberships: readonly SceneArcMembership[]): Map<n
   return bySequence;
 }
 
-function sceneIdOf(group: SceneGroup): string {
+/**
+ * The scene's public id. Exported because ART-100's candidate index is keyed by it, and a
+ * second spelling of this string there would let the index address a different scene from the
+ * one this module builds.
+ */
+export function sceneIdOf(group: SceneGroup): string {
   return `${group.worldDay}:${group.timeSlot}:${group.locationId}`;
 }
 
-function minSequenceOf(group: SceneGroup): number {
+export function minSequenceOf(group: SceneGroup): number {
   return group.events.reduce((lowest, event) => Math.min(lowest, event.sequenceNumber), Number.POSITIVE_INFINITY);
 }
 
@@ -364,7 +393,7 @@ export function selectReplayGroups(
     .sort((left, right) => minSequenceOf(left) - minSequenceOf(right));
 }
 
-type LocationFold = {
+export type LocationFold = {
   /** Each character's location immediately before the scene's first event. */
   readonly before: ReadonlyMap<string, string>;
   /** Each character's location immediately after the scene's last event. */
@@ -372,28 +401,59 @@ type LocationFold = {
 };
 
 /**
+ * Apply `events`' arrivals onto `prior`, last write wins.
+ *
+ * THE single definition of "where is everyone, as of sequence N" for the replay. ART-100's
+ * candidate index keeps a running copy of exactly this map so a scene's before/after state can
+ * be recovered without re-reading the world's history, and a second spelling of the rule here —
+ * one that believed a missing `toLocationId`, say — would put a different position in the index
+ * from the one a full replay derives, silently, in published output. That is the same
+ * one-implementation argument `liveFold.ts` makes for the Live surface's own fold.
+ *
+ * Pure and order-independent of the caller: events are sorted here rather than trusted, because
+ * last-write-wins is only defined against a known order.
+ */
+export function foldReplayPositions(
+  prior: ReadonlyMap<string, string>,
+  events: readonly ReplayEventLike[],
+): Map<string, string> {
+  const positions = new Map(prior);
+  for (const event of [...events].sort((left, right) => left.sequenceNumber - right.sequenceNumber)) {
+    for (const change of event.stateChanges) {
+      if (change.type !== LOCATION_CHANGE) continue;
+      const { characterId, toLocationId } = change;
+      if (!characterId || !toLocationId) continue;
+      positions.set(characterId, toLocationId);
+    }
+  }
+  return positions;
+}
+
+/**
  * Replay the world's location facts twice: up to the instant before the scene, and through
  * it. Folded from the whole accepted history rather than from the scene's own events, because
  * a participant who was already standing in the room named no `character_location_changed`
  * inside the scene at all — their position comes from wherever they last arrived.
+ *
+ * Expressed as two applications of {@link foldReplayPositions} split at `firstSequence`. That is
+ * an identity rather than a rewrite: `after` was always the fold over everything up to
+ * `lastSequence`, and a last-write-wins fold over a sequence equals the fold over its prefix
+ * followed by the fold over the remainder. Pinned in `visualReplay.test.ts`.
  */
 function foldLocations(
   events: readonly ReplayEventLike[],
   firstSequence: number,
   lastSequence: number,
 ): LocationFold {
-  const before = new Map<string, string>();
-  const after = new Map<string, string>();
-  for (const event of [...events].sort((left, right) => left.sequenceNumber - right.sequenceNumber)) {
-    if (event.sequenceNumber > lastSequence) break;
-    for (const change of event.stateChanges) {
-      if (change.type !== LOCATION_CHANGE) continue;
-      const { characterId, toLocationId } = change;
-      if (!characterId || !toLocationId) continue;
-      if (event.sequenceNumber < firstSequence) before.set(characterId, toLocationId);
-      after.set(characterId, toLocationId);
-    }
-  }
+  const withinWindow = events.filter((event) => event.sequenceNumber <= lastSequence);
+  const before = foldReplayPositions(
+    new Map(),
+    withinWindow.filter((event) => event.sequenceNumber < firstSequence),
+  );
+  const after = foldReplayPositions(
+    before,
+    withinWindow.filter((event) => event.sequenceNumber >= firstSequence),
+  );
   // A character who never moved before the scene has no `before` entry; the scene's own
   // arrival is still the honest answer to "where did this walk end", so `after` stands alone
   // and `resolveParticipants` decides whether a start position can be recovered at all.
@@ -542,11 +602,18 @@ export function buildVisualReplay(input: BuildVisualReplayInput): VisualReplay |
   }
 
   const ordered = [...input.acceptedEvents].sort((left, right) => left.sequenceNumber - right.sequenceNumber);
-  const latest = ordered.at(-1);
-  if (!latest) return null;
 
-  const importance = importanceBySequence(input.arcMemberships);
-  const selected = selectReplayGroups(groupSceneEvents(ordered), latest, importance);
+  const selected = ((): SceneGroup[] => {
+    if (input.selection) return [...input.selection.groups];
+    const latest = ordered.at(-1);
+    // No events at all: nothing to group, rank or replay.
+    if (!latest) return [];
+    return selectReplayGroups(
+      groupSceneEvents(ordered),
+      latest,
+      importanceBySequence(input.arcMemberships),
+    );
+  })();
   if (selected.length < REPLAY_MIN_SCENES) return null;
 
   const arcIdsBySequence = new Map<number, readonly string[]>(
@@ -558,8 +625,19 @@ export function buildVisualReplay(input: BuildVisualReplayInput): VisualReplay |
       arcIdsBySequence,
       excludedCharacterIds: input.excludedCharacterIds,
     });
-    const firstSequence = minSequenceOf(group);
-    const fold = foldLocations(ordered, firstSequence, group.maxSequenceNumber);
+    // A supplied fold is used verbatim. Falling back to `foldLocations(ordered, ...)` when the
+    // selection omitted one would be worse than throwing: `ordered` holds only the selected
+    // scenes' events on that path, so the fold would quietly lose every arrival that happened
+    // outside them and publish participants standing where they were not.
+    const fold = input.selection
+      ? input.selection.locationFolds.get(sceneIdOf(group))
+      : foldLocations(ordered, minSequenceOf(group), group.maxSequenceNumber);
+    if (!fold) {
+      throw new VisualReplayError(
+        'VISUAL_REPLAY_INVALID_SHAPE',
+        `selection is missing the location fold for scene ${sceneIdOf(group)}`,
+      );
+    }
     const participants = resolveReplayParticipants({
       characterIds: spatials.participantCharacterIds,
       fold,

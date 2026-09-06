@@ -95,6 +95,49 @@ function idOf(value: unknown): string | null {
 }
 
 /**
+ * The fold as plain, storable values (ART-100).
+ *
+ * `Map` and `Set` are not Convex values, so a checkpoint has to be written as arrays. Every list
+ * is SORTED on the way out, which is not cosmetic: the checkpoint row is compared by content hash
+ * like every other stored artifact, and an insertion-ordered array would make two identical folds
+ * look like two different ones and rewrite the row on every rebuild.
+ */
+export type StoredLiveFold = {
+  readonly locations: readonly LiveLocation[];
+  readonly positionByCharacter: readonly { readonly characterId: string; readonly locationId: string }[];
+  readonly aliveByCharacter: readonly { readonly characterId: string; readonly alive: boolean }[];
+  readonly knownCharacters: readonly string[];
+  readonly excludedCharacterIds: readonly string[];
+  readonly lastSequenceNumber: number;
+};
+
+export function serializeLiveFold(state: LiveFoldState): StoredLiveFold {
+  const byId = (left: { characterId: string }, right: { characterId: string }): number =>
+    left.characterId.localeCompare(right.characterId);
+  return {
+    locations: [...state.locations.values()].sort((left, right) => left.locationId.localeCompare(right.locationId)),
+    positionByCharacter: [...state.positionByCharacter]
+      .map(([characterId, locationId]) => ({ characterId, locationId })).sort(byId),
+    aliveByCharacter: [...state.aliveByCharacter]
+      .map(([characterId, alive]) => ({ characterId, alive })).sort(byId),
+    knownCharacters: [...state.knownCharacters].sort(),
+    excludedCharacterIds: [...state.excludedCharacterIds].sort(),
+    lastSequenceNumber: state.lastSequenceNumber,
+  };
+}
+
+export function deserializeLiveFold(stored: StoredLiveFold): LiveFoldState {
+  return {
+    locations: new Map(stored.locations.map((location) => [location.locationId, location])),
+    positionByCharacter: new Map(stored.positionByCharacter.map((entry) => [entry.characterId, entry.locationId])),
+    aliveByCharacter: new Map(stored.aliveByCharacter.map((entry) => [entry.characterId, entry.alive])),
+    knownCharacters: new Set(stored.knownCharacters),
+    excludedCharacterIds: new Set(stored.excludedCharacterIds),
+    lastSequenceNumber: stored.lastSequenceNumber,
+  };
+}
+
+/**
  * Fold `events` onto `prior`. Pure, and order-independent of the caller: events are sorted by
  * sequence number here rather than trusted to arrive that way, because last-write-wins is only
  * well defined against a known order and both former call sites sorted first.

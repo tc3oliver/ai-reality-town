@@ -14,6 +14,60 @@ const postCommitStage = v.union(
  * this pipeline — these tables only track pipeline progress.
  */
 export const operationsTables = {
+  /**
+   * Which world days exist, and which of them have an episode (ART-100). One row per world.
+   *
+   * The post-commit pipeline needs both sets on every accepted event: `episodeNumberFor` numbers a
+   * day by its position among the completed ones, stage 16 assembles an episode for every
+   * completed day that has none, and stage 20 asks whether the latest day is finished. Deriving
+   * them cost one `canonEvents` probe per world day plus a sweep of every `dailyEpisodes` row —
+   * O(days), which on five events a day is O(events) with a smaller constant.
+   *
+   * Maintained INCREMENTALLY and exactly, with no assumption that `worldDay` rises with
+   * `sequenceNumber` (nothing enforces that, and `episodeNumberFor` renumbers published episodes
+   * if it is wrong): new days come from the events after `throughSequenceNumber`, and accepted
+   * Canon is append-only, so a day can only appear by an event appearing. Episode days are
+   * re-probed only for completed days not already known to have one — the same set stage 16 is
+   * about to work on anyway.
+   *
+   * A DERIVED cache. It holds no fact that is not in `canonEvents` and `dailyEpisodes`, and
+   * deleting it costs one catch-up rebuild.
+   */
+  worldDayLedgers: defineTable({
+    schemaVersion: v.literal(1),
+    worldId: v.string(),
+    /** Every world day with at least one accepted event, ascending. */
+    worldDays: v.array(v.number()),
+    /** Every world day with a `dailyEpisodes` row, ascending. */
+    episodeWorldDays: v.array(v.number()),
+    /** The highest accepted-event sequence number this ledger has seen. */
+    throughSequenceNumber: v.number(),
+    updatedAt: v.number(),
+  }).index('by_world', ['worldId']),
+
+  /**
+   * How far `runLiveWorldDayCycle` has settled a world's accepted events (ART-100 AC#2).
+   *
+   * Every accepted event at or below `settledThroughSequenceNumber` has a COMPLETED post-commit
+   * run. The cycle used to establish that by collecting every accepted event and every
+   * post-commit run and filtering in memory — inside the very transaction whose byte budget the
+   * batch size exists to protect, and before a single event had been processed.
+   *
+   * The cursor advances only over a CONTIGUOUS completed prefix, never past a gap. Runs need not
+   * form a prefix: `runPostCommitPipeline` can be invoked directly for an arbitrary event and
+   * complete out of order, and a cursor that jumped to the highest completed run would strand
+   * every event below it forever.
+   *
+   * A DERIVED cache: it holds nothing `postCommitRuns` does not already say. Deleting it makes
+   * the next call re-scan from the world's first event, which is slow and correct.
+   */
+  postCommitCursors: defineTable({
+    schemaVersion: v.literal(1),
+    worldId: v.string(),
+    settledThroughSequenceNumber: v.number(),
+    updatedAt: v.number(),
+  }).index('by_world', ['worldId']),
+
   postCommitRuns: defineTable({
     runId: v.string(), worldId: v.string(),
     sourceEventId: v.string(), sourceEventSequenceNumber: v.number(), worldDay: v.number(),

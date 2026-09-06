@@ -96,13 +96,35 @@ canon RECOVERY artifact and is not an input to any public read model, so a snaps
 is recorded on the artifact instead of aborting the editorial release that already
 completed.
 
-### Known limitation: per-transaction read budget
+### Per-transaction read budget
 
-Every `publicRead` rebuild re-derives its payload by replaying the whole accepted-event
-log. Measured on the dev deployment at ~65 accepted events, one post-commit run already
-costs several megabytes of document reads, so `maxPostCommitEvents` defaults to 1 to stay
-under the Convex 16 MiB per-transaction limit. Making the projection builders incremental
-is tracked as ART-100; until then the live cycle processes one accepted event per call.
+A post-commit run's document reads no longer grow with the world's accepted-event count
+(ART-100). Every rebuild that used to replay the whole log now resumes from something
+maintained:
+
+| what | resumes from |
+| --- | --- |
+| world / character / relationship-graph projections, knowledge, memories | the newest `canonSnapshots` row plus the events after it |
+| the Live projection and the Visual Replay | `liveRebuildCheckpoints` (four folds) and `replaySceneCandidates` (a ranked scene index) |
+| completed world days, episode days | `worldDayLedgers` |
+| `runLiveWorldDayCycle`'s own candidate scan | `postCommitCursors`, a bounded page behind a settled-through cursor |
+| the onboarding summary's tail scan | a `MAX_SCANNED_EVENTS` cap, above which it is flat |
+
+Measured on `postCommitLiveFunctions.readMeasurement.test.ts` at 210 and 410 accepted
+events, a post-commit run reads an **identical** number of `canonEvents` rows at both
+sizes. `maxPostCommitEvents` therefore defaults to **3** — a whole time slot in one
+transaction — rather than 1.
+
+Every one of those tables is a DERIVED cache. Each is a fold of accepted Canon, holds no
+fact that is not already in it, and can be discarded and rebuilt (`rebuildLiveProjection`
+takes `rebuildFromScratch`). Losing one costs a catch-up, not a fact.
+
+**What still grows, honestly.** Two reads remain O(world days) rather than O(1):
+`rebuildEpisodeIndexProjection` reads every daily episode, and so does
+`rebuildTimelineProjection`. The first is *payload-bound* — the model it publishes IS the
+list of every episode, so it cannot read fewer rows than it publishes without paginating
+the public contract. The second is not, and bounding it to the days it actually timelines
+is the next thing to do here. Neither grows with events per day.
 
 ## Editorial authority
 
