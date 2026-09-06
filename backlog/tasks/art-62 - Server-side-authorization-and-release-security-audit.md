@@ -1,11 +1,11 @@
 ---
 id: ART-62
 title: Server-side authorization and release security audit
-status: To Do
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-29 12:43'
+updated_date: '2026-09-06 03:35'
 labels:
   - prd-1.0
   - epic-q
@@ -75,29 +75,29 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every public API and administrative mutation route has server-side authorization evidence.
+- [x] #1 Every public API and administrative mutation route has server-side authorization evidence.
 - [x] #2 Public/private data, trace/log redaction, viewer input, publication, and emergency-control boundaries are audited.
-- [ ] #3 No unresolved Critical or High security finding remains before public test.
+- [x] #3 No unresolved Critical or High security finding remains before public test.
 - [x] #4 License/attribution is retained and production deployment remains disabled.
 - [x] #5 Audit evidence identifies tested routes, roles, data classes, findings, and remediation.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
+- [x] #1 All acceptance criteria are satisfied
 - [x] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
 - [x] #8 No secret or credential is committed
 - [x] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
+- [x] #10 PRD traceability is updated when applicable
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -193,4 +193,50 @@ DoD#1(所有 AC 滿足)、#3-#7 等未勾者維持未勾,因本輪不含程式�
 ### 本輪未做(依指示)
 
 未修復任何發現、未實作功能、未處理 ART-74/86/152/153、未為了關閉發現而降低安全標準。
+
+## 2026-09-06 — H-1(c) measured; zero open Critical/High
+
+The deployment was restored, so the last ENVIRONMENT_BLOCKED item was settled by measurement rather than left open.
+
+Canary method: called the public query `listProposedEventReviews` with `operatorToken: "CANARY-H1C-NOT-A-REAL-SECRET-9f3a2b"` — a value invented for the test, so no real secret was written to a log in order to find out whether logs hold secrets — then read `npx convex logs --history 20 --jsonl`.
+
+The call is present in the captured window; the canary string appears ZERO times. A Convex `Completion` record has 21 fields and none of them is arguments; `error` carries the stack trace and the stable code only.
+
+Two things make it the right test rather than a lucky one. The deployed code was PRE-ART-154 (the stack trace shows `requireReviewer` calling `authorizeOperator` at `:69`), so if arguments were logged at all they would have been logged on exactly the path the finding names. And the same record reports `databaseReadDocuments: 0`, independently confirming in production what the fixtures assert — a denied caller is refused before any row is read, so a denial cannot leak whether a world exists.
+
+So the original H-1 argument — that a bearer token in a function argument is exposed through Convex logging — is NOT true of this deployment. The narrower point it was right about (a shared static token is weak regardless) was fixed separately by ART-154 and the Clerk cutover.
+
+Result: 0 open Critical, 0 open High. Remaining findings are MEDIUM and below.
+
+### AC#1 and AC#3 now have evidence
+
+**AC#1 — every route.** The authorization surface is enumerated and machine-enforced rather than surveyed by hand:
+
+- 36 operator routes: all reach `authorizeOperator` through the single env-reading wrapper `requireOperator`. `proposalReviewGate.test.ts` fails the build if any production file other than `opsConsoleFunctions.ts` calls `authorizeOperator` directly — which is what closed the one route that had drifted (ART-154).
+- 6 anonymous routes: reads by construction, pinned by `publicReadOnlyGuarantee.test.ts` against an exhaustive public-function-ref list.
+- 3 viewer routes: the single declared viewer write, enforced by the `viewerWriteBoundary` section of `architecture/module-boundaries.json`, which `check-boundaries.mjs` verifies bidirectionally — an undeclared registration and a stale declaration both fail the build.
+
+Plus one live confirmation: the canary call was refused with `databaseReadDocuments: 0`, i.e. denied before any row was read, so a denial does not disclose whether a world exists.
+
+**AC#3 — zero open Critical or High.** Two Critical resolved. Of seven High: H-2 and H-5 superseded by ART-112 deleting the engine; H-3, H-6 and D-1 resolved earlier; H-1 resolved by ART-154 + the Clerk cutover + the (c) measurement above; H-4 resolved by ART-156. The one High found during the re-audit, N-1, is resolved by ART-155 together with N-2, which had to be fixed for N-1 fix to be sound.
+
+Remaining findings are MEDIUM and below and are recorded in the document, not silently dropped: N-3 (no rate limiter on the vote surface), N-4 (missing `returns` validator), N-7 (no `npm audit` CI gate), plus the LOW items.
+
+**What this does NOT clear.** ART-100 AC#1 is unmet — a post-commit run reads O(total accepted events), and that is what exhausted the deployment plan quota. That is a release blocker on ART-138 and it is not a security finding; it is not in this task scope and is not being folded in.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Re-audited against origin/main, corrected the record, and closed every Critical and High finding.
+
+The re-audit found ART-62 had been marked Done while three High findings were open, so it was reopened. All three are now closed with code: ART-154 (proposal-review queries kept honouring the shared ops token after a Clerk cutover), ART-155 (vote round cap six times above the Convex read limit, plus N-2, which had to be fixed for that fix to be sound), and ART-156 (the pre-generation gate could not match the Traditional Chinese this system generates).
+
+Two findings were closed by measurement rather than argument. H-1(c) — whether `operatorToken` reaches Convex function logs — was answered with a canary call against the restored deployment: the call is in the log window, the canary string is not, and a Convex completion record carries no arguments field at all. The finding does not hold. The same record showed `databaseReadDocuments: 0`, confirming in production the denied-before-any-read property the fixtures assert.
+
+Two more were closed by deletion rather than repair, and that is stated rather than glossed: H-2 and H-5 disappeared because ART-112 retired the a16z engine. H-5 was NOT closed by ART-102, whose helpers have zero production callers.
+
+Verified: `npm run check` green at 206 suites / 3334 passed / 6 skipped, with fault injection on each of the three fixes. Zero open Critical or High; remaining findings are MEDIUM and below and are recorded.
+
+Not cleared by this task: ART-100 AC#1, a performance defect that exhausted the deployment quota and remains a release blocker on ART-138.
+<!-- SECTION:FINAL_SUMMARY:END -->

@@ -5,7 +5,7 @@ status: Blocked
 assignee:
   - '@claude'
 created_date: '2026-08-04 16:00'
-updated_date: '2026-09-06 02:40'
+updated_date: '2026-09-06 03:19'
 labels:
   - prd-2.0
   - v2-k
@@ -124,4 +124,18 @@ What this blocks: every acceptance criterion on this gate that requires observin
 What it does NOT block, and is being worked separately: ART-154, ART-155 and ART-156 (the three security findings that reopened ART-62) are pure code defects, reproducible and fixable offline.
 
 Also recorded while checking: the deployment environment has `CLERK_JWT_ISSUER_DOMAIN` set and `SIMULATION_OPS_ALLOW_TOKEN_FALLBACK` unset — the configuration the ART-62 re-audit asked for. That closes the environment half of finding H-1 and leaves ART-154 as the remaining code half.
+
+## 2026-09-06 (later) — Convex blocker LIFTED
+
+The maintainer restored the Convex team. Re-verified: `POST /api/query` now returns an `ArgumentValidationError` (i.e. the function EXECUTED and rejected bad arguments) instead of the free-plan refusal, and `npx convex run --inline-query` returns data.
+
+Live state at the moment of recovery, read with bounded queries only:
+
+- one world, `mistwood`, `mode: development`, `status: running`, `nextWorldDay: 4`, `publishEnabled: true`
+- 78 accepted canon events
+- newest `postCommitRuns` rows: sequences 74, 73, 72, all `completed`
+
+**Nothing is currently consuming I/O.** All four crons scope themselves to PUBLIC worlds — `tickAllPublicSchedules` binds `by_mode_and_status` on `("public","running")` (`simulation/schedulerOperations.ts:180-181`), and the runtime-snapshot and vote crons do the same. `mistwood` is `development`, so every one of them reads zero rows per tick.
+
+**The standing hazard is unchanged and is ART-100, not a cron.** A post-commit run still reads O(total accepted events); AC#1 of ART-100 is explicitly unmet. Setting this world to `public` + `running` restarts a 60-second cron against a pipeline whose read cost grows with canon size, which is what exhausted the plan. Do not flip the mode until ART-100 AC#1 is met or the world is watched.
 <!-- SECTION:NOTES:END -->
