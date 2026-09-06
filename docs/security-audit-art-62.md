@@ -36,7 +36,7 @@ called UNRESOLVED can be closed by unrelated work. Both happened.
 |---|---|---|---|---|
 | C-1 | Canon commit was a public unauthenticated mutation | FIXED | **RESOLVED** | `convex/canon/commit.ts:241` is `internalMutation`. The only write to `canonEvents` anywhere is `:200`, inside `commitProposedEvent`; every caller is server-side. `architecture/module-boundaries.json` lists all four symbols under `viewerWriteBoundary.forbiddenSymbols`, CI-enforced |
 | C-2 | CC art credits deleted while assets ship; docs relicensed as MIT | FIXED | **RESOLVED**, hardened further | `ASSETS-LICENSE.md` registers 53 assets. `ATTRIBUTION.md:27-34`, `docs/upstream.md:129`, `README.md:130-137` all scope MIT to source only. ART-108/ART-144 added `scripts/assets/check-asset-licenses.mjs` to `npm run check` and both CI workflows, and deleted sixteen files that could not be cleared |
-| H-1 | Operator identity path dead; shared bearer token in a mutation argument is the only credential | UNRESOLVED | **STILL OPEN** (partly ENVIRONMENT BLOCKED) | See §0.1 — the remediation is real but incomplete |
+| H-1 | Operator identity path dead; shared bearer token in a mutation argument is the only credential | UNRESOLVED | **RESOLVED except (c)** — see the 2026-09-06 update in §0.1 | Was STILL OPEN at re-audit; the code half is ART-154, the env half is now configured, and only "does the token appear in function logs" remains ENVIRONMENT BLOCKED |
 | H-2 | Public unauthenticated engine stop/resume | PARTLY FIXED | **SUPERSEDED** | `convex/testing.ts` no longer exists. ART-112 (`893961f`) retired the a16z engine. Pinned against return by `emergencyStopControls.test.ts:445` and `publicReadOnlyGuarantee.test.ts:427` |
 | H-3 | Raw prompts and raw model output logged on the live agent path | FIXED | **RESOLVED** | Ten `console.*` sites remain in `convex/`; none logs prompt or completion content. `util/llm.ts:161` logs `{model, messageCount, stream}`, `:197` logs `{completionChars}`. `convex/simulation/providers/` — the live path today — has zero `console.*` |
 | H-4 | Pre-generation safety classifier has zero production callers | UNRESOLVED | **STILL OPEN** (partial fix) | See §0.2 — it now has callers, but coverage is incomplete and the policy is inert for this project's content language |
@@ -84,6 +84,50 @@ unchanged"; it is ART-48's minus the H-1 remediation. That is the same defect cl
 created to catch: a docstring asserting a property the code does not have.
 
 Disposition: **the two-line fix is CODE_BLOCKER; the remaining exposure is ENVIRONMENT_BLOCKED.**
+
+#### Update, 2026-09-06 — (d) is FIXED (ART-154); (a) and (b) are closed by the deployment env
+
+**(d) fixed.** `requireReviewer` no longer calls `authorizeOperator` at all; it delegates to
+`opsConsoleFunctions.requireOperator`, the wrapper that reads the deployment env. The false
+"verbatim / unchanged" paragraph in that module's header has been replaced with an account of what
+actually went wrong.
+
+The fix was not just the missing argument. `authorizeOperator`'s `allowTokenFallback` is optional
+and defaults to `true`, so **every** direct caller is one forgotten line from a permanently open
+token path, and the omission is invisible at the call site. Making the parameter required was
+considered and rejected — it would drag the deployment env into unit tests of the pure policy,
+where the default is correct. Instead, `proposalReviewGate.test.ts` pins the call graph: exactly
+one production file under `convex/` may call `authorizeOperator`, and it is the env-reading
+wrapper. A third surface repeating this mistake now fails the build rather than shipping.
+
+AC#4 of ART-154 — audit every remaining call site — is answered by that same test: at the time of
+writing there were exactly **two** production call sites (`opsConsoleFunctions.ts:100`,
+`proposalReviewFunctions.ts:69`), of which the second was the defect. There is now one.
+
+Coverage was verified by fault injection, not by inspection: restoring the original
+`requireReviewer` body turned exactly three tests red — the two behavioural denials and the
+call-site guard — while the seven tests that should be insensitive to it stayed green. The reason
+the pre-existing suite never caught this is worth recording, because it is a reusable lesson:
+`proposalReview.test.ts` exercised the *pure policy* by calling `authorizeOperator` itself,
+supplying `registry` and `capability` by hand. The policy was never wrong. The wiring was — and a
+test that constructs the call itself cannot see an argument missing from a call site it does not
+use. The new tests therefore drive the registered `query` exports through `_handler` with
+`process.env` set to the deployment's real configuration.
+
+**(a) and (b) closed by configuration.** `npx convex env list` against the deployment on
+2026-09-06 reports `CLERK_JWT_ISSUER_DOMAIN` present and `SIMULATION_OPS_ALLOW_TOKEN_FALLBACK`
+absent — the configuration §0.6 asked for. `auth.config.ts` therefore emits a real provider and
+`requireOperator` computes `allowTokenFallback === false`, so the token branch is shut on every
+operator surface.
+
+**(c) is unchanged and still unobserved.** Whether `operatorToken` appears in Convex function logs
+cannot be settled from the repository, and it cannot currently be settled from the deployment
+either: function execution is disabled for exceeding free-plan limits (see ART-138's notes), so no
+log can be produced. This stays ENVIRONMENT_BLOCKED, and no claim either way should be recorded
+until a live log exists.
+
+H-1's status therefore moves from **STILL OPEN** to **RESOLVED except (c), which is
+ENVIRONMENT_BLOCKED.**
 
 ### 0.2 H-4 — it now has callers, and the gate is still not effective
 
@@ -228,6 +272,16 @@ fixed in this repository today; the third is code plus one deployment configurat
 
 Secrets scan is clean — tracked tree and full `git log --all -p` history, no matches for any
 credential pattern.
+
+**Update, 2026-09-06.** Still not clear, on **two** open High findings rather than three: H-1 is
+closed apart from its unobservable log question (§0.1). The remaining two are tracked as ART-155
+(N-1) and ART-156 (H-4), both pure code.
+
+One thing has got worse, and it is not a finding: the Convex deployment is disabled for exceeding
+free-plan limits, verified on the dev CLI, the prod CLI and the raw HTTP API. Function metadata
+still resolves; execution does not. Every conclusion in this document that was deferred to "a live
+deployment would settle it" is now deferred indefinitely, including H-1(c). Nothing in this
+document may be upgraded from *unobserved* to *verified* on fixture evidence in the meantime.
 
 ---
 

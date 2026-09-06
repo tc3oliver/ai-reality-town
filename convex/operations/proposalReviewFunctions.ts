@@ -7,15 +7,32 @@
  * an unauthorized caller cannot learn whether a world, scene, or proposal exists
  * (the console's uniform-denial rule, FR-K001 AC#3).
  *
- * AUTHORIZATION IS ART-48'S, UNCHANGED
- * ------------------------------------
- * Review reuses the operations console's single decision point verbatim: the
+ * AUTHORIZATION IS ART-48'S — NOW BY CALL, NOT BY CLAIM
+ * -----------------------------------------------------
+ * Review reuses the operations console's single decision point: the
  * `SIMULATION_OPS_OPERATORS` registry, the `viewer < operator < admin` role
  * order, the identity-then-ops-token principal resolution, and the uniform
  * `OPS_UNAUTHORIZED` denial. Review is a READ, so it is gated on the existing
  * `world.inspect` capability rather than a new one — a role that may already
  * inspect world state is exactly the role that may read why an event was
  * accepted or rejected.
+ *
+ * This paragraph used to say "verbatim" and "unchanged" while the code below kept
+ * its own copy of the gate — a copy that called {@link authorizeOperator} directly
+ * and omitted `allowTokenFallback`, whose default is `true`. The console computes
+ * that flag from `CLERK_JWT_ISSUER_DOMAIN` / `SIMULATION_OPS_ALLOW_TOKEN_FALLBACK`
+ * so the shared static token stops authenticating once an identity provider is
+ * configured; the copy never did, so these two queries — which return raw model
+ * output, model traces and safety labels — went on honouring that token forever
+ * (ART-154, audit finding H-1). The deployment already has
+ * `CLERK_JWT_ISSUER_DOMAIN` set and the escape hatch unset, i.e. exactly the
+ * configuration under which the two gates disagreed.
+ *
+ * The fix is to stop having a second gate at all: {@link requireOperator} is
+ * imported and called. `authorizeOperator` is deliberately NOT imported here any
+ * more, and `proposalReviewGate.test.ts` fails the build if any production module
+ * other than `opsConsoleFunctions.ts` calls it again — a docstring cannot enforce
+ * "identical", but a single call site can.
  *
  * NOTHING HERE MUTATES
  * --------------------
@@ -36,42 +53,24 @@ import { query } from '../_generated/server';
 import type { DataModel } from '../_generated/dataModel';
 import type { GenericQueryCtx } from 'convex/server';
 import { v } from 'convex/values';
-import {
-  authorizeOperator,
-  parseOperatorRegistry,
-  type OperatorPrincipal,
-} from './operatorAuthorization';
+import type { OperatorPrincipal } from './operatorAuthorization';
+import { credentialArgs, requireOperator } from './opsConsoleFunctions';
 import type { ProposalReviewFilter } from './proposalReview';
 import { listProposalReviews, readProposalReview } from './proposalReviewStore';
 
 type QueryCtx = GenericQueryCtx<DataModel>;
 
 /**
- * Credentials every review call carries, identical to the console's. A verified
- * `ctx.auth` identity is preferred; the ops token is the bootstrap path used
- * until the deployment has an identity provider.
+ * THE gate — the console's, called rather than reproduced. Review is read-only, so
+ * it asks for `world.inspect`; everything else about the decision, including
+ * whether the shared token may still authenticate at all, belongs to
+ * {@link requireOperator} and is not restated here. See this module's header.
  */
-const credentialArgs = {
-  operatorId: v.optional(v.string()),
-  operatorToken: v.optional(v.string()),
-} as const;
-
-/**
- * THE gate. Identical to the console's: verified Convex identity plus the
- * server-only registry, with the whole decision delegated to the pure policy
- * module. Review is read-only, so it requires `world.inspect`.
- */
-async function requireReviewer(
+function requireReviewer(
   ctx: QueryCtx,
   args: { worldId: string; operatorId?: string; operatorToken?: string },
 ): Promise<OperatorPrincipal> {
-  const identity = await ctx.auth.getUserIdentity();
-  return authorizeOperator({
-    credentials: { identity, token: args.operatorToken, operatorId: args.operatorId },
-    registry: parseOperatorRegistry(process.env.SIMULATION_OPS_OPERATORS),
-    capability: 'world.inspect',
-    worldId: args.worldId,
-  });
+  return requireOperator(ctx, 'world.inspect', args);
 }
 
 /**
