@@ -59,13 +59,18 @@ import { SimulationProviderError } from './provider';
  * that far -- so `provider` is null and the model is the one we ASKED for. That is honest: it
  * records which request failed without inventing a resolution the gateway never sent.
  *
- * HTTP 429 reaches here as the transient `LLM_HTTP_RETRYABLE` after the adapter's own retries are
- * exhausted, and is classified as `rate_limited` rather than `failed` because an exhausted free
- * allowance refills on a clock while an error does not.
+ * A rate limit is classified apart from a failure because an exhausted free allowance refills on a
+ * clock while an error does not — so the two call for different operator responses.
+ *
+ * That decision is read from the error's own `rateLimited`, NOT from its code. This docblock used
+ * to say the test was `code === 'LLM_HTTP_RETRYABLE'`, and describing that as "HTTP 429 reaches
+ * here as..." was wrong about its own condition: that code also covers 408 and every 5xx, so a
+ * gateway returning 500 was booked as rate-limited and an operator would go looking for a quota
+ * problem while the gateway was simply down. Retryability and cause are different questions, and
+ * one code could not answer both.
  */
 function routeFailureFrom(error: unknown, requestedModel: string): RouteFailure {
-  const rateLimited = error instanceof SimulationProviderError
-    && error.code === 'LLM_HTTP_RETRYABLE';
+  const rateLimited = error instanceof SimulationProviderError && error.rateLimited;
   return { provider: null, model: requestedModel, kind: rateLimited ? 'rate_limited' : 'failed' };
 }
 

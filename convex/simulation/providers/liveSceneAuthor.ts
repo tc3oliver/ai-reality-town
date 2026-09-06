@@ -37,6 +37,7 @@
 import type { LanguageModelProvider } from '../provider';
 import { loadOpenAICompatibleConfig, type ProviderEnvironment } from './config';
 import { createLanguageModelProvider } from './safeProvider';
+import type { AdapterDependencies } from './openAICompatible';
 import { FreeRouteChainProvider, parseFreeRouteChain } from './freeRouteChain';
 
 /**
@@ -69,8 +70,12 @@ export function resolveLiveSceneAuthoringModel(env: ProviderEnvironment): string
  * reach past the safety gate by touching a method the port does not declare — the same narrowing
  * `createLanguageModelProvider` does, preserved through the second wrapper.
  */
-export function createLiveSceneAuthor(env: ProviderEnvironment): LanguageModelProvider {
+export function createLiveSceneAuthor(
+  env: ProviderEnvironment,
+  /** Transport seam — see {@link createLanguageModelProvider}. Production passes nothing. */
+  dependencies: Partial<AdapterDependencies> = {},
+): LanguageModelProvider {
   const config = loadOpenAICompatibleConfig(env);
   const chain = parseFreeRouteChain(env[LIVE_ROUTE_CHAIN_ENV], config.chatModel);
-  return new FreeRouteChainProvider(createLanguageModelProvider(config), chain);
+  return new FreeRouteChainProvider(createLanguageModelProvider(config, dependencies), chain);
 }

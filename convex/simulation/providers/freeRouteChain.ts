@@ -109,19 +109,20 @@ export async function callWithFreeRouteFallback(
     throw new SimulationProviderError('permanent', FREE_ROUTES_EXHAUSTED, 'no free route is configured');
   }
   const attempts: RouteAttempt[] = [];
-  let last: unknown;
   for (const model of chain) {
     try {
       const result = await provider.structuredChat({ ...request, model });
       attempts.push({ model, outcome: 'served', code: null });
       return { ...result, attempts };
     } catch (error) {
-      last = error;
       const code = error instanceof SimulationProviderError ? error.code : null;
       const routeLevel = isRouteLevelFailure(error);
       attempts.push({
         model,
-        outcome: code === 'LLM_HTTP_RETRYABLE' ? 'rate_limited' : 'failed',
+        // Read off the error's own `rateLimited`, not off its CODE. `LLM_HTTP_RETRYABLE` covers
+        // 408, 429 and every 5xx, so keying on it reported a broken gateway as an exhausted
+        // allowance — the two need different operator responses.
+        outcome: error instanceof SimulationProviderError && error.rateLimited ? 'rate_limited' : 'failed',
         code,
       });
       // A request-level failure is rethrown as itself rather than buried under an exhaustion
@@ -131,6 +132,10 @@ export async function callWithFreeRouteFallback(
   }
   throw new SimulationProviderError('permanent', FREE_ROUTES_EXHAUSTED,
     `every free route was unavailable after ${attempts.length} attempt(s)`,
+    // PERMANENT, because retrying would spend the whole chain again for the same reason — and
+    // still rate-limited when a rate limit is what stopped it. Those are separate facts, and the
+    // second is the one an operator needs: it says the KEY ran out rather than the gateway broke.
+    { rateLimited: attempts.some((attempt) => attempt.outcome === 'rate_limited') },
     );
 }
 

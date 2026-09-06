@@ -12,12 +12,46 @@ import type { SimulationInput, SimulationProviderName } from './model';
 export class SimulationProviderError extends Error {
   readonly kind: 'transient' | 'permanent';
   readonly code: string;
+  /**
+   * Whether a rate limit CAUSED this failure, independent of whether retrying could help.
+   *
+   * The two are genuinely separate, and conflating them lost a signal. A single 429 is transient
+   * and rate-limited. A free-route chain that exhausted because every route returned 429 is
+   * PERMANENT — retrying would spend the whole chain's allowance to be refused again — but it is
+   * still rate-limited, and it is the case an operator most needs to see: the world has stopped
+   * because the key ran out, not because the gateway is broken.
+   *
+   * Without this the accountant classified an exhausted chain as a generic `failed`, so
+   * `usageByRoute.rateLimited` stayed at zero for exactly the outage it exists to report.
+   *
+   * Lives on the shared error rather than on the chain's own subclass because the accountant
+   * (`simulation/sceneBudget.ts`) must read it and may not import the adapter root.
+   *
+   * ## Why the error CODE could not answer this
+   *
+   * `LLM_HTTP_RETRYABLE` covers 408, 429 and every 5xx, because all three are worth retrying and
+   * that is what the code is for. The accountant used to read it as "rate limited", which meant a
+   * gateway returning 500 was reported as an exhausted allowance — an operator would go looking
+   * for a quota problem while the gateway was simply down. Splitting the two apart is why this is
+   * a separate field rather than a second code: the RETRY decision and the CAUSE are different
+   * questions, and one value cannot answer both.
+   *
+   * Defaults to `false`. Rate limiting is a specific claim, and a failure that has not made it is
+   * not making it by accident.
+   */
+  readonly rateLimited: boolean;
 
-  constructor(kind: 'transient' | 'permanent', code: string, message: string) {
+  constructor(
+    kind: 'transient' | 'permanent',
+    code: string,
+    message: string,
+    options: { rateLimited?: boolean } = {},
+  ) {
     super(message);
     this.name = 'SimulationProviderError';
     this.kind = kind;
     this.code = code;
+    this.rateLimited = options.rateLimited ?? false;
   }
 }
 

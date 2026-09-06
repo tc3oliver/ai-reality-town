@@ -4,7 +4,7 @@ import { PRE_GENERATION_PROVIDER_CONSTRAINT, assertPreGenerationSafe, chatMessag
 import type { OpenAICompatibleConfig } from './config';
 
 type Fetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-type AdapterDependencies = { fetch: Fetch; now: () => number; delay: (milliseconds: number) => Promise<void> };
+export type AdapterDependencies = { fetch: Fetch; now: () => number; delay: (milliseconds: number) => Promise<void> };
 const defaults: AdapterDependencies = { fetch: globalThis.fetch.bind(globalThis), now: Date.now,
   delay: (milliseconds) => new Promise((resolve) => { setTimeout(resolve, milliseconds); }) };
 
@@ -96,7 +96,13 @@ export class OpenAICompatibleProvider implements LanguageModelProvider, Simulati
         if (!response.ok) {
           const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
           if (!retryable) throw new SimulationProviderError('permanent', 'LLM_HTTP_REJECTED', `provider rejected the request with HTTP ${response.status}`);
-          throw new SimulationProviderError('transient', 'LLM_HTTP_RETRYABLE', `provider temporarily failed with HTTP ${response.status}`);
+          // `retryable` and `rateLimited` are deliberately different questions. 408, 429 and every
+          // 5xx are all worth retrying, so they share a code — but only 429 says the ALLOWANCE ran
+          // out. Reporting a 500 as rate-limited sent an operator hunting for a quota problem
+          // while the gateway was down.
+          throw new SimulationProviderError('transient', 'LLM_HTTP_RETRYABLE',
+            `provider temporarily failed with HTTP ${response.status}`,
+            { rateLimited: response.status === 429 });
         }
         let parsed: unknown;
         try { parsed = await response.json() as unknown; } catch { throw new SimulationProviderError('permanent', 'LLM_RESPONSE_INVALID', 'provider response was not JSON'); }

@@ -42,7 +42,7 @@ import type {
   StructuredChatRequest,
   StructuredChatResult,
 } from '../provider';
-import { OpenAICompatibleProvider } from './openAICompatible';
+import { OpenAICompatibleProvider, type AdapterDependencies } from './openAICompatible';
 import type { OpenAICompatibleConfig } from './config';
 
 /**
@@ -82,6 +82,16 @@ export function withPreGenerationSafety<T extends LanguageModelProvider>(provide
  * could see the concrete class could also reach past the wrapper by touching a method the port
  * does not declare. Narrowing here is what makes the gate structural rather than advisory.
  */
-export function createLanguageModelProvider(config: OpenAICompatibleConfig): LanguageModelProvider {
-  return withPreGenerationSafety(new OpenAICompatibleProvider(config));
+export function createLanguageModelProvider(
+  config: OpenAICompatibleConfig,
+  /**
+   * Transport seam, for tests that need to exercise the wiring ABOVE this adapter without a
+   * gateway. Deliberately the adapter's own `AdapterDependencies` rather than a bespoke stub
+   * type: a test that supplies these drives the real request assembly, the real HTTP status
+   * classification and the real trace parsing, so what it proves is a property of the shipped
+   * adapter. A second construction site would prove a property of the second one.
+   */
+  dependencies: Partial<AdapterDependencies> = {},
+): LanguageModelProvider {
+  return withPreGenerationSafety(new OpenAICompatibleProvider(config, dependencies));
 }
