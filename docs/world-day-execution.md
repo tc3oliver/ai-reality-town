@@ -130,6 +130,50 @@ same world **cannot exist** — that is ART-160's lease. The durable `inFlight` 
 exists so the gate is never asked to grant more than it would allow, which would turn a limit into
 a stream of refusals.
 
+## The automatic publication gate (ART-162)
+
+`worldSchedules.publishEnabled` existed from ART-18 and gated nothing — written by the scheduler,
+copied onto every reserved slot, read by no production code. It now has exactly one meaning, and
+the asymmetry is the design:
+
+> **It can SUPPRESS publication. It can never FORCE it.**
+
+| | `publishEnabled = false` | `publishEnabled = true` |
+| --- | --- | --- |
+| simulation, Canon commit | unchanged | unchanged |
+| Episode / Recap derivation | unchanged | unchanged |
+| Safety + editorial lifecycle | unchanged, up to `ready` | unchanged |
+| publication status | stops at `ready` | may advance through the lifecycle |
+| Public Read Model | not updated | updated |
+| what readers see | the last valid version, frozen | current |
+
+`true` grants nothing on its own. It only declines to interfere: content still passes safety, is
+still walked through the lifecycle by an authorized operator, and a `withheld` record is still
+withheld. There is deliberately **no code path that reads this flag and advances a status**, so
+"publishEnabled bypassed the safety gate" is not a bug that can be written without changing
+`isPublicationEnabled`'s signature — it takes a schedule row and returns a boolean, with no record
+in scope to promote.
+
+### Two boundaries, and only two
+
+- **`commitReadModelVersion`** — consulted *before* anything is read or written. That ordering is
+  the requirement, not a detail: a gate that suppressed the insert but still demoted the current
+  row would **blank** the public surface instead of freezing it.
+- **`advancePublication`** — gates the single `publish` transition. `validate`,
+  `begin_safety_review`, `pass_safety_review`, `resume_to_ready` and especially **`withhold`** all
+  still run with the gate closed. Refusing to record a safety withhold because publication is
+  paused would be a gate that made a world *less* safe while claiming otherwise.
+
+`publicationEnabled` is on the `PublicReadStore` **port**, not an argument to
+`commitReadModelVersion`. There are 28 projection writers; a parameter would put the same judgement
+in 28 places and the twenty-ninth would forget it. It is required rather than optional, so a new
+binding cannot enforce nothing by omission — which is precisely how this field came to gate nothing.
+
+### An unscheduled world publishes
+
+`worldSchedules` is written by the scheduler, so a fixture, an import or a warmup world has
+expressed no opinion. Reading absent as suppressed would blank every read model in the offline gate.
+
 ## Who gets cast, and how a stranded character gets back in
 
 Scene selection is neglect-first, then rotating. Locations that can hold a multi-character
