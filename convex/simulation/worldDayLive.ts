@@ -201,6 +201,15 @@ export interface WorldDayLivePort {
   persistGroupedScenes(input: SceneGroupingInput, result: SceneGroupingResult): Promise<void>;
   persistSceneSimulation(groupingRunId: string, result: SceneSimulationResult): Promise<void>;
   /**
+   * ART-149. A scene's already-persisted result, or null. Lets a retried slot skip the provider
+   * call it already paid for; see `findReusableSceneSimulation`.
+   */
+  loadPersistedSceneSimulation(
+    worldId: string,
+    groupingRunId: string,
+    simulationRunId: string,
+  ): Promise<SceneSimulationResult | null>;
+  /**
    * The world's current FR-K005 model configuration for one module (ART-52).
    *
    * On the port rather than resolved inside the stage, because this module is pure — it has no
@@ -947,7 +956,15 @@ export function createWorldDayStageHandlers(
       const results: SceneSimulationResult[] = [];
       const withheldSceneIds: string[] = [];
       for (const scene of grouping.result.scenes) {
-        const result = await simulateWholeScene(provider, `${scene.sceneId}:simulation`, scene, {
+        const simulationRunId = `${scene.sceneId}:simulation`;
+        // ART-149. `simulate_scenes` is one checkpoint for the whole slot, so a failure on any
+        // scene re-runs every earlier scene too. Persistence already deduplicated on
+        // `simulationRunId`, but only AFTER the provider call — the retry paid for output it then
+        // discarded. Reusing the stored result here is what makes the retry free, and it is the
+        // same result: the row holds the finalized `SceneSimulationResult`, and the pure
+        // derivations below are re-applied to it exactly as to a fresh one.
+        const reused = await port.loadPersistedSceneSimulation(slot.worldId, grouping.groupingRunId, simulationRunId);
+        const result = reused ?? await simulateWholeScene(provider, simulationRunId, scene, {
           ...options,
           // ART-157. Derived per scene from the SAME stage-1 snapshot the Director planned
           // against, so the author is told exactly what Canon will accept. Before this the
@@ -974,7 +991,9 @@ export function createWorldDayStageHandlers(
             decisionIdPrefix: `${scene.sceneId}:budget`,
           },
         });
-        await port.persistSceneSimulation(grouping.groupingRunId, result);
+        // Skipped when reused: the row this result came from is already the persisted one, and
+        // re-persisting would only re-derive the same dedup answer at the cost of another write.
+        if (!reused) await port.persistSceneSimulation(grouping.groupingRunId, result);
         // FR-C005 AC#5: high-risk output goes to safety review instead of Canon.
         if (result.reviewStatus === 'required') withheldSceneIds.push(scene.sceneId);
         // FR-P004 AC#1: every event committed from here carries the Scene whose safety

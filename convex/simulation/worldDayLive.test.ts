@@ -11,8 +11,14 @@ import {
   type CharacterIntentContext,
 } from './characterIntent';
 import { MAX_MAJOR_SCENES_PER_SLOT, parseAndValidateDirectorPlan, type DirectorPlan, type DirectorPlanContext } from './director';
-import { narrateGroupedScene } from './fakeSceneNarrator';
-import type { LanguageModelProvider, StructuredChatRequest } from './provider';
+import { FakeWholeSceneProvider, narrateGroupedScene } from './fakeSceneNarrator';
+import {
+  SimulationProviderError,
+  type EmbeddingResult,
+  type LanguageModelProvider,
+  type StructuredChatRequest,
+  type StructuredChatResult,
+} from './provider';
 import { MAX_MAJOR_SCENE_PARTICIPANTS, type GroupedScene, type SceneGroupingInput, type SceneGroupingResult } from './sceneGrouping';
 import { finalizeWholeSceneOutput, parseWholeSceneOutput, type SceneSimulationResult } from './sceneSimulation';
 import {
@@ -145,6 +151,7 @@ type PersistedArtifacts = {
  */
 function createSeedPort(store: InMemoryCanonStore): WorldDayLivePort & { persisted: PersistedArtifacts; lastSnapshot: () => LiveWorldSnapshot } {
   const persisted: PersistedArtifacts = { directorPlans: [], intents: [], groupings: [], simulations: [] };
+  const simulationRows = new Map<string, SceneSimulationResult>();
   let snapshot: LiveWorldSnapshot | null = null;
   return {
     persisted,
@@ -200,10 +207,15 @@ function createSeedPort(store: InMemoryCanonStore): WorldDayLivePort & { persist
       persisted.groupings.push({ input, result });
       return Promise.resolve();
     },
-    persistSceneSimulation: (_groupingRunId, result) => {
+    // ART-149. A real store, not a sink: `loadPersistedSceneSimulation` reads back what this
+    // wrote, which is what lets the retry spec observe a scene being reused rather than reauthored.
+    persistSceneSimulation: (groupingRunId, result) => {
       persisted.simulations.push(result);
+      simulationRows.set(`${result.scene.worldId}:${groupingRunId}:${result.simulationRunId}`, result);
       return Promise.resolve();
     },
+    loadPersistedSceneSimulation: (worldId, groupingRunId, simulationRunId) =>
+      Promise.resolve(simulationRows.get(`${worldId}:${groupingRunId}:${simulationRunId}`) ?? null),
   };
 }
 
@@ -694,5 +706,94 @@ describe('ART-157 legalDestinationsFrom', () => {
   it('is sorted, so two identical worlds send the provider identical prompts', () => {
     const locations = [square(['zoo', 'attic', 'mill']), location('zoo'), location('attic'), location('mill')];
     expect(legalDestinationsFrom(locations, 'square')).toEqual(['attic', 'mill', 'zoo']);
+  });
+});
+
+/**
+ * ART-149. `simulate_scenes` is a SINGLE orchestration checkpoint covering every scene in the
+ * slot, so a failure on the last scene discards the checkpoint and re-runs the earlier ones.
+ * Persistence deduplicated on `simulationRunId`, but only after the provider had been called —
+ * the retry paid for output it then threw away. That is a silent cost multiplier on exactly the
+ * runs that are already going badly.
+ *
+ * The assertion is on which scenes the PROVIDER was asked to author, not on how many rows were
+ * written: a token is spent by the call, and a test counting persistence would have passed
+ * throughout the defect.
+ */
+describe('ART-149 retry does not re-author scenes that already succeeded', () => {
+  /** Records the sceneId of every authoring call, and can fail from a chosen call onwards. */
+  class RecordingProvider implements LanguageModelProvider {
+    readonly authored: string[] = [];
+    private readonly inner = new FakeWholeSceneProvider();
+    constructor(private readonly failFromCall = Number.POSITIVE_INFINITY) {}
+
+    structuredChat(request: StructuredChatRequest): Promise<StructuredChatResult> {
+      const payload = request.messages.find(({ role }) => role === 'user')?.content ?? '';
+      const { sceneId } = JSON.parse(payload) as { sceneId: string };
+      this.authored.push(sceneId);
+      if (this.authored.length >= this.failFromCall) {
+        return Promise.reject(new SimulationProviderError('permanent', 'TEST_PROVIDER_FAILURE', 'injected mid-slot failure'));
+      }
+      return this.inner.structuredChat(request);
+    }
+
+    embed(text: string): Promise<EmbeddingResult> {
+      return this.inner.embed(text);
+    }
+  }
+
+  /** How many scenes this slot contains, measured on a clean run of the same slot. */
+  async function sceneCountFor(timeSlot: TimeSlot): Promise<number> {
+    const probe = new RecordingProvider();
+    await executeWorldDay(
+      runInput(slotOf(timeSlot)), new MemoryRunStore(),
+      createWorldDayStageHandlers(createSeedPort(seededStore()), probe),
+    );
+    return probe.authored.length;
+  }
+
+  it('re-authors only the scene that failed, not the ones already persisted', async () => {
+    const totalScenes = await sceneCountFor('morning');
+    // The defect is only observable when an EARLIER scene succeeded before a later one failed.
+    expect(totalScenes).toBeGreaterThan(1);
+
+    const store = seededStore();
+    const runStore = new MemoryRunStore();
+    const port = createSeedPort(store);
+
+    // Fail on the last scene of the slot, so every earlier scene is already persisted.
+    const failing = new RecordingProvider(totalScenes);
+    const failed = await executeWorldDay(
+      runInput(slotOf('morning')), runStore, createWorldDayStageHandlers(port, failing),
+    );
+    expect(failed).toMatchObject({ status: 'failed', failureStage: 'simulate_scenes' });
+    const alreadyAuthored = port.persisted.simulations.map(({ scene }) => scene.sceneId);
+    expect(alreadyAuthored).toHaveLength(totalScenes - 1);
+
+    const retry = new RecordingProvider();
+    const resumed = await executeWorldDay(
+      runInput(slotOf('morning')), runStore, createWorldDayStageHandlers(port, retry),
+    );
+
+    expect(resumed).toMatchObject({ status: 'completed' });
+    // AC#1 / AC#3: zero provider calls for the scenes that already produced accepted output.
+    for (const sceneId of alreadyAuthored) {
+      expect(retry.authored).not.toContain(sceneId);
+    }
+    // ...and the one that failed IS re-authored, so the slot still completes honestly rather
+    // than by skipping work.
+    expect(retry.authored).toHaveLength(1);
+  });
+
+  it('still authors every scene on a first attempt, so reuse cannot mask a missing call', async () => {
+    const provider = new RecordingProvider();
+    const port = createSeedPort(seededStore());
+    const run = await executeWorldDay(
+      runInput(slotOf('noon')), new MemoryRunStore(), createWorldDayStageHandlers(port, provider),
+    );
+
+    expect(run).toMatchObject({ status: 'completed' });
+    expect(provider.authored).toEqual(port.persisted.simulations.map(({ scene }) => scene.sceneId));
+    expect(new Set(provider.authored).size).toBe(provider.authored.length);
   });
 });

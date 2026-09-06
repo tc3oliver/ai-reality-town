@@ -30,7 +30,10 @@ import { internalFunctionRef } from '../shared/internalFunctionRef';
 import type { persistDirectorPlan as persistDirectorPlanExport } from './directorFunctions';
 import type { persistCharacterIntent as persistCharacterIntentExport } from './characterIntentFunctions';
 import type { groupPersistedCharacterIntents as groupPersistedCharacterIntentsExport } from './sceneGroupingFunctions';
-import type { persistValidatedSceneSimulation as persistValidatedSceneSimulationExport } from './sceneSimulationFunctions';
+import type {
+  findReusableSceneSimulation as findReusableSceneSimulationExport,
+  persistValidatedSceneSimulation as persistValidatedSceneSimulationExport,
+} from './sceneSimulationFunctions';
 import type {
   startScheduledSlot as startScheduledSlotExport,
   completeScheduledSlot as completeScheduledSlotExport,
@@ -76,6 +79,9 @@ const groupPersistedCharacterIntentsRef = internalFunctionRef<typeof groupPersis
 );
 const persistValidatedSceneSimulationRef = internalFunctionRef<typeof persistValidatedSceneSimulationExport>(
   'simulation/sceneSimulationFunctions:persistValidatedSceneSimulation',
+);
+const findReusableSceneSimulationRef = internalFunctionRef<typeof findReusableSceneSimulationExport>(
+  'simulation/sceneSimulationFunctions:findReusableSceneSimulation',
 );
 const startScheduledSlotRef = internalFunctionRef<typeof startScheduledSlotExport>(
   'simulation/schedulerOperations:startScheduledSlot',
@@ -280,6 +286,8 @@ function createConvexWorldDayLivePort(ctx: MutationCtx, now: number): WorldDayLi
         intentRunIds: input.intents.map(({ intent }) => intent.intentRunId), createdAt: now,
       });
     },
+    loadPersistedSceneSimulation: (worldId, groupingRunId, simulationRunId) =>
+      ctx.runQuery(findReusableSceneSimulationRef, { worldId, groupingRunId, simulationRunId }),
     persistSceneSimulation: async (groupingRunId, result) => {
       await ctx.runMutation(persistValidatedSceneSimulationRef, {
         worldId: result.scene.worldId, simulationRunId: result.simulationRunId, groupingRunId,

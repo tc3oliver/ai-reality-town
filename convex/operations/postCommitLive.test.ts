@@ -525,6 +525,8 @@ function createWorldDayPort(store: InMemoryCanonStore, activeArcsFor: () => Live
     persistCharacterIntent: () => Promise.resolve(),
     persistGroupedScenes: () => Promise.resolve(),
     persistSceneSimulation: () => Promise.resolve(),
+    // No stored result: these doubles never retry, so every scene is authored fresh.
+    loadPersistedSceneSimulation: () => Promise.resolve(null),
   };
 }
 

@@ -614,6 +614,10 @@ export function createWorldDayPort(
       observations.simulations.push(result);
       return Promise.resolve();
     },
+    // The long run drives every slot to completion, so no slot is ever retried and there is never
+    // a stored result to reuse. Returning null keeps the harness measuring freshly authored
+    // scenes, which is what its token and repetition observations are about.
+    loadPersistedSceneSimulation: () => Promise.resolve(null),
   };
 }
 
