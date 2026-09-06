@@ -664,6 +664,9 @@ describe('the function paths the live action uses name real exports', () => {
       ...Object.values(FUNCTION_PATHS),
       'simulation/worldDayLiveFunctions:prepareQueuedWorldDaySlot',
       'simulation/worldDayLiveFunctions:runQueuedWorldDaySlot',
+      // ART-158 AC#2. Exercised by `providerRateWiring.test.ts`, which drives the recorder the
+      // action installs; named here so the set stays exhaustive rather than merely passing.
+      'simulation/providerRateFunctions:recordProviderCall',
     ].sort());
   });
 });

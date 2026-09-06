@@ -283,6 +283,64 @@ Authoring a slot's scenes concurrently would be the change that makes it bind �
 deliberately not made here, because it would also multiply the rate at which a shared key
 allowance drains.
 
+## 6b. Wall-clock rates: RPM and TPM (ART-158 AC#2)
+
+`maxConcurrentCalls` and the token caps are per WORLD DAY. Rates are not, and cannot be derived
+from anything that is.
+
+A world day is a simulation cursor an operator can accelerate, pause, or hand-advance. Dividing a
+world-day total by anything produces a total wearing a rate's name: it answers "is this world about
+to be throttled" with a number that has no relationship to the last sixty seconds, and it drops to
+zero at day rollover for reasons that have nothing to do with request rate. So rates live in their
+own table, keyed on wall-clock time and knowing nothing about world days.
+
+**The window, exactly.** Time is divided into epoch-aligned one-second buckets:
+
+```
+bucketStartMs = floor(atMs / 1000) * 1000        covers [bucketStartMs, bucketStartMs + 1000)
+```
+
+The window at `now` is every bucket with `bucketStartMs > now - 60_000` — the trailing sixty
+seconds, quantised to the second, at most 60 buckets per route. `summarizeProviderRates` drops
+out-of-window buckets **by comparison**, not by trusting a vacuum to have deleted them, so a stale
+row cannot inflate a rate and an early deletion cannot deflate one. `windowStartMs`/`windowEndMs`
+are returned with every summary, so nothing has to assume the window.
+
+**What one request is.** One real upstream HTTP call, counted at the `fetch` seam because every
+seam above it counts something coarser:
+
+| seam | undercounts because |
+| --- | --- |
+| per scene | a scene is one call, or three if the semantic retry loop ran |
+| per budget reservation | the route chain can make several calls inside one reservation |
+| per `structuredChat` | the chain makes one call per hop underneath |
+| per chain hop | the transport ladder retries a 429 or 5xx inside a single hop |
+
+A **429 is a request**. ART-158 measured a refused call still drawing one unit from the shared key
+allowance, so excluding it would under-report exactly when the number matters most. It is counted
+as a request *and* separately as `rateLimited`.
+
+**Tokens are never invented.** `inputTokens`/`outputTokens` are nullable at the call site and are
+summed only when the gateway reported them. A refusal reports no usage, and writing zero would be
+indistinguishable from a gateway that genuinely reported zero. `callsWithoutUsage` carries the
+count, so a TPM figure is always readable together with how many calls it could not see.
+
+**Route identity.** Buckets key on the **requested route** — the id that was sent. That is the
+identity a rate limit applies to from the caller's side, and the only identity a refused call has
+at all. What the gateway resolved is recorded alongside in `resolutions`, never merged into the
+key: `auto` is a router, a concrete-looking id may equally be a router (ART-148 measured exactly
+that), and keying on the resolution would split one route's rate across whatever models it picked
+while leaving refusals unkeyable. `resolutions` sums to the request count, `null` entries included.
+
+No price, tier or paid/free metadata appears anywhere. FREE_ONLY is a fact about the configured
+endpoint, not a property of a route.
+
+**Where an operator reads it.** `inspectTokenBudget` returns `providerRates`: per route, the
+requests and tokens in the window, the served/rate-limited/failed split, `callsWithoutUsage`, the
+resolutions, the last reported `allowance` (a level, never accumulated) with its reset, and the
+window bounds. A read that hit its row cap reports `truncated: true` — an under-reported rate that
+looks complete is worse than no rate at all.
+
 ## 7. Operator surface
 
 | Function | Capability | Role |
@@ -364,4 +422,6 @@ function logs at the time, which for a silent failure is nobody.
 | `convex/operations/longRunHarness.test.ts` | the §16.3 report over the fixed-seed 7-day run, measured by the accountant that enforced it |
 | `convex/simulation/sceneBudgetProviderPin.test.ts` | the author and the metered model id are chosen together and cannot drift (§8), including that a live pass with no resolved route refuses to name one |
 | `convex/simulation/providers/liveWorldDayWiring.test.ts` | reserve/settle/release actually run on the LIVE wiring, through the real registered mutations, with only `fetch` stubbed |
+| `convex/shared/providerRateWindow.test.ts` | the RPM/TPM window as a specification: bucket boundaries, expiry, what counts as a request, tokens never invented, route identity (§6b) |
+| `convex/simulation/providers/providerRateWiring.test.ts` | a real authoring call reaches the rate store once per real upstream request, and what lands there is what the operator query reads |
 | `convex/simulation/tokenBudgetGate.test.ts` | **the deployed binding itself** — `createConvexBudgetPort` driven against a database: the three reads, the ledger insert/patch protocol, `writeCounters`' insert-vs-patch, settle/release idempotency, the metering-mismatch record, and the grant-replay / refusal-re-evaluation asymmetry |

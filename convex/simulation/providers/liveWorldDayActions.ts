@@ -85,6 +85,8 @@ import { TIME_SLOTS } from '../../canon/eventTypes';
 import { authorSlotScenes, type SceneAuthoringStore } from '../worldDayLive';
 import type { LanguageModelProvider } from '../provider';
 import { createLiveSceneAuthor, resolveLiveSceneAuthoringModel } from './liveSceneAuthor';
+import { createProviderCallRecorder } from './providerCallRecorder';
+import type { recordProviderCall as recordProviderCallExport } from '../providerRateFunctions';
 
 const prepareQueuedWorldDaySlotRef = internalFunctionRef<typeof prepareQueuedWorldDaySlotExport>(
   'simulation/worldDayLiveFunctions:prepareQueuedWorldDaySlot',
@@ -106,6 +108,9 @@ const settleSceneBudgetRef = internalFunctionRef<typeof settleSceneBudgetExport>
 );
 const releaseSceneBudgetRef = internalFunctionRef<typeof releaseSceneBudgetExport>(
   'simulation/tokenBudgetGateFunctions:releaseSceneBudget',
+);
+const recordProviderCallRef = internalFunctionRef<typeof recordProviderCallExport>(
+  'simulation/providerRateFunctions:recordProviderCall',
 );
 
 /**
@@ -221,20 +226,34 @@ export const runLiveWorldDaySlotWithProvider = internalAction({
     maxSlots: v.optional(v.number()),
     now: v.optional(v.number()),
   },
-  handler: async (ctx, args): Promise<{ worldId: string; executed: number; slots: LiveSlotOutcome[] }> => {
+  handler: async (ctx, args): Promise<{
+    worldId: string; executed: number; slots: LiveSlotOutcome[]; meteringDropped: number;
+  }> => {
     const now = args.now ?? Date.now();
     const maxSlots = args.maxSlots ?? 1;
     if (!Number.isSafeInteger(maxSlots) || maxSlots < 1 || maxSlots > TIME_SLOTS.length) {
       throw new Error('INVALID_SLOT_BATCH_SIZE');
     }
-    // Built ONCE for the whole call. The chain keeps `lastAttempts` on the instance, and a fresh
-    // provider per scene would re-read and re-validate the deployment configuration every time.
-    const provider = createLiveSceneAuthor(process.env);
-    // The FIRST ROUTE of the chain that was just built — not a second reading of the environment.
+    // The FIRST ROUTE of the chain about to be built — not a second reading of the environment.
     // This is the key the FR-M003 reservation is taken under, and it may well be an alias such as
     // `auto` that names no model; ART-148 settles against whatever the gateway says served the
     // call, so the alias is only ever the key, never the model usage is booked against.
     const deploymentModelId = resolveLiveSceneAuthoringModel(process.env);
+    // ART-158 AC#2. Metered at the TRANSPORT, so one record is one HTTP request the gateway
+    // received — transport retries and route hops included. Every seam above this one counts
+    // something coarser than a request; see `providerCallRecorder.ts`.
+    //
+    // `Date.now` and not the frozen `now`: the frozen value exists so a retried slot regenerates
+    // identical run ids, and using it here would drop a whole slot's calls into one bucket.
+    const recorder = createProviderCallRecorder({
+      inner: globalThis.fetch.bind(globalThis),
+      fallbackModel: deploymentModelId,
+      clock: () => Date.now(),
+      sink: (record) => ctx.runMutation(recordProviderCallRef, { worldId: args.worldId, ...record }),
+    });
+    // Built ONCE for the whole call. The chain keeps `lastAttempts` on the instance, and a fresh
+    // provider per scene would re-read and re-validate the deployment configuration every time.
+    const provider = createLiveSceneAuthor(process.env, { fetch: recorder.fetch });
 
     const slots: LiveSlotOutcome[] = [];
     let explicit: Id<'scheduledSlots'> | undefined = args.slotId;
@@ -254,6 +273,14 @@ export const runLiveWorldDaySlotWithProvider = internalAction({
       // against a world state the failed slot was supposed to have advanced.
       if (slots[slots.length - 1].outcome?.status !== 'completed') break;
     }
-    return { worldId: args.worldId, executed: slots.length, slots };
+    return {
+      worldId: args.worldId,
+      executed: slots.length,
+      slots,
+      // Non-zero means the rate metering sink refused a write, so the RPM/TPM figures for this
+      // call are a floor. Reported rather than swallowed: a provider call is already paid for by
+      // the time it is recorded, so the counter yields to the work — but not silently.
+      meteringDropped: recorder.dropped(),
+    };
   },
 });

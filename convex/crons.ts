@@ -81,6 +81,13 @@ const TablesToVacuum: TableNames[] = [
   // vacuuming by `_creationTime` would delete a long-quiet world's only metrics row rather
   // than trimming it. Same reasoning excludes `publicRuntimeSnapshots`.
   'dynamicViewIncidents',
+
+  // ART-158 AC#2: one row per (world, route, one-second bucket). Unbounded in a running world, and
+  // useless the moment it leaves the 60-second window. Safe to vacuum on the standard retention
+  // precisely because expiry is NOT a storage concern: `summarizeProviderRates` drops an
+  // out-of-window bucket by comparison, so a row that survives too long cannot inflate a rate and
+  // a row deleted early cannot deflate one.
+  'providerRateBuckets',
 ];
 
 export const vacuumOldEntries = internalMutation({

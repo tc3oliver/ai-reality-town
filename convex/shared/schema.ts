@@ -250,4 +250,59 @@ export const sharedTables = {
     // operator read is always scoped to one world day. Neither is a whole-table scan.
     .index('by_decision_id', ['decisionId'])
     .index('by_world_and_day', ['worldId', 'worldDay']),
+
+  /**
+   * Wall-clock rate metering for real upstream provider calls (ART-158 AC#2).
+   *
+   * Deliberately NOT part of `tokenBudgetCounters`. That row accumulates per WORLD DAY, and a
+   * world day is a simulation cursor an operator can accelerate, pause or hand-advance — so any
+   * "per minute" figure derived from it would be a total wearing a rate's name, and would reset at
+   * a moment unrelated to how fast the gateway is being called. These rows are keyed on
+   * epoch-aligned wall-clock buckets and know nothing about world days.
+   *
+   * One row per (world, requested route, one-second bucket). The window semantics, what counts as
+   * a request, and why the key is the REQUESTED route rather than the resolved model all live in
+   * `convex/shared/providerRateWindow.ts`, which owns the pure fold and is where a reader should
+   * start.
+   *
+   * Vacuumed on the standard retention (`TablesToVacuum` in `convex/crons.ts`): a bucket outside
+   * the window cannot affect a rate — `summarizeProviderRates` drops it by comparison rather than
+   * trusting it to have been deleted — so retention here is purely a storage concern.
+   */
+  providerRateBuckets: defineTable({
+    schemaVersion: v.literal(1),
+    worldId: v.string(),
+    /** The route id that was SENT. May be an alias such as `auto` that names no model. */
+    requestedModel: v.string(),
+    /** Epoch-aligned bucket start in ms. Covers `[bucketStartMs, bucketStartMs + 1000)`. */
+    bucketStartMs: v.number(),
+    requests: v.number(),
+    served: v.number(),
+    rateLimited: v.number(),
+    failed: v.number(),
+    /** Summed from REPORTED usage only; a call the gateway gave no usage for adds nothing. */
+    inputTokens: v.number(),
+    outputTokens: v.number(),
+    /** How many of `requests` reported no usage, so a TPM figure can be read with its blind spot. */
+    callsWithoutUsage: v.number(),
+    /**
+     * What the gateway resolved this route to, recorded ALONGSIDE the key and never merged into
+     * it. `resolvedModel: null` is a real entry — a refused call has no resolution — so these sum
+     * to `requests`.
+     */
+    resolutions: v.array(v.object({
+      resolvedModel: v.union(v.string(), v.null()),
+      upstreamProvider: v.union(v.string(), v.null()),
+      requests: v.number(),
+    })),
+    /** The LAST allowance seen in this bucket. A level, never accumulated. */
+    allowance: v.union(v.null(), v.object({
+      limit: v.number(), remaining: v.number(), resetAtEpochSeconds: v.number(),
+    })),
+    updatedAt: v.number(),
+  })
+    // The write path: read-modify-write one bucket for one route.
+    .index('by_world_route_and_bucket', ['worldId', 'requestedModel', 'bucketStartMs'])
+    // The read path: every route's buckets inside a window, bounded by the window itself.
+    .index('by_world_and_bucket', ['worldId', 'bucketStartMs']),
 };
