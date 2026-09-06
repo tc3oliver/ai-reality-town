@@ -1,5 +1,5 @@
 import type { SimulationInput } from '../model';
-import { SimulationProviderError, type EmbeddingResult, type LanguageModelProvider, type ProviderRateLimit, type ProviderTraceMetadata, type SimulationProvider, type StructuredChatRequest, type StructuredChatResult } from '../provider';
+import { SimulationProviderError, type EmbeddingResult, type LanguageModelProvider, type ProviderRateLimit, type SimulationProvider, type StructuredChatRequest, type StructuredChatResult } from '../provider';
 import { PRE_GENERATION_PROVIDER_CONSTRAINT, assertPreGenerationSafe, chatMessagesToSafetyInput } from '../../safety/preGeneration';
 import type { OpenAICompatibleConfig } from './config';
 
@@ -221,8 +221,6 @@ export class OpenAICompatibleProvider implements LanguageModelProvider, Simulati
     return result.output;
   }
 }
-
-export function traceWithoutSecrets(trace: ProviderTraceMetadata): ProviderTraceMetadata { return { ...trace }; }
 
 /**
  * `x-ratelimit-*` as the gateway sent it, or `null` when it sent none (ART-158).

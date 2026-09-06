@@ -35,6 +35,7 @@ import type { SceneSimulationResult } from './sceneSimulation';
 import { buildLiveWorldSnapshot } from './worldDayLive';
 import { FakeWholeSceneProvider } from './fakeSceneNarrator';
 import { prepareQueuedWorldDaySlot } from './worldDayLiveFunctions';
+import { drainAllLivePostCommit } from '../operations/postCommitLiveFunctions';
 import {
   claimLiveSlot, drivableWorldIds, LIVE_SLOT_LEASE_MS, liveClaimHolder, type SlotClaim,
 } from './schedulerOperations';
@@ -613,5 +614,65 @@ describe('AC#5 — the kill switch is honoured BEFORE a slot is claimed', () => 
       worldEmergencyStops: [stopRow({ state: 'released' })],
       scheduledSlots: [slotRow()],
     })).resolves.toEqual({ kind: 'idle' });
+  });
+});
+
+describe('AC#1 — post-commit is drained for every drivable world', () => {
+  /**
+   * Found by gap audit: `drainAllLivePostCommit` was pinned only by the cron-registration test,
+   * which proves it is SCHEDULED and nothing about what it does. It is the cron that turns
+   * committed events into projections, so a version that iterated the wrong set — or no set —
+   * would leave worlds committing events no reader ever saw, with every other suite green.
+   */
+  const drain = (worlds: Row[], drained: string[]) =>
+    (drainAllLivePostCommit as unknown as Registered)._handler({
+      db: {
+        query: (table: string) => ({
+          withIndex: (_name: string, build: (q: unknown) => unknown) => {
+            const eqs: Array<[string, unknown]> = [];
+            const q = { eq(f: string, v: unknown) { eqs.push([f, v]); return q; },
+              gt() { return q; } };
+            build(q);
+            const rows = table === 'worldSchedules'
+              ? worlds.filter((row) => eqs.every(([f, v]) => row[f] === v)) : [];
+            return {
+              collect: () => Promise.resolve(rows),
+              take: () => Promise.resolve(rows),
+              unique: () => Promise.resolve(rows[0] ?? null),
+              first: () => Promise.resolve(rows[0] ?? null),
+            };
+          },
+        }),
+        insert: (_table: string, row: Row) => { drained.push(String(row.worldId)); return Promise.resolve('id'); },
+        patch: () => Promise.resolve(),
+        get: () => Promise.resolve(null),
+      },
+    }, { now: T0 });
+
+  const schedule = (worldId: string, over: Row = {}): Row => ({
+    _id: `worldSchedules:${worldId}`, worldId, mode: 'public', status: 'running',
+    baseSeed: 1, anchorRealTimeMs: T0, anchorWorldDay: 0, nextWorldDay: 0, nextTimeSlot: 'morning',
+    publishEnabled: true, createdAt: T0, updatedAt: T0, ...over,
+  });
+
+  it('returns one entry per drivable world', async () => {
+    const result = await drain([schedule('alpha'), schedule('zeta')], []) as Array<{ worldId: string }>;
+
+    expect(result.map((entry) => entry.worldId)).toEqual(['alpha', 'zeta']);
+  });
+
+  it('uses the SAME world set as the driver, so no world is stranded', async () => {
+    // Two definitions of "a world the pipeline runs for" could disagree, and the one that ran
+    // fewer would strand events with nothing saying why.
+    const rows = [schedule('alpha'), schedule('paused-world', { status: 'paused' })];
+
+    const result = await drain(rows, []) as Array<{ worldId: string }>;
+
+    expect(result.map((entry) => entry.worldId)).toEqual(await drivableWorldIds(claimDb(rows) as never));
+  });
+
+  it('refuses an out-of-range batch size rather than reading an unbounded page', async () => {
+    await expect((drainAllLivePostCommit as unknown as Registered)._handler(
+      { db: {} }, { maxPostCommitEvents: 999 })).rejects.toThrow('INVALID_POST_COMMIT_BATCH_SIZE');
   });
 });
