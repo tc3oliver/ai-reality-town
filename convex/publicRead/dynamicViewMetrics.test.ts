@@ -67,6 +67,32 @@ import {
   type StoredReadModel,
 } from './readModel';
 
+/**
+ * The narrowest `ReadDb` {@link canonCharacterLocations} needs (ART-100).
+ *
+ * That function now resumes from the newest Canon snapshot instead of being handed an event list,
+ * so a test that wants to control what Canon says has to control the READ. This fixture has no
+ * `canonSnapshots` rows, which is the fall-back-to-full-replay branch — deliberately, because the
+ * property under test is "an unfoldable event sequence yields null rather than throwing", and the
+ * fold is what has to run for that to mean anything.
+ */
+function canonReaderFor(rows: readonly CanonEventRow[]) {
+  const table = (name: string) => (name === 'canonEvents' ? [...rows] : []);
+  return {
+    query: (name: string) => ({
+      withIndex: (_index: string, _build?: unknown) => ({
+        order: (_direction: string) => ({
+          first: () => Promise.resolve(null),
+          collect: () => Promise.resolve(table(name)),
+        }),
+        first: () => Promise.resolve(table(name)[0] ?? null),
+        collect: () => Promise.resolve(table(name)),
+      }),
+    }),
+  } as unknown as Parameters<typeof canonCharacterLocations>[0];
+}
+
+
 const WORLD_ID = MISTWOOD_PUBLIC_WORLD_ID;
 const LIVE_REF = `live:${WORLD_ID}`;
 const IN_TRANSIT_MS = FIXTURE_ACCEPTED_AT_MS + 1_000;
@@ -222,7 +248,8 @@ async function rebuildOnce(args: {
     now: args.nowMs,
   });
 
-  const canonLocations = args.canonLocationsOverride ?? canonCharacterLocations(WORLD_ID, acceptedEvents);
+  const canonLocations = args.canonLocationsOverride
+    ?? await canonCharacterLocations(canonReaderFor(args.canonRows), WORLD_ID);
   const incidents = collectIncidents({ dynamic, runtime, problems: derived.problems.records, canonLocations });
   const latencyMs = dynamic.snapshotSequence > 0 ? Math.max(0, args.nowMs - dynamic.updatedAt) : 0;
   await commitDynamicViewMetrics(args.metrics, {
@@ -359,15 +386,14 @@ describe('AC#2/AC#3 — the zero counters are structural, and the rebuild stays 
     expect(JSON.stringify(canonRows)).toBe(before);
   });
 
-  it('skips mismatch detection rather than failing the rebuild when Canon cannot be folded', () => {
+  it('skips mismatch detection rather than failing the rebuild when Canon cannot be folded', async () => {
     // A sequence gap is a hard error for the reducer, and rightly so — but the PUBLIC read
     // path must not go down because a diagnostic could not be computed. `null` is the
     // declared "not comparable this pass" answer.
-    const gapped = [canonRow({ sequenceNumber: 5, characterId: 'wu-zhen', fromLocationId: 'a', toLocationId: 'b' })]
-      .map(rowToAcceptedEvent);
-    expect(canonCharacterLocations(WORLD_ID, gapped)).toBeNull();
-    expect(canonCharacterLocations(WORLD_ID, [rowToAcceptedEvent(WU_ZHEN_MOVE)]))
-      .toEqual({ 'wu-zhen': 'mistwood-square' });
+    const gapped = [canonRow({ sequenceNumber: 5, characterId: 'wu-zhen', fromLocationId: 'a', toLocationId: 'b' })];
+    await expect(canonCharacterLocations(canonReaderFor(gapped), WORLD_ID)).resolves.toBeNull();
+    await expect(canonCharacterLocations(canonReaderFor([WU_ZHEN_MOVE]), WORLD_ID))
+      .resolves.toEqual({ 'wu-zhen': 'mistwood-square' });
   });
 });
 

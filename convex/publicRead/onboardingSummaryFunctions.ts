@@ -39,6 +39,15 @@ type EpisodeKeyScene = { title: string; summary: string; sourceEventIds: string[
 export const MAX_SCANNED_EVENTS = 200;
 
 /**
+ * How many of the newest daily-episode rows are examined when looking for the one to quote.
+ *
+ * A world narrates roughly one episode a day, so the newest row is normally the answer and this
+ * is slack for a run of days whose narration was withheld or failed. Exported so a test can pin
+ * the boundary rather than restate the number.
+ */
+export const MAX_EPISODE_SCAN = 8;
+
+/**
  * Rebuild and cache the onboarding summary (AC#3/#4).
  *
  * SAFETY GATE (FR-P004 / ART-132, extended by ART-125). This is a public TEXT surface and it had
@@ -69,7 +78,20 @@ export const rebuildOnboardingSummary = internalMutation({
       ctx.db.query('storyArcEventClassifications').withIndex('by_world', (q) => q.eq('worldId', args.worldId)).collect(),
       ctx.db.query('storyArcPortfolioEntries').withIndex('by_world_and_arc', (q) => q.eq('worldId', args.worldId)).collect(),
       ctx.db.query('storyArcRecommendedEntries').withIndex('by_world', (q) => q.eq('worldId', args.worldId)).collect(),
-      ctx.db.query('dailyEpisodes').withIndex('by_world_and_day', (q) => q.eq('worldId', args.worldId)).collect(),
+      /**
+       * The newest days' episode rows, not the world's (ART-100 AC#1).
+       *
+       * `latestEpisode` below is the ONLY thing read off these — the newest row that carries an
+       * episode body — so sweeping every day the world has ever had was reading O(days) rows to
+       * use one. A descending page answers it directly.
+       *
+       * The page is bounded rather than "scan until one is found", and reaching the bound is
+       * reported (`latestEpisodeScanExhausted`) rather than silently becoming "no episode": a
+       * world whose last {@link MAX_EPISODE_SCAN} days all failed narration is a fact about the
+       * world, not a routine truncation.
+       */
+      ctx.db.query('dailyEpisodes').withIndex('by_world_and_day', (q) => q.eq('worldId', args.worldId))
+        .order('desc').take(MAX_EPISODE_SCAN),
       // The inverted, history-independent question. See `effectiveSafetyLabels.ts` on why a
       // rebuild must never ask this Scene by Scene.
       readWithheldSceneLabels(ctx.db, args.worldId),
@@ -211,9 +233,11 @@ export const rebuildOnboardingSummary = internalMutation({
       ? { episodeNumber: (recommendedEntryRow.entry as { episodeNumber: number }).episodeNumber, worldDay: (recommendedEntryRow.entry as { worldDay: number }).worldDay }
       : null;
 
-    const latestEpisode = [...episodeRows]
-      .filter((row) => row.episode)
-      .sort((a, b) => b.worldDay - a.worldDay)[0];
+    // `episodeRows` arrives newest-first off the index, so the first row with a body IS the
+    // newest one — the sort the old whole-table read needed is now the index's job.
+    const latestEpisode = episodeRows.find((row) => row.episode);
+    const latestEpisodeScanExhausted =
+      latestEpisode === undefined && episodeRows.length === MAX_EPISODE_SCAN;
     const latestEpisodeData = latestEpisode?.episode as { keyScenes?: EpisodeKeyScene[] } | undefined;
     const rawKeyScenes = (latestEpisodeData?.keyScenes ?? []).map((scene) => ({
       title: scene.title ?? '',
@@ -262,6 +286,13 @@ export const rebuildOnboardingSummary = internalMutation({
       worldId: args.worldId, modelKind: 'world', modelRef: `onboarding:${args.worldId}`,
       payload, sourceEventIds: majorEvent ? [majorEvent.eventId] : [], status: 'published', now: args.now,
     });
-    return { modelRef: `onboarding:${args.worldId}`, version: result.version, deduplicated: result.deduplicated };
+    return {
+      modelRef: `onboarding:${args.worldId}`,
+      version: result.version,
+      deduplicated: result.deduplicated,
+      // Reported, not swallowed: "no narrated episode exists" and "gave up looking" are different
+      // facts about the world, and only one of them is a defect. See MAX_EPISODE_SCAN.
+      latestEpisodeScanExhausted,
+    };
   },
 });

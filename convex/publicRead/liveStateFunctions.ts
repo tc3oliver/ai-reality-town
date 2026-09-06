@@ -11,22 +11,48 @@
  */
 
 import { v } from 'convex/values';
+import type { GenericDatabaseReader } from 'convex/server';
 import { internalMutation, query } from '../_generated/server';
+import type { DataModel, Doc } from '../_generated/dataModel';
 import type { AcceptedEvent } from '../canon/model';
-import { emptyProjection } from '../canon/model';
 import { MISTWOOD_PUBLIC_WORLD_ID } from '../canon/mistwoodSeed';
-import { replayWorldEvents } from '../canon/replay';
 import { rowToAcceptedEvent } from '../canon/serialize';
+import { readProjectionViaSnapshot } from '../canon/snapshotReplay';
+import { deriveEventId } from '../shared/ids';
 import { readWithheldSceneLabels } from '../safety/effectiveSafetyLabels';
 import { parseArcProjectionFields } from '../story/projection';
 import { detectUnboundCharacters } from '../visualRuntime/characterBindings';
 import { mistwoodRuntimeContext, type VisualRuntimeContext } from '../visualRuntime/mistwoodRuntime';
 import {
+  bindingsFingerprint,
+  emptyCharacterMotionFold,
+  foldCharacterMotion,
+  type CharacterMotionFold,
+  type CharacterOriginState,
+  type LocationFact,
+} from '../visualRuntime/visualSyncPlanner';
+import {
   buildActiveScenePresentations,
+  groupSceneEvents,
   type SceneArcMembership,
   type SceneEventLike,
+  type SceneGroup,
   type SceneSafetyLabel,
 } from './activeScenePresentation';
+import {
+  candidateLocationFold,
+  candidateToGroup,
+  foldSceneCandidates,
+  sceneIdsOfEvents,
+  type SceneCandidate,
+} from './liveSceneIndex';
+import {
+  deserializeLiveFold,
+  emptyLiveFold,
+  foldLiveEvents,
+  serializeLiveFold,
+  type LiveFoldState,
+} from './liveFold';
 import { detectLocationMismatches } from './canonRuntimeMismatch';
 import { toIncident, type DynamicViewIncident } from './dynamicViewMetrics';
 import { commitDynamicViewMetrics, dynamicViewMetricsWriteStore } from './dynamicViewMetricsFunctions';
@@ -49,8 +75,11 @@ import {
 import { commitRuntimeSnapshot } from './runtimeSnapshot';
 import { runtimeSnapshotWriteStore } from './runtimeSnapshotFunctions';
 import {
+  REPLAY_MAX_SCENES,
   VISUAL_REPLAY_MODEL_KIND,
   buildVisualReplay,
+  episodeContentRefOf,
+  sceneIdOf,
   type ReplayEpisodeInput,
   type ReplayPublicationRecord,
   type VisualReplay,
@@ -85,27 +114,61 @@ function visualRuntimeForWorld(worldId: string): VisualRuntimeContext | null {
   return worldId === MISTWOOD_PUBLIC_WORLD_ID ? mistwoodRuntimeContext() : null;
 }
 
+type DatabaseReader = GenericDatabaseReader<DataModel>;
+type CanonRow = Doc<'canonEvents'>;
+
 /**
- * Canon's own answer to "where is everyone", folded independently of the Visual Runtime so
- * the two can be compared (FR-Q001 AC#4). Costs no extra database read — `canonRows` is
- * already collected above — only an O(events) pure fold.
+ * Canon's own answer to "where is everyone", derived independently of the Visual Runtime so the
+ * two can be compared (FR-Q001 AC#4).
  *
- * A fold that throws yields `null` rather than propagating. `replayWorldEvents` fails hard
- * on a sequence gap or duplicate, which is correct for Canon but must not take the PUBLIC
- * READ PATH down with it: a projection nobody can compare against Canon is still a
- * projection worth serving, and public read availability is isolated from simulation
- * failure by design. The consequence is stated rather than hidden — mismatch detection is
- * skipped for this pass, and `canonComparable` in the mutation's result says so.
+ * Resumed from the newest Canon snapshot rather than replayed from the whole log (ART-100).
+ * `characterLocations` is NOT one of `SEED_BASELINE_FIELDS`, so "resume from a snapshot" and
+ * "replay from empty" agree on it exactly — the same argument `rebuildRelationshipGraphProjection`
+ * makes for `relationshipHistory`, and the reason this one of `rebuildLiveProjection`'s five
+ * whole-log consumers needed no new machinery at all. Read `convex/canon/snapshotReplay.ts`
+ * before widening what this projection is used for.
+ *
+ * A read or fold that throws yields `null` rather than propagating. `replayWorldEvents` fails
+ * hard on a sequence gap or duplicate, which is correct for Canon but must not take the PUBLIC
+ * READ PATH down with it: a projection nobody can compare against Canon is still a projection
+ * worth serving, and public read availability is isolated from simulation failure by design. The
+ * consequence is stated rather than hidden — mismatch detection is skipped for this pass, and
+ * `canonComparable` in the mutation's result says so.
  */
-export function canonCharacterLocations(
+export async function canonCharacterLocations(
+  db: DatabaseReader,
   worldId: string,
-  acceptedEvents: readonly AcceptedEvent[],
-): Record<string, string> | null {
+): Promise<Record<string, string> | null> {
   try {
-    return replayWorldEvents(emptyProjection(worldId), [...acceptedEvents]).characterLocations;
+    return (await readProjectionViaSnapshot(db, worldId)).characterLocations;
   } catch {
     return null;
   }
+}
+
+/**
+ * Accepted events named by id, by point lookup.
+ *
+ * The `#`-suffixed sequence number is parsed out and then CHECKED by re-deriving the id from it
+ * (`deriveEventId`), so an id that happens to address an existing row of another world — or that
+ * was minted by something other than Canon — resolves to nothing rather than to a neighbour. The
+ * same shape the arc and portfolio reference validators use, and the same one
+ * `rebuildOnboardingSummary` uses for exactly this question.
+ */
+export async function readEventsByEventId(
+  db: DatabaseReader,
+  worldId: string,
+  eventIds: readonly string[],
+): Promise<CanonRow[]> {
+  const rows = await Promise.all([...new Set(eventIds)].map(async (eventId) => {
+    const sequenceNumber = Number(eventId.split('#').at(-1));
+    if (!Number.isSafeInteger(sequenceNumber)) return null;
+    const row = await db.query('canonEvents')
+      .withIndex('by_world_and_sequence', (q) => q.eq('worldId', worldId).eq('sequenceNumber', sequenceNumber))
+      .unique();
+    return row && deriveEventId(worldId, sequenceNumber) === eventId ? row : null;
+  }));
+  return rows.filter((row): row is CanonRow => row !== null);
 }
 
 /**
@@ -259,6 +322,153 @@ export function collectIncidents(args: {
 }
 
 /**
+ * Above this many events in one catch-up, the arc classifications are read in one indexed sweep
+ * rather than one point lookup apiece.
+ *
+ * The steady state is a tail of ONE event, where a point lookup is the whole cost. A cold start —
+ * the first rebuild after this checkpoint was introduced, or one forced with `rebuildFromScratch`
+ * — folds the world's history in a single call, and paying a lookup per event there would be
+ * slower than the sweep it exists to avoid. The threshold is not a correctness boundary: both
+ * branches answer the same question and `liveStateFunctions.test.ts` pins that they agree.
+ */
+const CLASSIFICATION_SWEEP_THRESHOLD = 32;
+
+/**
+ * How many `ready` daily-episode rows are examined when looking for the newest one that actually
+ * carries key scenes.
+ *
+ * A `ready` row without an `episode` body is an anomaly rather than a state the editorial pipeline
+ * produces, so one row is normally the answer. The scan is bounded anyway, because "walk back
+ * until you find one" is unbounded by construction — and when the bound is REACHED without a
+ * match, the rebuild reports `publishedEpisodeScanExhausted` rather than quietly publishing
+ * "no episode". Truncation is never silent.
+ */
+const READY_EPISODE_SCAN_LIMIT = 8;
+
+type ClassificationRow = { sourceEventSequenceNumber: number; memberships?: unknown };
+
+/**
+ * The arc classifications for a named set of events.
+ *
+ * Point lookups on `by_world_and_source_event` in the steady state; one indexed sweep past
+ * {@link CLASSIFICATION_SWEEP_THRESHOLD}. This replaces the whole-table `by_world` collect the
+ * rebuild used to make, which grew with the world exactly as the canon read did — it was simply
+ * invisible in a fixture that never classified anything.
+ */
+async function readArcClassifications(
+  db: DatabaseReader,
+  worldId: string,
+  sequenceNumbers: readonly number[],
+): Promise<ClassificationRow[]> {
+  const wanted = [...new Set(sequenceNumbers)];
+  if (wanted.length > CLASSIFICATION_SWEEP_THRESHOLD) {
+    const all = await db.query('storyArcEventClassifications')
+      .withIndex('by_world', (q) => q.eq('worldId', worldId)).collect();
+    const keep = new Set(wanted);
+    return all.filter((row) => keep.has(row.sourceEventSequenceNumber));
+  }
+  const rows = await Promise.all(wanted.map((sourceEventSequenceNumber) =>
+    db.query('storyArcEventClassifications')
+      .withIndex('by_world_and_source_event', (q) =>
+        q.eq('worldId', worldId).eq('sourceEventSequenceNumber', sourceEventSequenceNumber))
+      .collect()));
+  return rows.flat();
+}
+
+/**
+ * Parse classification rows into the memberships the pure builders take.
+ *
+ * Read defensively rather than through `parseArcEventClassification`, matching the three sibling
+ * projections in this directory: the strict parser throws on a malformed row, and a classification
+ * nobody can parse must cost this rebuild an arc label, not the whole public read path.
+ */
+function toArcMemberships(rows: readonly ClassificationRow[]): SceneArcMembership[] {
+  return rows.flatMap((row) => {
+    const memberships = row.memberships as ClassificationMembership[] | undefined;
+    if (!Array.isArray(memberships)) return [];
+    const arcIds = memberships
+      .map((membership) => membership.arcId)
+      .filter((arcId): arcId is string => typeof arcId === 'string' && arcId.length > 0);
+    // The strongest membership decides the event's story weight, which is what FR-O013's
+    // scene selection ranks by. Read as defensively as `arcId` is, for the same reason.
+    const importance = memberships
+      .map((membership) => membership.importance)
+      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+      .reduce((best, value) => Math.max(best, value), 0);
+    return arcIds.length > 0
+      ? [{ sourceEventSequenceNumber: row.sourceEventSequenceNumber, arcIds, importance }]
+      : [];
+  });
+}
+
+type StoredMotionFold = NonNullable<Doc<'liveRebuildCheckpoints'>['motionFold']>;
+
+/** `LocationFact` uses `null` for "no declared origin"; the stored column omits the field. */
+const storeFact = (fact: LocationFact) => ({
+  characterId: fact.characterId,
+  ...(fact.fromLocationId === null ? {} : { fromLocationId: fact.fromLocationId }),
+  toLocationId: fact.toLocationId,
+  worldDay: fact.worldDay,
+  timeSlot: fact.timeSlot,
+  acceptedAt: fact.acceptedAt,
+  sequenceNumber: fact.sequenceNumber,
+  eventId: fact.eventId,
+});
+
+const loadFact = (stored: StoredMotionFold['characters'][number]['firstFact']): LocationFact => ({
+  ...stored,
+  fromLocationId: stored.fromLocationId ?? null,
+});
+
+function serializeMotionFold(fold: CharacterMotionFold): StoredMotionFold {
+  return {
+    factCharacterIds: [...fold.factCharacterIds],
+    characters: [...fold.byCharacter.entries()].map(([characterId, state]) => ({
+      characterId,
+      firstFact: storeFact(state.firstFact),
+      lastFact: storeFact(state.lastFact),
+      ...(state.lastBoundHopAnchor === null ? {} : { lastBoundHopAnchor: state.lastBoundHopAnchor }),
+      unboundHopLocationIds: [...state.unboundHopLocationIds],
+    })),
+    lastSequenceNumber: fold.lastSequenceNumber,
+    bindingsFingerprint: fold.bindingsFingerprint,
+  };
+}
+
+function deserializeMotionFold(stored: StoredMotionFold): CharacterMotionFold {
+  const byCharacter = new Map<string, CharacterOriginState>(stored.characters.map((entry) => [
+    entry.characterId,
+    {
+      firstFact: loadFact(entry.firstFact),
+      lastFact: loadFact(entry.lastFact),
+      lastBoundHopAnchor: entry.lastBoundHopAnchor ?? null,
+      unboundHopLocationIds: [...entry.unboundHopLocationIds],
+    },
+  ]));
+  return {
+    factCharacterIds: [...stored.factCharacterIds],
+    byCharacter,
+    lastSequenceNumber: stored.lastSequenceNumber,
+    bindingsFingerprint: stored.bindingsFingerprint,
+  };
+}
+
+type CandidateRow = Doc<'replaySceneCandidates'>;
+
+const rowToCandidate = (row: CandidateRow): SceneCandidate => ({
+  sceneId: row.sceneId,
+  worldDay: row.worldDay,
+  timeSlot: row.timeSlot,
+  locationId: row.locationId,
+  minSequenceNumber: row.minSequenceNumber,
+  maxSequenceNumber: row.maxSequenceNumber,
+  eventSequenceNumbers: row.eventSequenceNumbers,
+  score: row.score,
+  positionsBefore: row.positionsBefore,
+  positionsAfter: row.positionsAfter,
+});
+
+/**
  * Rebuild and publish the Live projection for a world. Idempotent: repeating the
  * call with unchanged inputs re-derives an identical payload and deduplicates.
  */
@@ -273,59 +483,179 @@ export const rebuildLiveProjection = internalMutation({
      * so it costs no read; see `correlatedEventCount` in the result.
      */
     correlateSceneId: v.optional(v.string()),
+    /**
+     * Ignore the stored checkpoint and re-fold the world from Canon (ART-100).
+     *
+     * The escape hatch every derived cache owes its operator. The checkpoint, the scene index and
+     * the anchor chain are all functions of accepted Canon, so this reproduces them exactly; it is
+     * the documented answer to "the index looks wrong" and the reason none of those rows is
+     * load-bearing. It reads the whole accepted log, so it is not for the hot path.
+     */
+    rebuildFromScratch: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     if (args.worldId.trim().length === 0 || !Number.isFinite(args.now)) {
       throw new Error('LIVE_STATE_INVALID');
     }
+    const { worldId } = args;
+    const runtime = visualRuntimeForWorld(worldId);
+    const recentLimit = args.recentEventCount ?? LIVE_RECENT_EVENT_DEFAULT;
+
+    // ---- resume point ----------------------------------------------------------------------
+    // ART-100. This rebuild runs after EVERY accepted event and used to read the world's entire
+    // accepted log to do it. Everything below is folded from a checkpoint plus the events since,
+    // except the four things that are retroactive — the safety gate's verdicts, the excluded
+    // characters, episode publication state, and the events' own text — which are read fresh on
+    // every call because an operator override can change any of them for an arbitrarily old
+    // event. See `liveSceneIndex.ts` for why that split is the whole safety argument.
+    const checkpointRow = await ctx.db.query('liveRebuildCheckpoints')
+      .withIndex('by_world', (q) => q.eq('worldId', worldId)).unique();
+    // A stored anchor chain was resolved against the map bindings compiled in at the time. If the
+    // map has been edited since, those anchors describe a world that no longer exists, and no
+    // amount of care at this call site would notice — so the fingerprint decides, not a comment.
+    const resumable = checkpointRow !== null
+      && args.rebuildFromScratch !== true
+      && (runtime === null || checkpointRow.motionFold?.bindingsFingerprint === bindingsFingerprint(runtime.bindings));
+    const resumeFrom = resumable && checkpointRow ? checkpointRow.lastSequenceNumber : -1;
+
+    const tailRows = await ctx.db.query('canonEvents')
+      .withIndex('by_world_and_sequence', (q) => q.eq('worldId', worldId).gt('sequenceNumber', resumeFrom))
+      .collect();
+    const tailEvents = tailRows.map(rowToAcceptedEvent);
+    const tailSceneEvents = sceneEventRows(tailEvents);
+
+    const touchedSceneIds = sceneIdsOfEvents(tailSceneEvents);
+    const touchedCandidateRows = await Promise.all(touchedSceneIds.map((sceneId) =>
+      ctx.db.query('replaySceneCandidates')
+        .withIndex('by_world_and_scene', (q) => q.eq('worldId', worldId).eq('sceneId', sceneId))
+        .unique()));
+    const rowBySceneId = new Map(touchedCandidateRows
+      .filter((row): row is CandidateRow => row !== null)
+      .map((row) => [row.sceneId, row]));
+
+    const tailImportance = new Map(
+      toArcMemberships(await readArcClassifications(ctx.db, worldId, tailEvents.map((e) => e.sequenceNumber)))
+        .map((membership) => [membership.sourceEventSequenceNumber, membership.importance ?? 0]));
+
+    const priorFold: LiveFoldState = resumable && checkpointRow
+      ? deserializeLiveFold(checkpointRow.fold)
+      : emptyLiveFold();
+    const priorReplayPositions = new Map(resumable && checkpointRow
+      ? checkpointRow.replayPositions.map(({ characterId, locationId }) => [characterId, locationId] as const)
+      : []);
+    const priorMotionFold = resumable && checkpointRow?.motionFold
+      ? deserializeMotionFold(checkpointRow.motionFold)
+      : emptyCharacterMotionFold();
+
+    const fold = foldLiveEvents(priorFold, tailEvents);
+    const sceneFold = foldSceneCandidates({
+      // Rebuilding from scratch must not inherit a stored scene's `positionsBefore`, or the
+      // rebuild would preserve the very value it was asked to re-derive.
+      prior: resumable ? new Map([...rowBySceneId].map(([id, row]) => [id, rowToCandidate(row)])) : new Map(),
+      events: tailSceneEvents,
+      priorPositions: priorReplayPositions,
+      importanceOf: (sequenceNumber) => tailImportance.get(sequenceNumber) ?? 0,
+    });
+    const motionFold = runtime
+      ? foldCharacterMotion(priorMotionFold, tailEvents, runtime.bindings)
+      : null;
+
+    // ---- persist the checkpoint ------------------------------------------------------------
+    const lastSequenceNumber = tailEvents.reduce(
+      (highest, event) => Math.max(highest, event.sequenceNumber), resumeFrom);
+    if (tailEvents.length > 0 || !resumable) {
+      const stored = serializeLiveFold(fold);
+      const checkpoint = {
+        schemaVersion: 1 as const,
+        worldId,
+        lastSequenceNumber,
+        // Copied into mutable arrays: the fold's own lists are `readonly`, deliberately, and a
+        // Convex write takes ownership of what it is given.
+        fold: {
+          locations: [...stored.locations],
+          positionByCharacter: [...stored.positionByCharacter],
+          aliveByCharacter: [...stored.aliveByCharacter],
+          knownCharacters: [...stored.knownCharacters],
+          excludedCharacterIds: [...stored.excludedCharacterIds],
+          lastSequenceNumber: stored.lastSequenceNumber,
+        },
+        replayPositions: [...sceneFold.positions.entries()]
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([characterId, locationId]) => ({ characterId, locationId })),
+        ...(motionFold ? { motionFold: serializeMotionFold(motionFold) } : {}),
+        updatedAt: args.now,
+      };
+      if (checkpointRow) await ctx.db.patch(checkpointRow._id, checkpoint);
+      else await ctx.db.insert('liveRebuildCheckpoints', checkpoint);
+
+      for (const candidate of sceneFold.touched.values()) {
+        const row = rowBySceneId.get(candidate.sceneId);
+        const storedCandidate = {
+          schemaVersion: 1 as const,
+          worldId,
+          sceneId: candidate.sceneId,
+          worldDay: candidate.worldDay,
+          timeSlot: candidate.timeSlot,
+          locationId: candidate.locationId,
+          minSequenceNumber: candidate.minSequenceNumber,
+          maxSequenceNumber: candidate.maxSequenceNumber,
+          eventSequenceNumbers: [...candidate.eventSequenceNumbers],
+          score: candidate.score,
+          positionsBefore: candidate.positionsBefore.map((entry) => ({ ...entry })),
+          positionsAfter: candidate.positionsAfter.map((entry) => ({ ...entry })),
+          updatedAt: args.now,
+        };
+        if (row) await ctx.db.patch(row._id, storedCandidate);
+        else await ctx.db.insert('replaySceneCandidates', storedCandidate);
+      }
+    }
 
     const [
-      canonRows, lifecycleRows, projectionRows, episodeRows, characterRows, scheduleRow, classificationRows,
-      publicationRows, withheldSceneRecord,
+      lifecycleRows, projectionRows, characterRows, scheduleRow,
+      withheldSceneRecord, newestCandidateRow, latestRowFallback, recentRowsDesc,
     ] = await Promise.all([
-      // ART-100: left as a full log collect, deliberately, after checking. `readProjectionViaSnapshot`
-      // (`canon/snapshotReplay.ts`) cannot substitute here: `buildLiveProjection`'s `locations` is a
-      // last-write-wins fold over every `location_state_changed` change in history, and that field is
-      // one of `SEED_BASELINE_FIELDS` on the stored `WorldProjection` — pointing it at a snapshot would
-      // silently publish seed locations that today's replay-from-empty never shows, breaking AC#3. Nor
-      // can the read be bounded to a tail: `buildVisualReplay` (`visualReplay.ts:539`) ranks candidate
-      // scenes for importance across the WHOLE accepted history before picking the top
-      // `REPLAY_MAX_SCENES`, and `foldLocations` then needs the exact location state immediately before
-      // and after whichever scene wins — which can be any day in the world's life, not just the latest
-      // one. And `redactWithheldSummaries`/`redactWithheldNarration` must re-examine every event on
-      // every call, because an operator's safety override can change the withheld verdict for an
-      // arbitrarily old event. All three read paths genuinely need the full raw event list; none of
-      // them can be served from a folded snapshot or a bounded window without changing what gets
-      // published. This handler also has three OTHER callers besides the post-commit hot path
-      // (`safetyOverrideFunctions.ts`, `dynamicViewControlFunctions.ts`,
-      // `operations/publicTextModelRefresh.ts`), each relying on a correct full rebuild whenever it is
-      // invoked, which rules out a "skip re-deriving on this call" shortcut too. A real fix would need a
-      // NEW incrementally-maintained, non-seeded cache of location/character state plus a per-scene
-      // location-fold cache keyed by scene boundary — out of scope for this task.
-      ctx.db.query('canonEvents').withIndex('by_world_and_sequence', (q) => q.eq('worldId', args.worldId)).collect(),
-      ctx.db.query('storyArcLifecycles').withIndex('by_world_and_arc', (q) => q.eq('worldId', args.worldId)).collect(),
-      ctx.db.query('storyArcProjectionEvents').withIndex('by_world_arc_and_revision', (q) => q.eq('worldId', args.worldId)).collect(),
-      ctx.db.query('dailyEpisodes').withIndex('by_world_and_day', (q) => q.eq('worldId', args.worldId)).collect(),
-      ctx.db.query('worldCharacters').withIndex('by_world_id', (q) => q.eq('worldId', args.worldId)).collect(),
-      ctx.db.query('worldSchedules').withIndex('by_world_id', (q) => q.eq('worldId', args.worldId)).unique(),
-      // The arc membership of each event (FR-O003 AC#6). `publicRead` already depends on
-      // `story`, so this is a seventh parallel read rather than a new module dependency.
-      ctx.db.query('storyArcEventClassifications').withIndex('by_world', (q) => q.eq('worldId', args.worldId)).collect(),
-      // The publication lifecycle of each derived text (FR-O013 / ART-121). `publicRead`
-      // already depends on `editorial`, so this is an eighth parallel read rather than a new
-      // module dependency. Read here and passed to the replay builder as a plain map, so the
-      // builder stays pure and the version a reference pins is the one that was current when
-      // the replay was built.
-      ctx.db.query('publicationRecords').withIndex('by_world_and_status', (q) => q.eq('worldId', args.worldId)).collect(),
-      // The Scenes the safety gate currently refuses (FR-P004 / ART-132). A ninth parallel
-      // read, and deliberately the INVERTED question: asking "what governs each Scene in
-      // history" would grow with the world and eventually fail this whole rebuild, which is
-      // the one failure that would stop future safety updates from ever reaching a viewer.
-      // See `readWithheldSceneLabels`.
-      readWithheldSceneLabels(ctx.db, args.worldId),
+      // These three grow with the world's ARCS and CAST, not with its accepted-event count, so
+      // they are left whole. `by_world_and_arc` / `by_world_id` are already the narrowest index
+      // that answers them.
+      ctx.db.query('storyArcLifecycles').withIndex('by_world_and_arc', (q) => q.eq('worldId', worldId)).collect(),
+      ctx.db.query('storyArcProjectionEvents').withIndex('by_world_arc_and_revision', (q) => q.eq('worldId', worldId)).collect(),
+      ctx.db.query('worldCharacters').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).collect(),
+      ctx.db.query('worldSchedules').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).unique(),
+      // The Scenes the safety gate currently refuses (FR-P004 / ART-132), and deliberately the
+      // INVERTED question: asking "what governs each Scene in history" would grow with the world
+      // and eventually fail this whole rebuild, which is the one failure that would stop future
+      // safety updates from ever reaching a viewer. See `readWithheldSceneLabels`.
+      readWithheldSceneLabels(ctx.db, worldId),
+      // The newest scene in the world, for AC#8's degraded fallback: when the current slot
+      // produced nothing placeable, that scene stands in. One row, off the index that orders
+      // scenes by their newest event.
+      ctx.db.query('replaySceneCandidates')
+        .withIndex('by_world_and_sequence', (q) => q.eq('worldId', worldId)).order('desc').first(),
+      // Only consulted when the tail was empty — a rebuild invoked by an operator rather than by
+      // a commit still needs to know what "now" is.
+      ctx.db.query('canonEvents')
+        .withIndex('by_world_and_sequence', (q) => q.eq('worldId', worldId)).order('desc').first(),
+      // `recentEvents` is the last N events and nothing older, so it is a bounded tail read
+      // rather than a slice of the whole log.
+      ctx.db.query('canonEvents')
+        .withIndex('by_world_and_sequence', (q) => q.eq('worldId', worldId)).order('desc').take(recentLimit),
     ]);
 
-    const acceptedEvents = canonRows.map(rowToAcceptedEvent);
+    const latestRow = tailRows.at(-1) ?? latestRowFallback;
+    const latest = latestRow ? rowToAcceptedEvent(latestRow) : null;
+
+    /**
+     * The current world day's events — the window the ACTIVE scene presentation is derived from.
+     *
+     * A scene is the events sharing (worldDay, timeSlot, locationId), so every scene in the
+     * current slot lives inside the current DAY. One day's rows, off the index whose second field
+     * is `worldDay`, is therefore an exact window rather than a guess at one.
+     */
+    const dayRows = latest
+      ? await ctx.db.query('canonEvents')
+        .withIndex('by_world_and_day', (q) => q.eq('worldId', worldId).eq('worldDay', latest.worldDay))
+        .collect()
+      : [];
 
     // Latest projection fields per arc.
     const latestFieldsByArc = new Map<string, { revision: number; fields: unknown }>();
@@ -345,72 +675,160 @@ export const rebuildLiveProjection = internalMutation({
       }];
     });
 
-    // Latest published (ready) episode for the world.
-    const publishedEpisode: LivePublishedEpisodeInput | null = (() => {
-      const ready = (episodeRows as DailyEpisodeRow[])
-        .filter((row) => row.status === 'ready' && row.episode?.keyScenes)
-        .sort((a, b) => b.worldDay - a.worldDay)[0];
-      if (!ready || !ready.episode?.keyScenes) return null;
-      return {
-        status: ready.status,
-        keyScenes: ready.episode.keyScenes.map((scene) => ({
+    // ---- which scenes matter: the current slot, and the replay's winners -------------------
+    const dayEvents = dayRows.map(rowToAcceptedEvent);
+    const daySceneEvents = sceneEventRows(dayEvents);
+    const currentSlotSceneIds = new Set(
+      (latest
+        ? groupSceneEvents(daySceneEvents)
+          .filter((group) => group.worldDay === latest.worldDay && group.timeSlot === latest.timeSlot)
+        : []
+      ).map(sceneIdOf));
+
+    /**
+     * The replay's winners, straight off the rank index instead of an in-memory sort of every
+     * scene the world has ever had.
+     *
+     * Taking `REPLAY_MAX_SCENES + currentSlotSceneIds.size` rows is PROVABLY enough rather than a
+     * budget: the only rows discarded are current-slot ones, and there are exactly that many of
+     * them. So this is `selectReplayGroups` exactly, not an approximation of it — see
+     * `liveSceneIndex.ts` on why the index order reproduces the comparator.
+     */
+    const selectedCandidates = (await ctx.db.query('replaySceneCandidates')
+      .withIndex('by_world_and_rank', (q) => q.eq('worldId', worldId))
+      .order('desc')
+      .take(REPLAY_MAX_SCENES + currentSlotSceneIds.size))
+      .filter((row) => !currentSlotSceneIds.has(row.sceneId))
+      .slice(0, REPLAY_MAX_SCENES)
+      .map(rowToCandidate)
+      // Chronological, because a replay is a story being retold and a viewer reads forwards.
+      // Importance decided WHICH scenes; it has no business deciding the order they happened in.
+      .sort((left, right) => left.minSequenceNumber - right.minSequenceNumber);
+
+    // AC#8's stand-in: when the current slot produced nothing placeable, the newest completed
+    // scene is shown instead. Its events are read so `buildActiveScenePresentations` can fall
+    // back to it exactly as it would have with the whole log in hand.
+    const fallbackCandidate = newestCandidateRow ? rowToCandidate(newestCandidateRow) : null;
+
+    const eventsBySequence = new Map<number, AcceptedEvent>();
+    for (const event of [...tailEvents, ...dayEvents]) eventsBySequence.set(event.sequenceNumber, event);
+    const recentEvents = [...recentRowsDesc].reverse().map(rowToAcceptedEvent);
+    for (const event of recentEvents) eventsBySequence.set(event.sequenceNumber, event);
+
+    const missingSequences = [
+      ...selectedCandidates.flatMap((candidate) => candidate.eventSequenceNumbers),
+      ...(fallbackCandidate?.eventSequenceNumbers ?? []),
+    ].filter((sequenceNumber) => !eventsBySequence.has(sequenceNumber));
+    for (const row of await Promise.all([...new Set(missingSequences)].map((sequenceNumber) =>
+      ctx.db.query('canonEvents').withIndex('by_world_and_sequence',
+        (q) => q.eq('worldId', worldId).eq('sequenceNumber', sequenceNumber)).unique()))) {
+      if (row) eventsBySequence.set(row.sequenceNumber, rowToAcceptedEvent(row));
+    }
+
+    // ---- the safety gate ------------------------------------------------------------------
+    // Applied at REBUILD time rather than at read time: the public read path serves published
+    // snapshots only, so a refused sentence must never be written into one. An operator override
+    // re-runs this rebuild, which is what makes a withhold take effect at once.
+    // `withheldSceneRecord` holds only the Scenes currently refused; every Scene absent from it
+    // is showable.
+    const sceneSafetyLabels = new Map<string, SceneSafetyLabel>(Object.entries(withheldSceneRecord));
+    const sceneEvents = sceneEventRows([...eventsBySequence.values()]);
+    const withheldEvents = withheldEventIds(sceneEvents, sceneSafetyLabels);
+    const sceneEventsBySequence = new Map(sceneEvents.map((event) => [event.sequenceNumber, event]));
+
+    // ---- episodes: the newest narrated one, plus the replayed days' own -------------------
+    const readyEpisodeRows = await ctx.db.query('dailyEpisodes')
+      .withIndex('by_world_status_and_day', (q) => q.eq('worldId', worldId).eq('status', 'ready'))
+      .order('desc').take(READY_EPISODE_SCAN_LIMIT);
+    const narratedEpisode = (readyEpisodeRows as DailyEpisodeRow[])
+      .find((row) => row.episode?.keyScenes);
+    // Reported rather than swallowed: "no narrated episode" and "gave up looking" are different
+    // facts about the world, and only one of them is a defect. See READY_EPISODE_SCAN_LIMIT.
+    const publishedEpisodeScanExhausted =
+      narratedEpisode === undefined && readyEpisodeRows.length === READY_EPISODE_SCAN_LIMIT;
+    const publishedEpisode: LivePublishedEpisodeInput | null = narratedEpisode?.episode?.keyScenes
+      ? {
+        status: narratedEpisode.status,
+        keyScenes: narratedEpisode.episode.keyScenes.map((scene) => ({
           title: scene.title, summary: scene.summary, sourceEventIds: scene.sourceEventIds,
         })),
-      };
-    })();
+      }
+      : null;
 
-    // Read defensively rather than through `parseArcEventClassification`, matching the three
-    // sibling projections in this directory: the strict parser throws on a malformed row,
-    // and a classification nobody can parse must cost this rebuild an arc label, not the
-    // whole public read path (the same isolation `canonCharacterLocations` states above).
-    const arcMemberships: SceneArcMembership[] = (classificationRows as ArcClassificationRow[]).flatMap((row) => {
-      const memberships = row.memberships as ClassificationMembership[] | undefined;
-      if (!Array.isArray(memberships)) return [];
-      const arcIds = memberships
-        .map((membership) => membership.arcId)
-        .filter((arcId): arcId is string => typeof arcId === 'string' && arcId.length > 0);
-      // The strongest membership decides the event's story weight, which is what FR-O013's
-      // scene selection ranks by. Read as defensively as `arcId` is, for the same reason.
-      const importance = memberships
-        .map((membership) => membership.importance)
-        .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
-        .reduce((best, value) => Math.max(best, value), 0);
-      return arcIds.length > 0
-        ? [{ sourceEventSequenceNumber: row.sourceEventSequenceNumber, arcIds, importance }]
-        : [];
-    });
+    const replayWorldDays = [...new Set(selectedCandidates.map((candidate) => candidate.worldDay))];
+    const replayEpisodeRows = (await Promise.all(replayWorldDays.map((worldDay) =>
+      ctx.db.query('dailyEpisodes')
+        .withIndex('by_world_and_day', (q) => q.eq('worldId', worldId).eq('worldDay', worldDay))
+        .unique()))).filter((row): row is NonNullable<typeof row> => row !== null) as DailyEpisodeRow[];
 
-    // The safety gate (FR-P004 / ART-132), applied at REBUILD time rather than at read time:
-    // the public read path serves published snapshots only, so a refused sentence must never be
-    // written into one. An operator override re-runs this rebuild, which is what makes a
-    // withhold take effect at once. `withheldSceneRecord` holds only the Scenes currently
-    // refused; every Scene absent from it is showable.
-    const sceneSafetyLabels = new Map<string, SceneSafetyLabel>(Object.entries(withheldSceneRecord));
-    const sceneEvents = sceneEventRows(acceptedEvents);
-    const withheldEvents = withheldEventIds(sceneEvents, sceneSafetyLabels);
+    /**
+     * A key scene narrates SEVERAL events, and can name one far outside every window read above.
+     * Reusing `withheldEvents` for the narration gate would therefore give a false "not withheld"
+     * for exactly the event the window never reached — which is publishing refused text, not
+     * merely missing an optimisation. Each `sourceEventId` is already a bounded, named reference,
+     * so it is resolved by point lookup. (`rebuildOnboardingSummary` closed the same hole.)
+     */
+    const narrationWithheld = withheldEventIds(
+      sceneEventRows((await readEventsByEventId(ctx.db, worldId, [
+        ...(publishedEpisode?.keyScenes ?? []).flatMap((scene) => scene.sourceEventIds),
+        ...replayEpisodeRows.flatMap((row) => (row.episode?.keyScenes ?? [])
+          .flatMap((scene) => scene.sourceEventIds)),
+      ])).map(rowToAcceptedEvent)),
+      sceneSafetyLabels,
+    );
+    const withheldForNarration = new Set([...withheldEvents, ...narrationWithheld]);
     // The episode's narration is redacted alongside the events' own summaries, because BOTH
     // the overlay and the replay prefer narration when it exists — see `redactWithheldNarration`.
-    const publishableKeyScenes = redactWithheldNarration(publishedEpisode?.keyScenes ?? [], withheldEvents);
+    const publishableKeyScenes = redactWithheldNarration(publishedEpisode?.keyScenes ?? [], withheldForNarration);
 
-    // Derived once and published to both the map's projection and the text Live view, so the
-    // two can never disagree about which scene is current (FR-O003 AC#7).
+    // ---- arc memberships, for exactly the events that will be presented --------------------
+    const arcMemberships: SceneArcMembership[] = toArcMemberships(await readArcClassifications(
+      ctx.db,
+      worldId,
+      [
+        ...dayEvents.map((event) => event.sequenceNumber),
+        ...selectedCandidates.flatMap((candidate) => candidate.eventSequenceNumbers),
+        ...(fallbackCandidate?.eventSequenceNumbers ?? []),
+      ],
+    ));
+
+    /**
+     * Derived once and published to both the map's projection and the text Live view, so the two
+     * can never disagree about which scene is current (FR-O003 AC#7).
+     *
+     * Fed the current DAY's events plus the fallback scene's, rather than the world's. That
+     * subset is sufficient rather than approximate: every scene in the current slot is inside the
+     * current day, the degraded branch wants only the newest scene, and the builder's own "what
+     * time is it" comes from the newest event in what it is given — which is in the day. Pinned
+     * against the whole-log answer in `liveStateFunctions.test.ts`.
+     */
+    const fallbackSceneEvents = (fallbackCandidate?.eventSequenceNumbers ?? [])
+      .map((sequenceNumber) => sceneEventsBySequence.get(sequenceNumber))
+      .filter((event): event is SceneEventLike => event !== undefined);
+    const presentationEvents = [...new Map(
+      [...daySceneEvents, ...fallbackSceneEvents].map((event) => [event.sequenceNumber, event]),
+    ).values()];
+
     const presentation = buildActiveScenePresentations({
-      acceptedEvents: sceneEvents,
+      acceptedEvents: presentationEvents,
       arcMemberships,
       publishedEpisodeScenes: publishableKeyScenes,
-      excludedCharacterIds: excludedCharacterIds(acceptedEvents),
+      excludedCharacterIds: fold.excludedCharacterIds,
       sceneSafetyLabels,
     });
 
-    const runtime = visualRuntimeForWorld(args.worldId);
     const worldStatus: PublicWorldStatus = scheduleRow?.status ?? 'unknown';
-    const derived = runtime
+    const derived = runtime && motionFold
       ? buildPublicDynamicProjectionResult({
-          worldId: args.worldId,
+          worldId,
           nowMs: args.now,
           runtime,
           seedPlacements: seedPlacementsFromCharacterRows(characterRows),
-          acceptedEvents,
+          // Only the newest event is read off this list now; the anchor chain and the excluded
+          // set are supplied pre-folded.
+          acceptedEvents: latest ? [latest] : [],
+          motionFold,
+          excludedCharacterIds: fold.excludedCharacterIds,
           worldStatus,
           activeScenes: presentation.scenes,
         })
@@ -434,22 +852,32 @@ export const rebuildLiveProjection = internalMutation({
     const dynamicControls = resolveDynamicViewControlRows(
       await ctx.db
         .query('dynamicViewControls')
-        .withIndex('by_world_and_created', (q) => q.eq('worldId', args.worldId))
+        .withIndex('by_world_and_created', (q) => q.eq('worldId', worldId))
         .collect(),
     );
     const dynamic = derived?.projection
       ? applyDynamicViewControls(derived.projection, dynamicControls)
       : null;
 
-    const publishableEvents = redactWithheldSummaries(acceptedEvents, withheldEvents);
+    const publishableEvents = redactWithheldSummaries([...eventsBySequence.values()], withheldEvents);
 
+    /**
+     * `acceptedEvents` is the last `recentLimit` events and `priorFold` covers everything (ART-100).
+     *
+     * The two overlap, and that is safe rather than sloppy: the fold is last-write-wins over a
+     * sequence, so re-applying events already folded in re-assigns the same values — and these are
+     * the NEWEST events, so nothing later could have overwritten them. Applying them twice is
+     * therefore the identity. `liveState.test.ts` pins that against the full replay rather than
+     * leaving it as an argument.
+     */
     const payload = buildLiveProjection({
-      worldId: args.worldId,
-      acceptedEvents: publishableEvents,
+      worldId,
+      acceptedEvents: redactWithheldSummaries(recentEvents, withheldEvents),
+      priorFold: fold,
       arcs,
       publishedEpisode: publishedEpisode && { ...publishedEpisode, keyScenes: publishableKeyScenes },
       activeScenes: presentation.scenes,
-      recentEventCount: args.recentEventCount ?? LIVE_RECENT_EVENT_DEFAULT,
+      recentEventCount: recentLimit,
       dynamic,
     });
 
@@ -468,31 +896,51 @@ export const rebuildLiveProjection = internalMutation({
     // a replay that cannot be built is a viewer arriving to a live map with no replay, which
     // is the PRD's own failure behaviour — and it must never be able to fail the rebuild that
     // publishes the map itself. Same isolation `canonCharacterLocations` states above.
-    const episodesForReplay: ReplayEpisodeInput[] = (episodeRows as DailyEpisodeRow[]).map((row) => ({
+    // Only the replayed days' episodes, not the world's: `resolveEventCardStep` looks an episode
+    // up by the replayed event's own `worldDay`, so every other row was read and discarded.
+    const episodesForReplay: ReplayEpisodeInput[] = replayEpisodeRows.map((row) => ({
       worldDay: row.worldDay,
       status: row.status,
       // Neutralised, not merely index-preserved: `resolveEventCardStep` PREFERS an episode's
       // narration over an event's own summary, and that branch is gated on the episode's
       // publication version alone. Without this, every day with a published episode would
       // replay the withheld text the overlay is busy replacing with a placeholder (AC#6).
-      keyScenes: redactWithheldNarration(row.episode?.keyScenes ?? [], withheldEvents),
+      keyScenes: redactWithheldNarration(row.episode?.keyScenes ?? [], withheldForNarration),
     }));
+    // The publication lifecycle of each replayed day's text (FR-O013 / ART-121), read as point
+    // lookups on the `isCurrent` index rather than by sweeping the world's records. The version a
+    // reference pins is the one current when the replay was built, which is what makes a later
+    // withhold resolve to nothing.
     const publicationRecords = new Map<string, ReplayPublicationRecord>();
-    for (const row of publicationRows as PublicationRecordRow[]) {
-      if (!row.isCurrent) continue;
-      publicationRecords.set(row.contentRef, { version: row.version, status: row.status });
+    for (const contentRef of replayWorldDays.map((worldDay) => episodeContentRefOf(worldId, worldDay))) {
+      const row = await ctx.db.query('publicationRecords')
+        .withIndex('by_current', (q) => q.eq('worldId', worldId).eq('contentRef', contentRef).eq('isCurrent', true))
+        .unique();
+      if (row) publicationRecords.set(contentRef, { version: row.version, status: row.status });
     }
+
+    // Redacted, for the reason stated on `redactWithheldSummaries`: a replay step must not be
+    // able to name a sentence the safety gate refuses (AC#6).
+    const publishableSceneEvents = new Map(
+      sceneEventRows(publishableEvents).map((event) => [event.sequenceNumber, event]));
+    const selectionGroups = selectedCandidates
+      .map((candidate) => candidateToGroup(candidate, publishableSceneEvents))
+      .filter((group): group is SceneGroup => group !== null);
+
     let replay: VisualReplay | null = null;
     let replayBuildFailed = false;
     try {
-      replay = runtime
+      replay = runtime && selectionGroups.length > 0
         ? buildVisualReplay({
-            worldId: args.worldId,
-            // Redacted, for the reason stated on `redactWithheldSummaries`: a replay step must
-            // not be able to name a sentence the safety gate refuses (AC#6).
-            acceptedEvents: publishableEvents,
+            worldId,
+            acceptedEvents: selectionGroups.flatMap((group) => group.events),
+            selection: {
+              groups: selectionGroups,
+              locationFolds: new Map(selectedCandidates
+                .map((candidate) => [candidate.sceneId, candidateLocationFold(candidate)])),
+            },
             arcMemberships,
-            excludedCharacterIds: excludedCharacterIds(acceptedEvents),
+            excludedCharacterIds: fold.excludedCharacterIds,
             runtime,
             episodes: episodesForReplay,
             publicationRecords,
@@ -532,7 +980,7 @@ export const rebuildLiveProjection = internalMutation({
     // projection — not the handler's own duration. A world with no history has
     // `snapshotSequence === 0` and no fact to measure from, so it records 0 rather than
     // the distance to the Unix epoch.
-    const canonLocations = dynamic ? canonCharacterLocations(args.worldId, acceptedEvents) : null;
+    const canonLocations = dynamic ? await canonCharacterLocations(ctx.db, worldId) : null;
     const incidents = dynamic && runtime
       ? collectIncidents({ dynamic, runtime, problems: derived?.problems.records ?? [], canonLocations })
       : [];
@@ -578,7 +1026,16 @@ export const rebuildLiveProjection = internalMutation({
        */
       correlatedEventCount: args.correlateSceneId === undefined
         ? null
-        : sceneEvents.filter((event) => event.sceneId === args.correlateSceneId).length,
+        // ART-100: this ONE answer still costs a whole-log read, and it is the right place to
+        // spend it. There is no index on `metadata.sceneId`, and the operator is owed an exact
+        // number — a count over "the events this rebuild happened to read" would report a
+        // truthful-looking figure that shrinks as the rebuild gets cheaper. The read happens only
+        // when an operator explicitly asks about a Scene (`overridePostGenerationSafetyLabel`),
+        // never on the post-commit path, which is the path the byte budget belongs to.
+        : sceneEventRows((await ctx.db.query('canonEvents')
+          .withIndex('by_world_and_sequence', (q) => q.eq('worldId', worldId)).collect())
+          .map(rowToAcceptedEvent))
+          .filter((event) => event.sceneId === args.correlateSceneId).length,
       // FR-O013 observability. `replayBuildFailed` is the one that matters operationally: a
       // null replay is ordinary (a world whose only activity is the current slot has nothing
       // completed to show), whereas a *failed* build is a defect that would otherwise be

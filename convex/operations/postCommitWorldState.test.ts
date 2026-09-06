@@ -10,7 +10,7 @@
 
 import { TIME_SLOTS } from '../canon/eventTypes';
 import type { AcceptedEvent } from '../canon/model';
-import { completedWorldDays, completedWorldDaysBounded } from './postCommitLiveFunctions';
+import { completedWorldDays, completedWorldDaysOf } from './postCommitLiveFunctions';
 
 const LAST_TIME_SLOT = TIME_SLOTS[TIME_SLOTS.length - 1];
 const FIRST_TIME_SLOT = TIME_SLOTS[0];
@@ -35,15 +35,23 @@ function event(sequenceNumber: number, worldDay: number, timeSlot: string): Acce
   } as AcceptedEvent;
 }
 
+/**
+ * The day list exactly as `worldDayLedgers` maintains it: the distinct `worldDay`s named by the
+ * accepted events, and nothing else. Written out here rather than imported so this file remains
+ * an INDEPENDENT statement of what the ledger is supposed to contain — a test fed the ledger's own
+ * derivation would agree with it by construction, which is the tautology CLAUDE.md §9 warns about.
+ */
+function ledgerWorldDays(events: readonly AcceptedEvent[]): number[] {
+  return [...new Set(events.map(({ worldDay }) => worldDay))].sort((left, right) => left - right);
+}
+
 /** Run the bounded implementation the way `loadWorldState` wires it, over an event list. */
-async function bounded(events: readonly AcceptedEvent[]): Promise<number[]> {
-  const days = events.map((candidate) => candidate.worldDay);
-  const min = Math.min(...days);
-  const max = Math.max(...days);
-  return completedWorldDaysBounded(
-    { min, max },
-    events.filter((candidate) => candidate.worldDay === max),
-    (worldDay) => Promise.resolve(events.some((candidate) => candidate.worldDay === worldDay)),
+function bounded(events: readonly AcceptedEvent[]): number[] {
+  const latestWorldDay = Math.max(...events.map((candidate) => candidate.worldDay));
+  return completedWorldDaysOf(
+    ledgerWorldDays(events),
+    latestWorldDay,
+    events.filter((candidate) => candidate.worldDay === latestWorldDay),
   );
 }
 
@@ -73,8 +81,8 @@ const SHAPES: Array<[string, AcceptedEvent[]]> = [
 ];
 
 describe('ART-100 bounded completedWorldDays', () => {
-  it.each(SHAPES)('agrees with the full-replay implementation: %s', async (_name, events) => {
-    expect(await bounded(events)).toEqual(completedWorldDays(events));
+  it.each(SHAPES)('agrees with the full-replay implementation: %s', (_name, events) => {
+    expect(bounded(events)).toEqual(completedWorldDays(events));
   });
 
   /**
@@ -82,7 +90,7 @@ describe('ART-100 bounded completedWorldDays', () => {
    * implementations must never disagree. Deterministic (no Math.random) so a failure is
    * reproducible from the index alone.
    */
-  it('agrees with the full-replay implementation over generated day shapes', async () => {
+  it('agrees with the full-replay implementation over generated day shapes', () => {
     for (let seed = 0; seed < 300; seed += 1) {
       const events: AcceptedEvent[] = [];
       let sequenceNumber = 0;
@@ -93,23 +101,53 @@ describe('ART-100 bounded completedWorldDays', () => {
         events.push(event(sequenceNumber++, day, endsDay ? LAST_TIME_SLOT : FIRST_TIME_SLOT));
       }
       if (events.length === 0) continue;
-      expect(await bounded(events)).toEqual(completedWorldDays(events));
+      expect(bounded(events)).toEqual(completedWorldDays(events));
     }
   });
 
   /**
-   * The probe is what makes a skipped day absent. If it were ever stubbed to `true` the bounded
-   * version would invent days that produced no event, which `episodeNumberFor` would then number
-   * — so this pins that the probe is consulted rather than assumed.
+   * A day nothing happened on must not appear. `episodeNumberFor` numbers episodes by POSITION in
+   * this list, so an invented day shifts every later episode's number — the failure this whole
+   * file exists to prevent, now expressed against the ledger's day list rather than a probe.
    */
-  it('excludes a day the probe says produced no event', async () => {
+  it('excludes a day that produced no event', () => {
     const events = [event(0, 1, LAST_TIME_SLOT), event(1, 3, LAST_TIME_SLOT)];
-    const probed: number[] = [];
-    const result = await completedWorldDaysBounded({ min: 1, max: 3 }, [events[1]], (worldDay) => {
-      probed.push(worldDay);
-      return Promise.resolve(events.some((candidate) => candidate.worldDay === worldDay));
-    });
-    expect(probed).toEqual([1, 2, 3]);
-    expect(result).toEqual([1, 3]);
+    expect(ledgerWorldDays(events)).toEqual([1, 3]);
+    expect(completedWorldDaysOf([1, 3], 3, [events[1]])).toEqual([1, 3]);
+    // ...and one that DID would, so the assertion above is a real exclusion rather than a list
+    // that happens to be short.
+    expect(completedWorldDaysOf([1, 2, 3], 3, [events[1]])).toEqual([1, 2, 3]);
+  });
+
+  /**
+   * The ledger's catch-up property (ART-100): advancing it by a suffix must equal deriving it
+   * from the whole log. Accepted Canon is append-only, so this is what lets a stored day list
+   * stand in for a read of every event — and it is asserted at EVERY split point rather than at
+   * one convenient boundary, because an off-by-one in the cursor would survive a single split.
+   */
+  it('advancing the ledger by a suffix equals deriving it from the whole log', () => {
+    for (const [, events] of SHAPES) {
+      for (let split = 0; split <= events.length; split += 1) {
+        const prefix = events.slice(0, split);
+        const suffix = events.slice(split);
+        const incremental = [...new Set([...ledgerWorldDays(prefix), ...suffix.map((e) => e.worldDay)])]
+          .sort((left, right) => left - right);
+        expect(incremental).toEqual(ledgerWorldDays(events));
+      }
+    }
+    // Non-vacuity: the shapes really do have more than one day to split across, so the loop above
+    // is not asserting `[] === []` a few dozen times.
+    expect(Math.max(...SHAPES.map(([, events]) => ledgerWorldDays(events).length))).toBeGreaterThan(1);
+  });
+
+  /**
+   * Days do NOT have to arrive in ascending order for the ledger to be right. Nothing enforces
+   * that `worldDay` rises with `sequenceNumber` — `dayBounds`' own docblock says so — and a
+   * cursor that assumed it would silently drop a back-dated day, renumbering episodes.
+   */
+  it('catches up a day that arrives out of sequence order', () => {
+    const outOfOrder = [event(0, 5, LAST_TIME_SLOT), event(1, 2, LAST_TIME_SLOT), event(2, 7, FIRST_TIME_SLOT)];
+    expect(ledgerWorldDays(outOfOrder)).toEqual([2, 5, 7]);
+    expect(bounded(outOfOrder)).toEqual(completedWorldDays(outOfOrder));
   });
 });

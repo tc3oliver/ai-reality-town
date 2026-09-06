@@ -17,6 +17,22 @@ const dynamicIncidentCodeValidator = v.union(
 );
 
 /**
+ * One `character_location_changed` arrival, as the Visual Runtime's anchor chain reads it
+ * (ART-100). Mirrors `LocationFact` in `visualSyncPlanner.ts`; `fromLocationId` is optional here
+ * because Convex has no null-vs-absent distinction worth spending a column on.
+ */
+const locationFactValidator = v.object({
+  characterId: v.string(),
+  fromLocationId: v.optional(v.string()),
+  toLocationId: v.string(),
+  worldDay: v.number(),
+  timeSlot: v.string(),
+  acceptedAt: v.number(),
+  sequenceNumber: v.number(),
+  eventId: v.string(),
+});
+
+/**
  * Publication-gated public read-model store (NFR-001/002/005, §16.3).
  *
  * Public reads consult ONLY this table — never canon, simulation, or any
@@ -157,4 +173,102 @@ export const publicReadTables = {
     lastSnapshotSequence: v.number(),
     updatedAt: v.number(),
   }).index('by_world', ['worldId']),
+
+  /**
+   * The Live rebuild's resume point (ART-100). One row per world.
+   *
+   * `rebuildLiveProjection` runs after every accepted event and used to read the world's whole
+   * accepted-event log to derive four last-write-wins folds. This row is those folds, so the
+   * rebuild reads only the events since `lastSequenceNumber`.
+   *
+   * A DERIVED artifact and nothing else: it is folded from accepted Canon and can be discarded
+   * and rebuilt from it at any time (`rebuildLiveProjection` with `rebuildFromScratch`). It is
+   * never an input to Canon, and losing it costs one expensive rebuild, not a fact.
+   *
+   * NOT resumed from a `canonSnapshots` row, and that is load-bearing rather than incidental:
+   * `locations` is one of `SEED_BASELINE_FIELDS`, so a Canon snapshot's copy carries the world's
+   * imported seed locations — which the Live projection has never published, because it folds
+   * from empty over `location_state_changed` alone. See `liveFold.ts`.
+   */
+  liveRebuildCheckpoints: defineTable({
+    schemaVersion: v.literal(1),
+    worldId: v.string(),
+    /** The highest accepted-event sequence number folded into this row. */
+    lastSequenceNumber: v.number(),
+    fold: v.object({
+      locations: v.array(v.object({
+        locationId: v.string(), name: v.string(), description: v.string(),
+        locationType: v.string(), active: v.boolean(),
+      })),
+      positionByCharacter: v.array(v.object({ characterId: v.string(), locationId: v.string() })),
+      aliveByCharacter: v.array(v.object({ characterId: v.string(), alive: v.boolean() })),
+      knownCharacters: v.array(v.string()),
+      excludedCharacterIds: v.array(v.string()),
+      lastSequenceNumber: v.number(),
+    }),
+    /**
+     * The Visual Replay's own location fold, kept separately from `fold.positionByCharacter`
+     * because the two apply DIFFERENT rules: the replay refuses an arrival with no
+     * `toLocationId`, the Live fold records it. Merging them would be a silent behaviour change
+     * in one of the two published payloads. See `foldReplayPositions`.
+     */
+    replayPositions: v.array(v.object({ characterId: v.string(), locationId: v.string() })),
+    /**
+     * The Visual Runtime's anchor chain, compressed to its outcome per character.
+     *
+     * `bindingsFingerprint` is the reason this can be stored at all: the anchors below were
+     * resolved against the map's compiled-in bindings, so editing the map invalidates them. A
+     * rebuild compares the fingerprint against the runtime it is about to plan with and starts
+     * from Canon when they differ, rather than publishing positions derived from a map that no
+     * longer exists. See `visualSyncPlanner.ts`.
+     *
+     * Optional because a world with no Visual Runtime (every world but Mistwood today) plans no
+     * motion at all, so there is no chain to fold.
+     */
+    motionFold: v.optional(v.object({
+      factCharacterIds: v.array(v.string()),
+      characters: v.array(v.object({
+        characterId: v.string(),
+        firstFact: locationFactValidator,
+        lastFact: locationFactValidator,
+        lastBoundHopAnchor: v.optional(v.object({ x: v.number(), y: v.number() })),
+        unboundHopLocationIds: v.array(v.string()),
+      })),
+      lastSequenceNumber: v.number(),
+      bindingsFingerprint: v.string(),
+    })),
+    updatedAt: v.number(),
+  }).index('by_world', ['worldId']),
+
+  /**
+   * One row per scene — the set of accepted events sharing (worldDay, timeSlot, locationId) —
+   * carrying what the Visual Replay needs to rank and rebuild it without reading the log (ART-100).
+   *
+   * `by_world_and_rank` exists to reproduce `selectReplayGroups`' comparator with a database read
+   * instead of an in-memory sort of every scene. Read descending, it yields `(score desc,
+   * maxSequenceNumber desc)` — the comparator's first two keys, and the third is unreachable
+   * because no two scenes can share a `maxSequenceNumber`. See `liveSceneIndex.ts`.
+   *
+   * Derived, like `liveRebuildCheckpoints`, and rebuildable from Canon for the same reason.
+   */
+  replaySceneCandidates: defineTable({
+    schemaVersion: v.literal(1),
+    worldId: v.string(),
+    /** `${worldDay}:${timeSlot}:${locationId}` — the id ART-122 publishes for the same scene. */
+    sceneId: v.string(),
+    worldDay: v.number(),
+    timeSlot: v.string(),
+    locationId: v.string(),
+    minSequenceNumber: v.number(),
+    maxSequenceNumber: v.number(),
+    eventSequenceNumbers: v.array(v.number()),
+    /** Highest story importance among the scene's events, 0 when none was classified. */
+    score: v.number(),
+    positionsBefore: v.array(v.object({ characterId: v.string(), locationId: v.string() })),
+    positionsAfter: v.array(v.object({ characterId: v.string(), locationId: v.string() })),
+    updatedAt: v.number(),
+  })
+    .index('by_world_and_scene', ['worldId', 'sceneId'])
+    .index('by_world_and_rank', ['worldId', 'score', 'maxSequenceNumber'])
+    .index('by_world_and_sequence', ['worldId', 'maxSequenceNumber']),
 };

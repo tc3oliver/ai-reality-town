@@ -9,7 +9,13 @@ export const editorialTables = {
     sourceEventIds: v.array(v.string()), createdAt: v.number(),
   })
     .index('by_world_and_day', ['worldId', 'worldDay'])
-    .index('by_world_and_episode', ['worldId', 'episodeNumber']),
+    .index('by_world_and_episode', ['worldId', 'episodeNumber'])
+    /**
+     * "The newest narrated episode", answered by the database instead of by sorting every day the
+     * world has had (ART-100). `rebuildLiveProjection` asks it after every accepted event, and the
+     * sweep it replaces grew with the world's age.
+     */
+    .index('by_world_status_and_day', ['worldId', 'status', 'worldDay']),
 
   // Independent publication lifecycle (FR-K004). Separate from canon: rows here
   // govern only the visibility of derived public content. Deleting/superseding

@@ -32,6 +32,7 @@ import type { SeedPlacement } from '../visualRuntime/seedBootstrap';
 import {
   planCharacterTrajectories,
   type AcceptedEventLike,
+  type CharacterMotionFold,
   type VisualRuntimeInput,
 } from '../visualRuntime/visualSyncPlanner';
 
@@ -369,7 +370,20 @@ export type PublicDynamicProjectionInput = {
   readonly nowMs: number;
   readonly runtime: Pick<VisualRuntimeInput, 'mapId' | 'grid' | 'bindings'>;
   readonly seedPlacements: readonly SeedPlacement[];
+  /**
+   * The world's accepted events. Three things are read off them: the anchor chain, the excluded
+   * characters, and the newest event. Supply `motionFold` and `excludedCharacterIds` and only the
+   * third remains, so this may then hold the newest event alone.
+   */
   readonly acceptedEvents: readonly AcceptedEventLike[];
+  /** A pre-folded anchor chain (ART-100). See `visualSyncPlanner.ts`. */
+  readonly motionFold?: CharacterMotionFold;
+  /**
+   * The characters the map must not draw, pre-folded (ART-100). Supplied and derived-from-events
+   * must agree; `publicDynamicProjection.test.ts` asserts they do on the same world, because a
+   * caller passing a stale set here would erase a living character from the map.
+   */
+  readonly excludedCharacterIds?: ReadonlySet<string>;
   readonly worldStatus: PublicWorldStatus;
   readonly activeScenes: readonly PublicActiveSceneInput[];
 };
@@ -508,9 +522,10 @@ export function buildPublicDynamicProjectionResult(
     bindings: input.runtime.bindings,
     seedPlacements: input.seedPlacements,
     acceptedEvents: input.acceptedEvents,
+    ...(input.motionFold ? { motionFold: input.motionFold } : {}),
   });
 
-  const excluded = excludedCharacterIds(input.acceptedEvents);
+  const excluded = input.excludedCharacterIds ?? excludedCharacterIds(input.acceptedEvents);
   /**
    * FR-O004 / ART-123. Who is visibly in conversation, from the ACTIVE scenes this same call is
    * about to publish — so the map and the scene panel are describing one set of facts.

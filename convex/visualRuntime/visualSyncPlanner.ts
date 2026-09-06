@@ -74,7 +74,18 @@ export type VisualRuntimeInput = {
   readonly bindings: readonly LocationVisualBinding[];
   /** Seed placements act as a default position, never as an override of accepted history. */
   readonly seedPlacements: readonly SeedPlacement[];
+  /**
+   * The world's accepted events. Folded here when `motionFold` is absent; when it is present the
+   * caller has already folded them and this may be empty.
+   */
   readonly acceptedEvents: readonly AcceptedEventLike[];
+  /**
+   * A pre-folded anchor chain (ART-100), so a caller holding a checkpoint need not read the whole
+   * accepted log to place characters. Output is identical either way —
+   * `liveRebuildEquivalence.test.ts` plans the same world both ways, at every split point, and
+   * compares the snapshots.
+   */
+  readonly motionFold?: CharacterMotionFold;
 };
 
 /**
@@ -86,7 +97,7 @@ export const MAX_PATH_ATTEMPTS = 4;
 
 const LOCATION_CHANGE = 'character_location_changed';
 
-type LocationFact = {
+export type LocationFact = {
   readonly characterId: string;
   readonly fromLocationId: string | null;
   readonly toLocationId: string;
@@ -197,13 +208,8 @@ function unboundLocationProblem(characterId: string, locationId: string): Visual
  *   The character appears where Canon says they are, but no walk is animated through a wall.
  */
 export function planCharacterTrajectories(input: VisualRuntimeInput): VisualRuntimeSnapshot {
-  const facts = collectLocationFacts(input.acceptedEvents);
-  const factsByCharacter = new Map<string, LocationFact[]>();
-  for (const fact of facts) {
-    const existing = factsByCharacter.get(fact.characterId);
-    if (existing) existing.push(fact);
-    else factsByCharacter.set(fact.characterId, [fact]);
-  }
+  const fold = input.motionFold
+    ?? foldCharacterMotion(emptyCharacterMotionFold(), input.acceptedEvents, input.bindings);
 
   const seedByCharacter = new Map<string, SeedPlacement>();
   const characterIds: string[] = [];
@@ -213,10 +219,10 @@ export function planCharacterTrajectories(input: VisualRuntimeInput): VisualRunt
     characterIds.push(placement.characterId);
   }
   const known = new Set(characterIds);
-  for (const fact of facts) {
-    if (known.has(fact.characterId)) continue;
-    known.add(fact.characterId);
-    characterIds.push(fact.characterId);
+  for (const characterId of fold.factCharacterIds) {
+    if (known.has(characterId)) continue;
+    known.add(characterId);
+    characterIds.push(characterId);
   }
 
   const trajectories: MovementTrajectory[] = [];
@@ -225,9 +231,9 @@ export function planCharacterTrajectories(input: VisualRuntimeInput): VisualRunt
     resolvePublishableLocationZone(input.bindings, locationId);
 
   for (const characterId of characterIds) {
-    const characterFacts = factsByCharacter.get(characterId) ?? [];
+    const state = fold.byCharacter.get(characterId) ?? null;
 
-    if (characterFacts.length === 0) {
+    if (state === null) {
       const placement = seedByCharacter.get(characterId);
       if (!placement) continue;
       const binding = bindingFor(placement.initialLocationId);
@@ -239,7 +245,7 @@ export function planCharacterTrajectories(input: VisualRuntimeInput): VisualRunt
       continue;
     }
 
-    const lastFact = characterFacts[characterFacts.length - 1];
+    const lastFact = state.lastFact;
     const targetBinding = bindingFor(lastFact.toLocationId);
     if (!targetBinding) {
       problems.push(unboundLocationProblem(characterId, lastFact.toLocationId));
@@ -248,7 +254,7 @@ export function planCharacterTrajectories(input: VisualRuntimeInput): VisualRunt
 
     const origin = resolveOrigin({
       characterId,
-      characterFacts,
+      state,
       seedPlacement: seedByCharacter.get(characterId),
       bindingFor,
       targetBinding,
@@ -334,14 +340,13 @@ export function planCharacterTrajectories(input: VisualRuntimeInput): VisualRunt
  */
 function resolveOrigin(args: {
   readonly characterId: string;
-  readonly characterFacts: readonly LocationFact[];
+  readonly state: CharacterOriginState;
   readonly seedPlacement: SeedPlacement | undefined;
   readonly bindingFor: (locationId: string) => LocationVisualBinding | undefined;
   readonly targetBinding: LocationVisualBinding;
   readonly problems: VisualRuntimeProblem[];
 }): TilePoint {
-  const { characterId, characterFacts, seedPlacement, bindingFor, targetBinding, problems } = args;
-  const firstFact = characterFacts[0];
+  const { characterId, state, seedPlacement, bindingFor, targetBinding, problems } = args;
   let current: TilePoint | null = null;
 
   if (seedPlacement) {
@@ -352,24 +357,126 @@ function resolveOrigin(args: {
       problems.push(unboundLocationProblem(characterId, seedPlacement.initialLocationId));
     }
   }
-  if (!current && firstFact.fromLocationId) {
-    const originBinding = bindingFor(firstFact.fromLocationId);
-    if (originBinding) current = anchorForFact(originBinding, characterId, firstFact);
-    else problems.push(unboundLocationProblem(characterId, firstFact.fromLocationId));
+  if (!current && state.firstFact.fromLocationId) {
+    const originBinding = bindingFor(state.firstFact.fromLocationId);
+    if (originBinding) current = anchorForFact(originBinding, characterId, state.firstFact);
+    else problems.push(unboundLocationProblem(characterId, state.firstFact.fromLocationId));
   }
 
-  // Every hop but the last only moves the chain head forward; no path is planned for them.
-  for (let index = 0; index < characterFacts.length - 1; index++) {
-    const fact = characterFacts[index];
-    const binding = bindingFor(fact.toLocationId);
-    if (!binding) {
-      problems.push(unboundLocationProblem(characterId, fact.toLocationId));
+  // Every hop but the last only moved the chain head forward; no path was planned for them, and
+  // all they left behind was an anchor and — where a hop's zone had no binding — one problem
+  // apiece, in hop order. Both are carried by the fold, so the hops need not be re-read.
+  for (const locationId of state.unboundHopLocationIds) {
+    problems.push(unboundLocationProblem(characterId, locationId));
+  }
+
+  return state.lastBoundHopAnchor ?? current ?? targetBinding.entryAnchors[0];
+}
+
+/**
+ * What one character's anchor chain leaves behind (ART-100).
+ *
+ * The chain is a left fold: each hop but the newest either advances the origin anchor or reports
+ * an unbound zone, and nothing about it looks forward. So the whole chain compresses to its
+ * outcome plus the newest fact, and a rebuild no longer needs the character's history to place
+ * them — which is what takes `rebuildLiveProjection` off the whole accepted-event log.
+ */
+export type CharacterOriginState = {
+  /** The character's earliest fact, whose `fromLocationId` heads the chain when no seed does. */
+  readonly firstFact: LocationFact;
+  /** The newest fact. The only one an actual path is planned for. */
+  readonly lastFact: LocationFact;
+  /** Where the last hop with a resolvable zone left the character, or null if none had one. */
+  readonly lastBoundHopAnchor: TilePoint | null;
+  /** Zones an intermediate hop named that have no visual binding, in hop order. */
+  readonly unboundHopLocationIds: readonly string[];
+};
+
+export type CharacterMotionFold = {
+  /** Characters in the order Canon first placed them — the order the planner emits them in. */
+  readonly factCharacterIds: readonly string[];
+  readonly byCharacter: ReadonlyMap<string, CharacterOriginState>;
+  /** The highest sequence number folded in, or -1 for the empty fold. */
+  readonly lastSequenceNumber: number;
+  /**
+   * A digest of the bindings this fold's anchors were resolved against.
+   *
+   * `lastBoundHopAnchor` and the unbound-hop list are BOTH functions of the map bindings, which
+   * are compiled-in constants rather than stored data. Editing the map therefore invalidates a
+   * stored fold, in published output, and no amount of care at the call site would notice. A
+   * caller compares this against {@link bindingsFingerprint} for the runtime it is about to plan
+   * with, and re-folds from Canon when they differ.
+   */
+  readonly bindingsFingerprint: string;
+};
+
+export function emptyCharacterMotionFold(): CharacterMotionFold {
+  return { factCharacterIds: [], byCharacter: new Map(), lastSequenceNumber: -1, bindingsFingerprint: '' };
+}
+
+/**
+ * A digest of everything about the bindings that a stored fold depends on.
+ *
+ * `selectAmbientAnchor` picks from a zone's ambient anchors and `entryAnchors[0]` is the last
+ * resort origin, so both lists are in; `locationId` is in because a zone's identity is what a hop
+ * is matched against. Order-independent, so re-ordering the binding list is not a false alarm.
+ */
+export function bindingsFingerprint(bindings: readonly LocationVisualBinding[]): string {
+  return JSON.stringify([...bindings]
+    .sort((left, right) => left.locationId.localeCompare(right.locationId))
+    .map((binding) => [binding.locationId, binding.ambientAnchors, binding.entryAnchors]));
+}
+
+/**
+ * Fold `events`' location facts onto `prior`.
+ *
+ * `bindings` is required rather than optional: a fold computed without them could resolve no
+ * anchor at all, and one that silently recorded `null` for every hop would place every character
+ * at their destination's entry anchor — a wrong answer that looks like a working one.
+ */
+export function foldCharacterMotion(
+  prior: CharacterMotionFold,
+  events: readonly AcceptedEventLike[],
+  bindings: readonly LocationVisualBinding[],
+): CharacterMotionFold {
+  const bindingFor = (locationId: string): LocationVisualBinding | undefined =>
+    resolvePublishableLocationZone(bindings, locationId);
+
+  const factCharacterIds = [...prior.factCharacterIds];
+  const seen = new Set(factCharacterIds);
+  const byCharacter = new Map(prior.byCharacter);
+  let lastSequenceNumber = prior.lastSequenceNumber;
+
+  for (const fact of collectLocationFacts(events)) {
+    lastSequenceNumber = Math.max(lastSequenceNumber, fact.sequenceNumber);
+    const existing = byCharacter.get(fact.characterId);
+    if (!existing) {
+      if (!seen.has(fact.characterId)) {
+        seen.add(fact.characterId);
+        factCharacterIds.push(fact.characterId);
+      }
+      byCharacter.set(fact.characterId, {
+        firstFact: fact, lastFact: fact, lastBoundHopAnchor: null, unboundHopLocationIds: [],
+      });
       continue;
     }
-    current = anchorForFact(binding, characterId, fact);
+    // The fact that WAS newest becomes an intermediate hop, and is retired exactly as the original
+    // loop retired it: an unbound zone reports a problem and leaves the anchor standing.
+    const retired = existing.lastFact;
+    const binding = bindingFor(retired.toLocationId);
+    byCharacter.set(fact.characterId, {
+      firstFact: existing.firstFact,
+      lastFact: fact,
+      lastBoundHopAnchor: binding
+        ? anchorForFact(binding, fact.characterId, retired)
+        : existing.lastBoundHopAnchor,
+      unboundHopLocationIds: binding
+        ? existing.unboundHopLocationIds
+        : [...existing.unboundHopLocationIds, retired.toLocationId],
+    });
   }
 
-  return current ?? targetBinding.entryAnchors[0];
+  return { factCharacterIds, byCharacter, lastSequenceNumber, bindingsFingerprint: bindingsFingerprint(bindings) };
 }
 
 /**
