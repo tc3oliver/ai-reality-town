@@ -22,11 +22,13 @@ import { v } from 'convex/values';
 import { CANON_VALIDATION_VERSION } from '../shared/constants';
 import { CanonError } from '../shared/errors';
 import { deriveEventId } from '../shared/ids';
-import { emptyProjection, type AcceptedEvent, type CanonImmutableRule, type CanonRuleContext, type ProposedEvent } from './model';
+import type { AcceptedEvent, CanonImmutableRule, CanonRuleContext, ProposedEvent, WorldProjection } from './model';
 import { personaAnchorFromSeed } from './personaDeviation';
 import { proposedEventArgs } from './proposedEvent';
 import { replayWorldEvents } from './replay';
 import { rowToAcceptedEvent } from './serialize';
+import { cloneProjection, type CanonSnapshot } from './snapshots';
+import { resolveWorldBaseline } from './snapshotManager';
 import { validateCanon, validateEventStructure } from './validators';
 
 /** Result of a commit attempt. `deduplicated` is true when an identical key already committed. */
@@ -55,6 +57,16 @@ export interface CanonCommitStore {
   ): Promise<{ eventId: string; sequenceNumber: number } | null>;
   loadAcceptedEvents(worldId: string): Promise<AcceptedEvent[]>;
   loadCanonRuleContext(worldId: string): Promise<CanonRuleContext | null>;
+  /**
+   * The `initial` snapshot `importWorld` persisted for a seeded world, or null if the world was
+   * never seeded.
+   *
+   * Required rather than optional deliberately. Seeded locations and organizations exist ONLY in
+   * this snapshot — no event creates them — so a store that cannot supply it validates movement
+   * against a projection missing every seeded location. Making it optional would let a real
+   * adapter omit it and silently fall back to exactly the defect this method exists to fix.
+   */
+  loadInitialSnapshot(worldId: string): Promise<CanonSnapshot | null>;
   /** Atomically append the accepted event and its idempotency record. */
   appendCommit(accepted: AcceptedEvent): Promise<void>;
 }
@@ -81,9 +93,25 @@ export async function commitProposedEvent(
       };
     }
 
-  // 3. Load current projection by replaying all accepted events for this world.
+  // 3. Load current projection by replaying accepted events onto the world's seeded baseline.
+    //
+    // The baseline is NOT `emptyProjection`. `importWorld` writes the seeded world into an
+    // `initial` snapshot (`worldConfig.ts:305-321`) and no event ever re-creates those rows, so
+    // replaying from empty yields a projection with no seeded locations or organizations. That
+    // made `validateCanon` reject movement to a seeded location as "destination location does not
+    // exist" the moment any `location_state_changed` made `projection.locations` non-empty, and it
+    // silently disabled the inactive-destination and capacity checks, which both key off a
+    // `destination` that was always undefined.
+    //
+    // The seeded snapshot's `lastSequenceNumber` is -1, so this skips no events. It is the same
+    // composition `assertSnapshotMatchesHistory` and `createDailySnapshot` already use, which is
+    // why commit-time validation now agrees with the stored snapshots instead of contradicting them.
     const events = await store.loadAcceptedEvents(proposed.worldId);
-    const projection = replayWorldEvents(emptyProjection(proposed.worldId), events);
+    const baseline = resolveWorldBaseline(proposed.worldId, await store.loadInitialSnapshot(proposed.worldId));
+    const projection = replayWorldEvents(
+      cloneProjection(baseline.projection),
+      events.filter((event) => event.sequenceNumber > baseline.lastSequenceNumber),
+    );
     const persistedContext = await store.loadCanonRuleContext(proposed.worldId);
     const ruleContext: CanonRuleContext = {
       ...(persistedContext ?? { worldId: proposed.worldId, rules: [] }),
@@ -151,6 +179,21 @@ export function createConvexCanonStore(
         .withIndex('by_world_and_sequence', (q) => q.eq('worldId', worldId))
         .collect();
       return rows.map(rowToAcceptedEvent);
+    },
+    async loadInitialSnapshot(worldId) {
+      const row = await db.query('canonSnapshots')
+        .withIndex('by_world_day_and_kind', (q) => q.eq('worldId', worldId).eq('worldDay', 0).eq('kind', 'initial'))
+        .unique();
+      if (!row) return null;
+      return {
+        snapshotVersion: row.snapshotVersion as 1,
+        worldId: row.worldId,
+        worldDay: row.worldDay as number,
+        lastSequenceNumber: row.lastSequenceNumber,
+        projection: row.projection as WorldProjection,
+        projectionHash: row.projectionHash as string,
+        createdAt: row.createdAt,
+      };
     },
     async loadCanonRuleContext(worldId) {
       const [rules, characters, locations, items, organizations] = await Promise.all([

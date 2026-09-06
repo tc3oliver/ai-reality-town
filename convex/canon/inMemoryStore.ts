@@ -9,6 +9,7 @@
 import type { AcceptedEvent, CanonRuleContext } from './model';
 import type { CanonCommitStore } from './commit';
 import { cloneAcceptedEvent } from './serialize';
+import type { CanonSnapshot } from './snapshots';
 
 type IdempotencyRow = {
   worldId: string;
@@ -22,6 +23,7 @@ export class InMemoryCanonStore implements CanonCommitStore {
   private readonly events: AcceptedEvent[] = [];
   private readonly idempotency: IdempotencyRow[] = [];
   private readonly ruleContexts = new Map<string, CanonRuleContext>();
+  private readonly initialSnapshots = new Map<string, CanonSnapshot>();
   private readonly worldLocks = new Map<string, Promise<void>>();
 
   /** All committed events across worlds, in insertion order. */
@@ -69,6 +71,15 @@ export class InMemoryCanonStore implements CanonCommitStore {
 
   loadCanonRuleContext(worldId: string): Promise<CanonRuleContext | null> {
     return Promise.resolve(this.ruleContexts.get(worldId) ?? null);
+  }
+
+  /** Stand in for the `initial` snapshot `importWorld` writes, so tests can seed a world. */
+  setInitialSnapshot(snapshot: CanonSnapshot): void {
+    this.initialSnapshots.set(snapshot.worldId, snapshot);
+  }
+
+  loadInitialSnapshot(worldId: string): Promise<CanonSnapshot | null> {
+    return Promise.resolve(this.initialSnapshots.get(worldId) ?? null);
   }
 
   appendCommit(accepted: AcceptedEvent): Promise<void> {

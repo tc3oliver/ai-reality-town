@@ -25,7 +25,6 @@
  */
 
 import {
-  emptyProjection,
   type AcceptedEvent,
   type CanonRuleContext,
   type ProposedEvent,
@@ -35,6 +34,8 @@ import {
 import { commitProposedEvent, type CanonCommitStore, type CommitResult } from '../canon/commit';
 import { TIME_SLOTS, type TimeSlot } from '../canon/eventTypes';
 import { replayWorldEvents } from '../canon/replay';
+import { cloneProjection } from '../canon/snapshots';
+import { resolveWorldBaseline } from '../canon/snapshotManager';
 import { validateCanon, validateEventStructure } from '../canon/validators';
 import { CanonError } from '../shared/errors';
 import { CANON_SCHEMA_VERSION } from '../shared/constants';
@@ -801,7 +802,16 @@ async function canonRuleContext(store: CanonCommitStore, worldId: string) {
     ...(persisted ?? { worldId, rules: [] }),
     knownEventIds: events.map(({ eventId }) => eventId),
   };
-  return { projection: replayWorldEvents(emptyProjection(worldId), events), ruleContext };
+  // Replayed from the seeded baseline, not `emptyProjection`, for the reason spelled out in
+  // `commitProposedEvent`: seeded locations exist only in the `initial` snapshot. This projection
+  // is what the pre-commit validation pass sees, so building it differently from the one the
+  // commit itself validates against would let a proposal pass here and fail there.
+  const baseline = resolveWorldBaseline(worldId, await store.loadInitialSnapshot(worldId));
+  const projection = replayWorldEvents(
+    cloneProjection(baseline.projection),
+    events.filter((event) => event.sequenceNumber > baseline.lastSequenceNumber),
+  );
+  return { projection, ruleContext };
 }
 
 // --- stage handlers ---------------------------------------------------------
