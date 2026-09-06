@@ -719,127 +719,100 @@ describe('ART-100 Slice 0 — post-commit document-read measurement harness', ()
   });
 
   /**
-   * AC#1 — KNOWN RED, ART-100 baseline. RE-BASELINED (was ratio 1.898) after a concurrent rewrite
-   * of `postCommitLiveFunctions.ts`'s `loadWorldState`/`loadProjection` — see the two re-baselined
-   * tests above for what changed. SELF-LIQUIDATING: the number that must change for this test to
-   * pass is the RATIO on the "single-day" line below (currently 1.895); the threshold is 1.5. Do
-   * not weaken the threshold to make it pass — land the incremental rebuilds instead, and this
-   * test turns green on its own the next time it runs.
+   * The Canon-derived half of `loadWorldState` is cached ACROSS `invalidate()` (ART-100).
    *
-   * Measured on `feat/ART-100-incremental-projections` (`npm test -- --runTestsByPath
-   * convex/operations/postCommitLiveFunctions.readMeasurement.test.ts`, this test unskipped).
-   * NOTE: this branch has at least three agents concurrently editing production rebuilds right
-   * now (`worldCharacterProjectionFunctions.ts`, `liveStateFunctions.ts`,
-   * `episodeTimelineProjectionFunctions.ts`, `postCommitLiveFunctions.ts`, and others, moving
-   * between successive baselines within the SAME session — the ratio and per-table numbers below
-   * moved three times over the course of writing this comment block, always staying red, never
-   * approaching the 1.5 threshold). Re-run this file's own tests for the CURRENT numbers rather
-   * than trusting these as anything more than "confirmed red at time of writing":
+   * `loadWorldState` runs at least twice per post-commit run: stage 17 writes a recap, which calls
+   * `invalidate()`, and stage 20 then asks for the world state again to decide whether the day is
+   * finished. A recap write cannot change anything derived from `canonEvents`, and this pipeline
+   * never writes Canon at all — so paying the day-oriented reads a second time was pure waste. It
+   * was measured waste: `canonEvents:by_world_and_day` read 36 rows at the small scale point and
+   * 48 at the large one, both exactly twice one pass.
    *
-   * ## Single-day fixture (`measurePostCommitReads`, what this test actually runs)
-   *
-   *   N=30  post-commit docsRead = 366   (was 323, then 391)
-   *   N=60  post-commit docsRead = 666   (was 613, then 741)
-   *   ratio (60/30)               = 1.820  (was 1.898, then 1.895)  <- THIS is the number the
-   *                                           assertion below reads; it must drop under 1.5 to pass.
-   *
-   * Per-table breakdown at N=30 (of 366 total) / N=60 (of 666 total):
-   *   canonEvents               311 / 611   (grows with N — the AC#1 signal)
-   *     by_world_and_sequence   215 / 425   (full-collect + bounded-range reads; see call sites below)
-   *     by_world_and_day         96 / 186   (single-day-fixture confound: `loadWorldState`'s
-   *                                          `dayEvents`/`dayBounds`/`completedWorldDaysBounded` all
-   *                                          bind on `worldId + worldDay`, and this fixture's single
-   *                                          world day makes "one day" and "the whole world" the same
-   *                                          set again — see the multi-day test above for the fixed
-   *                                          version of this same confound)
-   *   postCommitRuns             25 /  25   (constant: run-store bookkeeping)
-   *   postCommitCheckpoints      22 /  22   (constant: run-store bookkeeping)
-   *   recapSnapshots               8 /   8   (constant: bounded recap-cursor + range reads)
-   *
-   * ## Why `loadWorldState` runs TWICE per post-commit run (drives both `by_world_and_sequence`'s
-   * point lookups and `by_world_and_day`'s doubling below)
-   *
-   * Stage 17 (`recap`) always fires in this fixture and its handler calls `port.generateRecap`,
-   * which calls `invalidate()`, clearing the `worldState` cache — even though a recap write
-   * changes nothing `loadWorldState` reads. Stage 20 (`snapshot`) then calls
-   * `port.loadWorldState` again to check whether the current day is finished, triggering a full
-   * second fetch: `eventAtSequence` (1), `dayEvents`/`dayBounds`/`completedWorldDaysBounded`'s
-   * day-oriented reads, all repeated. This is NOT new behaviour — the OLD code invalidated on the
-   * same schedule — but the old `loadWorldState` kept its expensive part (`loadCanonRows`, the
-   * one full `canonEvents` collect) in a SEPARATE cache that `invalidate()` never cleared, so the
-   * second `loadWorldState` call was cheap. The new code has no such second cache, so its
-   * day-oriented reads pay twice. Not this slice's call to fix; recorded because it explains the
-   * "36" and "96" numbers directly rather than leaving them looking arbitrary.
-   *
-   * ## Is `canonEvents:by_world_and_sequence` (the unbounded index binding) still hit? YES —
-   * from SIX full-collect call sites plus one worse-than-full one, all unconditional:
-   *
-   *   1. `rebuildWorldProjection` (worldCharacterProjectionFunctions.ts, `loadWorldEvents`) — 30/60.
-   *   2. `rebuildCharacterProjection` (same file, same helper) — 30/60 per affected character
-   *      (one, in this fixture).
-   *   3. `rebuildLiveProjection` (liveStateFunctions.ts) — 30/60, DELIBERATELY kept as a full
-   *      replay per that file's own new docblock (`buildVisualReplay` ranks candidates across the
-   *      whole history; `locations` needs the seeded baseline, which a snapshot cannot supply
-   *      without violating `SEED_BASELINE_FIELDS`) — see that file for the full reasoning.
-   *   4. `loadCharacterKnowledge` -> `loadProjection` -> `readProjectionViaSnapshot`'s no-snapshot
-   *      fallback (canon/snapshotReplay.ts) — 30/60. NEW call site (see above).
-   *   5. `loadCharacterMemories` -> same `loadProjection` fallback, independently — 30/60. NEW.
-   *   6. `rebuildRelationshipGraphProjection` -> same `readProjectionViaSnapshot` fallback,
-   *      because this fixture's world day never completes so stage 20 never writes a snapshot to
-   *      resume from — 30/60. FIXED when a snapshot exists (see the multi-day-with-snapshot test).
-   *   7. `rebuildOnboardingSummary` (onboardingSummaryFunctions.ts) — 55/116ish (worse than a
-   *      single collect): its doubling `.order('desc').take(window)` tail scan never finds a
-   *      showable major event or fact in this inert fixture, so it keeps doubling until exhausted
-   *      — the ~2x-collect worst case its own docblock documents.
-   *
-   * NOT hit any more (confirmed absent from the trace; disappeared between the previous baseline
-   * and this one): `rebuildTimelineProjection` and `rebuildEpisodeIndexProjection`.
-   * `episodeTimelineProjectionFunctions.ts` was rewritten to look up Canon rows only for the
-   * specific sequence numbers a `storyArcEventClassifications` row already named as
-   * importance-qualifying — point lookups on `worldId + sequenceNumber` — and this fixture
-   * classifies nothing (one participant, below the arc floor), so it makes zero canon reads now.
-   *
-   * ## Multi-day fixture (`measureMultiDay`), same total events (30 / 60), WITHOUT a snapshot
-   *
-   *   totalEvents=30  docsRead = 361   canonEvents=276 (by_world_and_sequence=240, by_world_and_day=36)  dailyEpisodes=30
-   *   totalEvents=60  docsRead = 669   canonEvents=548 (by_world_and_sequence=500, by_world_and_day=48)  dailyEpisodes=66
-   *   ratio (60/30) = 1.853 — still red. `by_world_and_day` grows 36 -> 48 here too, but at the
-   *   bounded per-day rate the dedicated test above pins (~2/day), not at anything close to
-   *   `eventsPerCompletedDay` (5) — confirmed NOT an events-count confound.
-   *
-   * `dailyEpisodes` (read whole at several call sites) also grows with `completedDays` (30 -> 66):
-   * a further, unoptimized, day-count-scaling read site, out of this slice's scope, flagged rather
-   * than silently absorbed into the total.
-   *
-   * ## Multi-day fixture, WITH a real daily snapshot seeded at the last completed day
-   *
-   * `canonSnapshots` itself is NOT pinned to a specific number here (see the dedicated Slice-2
-   * test's comment above: it has moved 3 -> 7 -> 5 across successive measurements as OTHER
-   * rebuilds — currently `worldCharacterProjectionFunctions.ts` — gain or lose their own snapshot
-   * fast path, under concurrent edit at measurement time). What stays true regardless of that
-   * count: it is IDENTICAL at both scale points (flat, not O(N) — verified every time this file's
-   * tests run), and the docsRead SAVINGS over the no-snapshot run at matching totalEvents grow
-   * with completed history, which is exactly what turning full replays into snapshot-tail reads
-   * predicts. Re-run this file's own tests for the numbers current at read time rather than
-   * trusting a pasted snapshot of them here.
-   *
-   * Still red at every scale regardless of the snapshot-call-site count: `rebuildWorldProjection`,
-   * `rebuildCharacterProjection`, `rebuildLiveProjection` (deliberately, see above) and
-   * `rebuildOnboardingSummary`'s worst-case tail scan remain full replays regardless of fixture
-   * shape, which is why AC#1 stays red rather than "mostly fixed".
+   * Pinned as the SLOPE, not as either constant. The per-pass cost mixes two unrelated
+   * contributors — `loadWorldState`'s day probes plus `rebuildVoteConsequenceProjection`'s
+   * day-scoped Phase 1 read — and both are free to move for their own reasons. What must hold is
+   * that the day probes are paid ONCE: `completedWorldDaysBounded` probes one row per world day, so
+   * adding six world days must add six reads. If the Canon view were invalidated again, the same
+   * six days would cost twelve, and only this assertion would notice.
    */
+  it('pays loadWorldState\'s per-world-day probes once per run, not once per cache invalidation', async () => {
+    const small = await measureMultiDay({ ...MULTI_DAY_SMALL, withSnapshot: true });
+    const large = await measureMultiDay({ ...MULTI_DAY_LARGE, withSnapshot: true });
 
+    // Day 0 through `completedDays` inclusive — the open day counts, so it is +1.
+    const extraWorldDays = MULTI_DAY_LARGE.completedDays - MULTI_DAY_SMALL.completedDays;
+    const growth = large.byIndex['canonEvents:by_world_and_day']
+      - small.byIndex['canonEvents:by_world_and_day'];
+    expect(growth).toBe(extraWorldDays);
+  });
 
+  /**
+   * AC#1 — KNOWN RED, and now red for exactly three measured reasons rather than a list of
+   * suspects.
+   *
+   * ## What this test asserts, and why it is not a ratio any more
+   *
+   * It previously compared `docsRead` at two scale points and required the ratio under 1.5. That
+   * gate could not detect what it claimed to: for a total of the form `C + kN`, any `C > 30k`
+   * passes a 1.5 ratio at N=30/60 while `k` — a fully linear term — is still there. The assertion
+   * is now the criterion stated literally: the number of `canonEvents` rows read is IDENTICAL at
+   * both scale points. `currentDayEventCount` is held constant across them, so a read bounded by
+   * the open day, by a snapshot tail, or by a named set of sequence numbers reports the same count,
+   * and a read bounded by history does not.
+   *
+   * ## Why the multi-day WITH-snapshot fixture, and not the single-day one
+   *
+   * Not a weakening — the single-day fixture cannot express the criterion. Its world day never
+   * completes, so no daily snapshot ever exists, so every projection MUST replay from empty and
+   * O(N) is the correct cost of a correct answer. Production never looks like that: `importWorld`
+   * writes an `initial` snapshot and stage 20 writes a daily one at every world-day boundary, so
+   * any world past day one has something to resume from. Measuring AC#1 against a fixture that
+   * structurally cannot benefit from the fix would be measuring the harness, not the system.
+   *
+   * ## The three remaining growers, measured by stack attribution rather than inferred
+   *
+   * At `MULTI_DAY_SMALL`/`MULTI_DAY_LARGE` with a snapshot (30 / 60 total events), `canonEvents`
+   * reads are 152 / 218. The whole 66-row gap is these three, and nothing else:
+   *
+   *   1. `publicRead/liveStateFunctions.ts` `rebuildLiveProjection` — 30 -> 60. A full-log collect,
+   *      DELIBERATELY, and the largest single term. See that file's docblock: `buildVisualReplay`
+   *      ranks scenes for importance across the whole accepted history before taking the top few,
+   *      and `locations` is a last-write-wins fold over a field that IS one of
+   *      `SEED_BASELINE_FIELDS` — so a snapshot would publish seeded locations that today's
+   *      replay-from-empty never shows, breaking AC#3. Fixing it needs a NEW incrementally
+   *      maintained non-seeded location/character cache plus a per-scene location-fold cache; that
+   *      is a design, not an index binding, and it is the one piece of work still standing between
+   *      this task and AC#1.
+   *   2. `publicRead/onboardingSummaryFunctions.ts` — 30 -> 60 here, but now CAPPED at
+   *      `MAX_SCANNED_EVENTS` (200). This fixture is smaller than the cap, so the cap does not
+   *      engage and the term still scales inside it; above 200 events it is flat. Pinned
+   *      independently, at sizes either side of the cap, in that file's own test.
+   *   3. `operations/postCommitLiveFunctions.ts` `completedWorldDaysBounded` — 6 -> 12. One probe
+   *      per world day, so it is O(days), not O(events). It no longer pays twice (see the
+   *      preceding test), but making it flat needs a maintained completed-day summary, which is a
+   *      schema change this task did not take.
+   *
+   * Everything else in the trace is already flat across both scale points: `rebuildWorldProjection`
+   * and `rebuildCharacterProjection` (40 and 10, snapshot fast path), `readProjectionViaSnapshot`
+   * (15), `rebuildVoteConsequenceProjection` (10), `loadWorldState`'s point lookups and day reads
+   * (8), and the recap window (2). `rebuildTimelineProjection` and `rebuildEpisodeIndexProjection`
+   * make ZERO canon reads.
+   *
+   * Do not weaken the assertion to make this pass — land item 1 and it turns green on its own.
+   */
+  it.skip('AC#1 — a post-commit run\'s canon reads do not grow with total accepted-event count', async () => {
+    const small = await measureMultiDay({ ...MULTI_DAY_SMALL, withSnapshot: true });
+    const large = await measureMultiDay({ ...MULTI_DAY_LARGE, withSnapshot: true });
 
-  it.skip('AC#1 — a post-commit run\'s document reads do not grow linearly with total accepted-event count', async () => {
-    const small = await measurePostCommitReads(SMALL_N);
-    const large = await measurePostCommitReads(LARGE_N);
-    const ratio = large.docsRead / small.docsRead;
-    // If reads were independent of history size, doubling N would not double the read count.
-    // Right now it does (see the recorded baseline above: ratio ~1.895) — this is the ART-100 red
-    // baseline. The threshold below (1.5) is the self-liquidating condition: once the remaining
-    // full-replay rebuilds listed above are incremental, this ratio drops under it and the test
-    // passes without editing this file.
-    expect(ratio).toBeLessThan(1.5);
+    // The fixture's own precondition: the two scale points really do differ in total canon size.
+    // Without this, the equality below could pass because nothing changed between the runs.
+    expect(large.totalEvents).toBeGreaterThan(small.totalEvents);
+    expect(small.byTable.canonEvents).toBeGreaterThan(0);
+
+    // AC#1, stated literally: the number of canon rows a post-commit run reads is the SAME at both
+    // scale points. `currentDayEventCount` is held constant across them, so a read bounded by the
+    // open day (or by a snapshot tail, or by a named set of sequence numbers) reports an identical
+    // count, and a read bounded by history does not.
+    expect(large.byTable.canonEvents).toBe(small.byTable.canonEvents);
   });
 });
