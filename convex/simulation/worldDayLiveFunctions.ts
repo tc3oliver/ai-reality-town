@@ -38,9 +38,11 @@ import type {
 } from './schedulerOperations';
 import { createConvexCanonStore } from '../canon/commit';
 import { TIME_SLOTS, type TimeSlot } from '../canon/eventTypes';
-import { emptyProjection, type ProposedEvent } from '../canon/model';
+import type { ProposedEvent, WorldProjection } from '../canon/model';
 import { replayWorldEvents } from '../canon/replay';
 import { rowToAcceptedEvent } from '../canon/serialize';
+import { cloneProjection, type CanonSnapshot } from '../canon/snapshots';
+import { resolveWorldBaseline } from '../canon/snapshotManager';
 import { isActiveArcStatus } from '../story/lifecycle';
 import { guardWorldDayStageHandlers } from './emergencyStop';
 import { resolveModuleConfig } from './moduleConfig';
@@ -119,10 +121,27 @@ async function loadActiveArcs(db: MutationDb, worldId: string): Promise<LiveArc[
   return arcs;
 }
 
+/** The seeded `initial` snapshot for a world, or null when the world was never seeded. */
+async function loadInitialSnapshotProjection(db: MutationDb, worldId: string): Promise<CanonSnapshot | null> {
+  const row = await db.query('canonSnapshots')
+    .withIndex('by_world_day_and_kind', (q) => q.eq('worldId', worldId).eq('worldDay', 0).eq('kind', 'initial'))
+    .unique();
+  if (!row) return null;
+  return {
+    snapshotVersion: row.snapshotVersion as 1,
+    worldId: row.worldId,
+    worldDay: row.worldDay as number,
+    lastSequenceNumber: row.lastSequenceNumber,
+    projection: row.projection as WorldProjection,
+    projectionHash: row.projectionHash as string,
+    createdAt: row.createdAt,
+  };
+}
+
 /** Stage 1: map this deployment's rows onto the shared snapshot builder. */
 async function loadWorldSnapshot(db: MutationDb, slot: WorldDaySlotIdentity): Promise<LiveWorldSnapshot> {
   const { worldId } = slot;
-  const [eventRows, characterRows, locationRows, knowledgeRows, assetRows, secretRows, activeArcs] = await Promise.all([
+  const [eventRows, characterRows, locationRows, knowledgeRows, assetRows, secretRows, activeArcs, initialSnapshot] = await Promise.all([
     db.query('canonEvents').withIndex('by_world_and_sequence', (q) => q.eq('worldId', worldId)).collect(),
     db.query('worldCharacters').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).collect(),
     db.query('worldLocations').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).collect(),
@@ -130,12 +149,20 @@ async function loadWorldSnapshot(db: MutationDb, slot: WorldDaySlotIdentity): Pr
     db.query('worldAssets').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).collect(),
     db.query('worldSecrets').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).collect(),
     loadActiveArcs(db, worldId),
+    loadInitialSnapshotProjection(db, worldId),
   ]);
   const acceptedEvents = eventRows.map(rowToAcceptedEvent);
+  // Seeded baseline, not `emptyProjection` — see `commitProposedEvent`. Without it
+  // `projection.locations` omits every seeded location, so `legalDestinationsFrom` would offer the
+  // scene author no destination at all and the prompt would forbid all movement.
+  const baseline = resolveWorldBaseline(worldId, initialSnapshot);
   return buildLiveWorldSnapshot({
     slot,
     acceptedEvents,
-    projection: replayWorldEvents(emptyProjection(worldId), acceptedEvents),
+    projection: replayWorldEvents(
+      cloneProjection(baseline.projection),
+      acceptedEvents.filter((event) => event.sequenceNumber > baseline.lastSequenceNumber),
+    ),
     characters: characterRows.map((row) => ({
       characterId: row.characterId,
       personaSummary: text(row.payload, 'publicProfile') ?? text(row.payload, 'name') ?? row.characterId,

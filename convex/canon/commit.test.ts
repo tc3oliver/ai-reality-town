@@ -1,7 +1,8 @@
 import { commitProposedEvent, type CommitResult } from './commit';
 import { InMemoryCanonStore } from './inMemoryStore';
 import { isCanonError } from '../shared/errors';
-import type { ProposedEvent } from './model';
+import { emptyProjection, type ProjectedLocation, type ProposedEvent } from './model';
+import { buildSnapshot } from './snapshots';
 
 /** A valid movement proposal that spawns / moves character 'a'. */
 function movementProposal(worldId: string, idempotencyKey: string, from: string, to: string, worldDay = 0): ProposedEvent {
@@ -222,5 +223,129 @@ describe('commitProposedEvent (idempotency)', () => {
       },
       traceId: 'trace',
     })).rejects.toMatchObject({ error: { code: 'INVALID_EVENT_SHAPE', path: 'causedByEventIds' } });
+  });
+});
+
+/**
+ * ART-157. The live world could not advance: every slot failed `validate_canon` with
+ * UNKNOWN_LOCATION_REFERENCE / "destination location does not exist", committing nothing.
+ *
+ * `importWorld` writes seeded locations into an `initial` snapshot and NO event ever creates
+ * them, so a projection replayed from `emptyProjection` does not contain them. `validateCanon`
+ * only runs its destination-exists check when `projection.locations` is non-empty — which is why
+ * this stayed invisible until the world's first `location_state_changed`, after which every
+ * movement to a seeded location was rejected as nonexistent.
+ *
+ * These tests therefore need a seeded world that has ALSO had one location event; the check is
+ * inert on a world with either alone.
+ */
+describe('commitProposedEvent (seeded baseline, ART-157)', () => {
+  const seededLocation = (locationId: string, connected: string[], capacity: number): ProjectedLocation => ({
+    locationId,
+    name: `Location ${locationId}`,
+    description: 'seeded by importWorld',
+    locationType: 'public',
+    capacity,
+    connectedLocationIds: connected,
+    active: true,
+    lastUpdatedEventId: 'initial-snapshot',
+  });
+
+  /** Mirrors what `buildWorldImportPlan` persists: locations + empty occupancy, sequence -1. */
+  function seedWorld(store: InMemoryCanonStore, worldId: string, capacityOfLoc2 = 4): void {
+    const projection = emptyProjection(worldId);
+    projection.locations = {
+      'loc-1': seededLocation('loc-1', ['loc-2'], 4),
+      'loc-2': seededLocation('loc-2', ['loc-1'], capacityOfLoc2),
+    };
+    projection.locationOccupancy = { 'loc-1': [], 'loc-2': [] };
+    store.setInitialSnapshot(buildSnapshot(projection, 1_000, 0));
+  }
+
+  /** An update to an ALREADY-SEEDED location — the event that made the defect reachable. */
+  function locationUpdateProposal(worldId: string, idempotencyKey: string): ProposedEvent {
+    return {
+      schemaVersion: 1,
+      worldId,
+      idempotencyKey,
+      proposedBy: { type: 'system' },
+      worldDay: 0,
+      timeSlot: 'morning',
+      eventType: 'discovery',
+      participantIds: [],
+      causedByEventIds: [],
+      stateChanges: [{
+        type: 'location_state_changed',
+        locationId: 'loc-1',
+        name: 'Location loc-1',
+        description: 'renovated',
+        locationType: 'public',
+        capacity: 4,
+        connectedLocationIds: ['loc-2'],
+        active: true,
+        reason: 'renovation completed',
+      }],
+    };
+  }
+
+  it('accepts movement to a seeded location after a location event exists', async () => {
+    const store = new InMemoryCanonStore();
+    seedWorld(store, 'w-seeded');
+    await commitProposedEvent(store, { proposed: locationUpdateProposal('w-seeded', 'loc-update'), traceId: 't0' });
+
+    const result = await commitProposedEvent(store, {
+      proposed: movementProposal('w-seeded', 'move-1', 'loc-1', 'loc-2'),
+      traceId: 't1',
+    });
+
+    expect(result.deduplicated).toBe(false);
+    expect(store.committedEvents()).toHaveLength(2);
+  });
+
+  it('replays the accepted log on top of the seed rather than replacing it', async () => {
+    const store = new InMemoryCanonStore();
+    seedWorld(store, 'w-seeded');
+    // The seeded snapshot's lastSequenceNumber is -1, so no accepted event may be skipped as
+    // "already folded into the baseline": numbering still starts at 0.
+    const first = await commitProposedEvent(store, {
+      proposed: locationUpdateProposal('w-seeded', 'loc-update'), traceId: 't0',
+    });
+    expect(first.sequenceNumber).toBe(0);
+    const second = await commitProposedEvent(store, {
+      proposed: movementProposal('w-seeded', 'move-1', 'loc-1', 'loc-2'), traceId: 't1',
+    });
+    expect(second.sequenceNumber).toBe(1);
+  });
+
+  it('enforces capacity on a seeded location, which an empty baseline left unchecked', async () => {
+    const store = new InMemoryCanonStore();
+    seedWorld(store, 'w-full', 1);
+    await commitProposedEvent(store, { proposed: locationUpdateProposal('w-full', 'loc-update'), traceId: 't0' });
+    // Fill loc-2 to its seeded capacity of 1.
+    await commitProposedEvent(store, {
+      proposed: {
+        ...movementProposal('w-full', 'move-b', 'loc-1', 'loc-2'),
+        proposedBy: { type: 'character', id: 'b' },
+        participantIds: ['b'],
+        stateChanges: [{
+          type: 'character_location_changed', characterId: 'b', fromLocationId: 'loc-1', toLocationId: 'loc-2',
+        }],
+      },
+      traceId: 't1',
+    });
+
+    await expect(commitProposedEvent(store, {
+      proposed: movementProposal('w-full', 'move-a', 'loc-1', 'loc-2'),
+      traceId: 't2',
+    })).rejects.toMatchObject({ error: { code: 'UNKNOWN_LOCATION_REFERENCE' } });
+  });
+
+  it('still starts from the empty projection for a world that was never seeded', async () => {
+    const store = new InMemoryCanonStore();
+    const result = await commitProposedEvent(store, {
+      proposed: movementProposal('w-unseeded', 'move-1', 'loc-1', 'loc-2'),
+      traceId: 't1',
+    });
+    expect(result.sequenceNumber).toBe(0);
   });
 });
