@@ -10,9 +10,15 @@
  * It deliberately re-uses, and never re-implements, {@link parseAndValidateDirectorPlan},
  * {@link validateCharacterIntent}, {@link groupCharacterIntents}, {@link simulateWholeScene},
  * {@link validateEventStructure}, {@link validateCanon} and {@link commitProposedEvent}.
- * What is new here is only (a) building each capability's input from real world state and
- * (b) the deterministic, zero-cost stand-in that plays the "author" role until the real
- * provider adapter (ART-72) is swapped in — see {@link ./fakeSceneNarrator.ts}.
+ * What is new here is only building each capability's input from real world state.
+ *
+ * The scene AUTHOR is a parameter, not a choice made here. This docblock used to describe the
+ * deterministic `FakeWholeSceneProvider` as a "stand-in until the real provider adapter (ART-72)
+ * is swapped in", and that claim outlived its truth twice over: the adapter had shipped, and the
+ * fake was reached by DEFAULTING rather than by anyone choosing it, so the live path authored
+ * every scene with it. ART-159 removed the default — see {@link createWorldDayStageHandlers} and
+ * {@link authorSlotScenes}, whose `null` provider is the transactional pass that must not author
+ * at all.
  *
  * Pure module: no Convex imports, no clock, no randomness. Every identifier is derived
  * from (worldId, worldDay, timeSlot), so re-running or resuming a slot regenerates the

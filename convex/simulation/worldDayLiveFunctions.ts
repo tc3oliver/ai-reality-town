@@ -1,23 +1,38 @@
 /**
- * FR-C001…FR-C005 LIVE ENTRY POINT.
+ * FR-C001…FR-C005 LIVE ENTRY POINT — the transactional half.
  *
- * `runQueuedWorldDaySlot` is the only place in the codebase where a queued world time slot
- * is actually executed end to end. It takes one reserved `scheduledSlots` row and drives
- * PRD §12 stages 1–10 through the resumable orchestrator:
+ * `runQueuedWorldDaySlot` takes one reserved `scheduledSlots` row and drives PRD §12 stages 1–10
+ * through the resumable orchestrator:
  *
  *   startScheduledSlot → executeWorldDay(load world state … commit accepted events)
  *   → completeScheduledSlot(committed event) | failScheduledSlot(stable error code)
  *
- * Invoke it against a deployment with, for example:
+ * ## Which author, and why that is an ARGUMENT
  *
- *   npx convex run simulation/schedulerOperations:advanceOneWorldDay '{"worldId":"mistwood","now":0}'
- *   npx convex run simulation/worldDayLiveFunctions:runQueuedWorldDaySlot '{"worldId":"mistwood"}'
+ * `sceneAuthor` is required. There is no default, because a default is how the deterministic fake
+ * became the production author: this file used to call `createWorldDayStageHandlers` with no
+ * provider, so the choice was expressed by an absence and a reviewer saw no decision at all.
  *
- * Everything runs inside ONE Convex mutation/transaction, exactly like the foundation
- * workflow: the deterministic provider needs no network, so there is no action-then-
- * mutation race and the Canon commit stays atomic and idempotent.
+ *  - `deterministic_fake` — the whole slot runs inside ONE Convex mutation. The fake author needs
+ *    no network, so there is no action-then-mutation race and the Canon commit is trivially
+ *    atomic. This is the dev, fixture and offline-gate path.
  *
- * The function is internal on purpose — public reads must never trigger generation
+ *      npx convex run simulation/schedulerOperations:advanceOneWorldDay '{"worldId":"mistwood","now":0}'
+ *      npx convex run simulation/worldDayLiveFunctions:runQueuedWorldDaySlot '{"worldId":"mistwood","sceneAuthor":"deterministic_fake"}'
+ *
+ *  - `preauthored` — the LIVE path, and it cannot be one transaction: a Convex mutation may not
+ *    perform network I/O. `prepareQueuedWorldDaySlot` runs stages 1–6 and stops; an action authors
+ *    the scenes through the real provider; this function then resumes from those checkpoints and
+ *    carries stages 7–10 out inside a transaction again. It authors NOTHING itself — a scene that
+ *    is not already persisted raises {@link SCENE_AUTHORING_DEFERRED} rather than quietly falling
+ *    back to the fake, which would put invented text into Canon whenever the gateway was down.
+ *
+ *      npx convex run simulation/providers/liveWorldDayActions:runLiveWorldDaySlotWithProvider '{"worldId":"mistwood"}'
+ *
+ * Canon validation, safety classification, idempotency and the commit itself are inside a
+ * transaction on BOTH paths, and are the same code on both.
+ *
+ * The functions are internal on purpose — public reads must never trigger generation
  * (ADR-0001). Stages 11–21 (projection, cognition, episodes, publication) are the
  * separate post-commit pipeline in `convex/operations/postCommitOrchestration.ts`.
  */

@@ -268,10 +268,20 @@ limit" are different statements and a dashboard cannot tell a green tick apart f
 ## 6. Concurrency: enforced, but not reachable today
 
 `maxConcurrentCalls` is enforced by `evaluateReservation` and proven by unit tests that interleave
-reservations. It **cannot currently bind on the live path**, because `runQueuedWorldDaySlot`
-executes one slot's scenes sequentially inside a single Convex mutation, so `inFlight` is only ever
-0 or 1. This is recorded rather than presented as coverage: the limit is real, and the deployment
-does not yet produce the concurrency it bounds.
+reservations. It **still cannot bind on the live path**, and it is worth being precise about why,
+because ART-159 changed half the reason and not the other half.
+
+The old reason was that a slot ran entirely inside one Convex mutation, so reserve and settle were
+indistinguishable in wall-clock terms and `inFlight` could never exceed 1. That is now true only of
+the `deterministic_fake` path. On the live path the three moments are three separate transactions
+with a real network call between them, so `inFlight` finally counts something real.
+
+What has not changed is that `authorSlotScenes` walks a slot's scenes **sequentially**. One author
+is in flight at a time, so `inFlight` is still only ever 0 or 1 in practice. The limit is real and
+the plumbing now supports it; the deployment still does not produce the concurrency it bounds.
+Authoring a slot's scenes concurrently would be the change that makes it bind — and it is
+deliberately not made here, because it would also multiply the rate at which a shared key
+allowance drains.
 
 ## 7. Operator surface
 
@@ -299,27 +309,35 @@ policy must not be able to stop a world simulating, and the fallback has to be v
 
 ## 8. Deployment notes, and the one failure that would be silent
 
-No new environment variable. `worldDayLiveFunctions.ts` binds `deploymentModelId` to
-`FAKE_SCENE_MODEL` because that is the model the live path actually calls —
-`createWorldDayStageHandlers` is invoked there without a provider argument and defaults to the
-deterministic `FakeWholeSceneProvider`.
+The author and the model it is metered against **must** agree. If they do not, the per-model cap
+meters a bucket nothing spends from while the real model spends, and **every other signal keeps
+looking healthy** — slots complete, the ledger fills with granted decisions, daily totals move,
+and the cap simply never binds. That is the only failure in this subsystem whose symptom is
+silence, so it is defended three times rather than documented once.
 
-**ART-72, injecting a real adapter, must repoint that binding in the same change.** If it does
-not, the reservation keys on `FAKE_SCENE_MODEL` while the real model spends: the per-model cap
-meters a bucket nothing spends from, and **every other signal keeps looking healthy** — slots
-complete, the ledger fills with granted decisions, daily totals move, and the cap simply never
-binds. That is the only failure in this subsystem whose symptom is silence, so it is defended
-twice rather than documented once.
+**By construction (ART-159).** The two facts are now ONE value. `sceneAuthorFor(mode)` returns
+the provider and the `deploymentModelId` together, so they cannot be repointed separately:
 
-**Build time — `convex/simulation/sceneBudgetProviderPin.test.ts`.** Pins that the live entry
-point still constructs its stage handlers with exactly one top-level argument, and that the meter
-is pointed at `FAKE_SCENE_MODEL`. Injecting a provider there fails the build, and the failure
-message *is* the instruction: repoint `deploymentModelId` or the cap will meter the wrong model.
-The argument counter is depth-aware — the real call contains a nested comma — and a test asserts
-the counter would actually see a second argument, so the pin cannot pass because it counts wrong.
+| mode | author | metered as |
+| --- | --- | --- |
+| `deterministic_fake` | `FakeWholeSceneProvider` | `FAKE_SCENE_MODEL` |
+| `preauthored` (live) | none — the action already authored | the first route of the configured chain |
 
-**Run time — `BudgetSettlement.reportedModel`.** The provider's own reported model
-(`ProviderTraceMetadata.model`) is compared against the metered key at the moment the tokens are
+This replaced a source-scanning tripwire that counted the arguments to
+`createWorldDayStageHandlers` in the live entry point, because the fake author was reached by
+DEFAULTING and "which provider does production use" could only be observed by reading the text of
+a call. With the default gone and the pair fused, that is a property of a value, and
+`sceneBudgetProviderPin.test.ts` now asserts the value rather than the source. A live pass with no
+resolved route **rejects** rather than naming a placeholder — metering a fiction is the failure
+this whole section is about.
+
+**The route id is not the model.** The live meter keys on the first route of the chain, which is
+`LLM_MODEL` unless `LLM_FREE_ROUTE_CHAIN` overrides it, and which may be an alias such as `auto`
+that names no model at all. That is expected: the alias is only ever the key a reservation is
+*taken* under. What usage is *booked* against is whatever the gateway said served the call.
+
+**Run time — `BudgetSettlement.resolvedModel`.** The model the gateway reported
+is compared against the metered key at the moment the tokens are
 booked, which is the only moment both ids exist. A divergence increments
 `tokenBudgetCounters.modelMeteringMismatches`, is recorded per decision as
 `tokenBudgetLedger.settledModel` next to the `model` it was metered under, and surfaces on the
@@ -344,5 +362,6 @@ function logs at the time, which for a silent failure is nobody.
 | `convex/shared/tokenBudget.test.ts` | the pure decision: all five limits, determinism, strategy selection, day rollover, the audit record, and both §16.3 ratios over non-empty samples |
 | `convex/operations/tokenBudgetEnforcement.test.ts` | the decision reaches the provider call, through the real pipeline, with a negative control for every enforcement case |
 | `convex/operations/longRunHarness.test.ts` | the §16.3 report over the fixed-seed 7-day run, measured by the accountant that enforced it |
-| `convex/simulation/sceneBudgetProviderPin.test.ts` | the ART-72 landmine at build time: a provider injected into the live path without repointing the meter breaks the build (§8) |
+| `convex/simulation/sceneBudgetProviderPin.test.ts` | the author and the metered model id are chosen together and cannot drift (§8), including that a live pass with no resolved route refuses to name one |
+| `convex/simulation/providers/liveWorldDayWiring.test.ts` | reserve/settle/release actually run on the LIVE wiring, through the real registered mutations, with only `fetch` stubbed |
 | `convex/simulation/tokenBudgetGate.test.ts` | **the deployed binding itself** — `createConvexBudgetPort` driven against a database: the three reads, the ledger insert/patch protocol, `writeCounters`' insert-vs-patch, settle/release idempotency, the metering-mismatch record, and the grant-replay / refusal-re-evaluation asymmetry |
