@@ -50,6 +50,7 @@ import type {
   persistValidatedSceneSimulation as persistValidatedSceneSimulationExport,
 } from './sceneSimulationFunctions';
 import type {
+  claimLiveSlot as claimLiveSlotExport,
   startScheduledSlot as startScheduledSlotExport,
   completeScheduledSlot as completeScheduledSlotExport,
   failScheduledSlot as failScheduledSlotExport,
@@ -64,9 +65,10 @@ import { resolveWorldBaseline } from '../canon/snapshotManager';
 import { isActiveArcStatus } from '../story/lifecycle';
 import { guardWorldDayStageHandlers } from './emergencyStop';
 import { resolveModuleConfig } from './moduleConfig';
-import { createConvexBudgetPort } from './tokenBudgetGate';
+import { createConvexBudgetPort, resolveTokenBudgetPolicy } from './tokenBudgetGate';
 import { FakeWholeSceneProvider, FAKE_SCENE_MODEL } from './fakeSceneNarrator';
 import { assertWorldAdmitsSimulation, isWorldEmergencyStopped } from './emergencyStopOperations';
+import { liveClaimHolder, type SlotClaim } from './schedulerOperations';
 import { executeWorldDay, type WorldDayRun, type WorldDayStage } from './worldDayOrchestration';
 import { createConvexWorldDayRunStore } from './worldDayOrchestrationFunctions';
 import type { LanguageModelProvider } from './provider';
@@ -106,6 +108,9 @@ const findReusableSceneSimulationRef = internalFunctionRef<typeof findReusableSc
 );
 const startScheduledSlotRef = internalFunctionRef<typeof startScheduledSlotExport>(
   'simulation/schedulerOperations:startScheduledSlot',
+);
+const claimLiveSlotRef = internalFunctionRef<typeof claimLiveSlotExport>(
+  'simulation/schedulerOperations:claimLiveSlot',
 );
 const completeScheduledSlotRef = internalFunctionRef<typeof completeScheduledSlotExport>(
   'simulation/schedulerOperations:completeScheduledSlot',
@@ -333,6 +338,12 @@ function createConvexWorldDayLivePort(
     // here keeps `worldDayLive.ts` free of any database handle, exactly like every other port
     // method.
     loadModuleConfig: (worldId, module) => resolveModuleConfig(ctx.db, worldId, module),
+    // FR-M003 最大並行數 (ART-161). Read from the SAME effective policy `evaluateReservation`
+    // enforces against, so the pool that proposes work and the gate that grants it cannot
+    // disagree about the limit. `null` — the default — means no configured limit, which
+    // `buildSceneAuthoringPlan` reads as one at a time rather than as unbounded.
+    loadConcurrencyLimit: async (worldId) =>
+      (await resolveTokenBudgetPolicy(ctx.db, worldId)).maxConcurrentCalls,
     // FR-M003 / ART-59: the durable accountant. Bound to `ctx.db` and to the surrounding
     // mutation's `now`, which reaches only the audit row's timestamp — never the decision, so
     // the same reservation always names the same bound limit (AC#2).
@@ -441,8 +452,14 @@ async function executeSlot(
 
 /** What `prepareQueuedWorldDaySlot` found, for the action that has to decide what to do next. */
 export type PreparedSlot =
-  /** Nothing queued. The caller stops. */
+  /** Nothing queued and nothing orphaned. The caller stops. */
   | { kind: 'idle' }
+  /**
+   * Another driver holds this world's live claim. The caller must do nothing at all — NOT move on
+   * to the next queued slot, because world time is ordered and authoring slot N+1 against a world
+   * that slot N has not finished advancing produces scenes about a state that never existed.
+   */
+  | { kind: 'busy'; slotKey: string; leaseExpiresAt: number }
   /**
    * Stages 1–6 are checkpointed and these scenes need a provider. The slot is CLAIMED (`running`)
    * and stays that way until the finishing pass settles it, so nothing else picks it up while the
@@ -511,15 +528,30 @@ export const prepareQueuedWorldDaySlot = internalMutation({
     slotId: v.optional(v.id('scheduledSlots')),
     /** The first route of the chain the caller built, for the FR-M003 reservation key. */
     deploymentModelId: v.optional(v.string()),
+    /** Override the claim lease. Tests use it to make an orphan observable without waiting. */
+    leaseMs: v.optional(v.number()),
     now: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<PreparedSlot> => {
     const now = args.now ?? Date.now();
+    // FR-K001/FR-K006 first: a paused or emergency-stopped world must not even be claimed, let
+    // alone authored. Throwing here rather than returning a state keeps the kill switch's meaning
+    // in one place — the driver catches per world and moves on.
     await assertWorldAdmitsSimulation(ctx.db, args.worldId);
     const author = sceneAuthorFor('preauthored', args.deploymentModelId);
-    const row = args.slotId ? await ctx.db.get(args.slotId) : await nextQueuedSlot(ctx.db, args.worldId);
-    if (!row) return { kind: 'idle' };
-    if (row.worldId !== args.worldId) throw new Error('SLOT_WORLD_MISMATCH');
+
+    // ART-160. One durable claim per world, covering duplicate delivery and every way the
+    // prepare → author → finalize sequence can be interrupted. See `claimLiveSlot`.
+    const claim: SlotClaim = await ctx.runMutation(claimLiveSlotRef, {
+      worldId: args.worldId, slotId: args.slotId, now,
+      ...(args.leaseMs === undefined ? {} : { leaseMs: args.leaseMs }),
+    });
+    if (claim.kind === 'idle') return { kind: 'idle' };
+    if (claim.kind === 'busy') {
+      return { kind: 'busy', slotKey: claim.slotKey, leaseExpiresAt: claim.leaseExpiresAt };
+    }
+    const row = await ctx.db.get(claim.slotId);
+    if (!row) throw new Error('CLAIMED_SLOT_DISAPPEARED');
 
     const outcome = await executeSlot(ctx, row, now, author);
     if (outcome.errorCode !== SCENE_AUTHORING_DEFERRED) {
@@ -559,7 +591,9 @@ export const runQueuedWorldDaySlot = internalMutation({
     deploymentModelId: v.optional(v.string()),
     now: v.optional(v.number()),
   },
-  handler: async (ctx, args): Promise<{ worldId: string; executed: number; slots: WorldDaySlotOutcome[] }> => {
+  handler: async (ctx, args): Promise<{
+    worldId: string; executed: number; slots: WorldDaySlotOutcome[]; skipped?: string;
+  }> => {
     const now = args.now ?? Date.now();
     const maxSlots = args.maxSlots ?? 1;
     if (!Number.isSafeInteger(maxSlots) || maxSlots < 1 || maxSlots > TIME_SLOTS.length) {
@@ -574,6 +608,20 @@ export const runQueuedWorldDaySlot = internalMutation({
     const author = sceneAuthorFor(args.sceneAuthor, args.deploymentModelId);
     const slots: WorldDaySlotOutcome[] = [];
     let explicit: Id<'scheduledSlots'> | undefined = args.slotId;
+
+    /**
+     * ART-160. Refuse to START a new slot while a live driver holds this world's claim.
+     *
+     * Without this an operator running the deterministic author by hand — or a stray invocation —
+     * would take the NEXT queued slot while the live driver was still authoring the current one,
+     * and author it against a world state the running slot has not finished advancing. The
+     * finishing pass is exempt: it is handed the claimed slot explicitly, and refusing it would
+     * strand a slot whose scenes have already been paid for.
+     */
+    const held = explicit === undefined ? await liveClaimHolder(ctx.db, args.worldId, now) : null;
+    if (held) {
+      return { worldId: args.worldId, executed: 0, slots: [], skipped: 'SLOT_LEASE_HELD' };
+    }
     for (let index = 0; index < maxSlots; index += 1) {
       const row = explicit ? await ctx.db.get(explicit) : await nextQueuedSlot(ctx.db, args.worldId);
       explicit = undefined;

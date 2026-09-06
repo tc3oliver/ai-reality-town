@@ -211,6 +211,136 @@ export const accelerateSchedule = internalMutation({
   },
 });
 
+/**
+ * How long a live slot claim is honoured (ART-160).
+ *
+ * MUST exceed the platform's maximum action duration. The live sequence is
+ * prepare (mutation) → author (ACTION) → finalize (mutation), and the action holds the claim for
+ * its whole run; a lease shorter than the action's own ceiling would expire under a healthy run
+ * and let a second driver start authoring the same world while the first was still working — the
+ * exact double-spend the lease exists to prevent. Convex caps actions at 10 minutes, so 12 leaves
+ * margin without making a genuine orphan wait unreasonably long.
+ *
+ * The cost of the margin is stated plainly: a crashed driver's slot is unavailable for up to this
+ * long. That is the right trade — a stalled world recovers by itself a few minutes late, whereas a
+ * lease that is too short spends real allowance authoring the same scenes twice.
+ */
+export const LIVE_SLOT_LEASE_MS = 12 * 60_000;
+
+/** A `running` slot nobody is holding any more: the lease lapsed, or predates ART-160. */
+const leaseExpired = (row: Doc<'scheduledSlots'>, now: number): boolean =>
+  row.leaseExpiresAt === undefined || row.leaseExpiresAt <= now;
+
+export type SlotClaim =
+  /** Nothing queued and nothing orphaned. */
+  | { kind: 'idle' }
+  /** Another driver holds a live claim on this world. The caller must not start a second. */
+  | { kind: 'busy'; slotKey: string; leaseExpiresAt: number }
+  /** The caller now holds the claim until `leaseExpiresAt`. */
+  | { kind: 'claimed'; slotId: Id<'scheduledSlots'>; slotKey: string; leaseExpiresAt: number; resumed: boolean };
+
+/**
+ * Take, or take OVER, the one live claim a world may have (ART-160).
+ *
+ * This is the whole of the concurrency story for the live path, and everything else rests on it:
+ *
+ *  - **Duplicate cron or action delivery.** A second driver arriving while the first holds a live
+ *    lease is told `busy` and does nothing. It cannot pick up "the next queued slot" instead —
+ *    world time is ordered, and authoring slot N+1 against a world that slot N has not finished
+ *    advancing would produce scenes about a world state that never existed.
+ *  - **Orphan recovery.** A `running` slot whose lease has lapsed is taken OVER rather than left.
+ *    That one branch covers every way the sequence can be interrupted — the action never started,
+ *    it crashed, it timed out, the process restarted, or it finished authoring and the finalize
+ *    mutation never ran — because from here they are indistinguishable and the remedy is the same.
+ *
+ * Resuming is safe rather than merely tolerated: `executeWorldDay` restarts at its last completed
+ * checkpoint, `authorSlotScenes` reuses scenes that are already persisted instead of paying for
+ * them again, and `commitProposedEvent` dedups on `idempotencyKey`. A slot that already reached
+ * Canon short-circuits at the run record and commits nothing further.
+ *
+ * `attemptCount` increments on a takeover and not on a fresh claim, so the number an operator
+ * reads still answers "how many times has this slot had to be picked up again".
+ */
+export const claimLiveSlot = internalMutation({
+  args: {
+    worldId: v.string(),
+    slotId: v.optional(v.id('scheduledSlots')),
+    now: v.number(),
+    leaseMs: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<SlotClaim> => {
+    assertNow(args.now);
+    const leaseExpiresAt = args.now + (args.leaseMs ?? LIVE_SLOT_LEASE_MS);
+
+    // A world may hold at most ONE claim, so the running row is consulted before anything queued.
+    const running = await ctx.db.query('scheduledSlots')
+      .withIndex('by_world_and_status', (q) => q.eq('worldId', args.worldId).eq('status', 'running'))
+      .first();
+    if (running) {
+      if (!leaseExpired(running, args.now)) {
+        return { kind: 'busy', slotKey: running.slotKey, leaseExpiresAt: running.leaseExpiresAt ?? args.now };
+      }
+      await ctx.db.patch(running._id, {
+        leaseExpiresAt, attemptCount: running.attemptCount + 1, updatedAt: args.now,
+      });
+      return { kind: 'claimed', slotId: running._id, slotKey: running.slotKey, leaseExpiresAt, resumed: true };
+    }
+
+    const target = args.slotId ? await ctx.db.get(args.slotId) : await ctx.db.query('scheduledSlots')
+      .withIndex('by_world_and_status', (q) => q.eq('worldId', args.worldId).eq('status', 'queued'))
+      .first();
+    if (!target) return { kind: 'idle' };
+    if (target.worldId !== args.worldId) throw new SchedulerError('SLOT_WORLD_MISMATCH', 'slot belongs to another world');
+    if (target.status !== 'queued') return { kind: 'idle' };
+
+    await ctx.db.patch(target._id, {
+      status: 'running', attemptCount: target.attemptCount + 1, startedAt: args.now,
+      leaseExpiresAt, updatedAt: args.now, errorCode: undefined,
+    });
+    return { kind: 'claimed', slotId: target._id, slotKey: target.slotKey, leaseExpiresAt, resumed: false };
+  },
+});
+
+/**
+ * Whether a world currently has a live claim outstanding.
+ *
+ * Read by the deterministic entry point so an operator running the fake author by hand cannot
+ * start a slot underneath a live driver that is mid-flight — which would author the next slot
+ * against a world state the running one has not finished advancing.
+ */
+export async function liveClaimHolder(
+  db: MutationDb,
+  worldId: string,
+  now: number,
+): Promise<Doc<'scheduledSlots'> | null> {
+  const running = await db.query('scheduledSlots')
+    .withIndex('by_world_and_status', (q) => q.eq('worldId', worldId).eq('status', 'running'))
+    .first();
+  return running && !leaseExpired(running, now) ? running : null;
+}
+
+/**
+ * Worlds a live driver may advance right now.
+ *
+ * Paused schedules are excluded HERE rather than left to fail later, so a paused world costs a
+ * driver nothing per tick. The emergency stop is NOT checked here — it is a per-world assertion
+ * inside `prepareQueuedWorldDaySlot`, and re-implementing it would give the kill switch two
+ * definitions that could disagree.
+ */
+export async function drivableWorldIds(
+  db: MutationDb | GenericQueryCtx<import('../_generated/dataModel').DataModel>['db'],
+): Promise<string[]> {
+  const rows = await db.query('worldSchedules')
+    .withIndex('by_mode_and_status', (q) => q.eq('mode', 'public').eq('status', 'running'))
+    .collect();
+  return rows.map((row) => row.worldId).sort((left, right) => left.localeCompare(right));
+}
+
+export const listDrivableWorlds = internalQuery({
+  args: {},
+  handler: (ctx): Promise<string[]> => drivableWorldIds(ctx.db),
+});
+
 export const startScheduledSlot = internalMutation({
   args: { slotId: v.id('scheduledSlots'), now: v.number() },
   handler: async (ctx, { slotId, now }) => {

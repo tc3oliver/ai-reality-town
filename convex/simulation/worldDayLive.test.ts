@@ -166,6 +166,9 @@ function createSeedPort(store: InMemoryCanonStore): WorldDayLivePort & { persist
     canonStore: store,
     // FR-K005 / ART-52. Defaults unless a spec overrides this method: the port under test here
     // is an unconfigured world, and `moduleConfigSelection.test.ts` owns the configured case.
+    // ART-161: no configured limit, so authoring stays sequential — the behaviour these
+    // fixtures were written against.
+    loadConcurrencyLimit: () => Promise.resolve(null),
     loadModuleConfig: (_worldId: string, module: ConfigurableModule) =>
       Promise.resolve(resolveEffectiveModuleConfig(module, null)),
     async loadWorldSnapshot(slot) {

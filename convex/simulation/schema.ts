@@ -64,6 +64,25 @@ export const simulationTables = {
     completedAt: v.optional(v.number()),
     committedEventId: v.optional(v.string()),
     errorCode: v.optional(v.string()),
+    /**
+     * When this slot's claim stops being honoured (ART-160).
+     *
+     * The live path runs prepare (mutation) → author (action) → finalize (mutation), and nothing
+     * about that sequence is transactional as a whole. Without a lease a slot whose action never
+     * started, crashed, timed out, or finished without finalizing would sit in `running` forever
+     * and the world would stop — and a duplicate cron delivery would author a second slot against
+     * a world the first one had not finished advancing.
+     *
+     * So the claim is time-bounded. A `running` slot with a live lease means "someone is on it";
+     * an expired one means "whoever had it is gone, take it over". Resuming is safe because every
+     * identifier on the path is derived from (worldId, worldDay, timeSlot): the run resumes from
+     * its checkpoints, authored scenes are reused rather than re-paid for, and the commit dedups
+     * on `idempotencyKey`.
+     *
+     * OPTIONAL for migration safety: rows written before ART-160 carry no lease, and are read as
+     * expired — which is the correct reading, since nothing is holding them.
+     */
+    leaseExpiresAt: v.optional(v.number()),
   })
     .index('by_slot_key', ['slotKey'])
     .index('by_world_and_status', ['worldId', 'status'])

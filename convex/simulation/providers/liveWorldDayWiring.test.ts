@@ -75,6 +75,7 @@ const plan = (scenes: GroupedScene[], requestedModel = 'auto'): SceneAuthoringPl
   options: { maxAttempts: 1, temperature: 0.4, maxTokens: 4_000 },
   requestedModel,
   legalDestinationIds: Object.fromEntries(scenes.map((entry) => [entry.sceneId, ['mistwood-square']])),
+  maxConcurrentScenes: 1,
 });
 
 /** A well-formed whole-scene output for `scene`, as the gateway would return it. */
@@ -667,6 +668,8 @@ describe('the function paths the live action uses name real exports', () => {
       // ART-158 AC#2. Exercised by `providerRateWiring.test.ts`, which drives the recorder the
       // action installs; named here so the set stays exhaustive rather than merely passing.
       'simulation/providerRateFunctions:recordProviderCall',
+      // ART-160. Exercised by `liveOrchestration.test.ts`, which drives the cron entry point.
+      'simulation/schedulerOperations:listDrivableWorlds',
     ].sort());
   });
 });

@@ -7,6 +7,8 @@ import { internalFunctionRef } from './shared/internalFunctionRef';
 import type { tickAllPublicSchedules as tickAllPublicSchedulesExport } from './simulation/schedulerOperations';
 import type { captureAllPublicRuntimeSnapshots as captureAllPublicRuntimeSnapshotsExport } from './publicRead/runtimeSnapshotFunctions';
 import type { tickEnvironmentVoteRounds as tickEnvironmentVoteRoundsExport } from './viewer/environmentVoteFunctions';
+import type { driveLiveWorlds as driveLiveWorldsExport } from './simulation/providers/liveWorldDayActions';
+import type { drainAllLivePostCommit as drainAllLivePostCommitExport } from './operations/postCommitLiveFunctions';
 
 const crons = cronJobs();
 
@@ -24,6 +26,12 @@ const vacuumTableRef = internalFunctionRef<typeof vacuumTable>('crons:vacuumTabl
 
 const tickEnvironmentVoteRoundsRef = internalFunctionRef<typeof tickEnvironmentVoteRoundsExport>(
   'viewer/environmentVoteFunctions:tickEnvironmentVoteRounds',
+);
+const driveLiveWorldsRef = internalFunctionRef<typeof driveLiveWorldsExport>(
+  'simulation/providers/liveWorldDayActions:driveLiveWorlds',
+);
+const drainAllLivePostCommitRef = internalFunctionRef<typeof drainAllLivePostCommitExport>(
+  'operations/postCommitLiveFunctions:drainAllLivePostCommit',
 );
 
 // ART-112: the "stop inactive worlds" and "restart dead worlds" crons drove the retired
@@ -51,6 +59,39 @@ crons.interval(
 // queued before the world reaches the slot it affects. A slower cron would let a vote expire
 // unheard; a faster one would re-scan every public world for no gain, since a round changes
 // state at most twice in its life.
+/**
+ * ART-160: the counterpart to the reservation cron above.
+ *
+ * `tickAllPublicSchedules` only RESERVES due slots; until this existed, draining them was an
+ * operator invoking three functions by hand, so a deployed world reserved slots forever and
+ * executed none. This drives the whole live sequence — prepare (mutation) → author (ACTION) →
+ * finalize (mutation) — for every running public world.
+ *
+ * An ACTION, necessarily: a Convex mutation may not perform network I/O, which is the entire
+ * reason the sequence is split.
+ *
+ * Two minutes rather than one, deliberately. A tick that finds the previous tick still authoring
+ * is told `busy` by the world's lease and does nothing, so overlap is safe rather than harmful —
+ * but it is also pointless, and a slower cadence spends fewer invocations discovering that. World
+ * time advances every few hours (`PUBLIC_SLOT_START_MS`), so two minutes is still ~90x the rate
+ * the clock actually needs.
+ *
+ * A deployment with no provider configuration reports a reason and does nothing; see
+ * `liveAuthoringConfiguration`.
+ */
+crons.interval('drive live world days', { minutes: 2 }, driveLiveWorldsRef, {});
+
+/**
+ * Stages 11–21 for whatever the driver committed.
+ *
+ * Separate from the driver because `architecture/module-boundaries.json` forbids `simulation`
+ * depending on `operations` — and separate is correct anyway: post-commit was never a callback on
+ * a slot's commits. It is a CURSOR over accepted events, so it picks up work from the driver, from
+ * a previous failure, and from events accepted before the pipeline existed, all through one path
+ * and all in canon order.
+ */
+crons.interval('drain live post-commit', { minutes: 1 }, drainAllLivePostCommitRef, {});
+
 crons.interval('tick environment vote rounds', { minutes: 5 }, tickEnvironmentVoteRoundsRef);
 
 crons.daily('vacuum old entries', { hourUTC: 4, minuteUTC: 20 }, vacuumOldEntriesRef);

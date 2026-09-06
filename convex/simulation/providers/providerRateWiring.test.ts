@@ -57,6 +57,7 @@ const plan = (scenes: GroupedScene[]): SceneAuthoringPlan => ({
   options: { maxAttempts: 1, temperature: 0.4, maxTokens: 4_000 },
   requestedModel: 'auto',
   legalDestinationIds: Object.fromEntries(scenes.map((entry) => [entry.sceneId, ['mistwood-square']])),
+  maxConcurrentScenes: 1,
 });
 
 const sceneOutput = (target: GroupedScene): unknown => ({

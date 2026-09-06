@@ -576,6 +576,9 @@ export function createWorldDayPort(
     budget,
     // FR-K005 / ART-52: the harness runs an UNCONFIGURED world, so the port returns the
     // documented defaults -- which are the pre-ART-52 hardcoded values.
+    // ART-161: no configured limit, so authoring stays sequential — the behaviour these
+    // fixtures were written against.
+    loadConcurrencyLimit: () => Promise.resolve(null),
     loadModuleConfig: (_worldId: string, module: ConfigurableModule) =>
       Promise.resolve(resolveEffectiveModuleConfig(module, null)),
     async loadWorldSnapshot(slot: WorldDaySlotIdentity) {

@@ -110,6 +110,9 @@ function portWith(config: EffectiveModuleConfig): WorldDayLivePort & { requested
     persistGroupedScenes: () => Promise.resolve(),
     persistSceneSimulation: () => Promise.resolve(),
     loadPersistedSceneSimulation: () => Promise.resolve(null),
+    // ART-161: no configured limit, so authoring stays sequential — the behaviour these
+    // fixtures were written against.
+    loadConcurrencyLimit: () => Promise.resolve(null),
     loadModuleConfig: (_worldId, module) => {
       requested.push(module);
       return Promise.resolve(config);

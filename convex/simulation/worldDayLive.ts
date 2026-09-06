@@ -215,6 +215,15 @@ export interface WorldDayLivePort {
   persistGroupedScenes(input: SceneGroupingInput, result: SceneGroupingResult): Promise<void>;
   persistSceneSimulation(groupingRunId: string, result: SceneSimulationResult): Promise<void>;
   /**
+   * FR-M003 最大並行數 for this world, or `null` when none is configured (ART-161).
+   *
+   * On the port rather than derived from the budget gate because it is a POLICY value read once
+   * per slot to size a worker pool, not a per-attempt decision. The gate still enforces it durably
+   * at every reservation; this is what stops the pool from proposing more work than the gate would
+   * ever grant, which would turn a concurrency limit into a stream of refusals.
+   */
+  loadConcurrencyLimit(worldId: string): Promise<number | null>;
+  /**
    * ART-149. A scene's already-persisted result, or null. Lets a retried slot skip the provider
    * call it already paid for; see `findReusableSceneSimulation`.
    */
@@ -874,6 +883,15 @@ export type SceneAuthoringPlan = {
   readonly requestedModel: string;
   /** ART-157, per scene: the destinations Canon will accept from that scene's location. */
   readonly legalDestinationIds: Readonly<Record<string, readonly string[]>>;
+  /**
+   * FR-M003 最大並行數, as the number of scenes that may be in flight at once (ART-161).
+   *
+   * `1` means sequential and is what an UNCONFIGURED world gets: `TokenBudgetPolicy`'s default is
+   * `null` — no limit — and reading that as "unbounded fan-out" would make a world that never
+   * asked for concurrency suddenly hammer a shared key allowance. An absent limit is a world that
+   * has expressed no opinion, and the safe reading of no opinion is one at a time.
+   */
+  readonly maxConcurrentScenes: number;
 };
 
 /**
@@ -903,12 +921,13 @@ export const sceneSimulationRunId = (sceneId: string): string => `${sceneId}:sim
  * across two configurations with nothing recording which got which.
  */
 export async function buildSceneAuthoringPlan(
-  port: Pick<WorldDayLivePort, 'loadModuleConfig' | 'budget'>,
+  port: Pick<WorldDayLivePort, 'loadModuleConfig' | 'budget' | 'loadConcurrencyLimit'>,
   slot: WorldDaySlotIdentity,
   grouping: GroupingArtifact,
   snapshot: LiveWorldSnapshot,
 ): Promise<SceneAuthoringPlan> {
   const config = await port.loadModuleConfig(slot.worldId, 'scene_simulation');
+  const configuredLimit = await port.loadConcurrencyLimit(slot.worldId);
   const legalDestinationIds: Record<string, readonly string[]> = {};
   for (const scene of grouping.result.scenes) {
     legalDestinationIds[scene.sceneId] = legalDestinationsFrom(snapshot.locations, scene.locationId);
@@ -920,6 +939,8 @@ export async function buildSceneAuthoringPlan(
     options: wholeSceneOptionsFor(config),
     requestedModel: config.model ?? await port.budget.deploymentModelId(),
     legalDestinationIds,
+    // Clamped to at least 1: a configured 0 would author nothing while looking like a setting.
+    maxConcurrentScenes: Math.max(1, configuredLimit ?? 1),
   };
 }
 
@@ -951,15 +972,11 @@ export async function authorSlotScenes(
   store: SceneAuthoringStore,
   plan: SceneAuthoringPlan,
 ): Promise<SceneSimulationResult[]> {
-  const results: SceneSimulationResult[] = [];
-  for (const scene of plan.scenes) {
+  const authorOne = async (scene: GroupedScene): Promise<SceneSimulationResult> => {
     const simulationRunId = sceneSimulationRunId(scene.sceneId);
     const reused = await store.loadPersistedSceneSimulation(
       plan.slot.worldId, plan.groupingRunId, simulationRunId);
-    if (reused) {
-      results.push(reused);
-      continue;
-    }
+    if (reused) return reused;
     if (provider === null) {
       throw new WorldDayOrchestrationError(SCENE_AUTHORING_DEFERRED,
         `scene ${scene.sceneId} has not been authored yet and this pass may not call a provider`);
@@ -995,9 +1012,60 @@ export async function authorSlotScenes(
     // result: the row it came from is already the persisted one, and re-persisting would only
     // re-derive the same dedup answer at the cost of another write.
     await store.persistSceneSimulation(plan.groupingRunId, result);
-    results.push(result);
-  }
-  return results;
+    return result;
+  };
+
+  /**
+   * A bounded worker pool over the scene list (ART-161).
+   *
+   * NOT `Promise.all` over every scene: that would put the whole slot in flight at once, which is
+   * both the thing FR-M003 最大並行數 exists to prevent and a good way to empty a shared key
+   * allowance in one burst. NOT sequential either — that was the state ART-59 recorded and ART-159
+   * narrowed, where the limit was evaluated on every reservation and could never bind because
+   * `inFlight` was only ever 0 or 1.
+   *
+   * Results are written to `results[index]`, so **commit order is the scene order regardless of
+   * which provider call finishes first**. That is load-bearing rather than tidy: the proposals
+   * reach `commitProposedEvent` in this order, so Canon's sequence numbers would otherwise depend
+   * on gateway latency, and a replay of the same slot could produce a different world.
+   *
+   * ## Why a process-local pool is sound here
+   *
+   * A pool in one action's memory bounds nothing on its own — a second invocation would have its
+   * own. What makes this correct is that a second invocation cannot exist: ART-160's per-world
+   * lease means at most one driver holds a world at a time, so within a world this pool IS the
+   * only actor. The durable `inFlight` counter in `tokenBudgetCounters` remains the enforcement of
+   * record, evaluated on every reservation; the pool exists so the gate is never asked to grant
+   * more than it would allow, which would turn a limit into a stream of refusals.
+   *
+   * A worker that throws stops the pool from STARTING new scenes but does not cancel work already
+   * in flight — those settle or release their own reservations through `runBudgetedAttempt`, and
+   * whatever they authored is persisted, so the retry pays only for what is still missing.
+   */
+  const results = new Array<SceneSimulationResult | undefined>(plan.scenes.length);
+  let nextIndex = 0;
+  let firstError: unknown = null;
+
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      if (firstError !== null) return;
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= plan.scenes.length) return;
+      try {
+        results[index] = await authorOne(plan.scenes[index]);
+      } catch (error) {
+        if (firstError === null) firstError = error;
+        return;
+      }
+    }
+  };
+
+  const workers = Math.max(1, Math.min(plan.maxConcurrentScenes, plan.scenes.length));
+  await Promise.all(Array.from({ length: workers }, () => worker()));
+  if (firstError !== null) throw firstError;
+  // Every slot is filled once no worker errored: the pool only stops early on failure.
+  return results.filter((result): result is SceneSimulationResult => result !== undefined);
 }
 
 // --- stage handlers ---------------------------------------------------------
