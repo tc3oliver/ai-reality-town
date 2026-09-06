@@ -7,7 +7,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-09-06 09:09'
-updated_date: '2026-09-06 09:34'
+updated_date: '2026-09-06 09:38'
 labels:
   - prd-1.0
   - epic-o
@@ -51,14 +51,14 @@ ART-148 已消費 `_routed_via`。**三個 `x-ratelimit-*` header 目前被完�
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The adapter surfaces x-ratelimit-limit/remaining/reset from the gateway response instead of discarding them
+- [x] #1 The adapter surfaces x-ratelimit-limit/remaining/reset from the gateway response instead of discarding them
 - [ ] #2 Per-route free quota state (tokens, requests, RPM/TPM, daily allowance, reset time) is recorded against provider+model and is readable by an operator
-- [ ] #3 A 429 or exhausted free quota falls back to the next FREE route in the chain, and the fallback is recorded
-- [ ] #4 A provider failure falls back to the next FREE route
-- [ ] #5 When every free route is unavailable the call FAILS rather than escalating; no paid route is ever selected
-- [ ] #6 FREE_ONLY=true is enforced by a test that fails if a paid or non-free-eligible route can be reached from the auto chain
-- [ ] #7 Monetary cost is not modelled anywhere in the free-only path: no currency budget bucket is created for auto or for any resolved route
-- [ ] #8 Reliability statistics per route (failures, 429s, fallbacks) are recorded so a consistently failing free route is visible
+- [x] #3 A 429 or exhausted free quota falls back to the next FREE route in the chain, and the fallback is recorded
+- [x] #4 A provider failure falls back to the next FREE route
+- [x] #5 When every free route is unavailable the call FAILS rather than escalating; no paid route is ever selected
+- [x] #6 FREE_ONLY=true is enforced by a test that fails if a paid or non-free-eligible route can be reached from the auto chain
+- [x] #7 Monetary cost is not modelled anywhere in the free-only path: no currency budget bucket is created for auto or for any resolved route
+- [x] #8 Reliability statistics per route (failures, 429s, fallbacks) are recorded so a consistently failing free route is visible
 <!-- AC:END -->
 
 ## Definition of Done
