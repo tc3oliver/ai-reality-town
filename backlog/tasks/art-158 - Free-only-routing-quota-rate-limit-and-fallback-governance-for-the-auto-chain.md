@@ -7,7 +7,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-09-06 09:09'
-updated_date: '2026-09-06 09:22'
+updated_date: '2026-09-06 09:34'
 labels:
   - prd-1.0
   - epic-o
@@ -122,3 +122,25 @@ id, name, object, owned_by, supported_parameters, unavailable_reason
 
 **D — 修正 ART-148 的 alias 判準**,依上述發現 3。
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## 對真部署量到的關鍵事實(決定了 chain 的設計)
+
+用三次連續呼叫、故意換 model id 測 allowance 範圍:
+
+| # | asked | status | routed | remaining |
+| --- | --- | --- | --- | --- |
+| 1 | `auto` | 200 | xkiro / deepseek-v4-pro | 119 |
+| 2 | `gemini-2.5-flash` | **429** | null | 118 |
+| 3 | `auto` | 200 | xkiro / deepseek-v4-pro | 117 |
+
+兩個結論,方向相反,都很重要:
+
+1. **額度是 per-API-key,不是 per-route。** 換 model id 仍從同一個 120 的池子扣。所以「換一條 route 來繞過額度」**行不通**,而且每次 fallback 嘗試**都會再扣一次 key 額度**(429 那次也扣了)。chain 必須有上限,不能無限試。
+
+2. **但 429 是 per-route 的。** 第 2 次在 remaining=118(還很充足)時就 429,而緊接著第 3 次 `auto` 成功。所以某條 route 被限流**不代表** key 用完 —— 換一條確實可能成功。
+
+因此 fallback chain **值得做**,但它的用途是繞過「單一 route 不可用/被限流」,不是繞過帳號額度。把它寫成後者會是一個結構上不可能成立的功能。
+<!-- SECTION:NOTES:END -->
