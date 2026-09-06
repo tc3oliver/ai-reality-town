@@ -89,9 +89,8 @@ export const rebuildTimelineProjection = internalMutation({
     if (args.worldId.trim().length === 0 || !Number.isFinite(args.now)) {
       throw new EpisodeTimelineError('TIMELINE_INVALID', 'worldId and a finite now are required');
     }
-    const [classificationRows, episodeRows, withheldSceneLabels] = await Promise.all([
+    const [classificationRows, withheldSceneLabels] = await Promise.all([
       ctx.db.query('storyArcEventClassifications').withIndex('by_world', (q) => q.eq('worldId', args.worldId)).collect(),
-      ctx.db.query('dailyEpisodes').withIndex('by_world_and_day', (q) => q.eq('worldId', args.worldId)).collect(),
       // The inverted, history-independent question. See `effectiveSafetyLabels.ts` on why a
       // rebuild must never ask this Scene by Scene.
       readWithheldSceneLabels(ctx.db, args.worldId),
@@ -108,11 +107,6 @@ export const rebuildTimelineProjection = internalMutation({
         memberships.reduce((max, membership) => Math.max(max, membership.importance), 0),
       );
     }
-    const episodeNumberByDay = new Map<number, number>();
-    for (const row of episodeRows) {
-      if (row.episode) episodeNumberByDay.set(row.worldDay, row.episodeNumber);
-    }
-
     // The already-known set of sequence numbers a Canon row is worth reading for — see the
     // docblock above. An event absent from `importanceBySequence` (no classification row, or one
     // whose `memberships` failed the shape check) defaults to importance 0 exactly as the old
@@ -134,6 +128,28 @@ export const rebuildTimelineProjection = internalMutation({
       .sort((left, right) => left.sequenceNumber - right.sequenceNumber);
 
     const acceptedEvents = canonRows.map(rowToAcceptedEvent);
+
+    /**
+     * Episode numbers for exactly the days this timeline names (ART-100).
+     *
+     * `episodeNumberByDay` is consulted only for the `worldDay` of the events that qualified
+     * above, and a timeline holds a handful of major events — so sweeping every daily-episode row
+     * the world has ever had was an O(world days) read serving a handful of lookups. Read AFTER
+     * the events are parsed rather than alongside the classifications, because which days matter
+     * is not known until then, and `worldDay` is a field of the PARSED event rather than of the
+     * stored row.
+     *
+     * Renumbering is still picked up on the next rebuild: nothing is cached, the rows are re-read
+     * every time, and a day whose episode was renumbered reports its new number exactly as the
+     * sweep did. There is a test for that.
+     */
+    const episodeNumberByDay = new Map<number, number>();
+    for (const worldDay of new Set(acceptedEvents.map((event) => event.worldDay))) {
+      const episodeRow = await ctx.db.query('dailyEpisodes')
+        .withIndex('by_world_and_day', (q) => q.eq('worldId', args.worldId).eq('worldDay', worldDay))
+        .unique();
+      if (episodeRow?.episode) episodeNumberByDay.set(episodeRow.worldDay, episodeRow.episodeNumber);
+    }
     // Keyed on the EVENT ID, never on a position in a parallel array — the reason
     // `withheldEventIds` returns ids at all. Index correlation works today and would start
     // redacting events against their neighbour's verdict the day anyone filters upstream.

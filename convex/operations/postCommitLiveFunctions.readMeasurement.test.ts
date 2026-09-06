@@ -772,7 +772,6 @@ describe('ART-100 Slice 0 — post-commit document-read measurement harness', ()
   it('AC#1 — a post-commit run\'s canon reads do not grow with total accepted-event count', async () => {
     const small = await measureMultiDay(AC1_SMALL);
     const large = await measureMultiDay(AC1_LARGE);
-    console.log('AC1', JSON.stringify({ small: small.byIndex, large: large.byIndex }, null, 1));
 
     // The fixture's own precondition: the two scale points really do differ in total canon size.
     // Without this, the equality below could pass because nothing changed between the runs.
@@ -784,6 +783,21 @@ describe('ART-100 Slice 0 — post-commit document-read measurement harness', ()
     // open day (or by a snapshot tail, or by a named set of sequence numbers) reports an identical
     // count, and a read bounded by history does not.
     expect(large.byTable.canonEvents).toBe(small.byTable.canonEvents);
+
+    /**
+     * ...and `canonEvents` is not the only table that could grow, so the TOTAL is pinned too — but
+     * pinned to what honestly remains rather than to zero.
+     *
+     * Exactly one read still scales, and it scales with WORLD DAYS: `rebuildEpisodeIndexProjection`
+     * reads one `dailyEpisodes` row per day. That one is **payload-bound** — the model it publishes
+     * IS the list of every episode, so it cannot read fewer rows than it publishes without
+     * paginating a public contract, which is a product decision and not a read optimisation. Every
+     * other O(days) read this task found has been removed, and asserting the exact rate is what
+     * stops a new one hiding inside the allowance.
+     */
+    const extraWorldDays = AC1_LARGE.completedDays - AC1_SMALL.completedDays;
+    expect(large.docsRead - small.docsRead).toBe(extraWorldDays);
+    expect(large.byTable.dailyEpisodes - small.byTable.dailyEpisodes).toBe(extraWorldDays);
   });
 });
 
