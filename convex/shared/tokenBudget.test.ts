@@ -35,11 +35,13 @@ import {
   grantReservation,
   hashTokenBudgetPolicy,
   classifyPriorLedgerState,
+  isModelAlias,
   isModelMeteringMismatch,
   isReplayableGrant,
   refuseReservation,
   releaseReservation,
   resolveEffectiveTokenBudgetPolicy,
+  resolveModelForCounters,
   routeModelForWork,
   selectOverBudgetStrategy,
   settleReservation,
@@ -60,6 +62,7 @@ import { FORBIDDEN_CONFIG_FIELDS } from './moduleModelConfig';
 const WORLD = 'mistwood';
 const MODEL = 'writer-large';
 const FAST = 'writer-fast';
+const PROVIDER = 'xkiro';
 
 const policyWith = (overrides: Partial<TokenBudgetPolicy> = {}): TokenBudgetPolicy => ({
   ...TOKEN_BUDGET_POLICY_DEFAULTS,
@@ -108,9 +111,13 @@ function spend(
     importance: 'standard',
     countedAsRetry: false,
     onFastModel: false,
+    upstreamProvider: PROVIDER,
     ...overrides,
     model,
-    reportedModel: overrides.reportedModel ?? model,
+    // Defaults to the healthy case: the gateway served what was asked for. A test that wants the
+    // expectation and the resolution to DISAGREE says so explicitly, which is the only way this
+    // helper can produce a metering mismatch.
+    resolvedModel: overrides.resolvedModel === undefined ? model : overrides.resolvedModel,
     tokens,
   });
 }
@@ -887,10 +894,11 @@ describe('metering integrity — the ART-72 landmine, detected at runtime', () =
     // This is the ART-72 shape exactly: the meter keys on the fake author while a real model ran.
     const counters = spend(emptyBudgetCounters(WORLD, 0), 500, {
       model: 'fake-whole-scene-v1',
-      reportedModel: 'gpt-4o',
+      resolvedModel: 'gpt-4o',
     });
     expect(isModelMeteringMismatch({
-      module: 'scene_simulation', model: 'fake-whole-scene-v1', reportedModel: 'gpt-4o',
+      module: 'scene_simulation', model: 'fake-whole-scene-v1', resolvedModel: 'gpt-4o',
+      upstreamProvider: PROVIDER,
       importance: 'standard', tokens: 500, countedAsRetry: false, onFastModel: false,
     })).toBe(true);
     expect(counters.modelMeteringMismatches).toBe(1);
@@ -903,22 +911,30 @@ describe('metering integrity — the ART-72 landmine, detected at runtime', () =
     expect(result.modelMeteringMismatchReason).toContain('sceneBudgetProviderPin.test.ts');
   });
 
-  test('the tokens are still booked under the METERED key, so the cap stays coherent', () => {
-    // Counting the mismatch must not also move the spend to the other bucket: the cap that was
-    // evaluated is the cap that has to be charged, or the reservation and the settlement would
-    // disagree about which limit they were about.
+  test('the tokens are booked under the model that RAN, not the one that was asked for', () => {
+    // REVERSAL, stated rather than slipped in. This previously asserted the opposite — that a
+    // mismatch keeps its tokens on the metered key "so the cap stays coherent". That was the right
+    // answer to a MONETARY question (charge the cap you evaluated) and the wrong one to the
+    // question this deployment actually asks.
+    //
+    // Every route here is free-tier, so these counters are free-QUOTA attribution: they record
+    // which upstream allowance was drawn down. `something-else` is what consumed its own quota, so
+    // booking the tokens against MODEL would report one allowance as spent when it was untouched
+    // and another as untouched when it was spent. The divergence is not lost — it is exactly what
+    // `modelMeteringMismatches` counts.
     const counters = spend(emptyBudgetCounters(WORLD, 0), 500, {
-      model: MODEL, reportedModel: 'something-else',
+      model: MODEL, resolvedModel: 'something-else',
     });
-    expect(tokensForModel(counters, MODEL)).toBe(500);
-    expect(tokensForModel(counters, 'something-else')).toBe(0);
+    expect(tokensForModel(counters, 'something-else')).toBe(500);
+    expect(tokensForModel(counters, MODEL)).toBe(0);
+    expect(counters.modelMeteringMismatches).toBe(1);
   });
 
   test('a mismatch is never thrown: a pinned model revision is legitimate', () => {
     // `gpt-4o` -> `gpt-4o-2024-08-06` is a gateway answering honestly. Throwing would take the
     // world down over a naming convention; counting it surfaces the divergence without doing so.
     expect(() => spend(emptyBudgetCounters(WORLD, 0), 10, {
-      model: 'gpt-4o', reportedModel: 'gpt-4o-2024-08-06',
+      model: 'gpt-4o', resolvedModel: 'gpt-4o-2024-08-06',
     })).not.toThrow();
   });
 });
@@ -1015,5 +1031,171 @@ describe('the replay predicate — both halves falsifiable', () => {
     expect(classifyPriorLedgerState(null)).toBe('none');
     expect(classifyPriorLedgerState({ outcome: 'over_budget' })).toBe('refusal');
     expect(classifyPriorLedgerState({ outcome: 'allowed' })).toBe('resolved_grant');
+  });
+});
+
+/**
+ * ART-148. The deployment sets `LLM_MODEL=auto`, an alias the gateway resolves per call.
+ *
+ * Treated as an ordinary model id it broke the subsystem in two opposite directions at once: the
+ * per-model cap metered a bucket named `auto` that no real model ever spends against, so it was
+ * effectively unenforced; and `modelMeteringMismatches` incremented on every single call, so the
+ * counter that exists to detect silent drift was saturated by design.
+ *
+ * Both halves are pinned here, and so is the honest limit — the FIRST call of a world day cannot
+ * bind the cap, because the concrete id does not exist until the gateway answers.
+ */
+describe('ART-148 model aliases', () => {
+  const ALIAS = 'auto';
+  const CONCRETE = 'glm-4.6';
+
+  it('recognises the deployment alias and leaves concrete ids alone', () => {
+    expect(isModelAlias(ALIAS)).toBe(true);
+    expect(isModelAlias(CONCRETE)).toBe(false);
+    expect(isModelAlias(MODEL)).toBe(false);
+  });
+
+  it('books an alias call under the model that actually ran, not under the alias', () => {
+    const counters = spend(emptyBudgetCounters(WORLD, 0), 500, { model: ALIAS, resolvedModel: CONCRETE });
+
+    expect(tokensForModel(counters, CONCRETE)).toBe(500);
+    expect(tokensForModel(counters, ALIAS)).toBe(0);
+    expect(counters.tokensByModel.map(({ model }) => model)).not.toContain(ALIAS);
+  });
+
+  it('does not count alias resolution as a metering mismatch', () => {
+    const counters = spend(emptyBudgetCounters(WORLD, 0), 500, { model: ALIAS, resolvedModel: CONCRETE });
+    expect(counters.modelMeteringMismatches).toBe(0);
+  });
+
+  it('still counts genuine drift between two concrete models', () => {
+    const counters = spend(emptyBudgetCounters(WORLD, 0), 500, { model: MODEL, resolvedModel: CONCRETE });
+
+    expect(counters.modelMeteringMismatches).toBe(1);
+    // Drift is COUNTED, and the usage still follows the route that consumed it: CONCRETE drew down
+    // its own free allowance, so that is where the tokens belong. The mismatch counter is what
+    // preserves the fact that this was not the model we expected.
+    expect(tokensForModel(counters, CONCRETE)).toBe(500);
+    expect(tokensForModel(counters, MODEL)).toBe(0);
+  });
+
+  it('attributes usage to the resolved provider AND model, not to the alias', () => {
+    const counters = spend(emptyBudgetCounters(WORLD, 0), 500, {
+      model: ALIAS, resolvedModel: CONCRETE, upstreamProvider: 'xkiro',
+    });
+
+    expect(counters.usageByRoute).toEqual([
+      { provider: 'xkiro', model: CONCRETE, tokens: 500, requests: 1 },
+    ]);
+  });
+
+  it('keeps two upstreams serving the same model id on separate allowances', () => {
+    // The reason the route key carries the provider: `xkiro` and `orcarouter` each grant their own
+    // free daily allowance, so merging them would report one allowance as twice as consumed as it
+    // is and hide that the other is untouched.
+    let counters = spend(emptyBudgetCounters(WORLD, 0), 300, {
+      model: ALIAS, resolvedModel: 'qwen3.8-27b-free', upstreamProvider: 'xkiro',
+    });
+    counters = spend(counters, 200, {
+      model: ALIAS, resolvedModel: 'qwen3.8-27b-free', upstreamProvider: 'orcarouter',
+    });
+
+    expect(counters.usageByRoute).toEqual([
+      { provider: 'orcarouter', model: 'qwen3.8-27b-free', tokens: 200, requests: 1 },
+      { provider: 'xkiro', model: 'qwen3.8-27b-free', tokens: 300, requests: 1 },
+    ]);
+  });
+
+  it('counts requests as well as tokens, because a free tier bounds both', () => {
+    let counters = emptyBudgetCounters(WORLD, 0);
+    for (let call = 0; call < 3; call += 1) {
+      counters = spend(counters, 10, { model: ALIAS, resolvedModel: CONCRETE, upstreamProvider: 'xkiro' });
+    }
+    expect(counters.usageByRoute).toEqual([{ provider: 'xkiro', model: CONCRETE, tokens: 30, requests: 3 }]);
+  });
+
+  it('books an unresolved alias call as unattributed rather than against the alias', () => {
+    const counters = spend(emptyBudgetCounters(WORLD, 0), 400, {
+      model: ALIAS, resolvedModel: null, upstreamProvider: null,
+    });
+
+    expect(tokensForModel(counters, ALIAS)).toBe(0);
+    expect(counters.unattributedCalls).toBe(1);
+    expect(counters.usageByRoute).toEqual([
+      { provider: 'unknown-provider', model: 'unresolved-model', tokens: 400, requests: 1 },
+    ]);
+    // Not a mismatch: "the gateway did not say" is a different fact from "the gateway said
+    // something unexpected", and collapsing them would make both unreadable.
+    expect(counters.modelMeteringMismatches).toBe(0);
+  });
+
+  it('does not call a CONCRETE request with no gateway answer a mismatch', () => {
+    // The case that distinguishes "the gateway said something unexpected" from "the gateway said
+    // nothing". Both leave `resolvedModel !== settlement.model`, so a check that only excluded
+    // aliases would report silence as drift and make the drift signal untrustworthy again.
+    const counters = spend(emptyBudgetCounters(WORLD, 0), 250, {
+      model: MODEL, resolvedModel: null, upstreamProvider: null,
+    });
+
+    expect(counters.modelMeteringMismatches).toBe(0);
+    expect(counters.unattributedCalls).toBe(1);
+    // A concrete request still names a model, so its usage is attributable to that model even
+    // though the gateway did not confirm it — unlike an alias, which names none.
+    expect(tokensForModel(counters, MODEL)).toBe(250);
+  });
+
+  it('does not let an unresolved call overwrite a known alias resolution', () => {
+    let counters = spend(emptyBudgetCounters(WORLD, 0), 10, { model: ALIAS, resolvedModel: CONCRETE });
+    counters = spend(counters, 10, { model: ALIAS, resolvedModel: null });
+
+    // One uninformative response must not blind the cap for the rest of the day.
+    expect(resolveModelForCounters(counters, ALIAS)).toBe(CONCRETE);
+  });
+
+  it('records what the alias resolved to, so the next reservation can meter it', () => {
+    const counters = spend(emptyBudgetCounters(WORLD, 0), 10, { model: ALIAS, resolvedModel: CONCRETE });
+
+    expect(counters.aliasResolutions).toEqual([{ alias: ALIAS, model: CONCRETE }]);
+    expect(resolveModelForCounters(counters, ALIAS)).toBe(CONCRETE);
+    expect(resolveModelForCounters(counters, MODEL)).toBe(MODEL);
+  });
+
+  it('binds the per-model daily cap to the resolved model on a later alias call', () => {
+    const policy = policyWith({ modelDailyTokenBudgets: [{ model: CONCRETE, dailyTokenBudget: 1_000 }] });
+    const counters = spend(emptyBudgetCounters(WORLD, 0), 950, { model: ALIAS, resolvedModel: CONCRETE });
+    // Guard the denominator: the cap can only bind if the spend actually landed on CONCRETE.
+    expect(tokensForModel(counters, CONCRETE)).toBe(950);
+
+    const decision = evaluate({ policy, counters, request: { requestedModel: ALIAS, estimatedTokens: 100 } });
+
+    expect(decision.outcome).toBe('over_budget');
+    expect(decision.breachedLimits).toContain('model_daily_tokens');
+  });
+
+  it('allows an alias call that fits inside the resolved model budget', () => {
+    const policy = policyWith({ modelDailyTokenBudgets: [{ model: CONCRETE, dailyTokenBudget: 1_000 }] });
+    const counters = spend(emptyBudgetCounters(WORLD, 0), 500, { model: ALIAS, resolvedModel: CONCRETE });
+
+    const decision = evaluate({ policy, counters, request: { requestedModel: ALIAS, estimatedTokens: 100 } });
+
+    expect(decision.outcome).toBe('allowed');
+  });
+
+  it('cannot bind the cap on the day\'s FIRST alias call, and that limit is real', () => {
+    // Stated rather than hidden: nothing has resolved `auto` yet today, so there is no concrete
+    // model to meter against. The cap binds from the second call onwards. Asserting this keeps a
+    // future reader from mistaking the gap for an oversight.
+    const policy = policyWith({ modelDailyTokenBudgets: [{ model: CONCRETE, dailyTokenBudget: 1 }] });
+    const fresh = emptyBudgetCounters(WORLD, 0);
+
+    expect(fresh.aliasResolutions).toEqual([]);
+    expect(evaluate({ policy, counters: fresh, request: { requestedModel: ALIAS } }).outcome).toBe('allowed');
+  });
+
+  it('does not carry an alias resolution across a world day boundary', () => {
+    const today = spend(emptyBudgetCounters(WORLD, 0), 10, { model: ALIAS, resolvedModel: CONCRETE });
+    expect(today.aliasResolutions).toHaveLength(1);
+    // Rollover is structural: tomorrow is a different row, built from zero.
+    expect(emptyBudgetCounters(WORLD, 1).aliasResolutions).toEqual([]);
   });
 });

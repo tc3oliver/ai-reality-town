@@ -190,7 +190,12 @@ export class FakeWholeSceneProvider implements LanguageModelProvider {
     // Deterministic, cost-free accounting: no tokens are actually consumed.
     return {
       provider: 'fake',
-      model: FAKE_SCENE_MODEL,
+      // The fake IS the route: it asks for one model and serves that same model, so the resolution
+      // is known rather than absent. `null` here would mean "could not attribute", which would be
+      // a false report about a provider that never routes anywhere.
+      requestedModel: FAKE_SCENE_MODEL,
+      resolvedModel: FAKE_SCENE_MODEL,
+      upstreamProvider: 'fake',
       inputTokens: Math.ceil(input.length / 4),
       outputTokens: Math.ceil(output.length / 4),
       latencyMs: 0,

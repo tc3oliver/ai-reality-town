@@ -35,9 +35,79 @@ describe('NFR-004 OpenAI-compatible provider adapter', () => {
       return Promise.resolve(response(chatBody({ ok: true })));
     }, now: () => 10 });
     const result = await provider.structuredChat({ messages: [{ role: 'user', content: 'input' }], schemaName: 'test', jsonSchema: { type: 'object' }, temperature: 0, maxTokens: 20 });
-    expect(result).toEqual({ output: { ok: true }, trace: { provider: 'openai-compatible', model: 'chat-model', inputTokens: 4, outputTokens: 2, latencyMs: 0, retryCount: 0 } });
+    // `resolvedModel` is null because this fixture's response body carries no `model` field. That
+    // is the honest answer to "which model served this" when the gateway did not say — not the
+    // requested id echoed back, which is what this adapter used to report.
+    expect(result).toEqual({ output: { ok: true }, trace: { provider: 'openai-compatible',
+      requestedModel: 'chat-model', resolvedModel: null, upstreamProvider: null,
+      inputTokens: 4, outputTokens: 2, latencyMs: 0, retryCount: 0 } });
     expect(authorization).toBe('Bearer test-secret-never-log');
     expect(JSON.stringify(result)).not.toContain('test-secret-never-log');
+  });
+
+  /**
+   * ART-148. The alias case, which is the whole point: the deployment sends `auto` and the gateway
+   * answers with the route it picked. Before this the adapter dropped `root.model` and echoed the
+   * request, so `auto` was the only model the system ever believed it had run — and the metering
+   * mismatch check downstream compared a value with itself.
+   */
+  it('reports the route the gateway resolved, not the alias that was requested', async () => {
+    // The live body shape: an object with the halves already separated.
+    const body = { ...chatBody({ ok: true }), model: 'deepseek-v4-flash',
+      _routed_via: { platform: 'xkiro', model: 'deepseek-v4-flash' } };
+    const provider = new OpenAICompatibleProvider({ ...config(), chatModel: 'auto' },
+      { fetch: () => Promise.resolve(response(body)), now: () => 10 });
+
+    const result = await provider.structuredChat({ messages: [{ role: 'user', content: 'input' }],
+      schemaName: 'test', jsonSchema: { type: 'object' }, temperature: 0, maxTokens: 20 });
+
+    expect(result.trace.requestedModel).toBe('auto');
+    expect(result.trace.resolvedModel).toBe('deepseek-v4-flash');
+    expect(result.trace.upstreamProvider).toBe('xkiro');
+  });
+
+  it('splits the route on the FIRST separator, so a vendor-prefixed model stays whole', () => {
+    // The `x-routed-via` STRING shape. The live gateway answers `xkiro/deepseek/deepseek-v4-pro`;
+    // splitting on the last separator would report the provider as `xkiro/deepseek` and the model
+    // as a bare `deepseek-v4-pro`, which is two wrong attributions from one off-by-one.
+    const body = { ...chatBody({ ok: true }), _routed_via: 'xkiro/deepseek/deepseek-v4-pro' };
+    const provider = new OpenAICompatibleProvider({ ...config(), chatModel: 'auto' },
+      { fetch: () => Promise.resolve(response(body)), now: () => 10 });
+
+    return provider.structuredChat({ messages: [{ role: 'user', content: 'input' }],
+      schemaName: 'test', jsonSchema: { type: 'object' }, temperature: 0, maxTokens: 20 })
+      .then((result) => {
+        expect(result.trace.upstreamProvider).toBe('xkiro');
+        expect(result.trace.resolvedModel).toBe('deepseek/deepseek-v4-pro');
+      });
+  });
+
+  it('prefers the object route even when the model field disagrees', async () => {
+    // `model` is the standard field, `_routed_via.model` is the router's own account of what it
+    // dispatched to. When both are present the router's is authoritative.
+    const body = { ...chatBody({ ok: true }), model: 'auto',
+      _routed_via: { platform: 'orcarouter', model: 'qwen3.8-27b-free' } };
+    const provider = new OpenAICompatibleProvider({ ...config(), chatModel: 'auto' },
+      { fetch: () => Promise.resolve(response(body)), now: () => 10 });
+
+    const result = await provider.structuredChat({ messages: [{ role: 'user', content: 'input' }],
+      schemaName: 'test', jsonSchema: { type: 'object' }, temperature: 0, maxTokens: 20 });
+
+    expect(result.trace.upstreamProvider).toBe('orcarouter');
+    expect(result.trace.resolvedModel).toBe('qwen3.8-27b-free');
+  });
+
+  it('reports an unnamed route as null rather than guessing the request', async () => {
+    // A gateway that answers with a blank or absent model leaves the usage unattributable. Falling
+    // back to the requested id here would manufacture the exact false attribution ART-148 is about.
+    const provider = new OpenAICompatibleProvider({ ...config(), chatModel: 'auto' },
+      { fetch: () => Promise.resolve(response({ ...chatBody({ ok: true }), model: '   ' })), now: () => 10 });
+
+    const result = await provider.structuredChat({ messages: [{ role: 'user', content: 'input' }],
+      schemaName: 'test', jsonSchema: { type: 'object' }, temperature: 0, maxTokens: 20 });
+
+    expect(result.trace.requestedModel).toBe('auto');
+    expect(result.trace.resolvedModel).toBeNull();
   });
 
   it('normalizes embeddings and rejects incompatible dimensions', async () => {
@@ -74,9 +144,9 @@ describe('NFR-004 OpenAI-compatible provider adapter', () => {
     const provider = new OpenAICompatibleProvider(config(), { fetch: () => {
       calls += 1; return Promise.resolve(calls === 1 ? response(chatBody({ probe: 'ok' })) : response({ data: [{ embedding: [0, 0, 0] }] }));
     } });
-    await expect(probeProviderCapabilities(provider, config())).resolves.toEqual({ chat: { compatible: true, model: 'chat-model' }, embedding: { compatible: true, model: 'embed-model', dimension: 3 } });
-    const incompatible = { structuredChat: (_request: StructuredChatRequest) => Promise.resolve({ output: { probe: 'wrong' }, trace: { provider: 'openai-compatible' as const, model: 'x', inputTokens: 0, outputTokens: 0, latencyMs: 0, retryCount: 0 } }),
-      embed: () => Promise.resolve({ embedding: [0, 0, 0], trace: { provider: 'openai-compatible' as const, model: 'x', inputTokens: 0, outputTokens: 0, latencyMs: 0, retryCount: 0 } }) };
+    await expect(probeProviderCapabilities(provider, config())).resolves.toEqual({ chat: { compatible: true, model: 'chat-model', resolvedModel: null, upstreamProvider: null }, embedding: { compatible: true, model: 'embed-model', resolvedModel: null, dimension: 3 } });
+    const incompatible = { structuredChat: (_request: StructuredChatRequest) => Promise.resolve({ output: { probe: 'wrong' }, trace: { provider: 'openai-compatible' as const, requestedModel: 'x', resolvedModel: 'x', upstreamProvider: null, inputTokens: 0, outputTokens: 0, latencyMs: 0, retryCount: 0 } }),
+      embed: () => Promise.resolve({ embedding: [0, 0, 0], trace: { provider: 'openai-compatible' as const, requestedModel: 'x', resolvedModel: 'x', upstreamProvider: null, inputTokens: 0, outputTokens: 0, latencyMs: 0, retryCount: 0 } }) };
     await expect(probeProviderCapabilities(incompatible, config())).rejects.toMatchObject({ code: 'LLM_STRUCTURED_OUTPUT_UNSUPPORTED' });
   });
 

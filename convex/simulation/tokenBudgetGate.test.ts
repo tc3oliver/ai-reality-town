@@ -111,7 +111,8 @@ const request = (over: Partial<BudgetReservationRequest> = {}): BudgetReservatio
 const settlement = (over: Partial<BudgetSettlement> = {}): BudgetSettlement => ({
   module: 'scene_simulation',
   model: FAKE_SCENE_MODEL,
-  reportedModel: FAKE_SCENE_MODEL,
+  resolvedModel: FAKE_SCENE_MODEL,
+  upstreamProvider: 'fake',
   importance: 'standard',
   tokens: 1_200,
   countedAsRetry: false,
@@ -287,14 +288,18 @@ describe('metering integrity is enforced by the DEPLOYED settle, not only by the
     const tables = emptyTables();
     const port = portFor(tables);
     await port.reserve(request(), 'd-1');
-    await port.settle(request(), 'd-1', settlement({ reportedModel: OTHER_MODEL }));
+    await port.settle(request(), 'd-1', settlement({ resolvedModel: OTHER_MODEL }));
 
     expect(await counters(tables)).toMatchObject({ modelMeteringMismatches: 1 });
     // The per-decision record must say which model ran, not repeat the metered key — a row that
     // echoed the metered key would affirmatively lie about the divergence it is there to expose.
     expect((await ledger(tables))[0]).toMatchObject({ model: FAKE_SCENE_MODEL, settledModel: OTHER_MODEL });
-    // Tokens stay under the METERED key, so the cap that was evaluated is the cap that is charged.
-    expect((await counters(tables)).tokensByModel).toEqual([{ model: FAKE_SCENE_MODEL, tokens: 1_200 }]);
+    // REVERSAL (ART-148), stated rather than slipped in: this previously asserted the tokens stay
+    // under the METERED key so "the cap that was evaluated is the cap that is charged". Under
+    // free-only routing these counters are quota ATTRIBUTION — OTHER_MODEL drew down its own free
+    // allowance, so charging FAKE_SCENE_MODEL would report an untouched allowance as spent. The
+    // divergence is preserved by `modelMeteringMismatches` and the ledger's `settledModel`.
+    expect((await counters(tables)).tokensByModel).toEqual([{ model: OTHER_MODEL, tokens: 1_200 }]);
   });
 
   it('an honest settle counts no mismatch — the negative control', async () => {

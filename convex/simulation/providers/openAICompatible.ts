@@ -113,6 +113,47 @@ export class OpenAICompatibleProvider implements LanguageModelProvider, Simulati
     throw new SimulationProviderError('transient', 'LLM_NETWORK_ERROR', 'provider network request failed');
   }
 
+  /**
+   * Read the route the gateway actually used out of its own response.
+   *
+   * The OpenAI response schema carries `model`, and a routing gateway populates it with the model
+   * it selected — that is the ONLY place the resolution of an alias like `auto` is observable.
+   * This adapter previously echoed the requested id into the trace and dropped `root.model`
+   * entirely, which made the whole downstream chain a tautology: the "provider-reported" model was
+   * the request, so the metering-mismatch check compared a value with itself and could never fire.
+   *
+   * Absent or non-string fields yield `null` rather than a guess: "the gateway did not say" is a
+   * real state, and echoing the request back in its place is the defect this replaced.
+   *
+   * `_routed_via` is the FreeLLMAPI extension naming the route. BOTH shapes below were observed on
+   * the live deployment in the same response, and both are handled because each is the only one
+   * available at its own site:
+   *
+   *  - body: `{ platform: 'xkiro', model: 'deepseek/deepseek-v4-pro' }` — an OBJECT. This is the
+   *    authoritative form: the two halves are already separated, so nothing has to be parsed out.
+   *  - header `x-routed-via`: `xkiro/deepseek/deepseek-v4-pro` — a string whose model half itself
+   *    contains slashes, so it splits on the FIRST separator only. Splitting on the last would
+   *    report the provider as `xkiro/deepseek` and the model as a bare `deepseek-v4-pro`: two
+   *    wrong attributions from one off-by-one.
+   *
+   * `model` is the standard OpenAI field and remains the fallback for the model half, so a plain
+   * OpenAI-compatible endpoint that does no routing still reports what served the call.
+   */
+  private static route(root: Record<string, unknown>): { resolvedModel: string | null; upstreamProvider: string | null } {
+    const text = (value: unknown): string | null =>
+      typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+    const routed = root._routed_via;
+    if (routed && typeof routed === 'object' && !Array.isArray(routed)) {
+      const entry = routed as Record<string, unknown>;
+      return { resolvedModel: text(entry.model) ?? text(root.model), upstreamProvider: text(entry.platform) };
+    }
+    const flat = text(routed);
+    const separator = flat === null ? -1 : flat.indexOf('/');
+    return separator > 0 && flat !== null
+      ? { resolvedModel: flat.slice(separator + 1), upstreamProvider: flat.slice(0, separator) }
+      : { resolvedModel: text(root.model), upstreamProvider: null };
+  }
+
   async structuredChat(request: StructuredChatRequest): Promise<StructuredChatResult> {
     // ART-62 / H-4: screen every provider-bound message against the pre-generation policy
     // and prepend the non-user-editable constraint. Blocked input throws before any network
@@ -133,7 +174,8 @@ export class OpenAICompatibleProvider implements LanguageModelProvider, Simulati
     let output: unknown;
     try { output = JSON.parse(message.content) as unknown; } catch { throw new SimulationProviderError('permanent', 'LLM_STRUCTURED_OUTPUT_INVALID', 'chat response content is not valid JSON'); }
     const tokens = usage(root.usage);
-    return { output, trace: { provider: 'openai-compatible', model: chatModel, ...tokens,
+    return { output, trace: { provider: 'openai-compatible', requestedModel: chatModel,
+      ...OpenAICompatibleProvider.route(root), ...tokens,
       latencyMs: response.latencyMs, retryCount: response.retryCount } };
   }
 
@@ -159,7 +201,8 @@ export class OpenAICompatibleProvider implements LanguageModelProvider, Simulati
     });
     if (embedding.length !== this.config.embeddingDimension) throw new SimulationProviderError('permanent', 'LLM_EMBEDDING_DIMENSION_MISMATCH', `expected ${this.config.embeddingDimension} dimensions, received ${embedding.length}`);
     const tokens = usage(root.usage);
-    return { embedding, trace: { provider: 'openai-compatible', model: this.config.embeddingModel,
+    return { embedding, trace: { provider: 'openai-compatible', requestedModel: this.config.embeddingModel,
+      ...OpenAICompatibleProvider.route(root),
       ...tokens, latencyMs: response.latencyMs, retryCount: response.retryCount } };
   }
 

@@ -96,7 +96,8 @@ class MisreportingProvider implements LanguageModelProvider {
   ) {}
   async structuredChat(request: StructuredChatRequest): Promise<StructuredChatResult> {
     const result = await this.inner.structuredChat(request);
-    return { ...result, trace: { ...result.trace, model: this.reportedModel } };
+    // The gateway's answer, which is what a drifting route changes -- not the request.
+    return { ...result, trace: { ...result.trace, resolvedModel: this.reportedModel } };
   }
   embed(text: string): Promise<EmbeddingResult> { return this.inner.embed(text); }
 }
@@ -592,7 +593,7 @@ describe('AC#3 — the resource report measures a real run', () => {
       origin: 'scheduled_simulation' as const,
     };
     const trace = {
-      provider: 'fake' as const, model: FAKE_SCENE_MODEL,
+      provider: 'fake' as const, requestedModel: FAKE_SCENE_MODEL, resolvedModel: FAKE_SCENE_MODEL, upstreamProvider: 'fake',
       inputTokens: 40, outputTokens: 10, latencyMs: 1, retryCount: 0,
     };
 

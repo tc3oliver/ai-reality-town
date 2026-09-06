@@ -1536,7 +1536,7 @@ export async function runLongRunSimulation(input: LongRunInput): Promise<LongRun
   const tokens: TokenFindings = {
     note: 'Authored by the ART-4 fake whole-scene provider: no real tokens are consumed and its counts are derived from payload length. These checks prove the accounting channel is wired and internally sane; real spend-anomaly detection requires the ART-72 provider adapter and is deliberately not simulated.',
     providers: [...new Set(traces.map(({ trace }) => trace.provider))].sort(),
-    models: [...new Set(traces.map(({ trace }) => trace.model))].sort(),
+    models: [...new Set(traces.map(({ trace }) => trace.resolvedModel ?? trace.requestedModel))].sort(),
     traces: traces.length,
     totalInputTokens: traces.reduce((total, { trace }) => total + trace.inputTokens, 0),
     totalOutputTokens: traces.reduce((total, { trace }) => total + trace.outputTokens, 0),

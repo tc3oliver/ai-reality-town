@@ -148,6 +148,25 @@ export const sharedTables = {
      * every other angle, so the count has to survive independently of anyone thinking to ask.
      */
     modelMeteringMismatches: v.number(),
+    /**
+     * ART-148. The concrete model each configured alias (`auto`) most recently resolved to today.
+     *
+     * Optional so rows written before ART-148 stay readable: an absent list means "no alias has
+     * resolved yet today", which is exactly how such a row should behave. Day rollover is
+     * structural, so this never carries yesterday's routing into today.
+     */
+    aliasResolutions: v.optional(v.array(v.object({ alias: v.string(), model: v.string() }))),
+    /**
+     * ART-148. Free-quota attribution per upstream ROUTE, which is what a free tier is actually
+     * held against — the same model id reached through two providers draws on two allowances.
+     * Requests as well as tokens: a free tier commonly bounds both, and a route can exhaust its
+     * request allowance while far under its token allowance.
+     */
+    usageByRoute: v.optional(v.array(v.object({
+      provider: v.string(), model: v.string(), tokens: v.number(), requests: v.number(),
+    }))),
+    /** Settled calls the gateway named no route for, so their usage could not be attributed. */
+    unattributedCalls: v.optional(v.number()),
   })
     .index('by_world_and_day', ['worldId', 'worldDay']),
 
