@@ -3,9 +3,11 @@ id: ART-157
 title: >-
   Whole-scene prompt never names a legal destination, so every movement proposal
   is rejected
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-09-06 06:47'
+updated_date: '2026-09-06 08:10'
 labels:
   - bug
   - prd-1.0
@@ -58,3 +60,56 @@ Cost evidence captured in the same run (feeds ART-100): that single FAILED slot,
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+## 關鍵發現:資料已經存在,只是沒送到
+
+`LiveCharacter.reachableLocationIds`(`worldDayLive.ts:133`)在 stage 1 `load_world_state` 就已算出,來源是 `projection.locations[currentLocationId]?.connectedLocationIds`(`:344`)。`simulate_scenes`(`:855-858`)也已經把 `snapshot` 解構在手上。
+
+**缺的不是計算,是傳遞。** `GroupedScene`(`sceneGrouping.ts:16-30`)不帶任何地圖資訊,而送給模型的 user message 就是 `JSON.stringify(scene)`(`sceneSimulation.ts:391`)。
+
+`worldDayLive.ts:634` 的既有註解已經承認過這個落差:「The author never sees the world projection, so it cannot state the movement precondition」—— 當時的處置是 `withArrivalStateChanges` 由 orchestrator 補上**抵達**,但**離開**沒有對應處置。
+
+## 為何不能只餵地點 id(四道關卡)
+
+`validators.ts` 對 movement 有四道:unknown(`:530`)、不存在(`:537`)、**inactive**(`:540`)、**容量超出**(`:593`)。只給連通 id 只過得了前兩道。
+
+而 `LiveCharacter` 只有 `reachableLocationIds`,**沒有** active 與 capacity。所以 snapshot 必須加寬。
+
+## Slice 1 — 加寬 snapshot
+
+`LiveWorldSnapshot` 新增 `locations`:每筆 `{ locationId, active, capacity, occupancy, connectedLocationIds }`,由 port 已經在重播的 `projection`(`locations` + `locationOccupancy`)導出。不新增讀取 —— 那份 projection 已經在記憶體裡。
+
+注意:這是**擴大模型可見範圍**。`LiveWorldSnapshot` 的 docblock 明寫「Contains only data the Director/characters may legitimately see」。地點的存在、連通、是否開放、是否客滿,都是角色站在原地就看得見的資訊,不是 Canon secret。必須在 docblock 裡寫明這個判斷,而不是默默加欄位。
+
+## Slice 2 — 算出合法目的地並送進 prompt
+
+在 `simulate_scenes` 內,對 `scene.locationId` 算出:連通 ∩ active ∩ (occupancy < capacity)。
+
+傳遞方式:`simulateWholeScene` 新增 option 承載該集合,`buildSystemPrompt` 由 `(scene)` 改為 `(scene, context)`。**不改 `GroupedScene`** —— 它是持久化的 grouping artifact,把易變的世界狀態塞進去會讓 artifact 不再是它宣稱的東西。
+
+`promptVersions.ts` 解析 builder 的路徑要一併更新(見該檔對「為何在此解析而非 `simulateWholeScene` 內」的說明)。
+
+## Slice 3 — prompt 本身
+
+`wholeSceneSystemPrompt`(`:242-259`)兩處要改:
+
+1. 明確列出合法目的地 id,並說明「`toLocationId` 只能取自此清單」。
+2. 範例裡的 `toLocationId: 'destination-location-id'`(`:250`)換成清單中的真實 id。留著佔位字串就是在示範一個必然被拒的值。
+
+集合為空時(無連通、或全部客滿)必須明說「本場景無合法移動」,而不是給空清單讓模型自由發揮。
+
+## Slice 4 — 回歸測試(AC#3)
+
+現存 3364 條全綠卻抓不到本缺陷,因為 fake provider **認識這個世界**,提議的是真 id。
+
+新增測試必須用一個**只知道 prompt 告訴它什麼**的 provider:從 system prompt 裡抽出它被給的目的地(或在沒被給時回傳佔位字串),再斷言 slot 不再失敗於 `UNKNOWN_LOCATION_REFERENCE`。故障注入:把清單從 prompt 拿掉 → 該測試必須轉紅。
+
+同時補 inactive 與客滿兩種 fixture,證明過濾真的有效,而不是只過了前兩道關卡。
+
+## 驗證
+
+`npm run check`,加上對真部署再跑**一個** time slot,確認 `committedEventIds` 非空。注意每次 slot 約 3.0 MiB 讀取(見 ART-100),不要反覆重跑。
+<!-- SECTION:PLAN:END -->
