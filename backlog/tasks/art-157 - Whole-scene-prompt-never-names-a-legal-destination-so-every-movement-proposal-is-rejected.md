@@ -7,7 +7,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-09-06 06:47'
-updated_date: '2026-09-06 08:21'
+updated_date: '2026-09-06 08:33'
 labels:
   - bug
   - prd-1.0
@@ -38,9 +38,9 @@ Cost evidence captured in the same run (feeds ART-100): that single FAILED slot,
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A scene prompt carries the legal destination set (existing, active, with capacity headroom) for the scene's location, derived from the world projection rather than from the model's imagination
-- [ ] #2 Running one real world-day slot against the configured provider commits at least one accepted event instead of failing at validate_canon with UNKNOWN_LOCATION_REFERENCE
-- [ ] #3 A regression test drives the whole-scene path with a provider that only knows what the prompt told it, and asserts the slot no longer fails, so the defect cannot return silently
+- [x] #1 A scene prompt carries the legal destination set (existing, active, with capacity headroom) for the scene's location, derived from the world projection rather than from the model's imagination
+- [x] #2 Running one real world-day slot against the configured provider commits at least one accepted event instead of failing at validate_canon with UNKNOWN_LOCATION_REFERENCE
+- [x] #3 A regression test drives the whole-scene path with a provider that only knows what the prompt told it, and asserts the slot no longer fails, so the defect cannot return silently
 <!-- AC:END -->
 
 ## Definition of Done
@@ -64,54 +64,47 @@ Cost evidence captured in the same run (feeds ART-100): that single FAILED slot,
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
-## 關鍵發現:資料已經存在,只是沒送到
+## 第二刀:讓驗證看見 seed 基準線(根因修正)
 
-`LiveCharacter.reachableLocationIds`(`worldDayLive.ts:133`)在 stage 1 `load_world_state` 就已算出,來源是 `projection.locations[currentLocationId]?.connectedLocationIds`(`:344`)。`simulate_scenes`(`:855-858`)也已經把 `snapshot` 解構在手上。
+### 根因(已定位到單行)
 
-**缺的不是計算,是傳遞。** `GroupedScene`(`sceneGrouping.ts:16-30`)不帶任何地圖資訊,而送給模型的 user message 就是 `JSON.stringify(scene)`(`sceneSimulation.ts:391`)。
+`commitProposedEvent`(`convex/canon/commit.ts:86`)以 `replayWorldEvents(emptyProjection(worldId), events)` 建立驗證用投影 —— **從空重播**。但 seed 地點只存在於 `importWorld` 寫入的 `initial` 快照(`worldConfig.ts:305-321`),不存在於任何事件。
 
-`worldDayLive.ts:634` 的既有註解已經承認過這個落差:「The author never sees the world projection, so it cannot state the movement precondition」—— 當時的處置是 `withArrivalStateChanges` 由 orchestrator 補上**抵達**,但**離開**沒有對應處置。
+於是 `validators.ts:535-537`:
 
-## 為何不能只餵地點 id(四道關卡)
+```ts
+const destination = projection.locations?.[change.toLocationId];
+if (Object.keys(projection.locations ?? {}).length > 0 && !destination) → UNKNOWN_LOCATION_REFERENCE
+```
 
-`validators.ts` 對 movement 有四道:unknown(`:530`)、不存在(`:537`)、**inactive**(`:540`)、**容量超出**(`:593`)。只給連通 id 只過得了前兩道。
+只要世界曾發生 **一次** `location_state_changed`(reducer 唯一寫入 `projection.locations` 之處,`reducer.ts:167-175`),該 map 即非空,而**所有 seed 地點都不在其中** → 每一次前往 seed 地點的移動都被誤判為「目的地不存在」。這正是 day 4 afternoon 的失敗。
 
-而 `LiveCharacter` 只有 `reachableLocationIds`,**沒有** active 與 capacity。所以 snapshot 必須加寬。
+### 為何 `resolveWorldBaseline` 是正確答案而非新機制
 
-## Slice 1 — 加寬 snapshot
+`initialSnapshot.lastSequenceNumber` 來自 `emptyProjection` 的 `-1`(`snapshots.ts:129` + `model.ts` `lastSequenceNumber: -1`),所以
 
-`LiveWorldSnapshot` 新增 `locations`:每筆 `{ locationId, active, capacity, occupancy, connectedLocationIds }`,由 port 已經在重播的 `projection`(`locations` + `locationOccupancy`)導出。不新增讀取 —— 那份 projection 已經在記憶體裡。
+```
+replayWorldEvents(seededBaseline, 全部事件)
+```
 
-注意:這是**擴大模型可見範圍**。`LiveWorldSnapshot` 的 docblock 明寫「Contains only data the Director/characters may legitimately see」。地點的存在、連通、是否開放、是否客滿,都是角色站在原地就看得見的資訊,不是 Canon secret。必須在 docblock 裡寫明這個判斷,而不是默默加欄位。
+**不會跳過任何事件**,且正是 `assertSnapshotMatchesHistory`(`snapshotManager.ts:86`)與 `createDailySnapshot` 已在使用的組合。此修正是讓 commit 期驗證與**既有的快照定義一致**,不是引入新語意。
 
-## Slice 2 — 算出合法目的地並送進 prompt
+### 改動
 
-在 `simulate_scenes` 內,對 `scene.locationId` 算出:連通 ∩ active ∩ (occupancy < capacity)。
+1. `CanonCommitStore` 增加 `loadInitialSnapshot(worldId)`。設為**必要**而非選用:全庫僅一個 in-memory 實作(`inMemoryStore.ts`),選用會讓真實 adapter 漏接 seed 而靜默退回今日的錯誤行為。
+2. `commitProposedEvent`:以 `resolveWorldBaseline` 取得基準線,`replayWorldEvents(cloneProjection(baseline.projection), 基準線之後的事件)`。
+3. Convex adapter 增加 `loadInitialSnapshot`(`canonSnapshots` / `by_world_day_and_kind`,worldDay 0,kind `initial`)。
+4. `canonRuleContext`(`worldDayLive.ts:804`)與 `loadWorldSnapshot`(`worldDayLiveFunctions.ts:138`)同步改用基準線 —— 否則 `snapshot.locations` 仍不含 seed 地點,第一刀的 `legalDestinationsFrom` 會永遠回傳 `[]`,prompt 等於永久禁止移動。
 
-傳遞方式:`simulateWholeScene` 新增 option 承載該集合,`buildSystemPrompt` 由 `(scene)` 改為 `(scene, context)`。**不改 `GroupedScene`** —— 它是持久化的 grouping artifact,把易變的世界狀態塞進去會讓 artifact 不再是它宣稱的東西。
+### 刻意不改 `validators.ts`
 
-`promptVersions.ts` 解析 builder 的路徑要一併更新(見該檔對「為何在此解析而非 `simulateWholeScene` 內」的說明)。
+`:536` 與 `:614` 缺少 `:610` / `:813` 那道 `!knownLocations &&` 前綴。加上去可以讓錯誤消失,但那是**放寬檢查**:它會在 ruleContext 存在時整段跳過存在性驗證。改基準線則讓 `:536` 依其原意運作。同時修復兩個因 `destination` 恆為 `undefined` 而**靜默失效**的檢查:`:539` 的 inactive 與 `:591` 的 capacity —— 後者代表 seed 地點目前**完全沒有容量上限**。
 
-## Slice 3 — prompt 本身
+### 驗證
 
-`wholeSceneSystemPrompt`(`:242-259`)兩處要改:
-
-1. 明確列出合法目的地 id,並說明「`toLocationId` 只能取自此清單」。
-2. 範例裡的 `toLocationId: 'destination-location-id'`(`:250`)換成清單中的真實 id。留著佔位字串就是在示範一個必然被拒的值。
-
-集合為空時(無連通、或全部客滿)必須明說「本場景無合法移動」,而不是給空清單讓模型自由發揮。
-
-## Slice 4 — 回歸測試(AC#3)
-
-現存 3364 條全綠卻抓不到本缺陷,因為 fake provider **認識這個世界**,提議的是真 id。
-
-新增測試必須用一個**只知道 prompt 告訴它什麼**的 provider:從 system prompt 裡抽出它被給的目的地(或在沒被給時回傳佔位字串),再斷言 slot 不再失敗於 `UNKNOWN_LOCATION_REFERENCE`。故障注入:把清單從 prompt 拿掉 → 該測試必須轉紅。
-
-同時補 inactive 與客滿兩種 fixture,證明過濾真的有效,而不是只過了前兩道關卡。
-
-## 驗證
-
-`npm run check`,加上對真部署再跑**一個** time slot,確認 `committedEventIds` 非空。注意每次 slot 約 3.0 MiB 讀取(見 ART-100),不要反覆重跑。
+- 新測試:seeded 世界 + 已存在一個 `location_state_changed` 事件,提交往 seed 地點的移動 → 必須被接受。
+- 故障注入:把基準線改回 `emptyProjection`,該測試必須轉紅。
+- 對真部署重跑一個 slot,要求 `committedEventIds` 非空。
 <!-- SECTION:PLAN:END -->
 
 ## Implementation Notes
@@ -155,4 +148,53 @@ AC#3 的「只知道 prompt 告訴它什麼」的 provider 已實作,並附**配
 這不是單點修改:它同時影響 `canonRuleContext` 與 `loadWorldSnapshot`,而且必須與 ART-100 對「publicRead 從空重播」的既有假設一起考量 —— **兩邊對同一份投影有相反的需求**(publicRead 刻意要避免 seed 汙染,模擬端則必須看到 seed),不能各改各的。
 
 在此之前不要宣稱本任務完成。每次重試 slot 約 3.0 MiB 讀取,不要反覆盲試。
+
+---
+
+## 第二刀:根因已修,AC#2 達成
+
+上一節「下一步」提出的方向是對的,但把根因指錯了地方:真正建立驗證用投影的不是 `loadWorldSnapshot`,而是 **`commitProposedEvent`(`convex/canon/commit.ts:86`)**。它以 `emptyProjection` 為起點,而 seed 地點只存在於 `importWorld` 寫入的 `initial` 快照,沒有任何事件會建立它們。
+
+觸發條件也比原先描述的精確:`validators.ts:536` 只在 `projection.locations` **非空**時才檢查目的地存在。世界發生第一個 `location_state_changed`(reducer 唯一寫入該 map 之處)之前,這個缺陷完全隱形;之後,**每一次**前往 seed 地點的移動都被判為「目的地不存在」。
+
+### 改動
+
+`resolveWorldBaseline` 已經存在且正是為此而生 —— 這不是新機制,而是讓 commit 期驗證與**既有的快照定義一致**。`initialSnapshot.lastSequenceNumber` 為 `-1`,所以在 seed 基準線上重播全部事件**不會跳過任何事件**,與 `assertSnapshotMatchesHistory` / `createDailySnapshot` 用的是同一個組合。
+
+- `CanonCommitStore` 新增 `loadInitialSnapshot`(設為**必要**:全庫僅一個 in-memory 實作,選用會讓真實 adapter 靜默退回今日的錯誤行為)
+- `commitProposedEvent`、`canonRuleContext`、`loadWorldSnapshot` 三處一併改用基準線 —— 只改其一會讓預檢與 commit 期驗證對同一份提案給出不同答案
+
+### 刻意沒有改 `validators.ts`
+
+`:536` 與 `:614` 缺少 `:610` / `:813` 那道 `!knownLocations &&` 前綴。加上去也能讓錯誤消失,但那是**放寬檢查**。改基準線則讓 `:536` 依其原意運作,並同時修復兩個因 `destination` 恆為 `undefined` 而**靜默失效**的檢查:`:539` 的 inactive 與 `:591` 的 capacity —— 後者代表 seed 地點在此之前**完全沒有容量上限**。
+
+### 證據
+
+`npm run check` 全綠:**208 suites / 3380 passed**(較上一節 +4)。
+
+故障注入(把基準線改回 `emptyProjection`):新增的三條轉紅、「未 seed 世界」對照組維持綠,且第一條的失敗訊息與生產環境**逐字相同**:
+
+```
+CanonError: [UNKNOWN_LOCATION_REFERENCE] destination location does not exist
+```
+
+真部署連續兩個 slot(`npx convex dev --once` 後):
+
+| slot | status | committedEventIds |
+| --- | --- | --- |
+| `mistwood:day:4:slot:evening` | completed | `#78`, `#79`, `#80` |
+| `mistwood:day:4:slot:night` | completed | `#81`, `#82` |
+
+先前為 `failed` / `[]`。新事件中含 **2 個實際被接受的移動**:
+
+- `su-meizhen`:`mistwood-clinic` → `mistwood-mill`
+- `lin-yingxue`:`mistwood-paper` → `mistwood-hall`
+
+兩者皆為 seed 地點。這同時證明第一刀的 `legalDestinationsFrom` 確實產出了非空清單 —— 否則 prompt 會禁止一切移動,世界雖能推進但永遠不會有人走動。
+
+**AC#1 / AC#2 / AC#3 皆已達成。**
+
+### 對 ART-100 的影響
+
+`SEED_BASELINE_FIELDS` 的「兩邊相反需求」在此獲得澄清:`publicRead` 從空重播是**刻意**的(避免 seed 汙染公開讀模型),模擬與 commit 端必須看見 seed。兩者本就該不同,不必統一 —— 先前的顧慮是誤判。
 <!-- SECTION:NOTES:END -->
