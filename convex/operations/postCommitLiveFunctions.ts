@@ -216,6 +216,13 @@ export function completedWorldDays(events: readonly AcceptedEvent[]): number[] {
  * order, not a removal: a world thousands of days old still pays per day. Recording that plainly
  * because the alternative — a maintained completed-day summary — is a schema change this task did
  * not take, and the next person to hit this ceiling should know the option was considered.
+ *
+ * It is now paid ONCE per post-commit run rather than once per cache invalidation (see
+ * `CanonWorldView` below), which is a constant factor, not the remaining order. If this becomes
+ * the binding cost, the summary is the fix — and the shape it needs is narrower than the full day
+ * list: the three consumers want a count of completed days below a given day
+ * (`episodeNumberFor`), a membership test, and the small set difference against
+ * `episodeWorldDays`. None of them needs the whole array.
  */
 export async function completedWorldDaysBounded(
   bounds: { min: number; max: number },
@@ -289,13 +296,67 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
     return value;
   };
 
+  /**
+   * The Canon-derived half of {@link PostCommitWorldState}, cached separately from the rest and
+   * deliberately NOT cleared by {@link invalidate} (ART-100).
+   *
+   * `worldState` as a whole is invalidated by every story/editorial/recap write, and correctly so:
+   * `arcs`, `characterIds`, `episodeWorldDays` and `recapCursors` all come from tables this
+   * pipeline writes. These four fields do not. They are derived from `canonEvents` alone, and this
+   * pipeline never writes Canon — the invariant the module docblock above already states.
+   *
+   * Splitting them out is not a micro-optimisation. `loadWorldState` runs at least twice per
+   * post-commit run in practice (stage 17's recap write invalidates, stage 20 then re-reads to ask
+   * whether the day is finished), and the day-oriented reads below — `eventsOnDay`, `dayBounds`,
+   * and `completedWorldDaysBounded`'s one probe per world day — are the expensive part. Paying
+   * them twice for a recap write that cannot have changed their answer was a read-cost regression
+   * introduced when the earlier `loadCanonRows` cache (which `invalidate` likewise never cleared)
+   * was removed. Measured on the ART-100 harness: 12 -> 6 canon reads at the small scale point and
+   * 24 -> 12 at the large one, i.e. exactly the doubling, removed.
+   *
+   * This does NOT make the cost flat — `completedWorldDaysBounded` still probes once per world
+   * day, so it remains O(days). See that function's own docblock.
+   */
+  type CanonWorldView = Pick<PostCommitWorldState,
+    'event' | 'completedWorldDays' | 'worldDayFirstSequenceNumber' | 'latestWorldDay'>;
+  let canonView: CanonWorldView | null = null;
+
+  const loadCanonView = async (source: PostCommitSource): Promise<CanonWorldView> => {
+    if (canonView) return canonView;
+    const { worldId } = source;
+    const sourceRow = await eventAtSequence(worldId, source.sourceEventSequenceNumber);
+    const event = sourceRow ? rowToAcceptedEvent(sourceRow) : null;
+    if (!event || event.eventId !== source.sourceEventId) throw new Error('POST_COMMIT_SOURCE_NOT_ACCEPTED');
+
+    const dayEvents = await eventsOnDay(worldId, event.worldDay);
+    const bounds = (await dayBounds(worldId)) ?? { min: event.worldDay, max: event.worldDay };
+    const latestWorldDay = Math.max(bounds.max, event.worldDay);
+    // The latest day's own events, reused when it is the day being committed to.
+    const latestDayEvents = latestWorldDay === event.worldDay
+      ? dayEvents
+      : await eventsOnDay(worldId, latestWorldDay);
+
+    canonView = {
+      event,
+      completedWorldDays: await completedWorldDaysBounded(
+        { min: bounds.min, max: latestWorldDay },
+        latestDayEvents,
+        async (worldDay) => (await ctx.db.query('canonEvents')
+          .withIndex('by_world_and_day', (q) => q.eq('worldId', worldId).eq('worldDay', worldDay))
+          .first()) !== null,
+      ),
+      worldDayFirstSequenceNumber: dayEvents.reduce(
+        (lowest, candidate) => Math.min(lowest, candidate.sequenceNumber), event.sequenceNumber),
+      latestWorldDay,
+    };
+    return canonView;
+  };
+
   return {
     async loadWorldState(source: PostCommitSource): Promise<PostCommitWorldState> {
       if (worldState) return worldState;
       const { worldId } = source;
-      const sourceRow = await eventAtSequence(worldId, source.sourceEventSequenceNumber);
-      const event = sourceRow ? rowToAcceptedEvent(sourceRow) : null;
-      if (!event || event.eventId !== source.sourceEventId) throw new Error('POST_COMMIT_SOURCE_NOT_ACCEPTED');
+      const canon = await loadCanonView(source);
 
       const [lifecycles, projectionRows, transitionRows, portfolioRows, characterRows, episodeRows, recapRows] = await Promise.all([
         ctx.db.query('storyArcLifecycles').withIndex('by_world_and_arc', (q) => q.eq('worldId', worldId)).collect(),
@@ -343,29 +404,11 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
         const key = `${row.recapType}:${row.targetId}`;
         recapCursors[key] = Math.max(recapCursors[key] ?? -1, row.sourceToSequenceNumber);
       }
-      const dayEvents = await eventsOnDay(worldId, event.worldDay);
-      const bounds = (await dayBounds(worldId)) ?? { min: event.worldDay, max: event.worldDay };
-      const latestWorldDay = Math.max(bounds.max, event.worldDay);
-      // The latest day's own events, reused when it is the day being committed to.
-      const latestDayEvents = latestWorldDay === event.worldDay
-        ? dayEvents
-        : await eventsOnDay(worldId, latestWorldDay);
-
       worldState = {
-        event,
+        ...canon,
         arcs,
         characterIds: characterRows.map(({ characterId }) => characterId),
-        completedWorldDays: await completedWorldDaysBounded(
-          { min: bounds.min, max: latestWorldDay },
-          latestDayEvents,
-          async (worldDay) => (await ctx.db.query('canonEvents')
-            .withIndex('by_world_and_day', (q) => q.eq('worldId', worldId).eq('worldDay', worldDay))
-            .first()) !== null,
-        ),
         episodeWorldDays: episodeRows.map(({ worldDay }) => worldDay),
-        worldDayFirstSequenceNumber: dayEvents.reduce(
-          (lowest, candidate) => Math.min(lowest, candidate.sequenceNumber), event.sequenceNumber),
-        latestWorldDay,
         recapCursors,
       };
       return worldState;

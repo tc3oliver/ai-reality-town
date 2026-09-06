@@ -20,7 +20,7 @@
  * not passing vacuously — and one that proves the gate removes it.
  */
 
-import { rebuildOnboardingSummary } from './onboardingSummaryFunctions';
+import { MAX_SCANNED_EVENTS, rebuildOnboardingSummary } from './onboardingSummaryFunctions';
 
 const WORLD_ID = 'mistwood';
 const CLEAN_SCENE = 'mistwood:3:morning:grouping:scene:1';
@@ -518,6 +518,128 @@ describe('rebuildOnboardingSummary — total rows read never exceeds the log (AR
     const { ctx, canonRowsRead } = recordingCtx(tables);
     await handler._handler(ctx, { worldId: WORLD_ID, now: 5_000 });
     expect(canonRowsRead.reduce((total, count) => total + count, 0)).toBeLessThanOrEqual(60);
+  });
+});
+
+/**
+ * ART-100 AC#1 for THIS rebuild. The suite above proves the paging loop never reads more than the
+ * log; these prove it stops growing altogether, which is the actual criterion — "bounded by N" is
+ * still linear in N, and the shape that makes it linear (a world that never yields three facts) is
+ * reachable rather than theoretical.
+ *
+ * Deliberately fixture-driven at sizes either side of `MAX_SCANNED_EVENTS` rather than asserting
+ * against the constant's value, so raising or lowering the cap does not need these edited — only
+ * the two `log` sizes are computed from it.
+ */
+describe('rebuildOnboardingSummary — the scan is capped, not merely bounded (ART-100 AC#1)', () => {
+  /** The pathological world: no showable summary anywhere, so the loop can never settle happily. */
+  function pathologicalTables(logSize: number): Tables {
+    const rows: Row[] = [];
+    for (let sequenceNumber = 0; sequenceNumber < logSize; sequenceNumber += 1) {
+      rows.push(canonRow({ sequenceNumber, publicSummary: '' }));
+    }
+    return baseTables({ canonEvents: rows });
+  }
+
+  const totalRead = (counts: readonly number[]): number =>
+    counts.reduce((total, count) => total + count, 0);
+
+  it('reads the SAME number of rows at two canon sizes that both exceed the cap', async () => {
+    const small = recordingCtx(pathologicalTables(MAX_SCANNED_EVENTS * 2));
+    await handler._handler(small.ctx, { worldId: WORLD_ID, now: 5_000 });
+    const large = recordingCtx(pathologicalTables(MAX_SCANNED_EVENTS * 4));
+    await handler._handler(large.ctx, { worldId: WORLD_ID, now: 5_000 });
+
+    // The literal criterion: doubling the log does not change the read count at all.
+    expect(totalRead(large.canonRowsRead)).toBe(totalRead(small.canonRowsRead));
+    // And that shared count is the cap itself, not some other accidental constant — without this
+    // the assertion above would also pass if the loop had stopped reading canon entirely.
+    expect(totalRead(small.canonRowsRead)).toBe(MAX_SCANNED_EVENTS);
+  });
+
+  it('never overshoots the cap mid-page, even when the page size would carry it past', async () => {
+    // `START_WINDOW` doubles (25, 50, 100, 200, …), so the page that crosses the cap asks for far
+    // more rows than remain in the budget. The final `take` must be trimmed to the budget rather
+    // than charged in full — this is the difference between a cap and a suggestion.
+    const { ctx, canonTakes, canonRowsRead } = recordingCtx(pathologicalTables(MAX_SCANNED_EVENTS * 3));
+    await handler._handler(ctx, { worldId: WORLD_ID, now: 5_000 });
+    expect(totalRead(canonRowsRead)).toBe(MAX_SCANNED_EVENTS);
+    expect(totalRead(canonTakes)).toBe(MAX_SCANNED_EVENTS);
+  });
+
+  /**
+   * What the cap COSTS, pinned so it is a decision on the record rather than a silent truncation.
+   * A world whose only facts sit deeper than the cap publishes none of them.
+   */
+  it('does not publish a fact that sits beyond the cap — the documented behaviour change', async () => {
+    const logSize = MAX_SCANNED_EVENTS * 2;
+    const rows: Row[] = [];
+    for (let sequenceNumber = 0; sequenceNumber < logSize; sequenceNumber += 1) {
+      rows.push(canonRow({
+        sequenceNumber,
+        publicSummary: '',
+        // Sequence 0 is the oldest event, i.e. the deepest point of the backwards scan — well
+        // outside the newest `MAX_SCANNED_EVENTS` rows.
+        stateChanges: sequenceNumber === 0 ? [{
+          type: 'fact_created', visibility: 'public', subjectType: 'world',
+          subjectId: WORLD_ID, factId: 'fact-deep',
+          predicate: 'predicate-deep', value: 'value-deep',
+        }] : [],
+      }));
+    }
+    const tables = baseTables({ canonEvents: rows });
+    const { ctx } = recordingCtx(tables);
+    await handler._handler(ctx, { worldId: WORLD_ID, now: 5_000 });
+    const payload = (tables.publishedReadModels ?? []).at(-1)!.payload as {
+      structured: { facts: Array<{ factId: string }> };
+    };
+    expect(payload.structured.facts).toEqual([]);
+  });
+
+  it('still reaches that same fact when it sits inside the cap — so the test above is about the cap', async () => {
+    // The paired positive case. Identical fixture, log short enough that the scan reaches sequence
+    // 0; if this failed, the assertion above would be proving nothing about the boundary.
+    const rows: Row[] = [];
+    for (let sequenceNumber = 0; sequenceNumber < MAX_SCANNED_EVENTS - 1; sequenceNumber += 1) {
+      rows.push(canonRow({
+        sequenceNumber,
+        publicSummary: '',
+        stateChanges: sequenceNumber === 0 ? [{
+          type: 'fact_created', visibility: 'public', subjectType: 'world',
+          subjectId: WORLD_ID, factId: 'fact-deep',
+          predicate: 'predicate-deep', value: 'value-deep',
+        }] : [],
+      }));
+    }
+    const tables = baseTables({ canonEvents: rows });
+    const { ctx } = recordingCtx(tables);
+    await handler._handler(ctx, { worldId: WORLD_ID, now: 5_000 });
+    const payload = (tables.publishedReadModels ?? []).at(-1)!.payload as {
+      structured: { facts: Array<{ factId: string }> };
+    };
+    expect(payload.structured.facts.map((fact) => fact.factId)).toEqual([`${eventId(0)}:fact:0`]);
+  });
+
+  it('does not engage at all for a healthy world, which settles on the first page', async () => {
+    // The cap must be a backstop, not a routine truncation: a simulated event carries a
+    // `publicSummary`, so the major-event pick resolves immediately and the loop stops long before
+    // the cap is in sight.
+    const rows: Row[] = [];
+    for (let sequenceNumber = 0; sequenceNumber < MAX_SCANNED_EVENTS * 2; sequenceNumber += 1) {
+      rows.push(canonRow({
+        sequenceNumber,
+        publicSummary: SAFE_SUMMARY,
+        stateChanges: [{
+          type: 'fact_created', visibility: 'public', subjectType: 'world',
+          subjectId: WORLD_ID, factId: `fact-${sequenceNumber}`,
+          predicate: `predicate-${sequenceNumber}`, value: `value-${sequenceNumber}`,
+        }],
+      }));
+    }
+    const tables = baseTables({ canonEvents: rows });
+    const { ctx, canonRowsRead } = recordingCtx(tables);
+    await handler._handler(ctx, { worldId: WORLD_ID, now: 5_000 });
+    expect(totalRead(canonRowsRead)).toBeLessThan(MAX_SCANNED_EVENTS);
   });
 });
 

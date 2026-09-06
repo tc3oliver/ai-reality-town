@@ -30,6 +30,15 @@ type ClassificationMembership = { arcId: string; importance: number };
 type EpisodeKeyScene = { title: string; summary: string; sourceEventIds: string[] };
 
 /**
+ * The hard ceiling on how many accepted events one rebuild may scan backwards (ART-100 AC#1).
+ *
+ * Exported so a test can pin the behaviour at the boundary rather than restating the number. See
+ * the tail-paging loop in {@link rebuildOnboardingSummary} for why a ceiling exists at all and
+ * what is given up by having one.
+ */
+export const MAX_SCANNED_EVENTS = 200;
+
+/**
  * Rebuild and cache the onboarding summary (AC#3/#4).
  *
  * SAFETY GATE (FR-P004 / ART-132, extended by ART-125). This is a public TEXT surface and it had
@@ -95,6 +104,26 @@ export const rebuildOnboardingSummary = internalMutation({
      * exhaustion without ever satisfying both consumers — never the `Σ min(pageSize·2ⁱ, N)`
      * over-read a re-take from the tail would produce, and never worse than the old
      * unconditional collect's N.
+     *
+     * ## Why the scan is also capped (ART-100 AC#1)
+     *
+     * "Bounded by N" is still O(N), and that pathological case is REACHABLE, not theoretical: the
+     * fact harvest wants three `fact_created` changes, and a world that has only ever produced two
+     * pages to exhaustion on EVERY accepted event, forever. That is precisely the read-cost shape
+     * this task exists to remove, and it sits on the post-commit transaction's byte budget.
+     *
+     * {@link MAX_SCANNED_EVENTS} caps it. The cost of the cap is a real, deliberate behaviour
+     * change: past it, this summary reports the major event and facts it found in the recent tail
+     * rather than the ones that exist arbitrarily deep in history. That is defensible for THIS
+     * payload specifically — it is the "current situation" onboarding summary (PRD §13, FR-H001),
+     * whose whole purpose is to describe where the world is now. A fact 400 events ago is not a
+     * worse answer to that question, it is an answer to a different one. It would NOT be
+     * defensible for a projection that claims completeness over history, and this cap must not be
+     * copied into one.
+     *
+     * The cap is set far above where a healthy world settles (a simulated event carries a
+     * `publicSummary`, so the major-event pick resolves on page one) so that reaching it is a
+     * signal about the world, not a routine truncation.
      */
     const START_WINDOW = 25;
     let pageSize = START_WINDOW;
@@ -109,8 +138,10 @@ export const rebuildOnboardingSummary = internalMutation({
         ? ctx.db.query('canonEvents').withIndex('by_world_and_sequence', (q) => q.eq('worldId', args.worldId))
         : ctx.db.query('canonEvents')
           .withIndex('by_world_and_sequence', (q) => q.eq('worldId', args.worldId).lt('sequenceNumber', cursor));
-      const pageRowsDesc = await pageQuery.order('desc').take(pageSize);
-      const exhausted = pageRowsDesc.length < pageSize;
+      // Never read past the cap, even mid-page: `take` is where the rows are actually charged.
+      const budget = Math.min(pageSize, MAX_SCANNED_EVENTS - rowsDescSoFar.length);
+      const pageRowsDesc = await pageQuery.order('desc').take(budget);
+      const exhausted = pageRowsDesc.length < budget;
       if (pageRowsDesc.length > 0) {
         lowestSequenceSeen = pageRowsDesc[pageRowsDesc.length - 1].sequenceNumber;
       }
@@ -151,6 +182,7 @@ export const rebuildOnboardingSummary = internalMutation({
       }
 
       if (exhausted || (majorEventSource !== null && facts.length >= 3)) break;
+      if (rowsDescSoFar.length >= MAX_SCANNED_EVENTS) break;
       pageSize *= 2;
     }
 
