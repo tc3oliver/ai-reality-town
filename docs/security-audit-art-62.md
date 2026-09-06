@@ -36,7 +36,7 @@ called UNRESOLVED can be closed by unrelated work. Both happened.
 |---|---|---|---|---|
 | C-1 | Canon commit was a public unauthenticated mutation | FIXED | **RESOLVED** | `convex/canon/commit.ts:241` is `internalMutation`. The only write to `canonEvents` anywhere is `:200`, inside `commitProposedEvent`; every caller is server-side. `architecture/module-boundaries.json` lists all four symbols under `viewerWriteBoundary.forbiddenSymbols`, CI-enforced |
 | C-2 | CC art credits deleted while assets ship; docs relicensed as MIT | FIXED | **RESOLVED**, hardened further | `ASSETS-LICENSE.md` registers 53 assets. `ATTRIBUTION.md:27-34`, `docs/upstream.md:129`, `README.md:130-137` all scope MIT to source only. ART-108/ART-144 added `scripts/assets/check-asset-licenses.mjs` to `npm run check` and both CI workflows, and deleted sixteen files that could not be cleared |
-| H-1 | Operator identity path dead; shared bearer token in a mutation argument is the only credential | UNRESOLVED | **RESOLVED except (c)** — see the 2026-09-06 update in §0.1 | Was STILL OPEN at re-audit; the code half is ART-154, the env half is now configured, and only "does the token appear in function logs" remains ENVIRONMENT BLOCKED |
+| H-1 | Operator identity path dead; shared bearer token in a mutation argument is the only credential | UNRESOLVED | **RESOLVED** — see the 2026-09-06 updates in §0.1 | Code half ART-154; env half configured; sub-question (c) measured against the live deployment and found NOT to hold — Convex function logs carry no arguments |
 | H-2 | Public unauthenticated engine stop/resume | PARTLY FIXED | **SUPERSEDED** | `convex/testing.ts` no longer exists. ART-112 (`893961f`) retired the a16z engine. Pinned against return by `emergencyStopControls.test.ts:445` and `publicReadOnlyGuarantee.test.ts:427` |
 | H-3 | Raw prompts and raw model output logged on the live agent path | FIXED | **RESOLVED** | Ten `console.*` sites remain in `convex/`; none logs prompt or completion content. `util/llm.ts:161` logs `{model, messageCount, stream}`, `:197` logs `{completionChars}`. `convex/simulation/providers/` — the live path today — has zero `console.*` |
 | H-4 | Pre-generation safety classifier has zero production callers | UNRESOLVED | **STILL OPEN** (partial fix) | See §0.2 — it now has callers, but coverage is incomplete and the policy is inert for this project's content language |
@@ -120,11 +120,33 @@ absent — the configuration §0.6 asked for. `auth.config.ts` therefore emits a
 `requireOperator` computes `allowTokenFallback === false`, so the token branch is shut on every
 operator surface.
 
-**(c) is unchanged and still unobserved.** Whether `operatorToken` appears in Convex function logs
-cannot be settled from the repository, and it cannot currently be settled from the deployment
-either: function execution is disabled for exceeding free-plan limits (see ART-138's notes), so no
-log can be produced. This stays ENVIRONMENT_BLOCKED, and no claim either way should be recorded
-until a live log exists.
+**(c) OBSERVED 2026-09-06, and the finding does not hold.** The deployment was restored, so this
+was measured rather than reasoned about.
+
+Method: a canary call to the public query `operations/proposalReviewFunctions:listProposedEventReviews`
+carrying `operatorToken: "CANARY-H1C-NOT-A-REAL-SECRET-9f3a2b"` — a value invented for this test, so
+nothing sensitive was ever put into a log to find out whether logs are sensitive. Then
+`npx convex logs --history 20 --jsonl`.
+
+Result: the call IS in the captured window (its `identifier` appears once), and the canary string
+appears **zero** times. A Convex `Completion` record carries 21 fields — `identifier`, `logLines`,
+`error`, `usageStats`, `requestId`, timings — and **no arguments field**. The `error` value holds
+the stack trace and the stable `OPS_UNAUTHORIZED` code, no argument values.
+
+Two things make this the right test rather than a lucky one. The deployed code at the time was
+PRE-ART-154 — the stack trace shows `requireReviewer` calling `authorizeOperator` directly at
+`:69` — so if arguments were logged anywhere, they would have been logged on exactly the path the
+finding is about. And the same record reports `databaseReadDocuments: 0`, which independently
+confirms in production what the fixtures assert: a denied caller is refused before any row is
+read (FR-K001 AC#3), so a denial cannot leak whether a world exists.
+
+**H-1 is therefore fully RESOLVED**, not "resolved except (c)". The original finding's argument —
+that a bearer token passed as a function argument is exposed through Convex's own logging — is
+not true of this deployment.
+
+The narrower point the finding was right about stands and was fixed separately: a shared static
+token is a weak credential regardless of whether it is logged, which is what ART-154 and the
+`CLERK_JWT_ISSUER_DOMAIN` cutover addressed.
 
 H-1's status therefore moves from **STILL OPEN** to **RESOLVED except (c), which is
 ENVIRONMENT_BLOCKED.**
@@ -354,12 +376,22 @@ fixed in this repository today; the third is code plus one deployment configurat
 Secrets scan is clean — tracked tree and full `git log --all -p` history, no matches for any
 credential pattern.
 
-**Update, 2026-09-06.** Still not clear, on **one** open High finding rather than three.
+**Update, 2026-09-06. Zero open Critical or High findings.**
 
-- **H-1 → resolved** apart from its unobservable log question (§0.1), by ART-154 plus the
-  deployment env.
+- **H-1 → resolved.** ART-154 closed the code half; the deployment env closed (a) and (b); and (c)
+  was measured against the restored deployment and found not to hold (§0.1).
 - **N-1 → resolved** by ART-155, and **N-2 with it** — the two were one bound with two holes.
-- **H-4 → still open**, tracked as ART-156. It is pure code and fixable in this repository.
+- **H-4 → resolved** by ART-156, including the port-level enforcement its AC#3 asked for.
+
+**This does not by itself clear the release**, and the reason is a performance defect rather than a
+security one. ART-100 AC#1 is unmet: a post-commit run's document reads still grow with total
+accepted-event count, and that is what exhausted the deployment's plan quota. The world is
+currently `mode: development`, so every cron scopes itself away from it — `tickAllPublicSchedules`
+was observed reading `databaseReadDocuments: 0` on 15 consecutive runs. Setting the world public
+restarts a 60-second cron against that pipeline. The security gate is clear; this one is not.
+
+Remaining findings are MEDIUM and below: N-3 (no rate limiter on the vote surface), N-4 (missing
+`returns` validator), N-7 (no `npm audit` CI gate), and the LOW items.
 
 One thing has got worse, and it is not a finding: the Convex deployment is disabled for exceeding
 free-plan limits, verified on the dev CLI, the prod CLI and the raw HTTP API. Function metadata
