@@ -3,11 +3,11 @@ id: ART-157
 title: >-
   Whole-scene prompt never names a legal destination, so every movement proposal
   is rejected
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-09-06 06:47'
-updated_date: '2026-09-06 08:33'
+updated_date: '2026-09-06 08:50'
 labels:
   - bug
   - prd-1.0
@@ -45,20 +45,20 @@ Cost evidence captured in the same run (feeds ART-100): that single FAILED slot,
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -198,3 +198,9 @@ CanonError: [UNKNOWN_LOCATION_REFERENCE] destination location does not exist
 
 `SEED_BASELINE_FIELDS` 的「兩邊相反需求」在此獲得澄清:`publicRead` 從空重播是**刻意**的(避免 seed 汙染公開讀模型),模擬與 commit 端必須看見 seed。兩者本就該不同,不必統一 —— 先前的顧慮是誤判。
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Canon validation replayed from emptyProjection, but seeded locations exist only in the initial snapshot importWorld writes, so every movement to a seeded location was rejected as nonexistent once any location event made projection.locations non-empty. Fixed by replaying from resolveWorldBaseline in commitProposedEvent, canonRuleContext and loadWorldSnapshot. Verified: check green at 208 suites / 3380 passed; E2E 82 passed; injecting the old baseline reddens the three new tests and reproduces the production message verbatim; two consecutive dev slots now complete (day 4 evening and night, events #78-82) where both previously failed with an empty commit list, including two accepted movements between seeded locations. Merged in PR #228.
+<!-- SECTION:FINAL_SUMMARY:END -->

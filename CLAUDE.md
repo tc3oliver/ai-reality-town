@@ -154,6 +154,13 @@ a probe action; the world-day path binds the deterministic `FakeWholeSceneProvid
   tables. Index-scope the read or bound it and justify it.
 - **A validator must not be handed its own input.** Derive the accepted set independently
   (e.g. read Canon by index) or the check is a tautology.
+- **`emptyProjection` is not the world's baseline — `resolveWorldBaseline` is.** Seeded locations
+  and organizations live only in the `initial` snapshot `importWorld` writes; no event creates
+  them. Canon validation and the simulation snapshot must replay from the seeded baseline, or
+  every movement to a seed location is rejected as nonexistent and the capacity and inactive
+  checks silently pass because `destination` is always `undefined`. `convex/publicRead` replays
+  from empty **deliberately**, to keep seed data out of public read models — the two sides want
+  opposite things from the same projection and are correctly different (`SEED_BASELINE_FIELDS`).
 - **Truncation is never silent** — publish what was omitted and why.
 - **The E2E fixture transport throws on an unregistered query.** A new `modelRef` needs a
   branch in `src/e2e/fixtureWorld.ts`, keyed through a shared ref-builder so the fixture cannot

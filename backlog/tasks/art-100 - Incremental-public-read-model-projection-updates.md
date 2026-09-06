@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-08-04 06:21'
-updated_date: '2026-09-06 06:47'
+updated_date: '2026-09-06 08:51'
 labels:
   - prd-1.0
   - epic-i
@@ -393,4 +393,12 @@ simulation/worldDayLiveFunctions:runQueuedWorldDaySlot
 ### 這次量測同時揭露一個 CRITICAL 缺陷 → ART-157
 
 slot 失敗於 `validate_canon` / `UNKNOWN_LOCATION_REFERENCE`。根因與 ART-100 無關(場景 prompt 從未告訴模型合法的目的地),已另開 ART-157。記在這裡是因為兩者共用同一次量測。
+
+## ART-157 對本任務的釐清(2026-09-06)
+
+ART-157 修正了 `commitProposedEvent` / `canonRuleContext` / `loadWorldSnapshot` 三處,改以 `resolveWorldBaseline` 的 seed 基準線重播。
+
+**這不影響本任務關於 `rebuildLiveProjection` 的既有結論。** 上面「`locations` 是 `SEED_BASELINE_FIELDS` 之一,直接改用快照會發布 replay-from-empty 從不呈現的 seed 資料,違反 AC#3」的論證**仍然成立**:publicRead 從空重播是刻意的產品決定,模擬與 commit 端必須看見 seed,兩者本就該不同。
+
+我在 ART-157 筆記中曾把這寫成「同一份投影上兩個相反的需求,不能各改各的」—— **那個判斷是錯的**,已在該任務更正。兩邊各自正確,不需要統一,本任務不必為此改變方向。
 <!-- SECTION:NOTES:END -->
