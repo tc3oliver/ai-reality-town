@@ -1,10 +1,10 @@
 ---
 id: ART-159
 title: Run the live world-day path on the real provider through the routing chain
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-09-06 12:01'
-updated_date: '2026-09-06 12:48'
+updated_date: '2026-09-06 16:27'
 labels:
   - prd-1.0
   - epic-a
@@ -62,7 +62,7 @@ Paid/free model filtering (FREE_ONLY is an endpoint/policy fact, not route metad
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
