@@ -203,12 +203,23 @@ for code that never runs — and, worse here, passes for a call whose rules cann
 suite drives the real adapter against a `fetch` spy and asserts **no network call occurred**.
 Fault injection: removing `ZH_RULES` turns 18 of 25 tests red.
 
-**AC#3 NOT met, and deliberately not claimed.** The gate is enforced at the adapter's transport
-chokepoint, not at the provider port. A second adapter class would have its own transport and
-inherit nothing. Enforcing at the port needs a wrapper applied at construction, and there is
-currently one construction site (`providers/actions.ts`) used only for the capability probe — so
-the wrapper's real value depends on where production generation obtains its provider, which was
-not traced in this pass. Left open on ART-156 rather than marked done.
+**AC#3 now met too.** `providers/safeProvider.ts` wraps any `LanguageModelProvider` so both egress
+methods are screened before an adapter sees them, and `createLanguageModelProvider` is the only
+sanctioned way to obtain one — pinned by a source scan that fails the build if
+`new OpenAICompatibleProvider(` appears anywhere but that factory. The criterion is worded as a
+property of a provider nobody has written yet ("a new adapter cannot silently bypass it"), so it is
+tested by wrapping a HAND-ROLLED ungated adapter and asserting it never receives the text.
+
+The adapter's own transport gate is deliberately kept. Two gates at different altitudes answering
+different questions: the port screens the caller's semantic input with a meaningful `inputKind`
+before any adapter is involved; `request()` screens the body AS ASSEMBLED, where
+`jsonSchema.description`, tool descriptions and `user` live — fields that do not exist at the port
+altitude because the adapter constructs them afterwards. Neither subsumes the other.
+
+One design detail worth recording because getting it wrong is silent: the wrapper's methods are
+`async`. A plain function that throws before returning a promise is a DIFFERENT contract from the
+adapter it stands in for, and every caller's `.catch` would stop working at exactly the moment the
+gate fires.
 
 ### 0.3 New findings — the risk has moved to code written after this audit
 

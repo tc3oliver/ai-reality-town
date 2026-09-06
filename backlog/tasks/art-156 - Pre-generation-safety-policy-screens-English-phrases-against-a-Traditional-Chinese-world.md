@@ -3,11 +3,11 @@ id: ART-156
 title: >-
   Pre-generation safety policy screens English phrases against a Traditional
   Chinese world
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-09-06 02:40'
-updated_date: '2026-09-06 03:12'
+updated_date: '2026-09-06 03:19'
 labels: []
 dependencies: []
 priority: high
@@ -25,26 +25,26 @@ ART-62 re-audit finding H-4 (Still Open, partial fix). ART-103 gave `assertPreGe
 <!-- AC:BEGIN -->
 - [x] #1 The policy screens the language the system actually generates, demonstrated by a test whose inputs are Traditional Chinese rather than English
 - [x] #2 Every provider egress path listed in the audit inventory — including embed() and the free-text fields on the request body — either passes through the gate or has a recorded, argued reason not to
-- [ ] #3 The gate is enforced at the provider port rather than in one adapter, so a new adapter cannot silently bypass it
+- [x] #3 The gate is enforced at the provider port rather than in one adapter, so a new adapter cannot silently bypass it
 - [x] #4 Coverage is proved by executing the gated paths, not by asserting on file text
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -89,4 +89,32 @@ The gate is at the adapters transport chokepoint, not at the provider port. A ne
 ### Scope of the claim
 
 This is a deterministic keyword gate on text THIS SYSTEM assembles from its own world state — not a classifier, and it does not claim to resist a human trying to evade it. Viewer-supplied text has its own control (`safety/viewerInput.ts`) and generated output has a post-generation classifier. Recording that boundary matters: "keyword-based" is a fair criticism of a control that must resist evasion and an irrelevant one for a control that need not.
+
+## AC#3 completed 2026-09-06
+
+Traced the question the earlier pass left open: `OpenAICompatibleProvider` is constructed in exactly ONE place, `providers/actions.ts`, and that place is the capability probe. Production simulation paths (`worldDayLive.ts`, `workflow.ts`) bind Fake providers today. So the port-level gate is future-proofing rather than a live hole — which is worth saying plainly instead of implying it closed an active exposure.
+
+`providers/safeProvider.ts` adds `withPreGenerationSafety` (wraps any `LanguageModelProvider`) and `createLanguageModelProvider` (the only sanctioned way to obtain one). A wrapper rather than a base class or an interface rule: an interface vanishes at runtime and can compel an adapter to HAVE a method, never to do anything before that method`s first statement. A decorator applied at construction makes "the provider you were handed is gated" a property of the value.
+
+The criterion is worded about a provider nobody has written yet, so it is tested against a HAND-ROLLED ungated adapter: the wrapper stops prohibited text and the inner adapter records that it never received it. Plus the reverse (ordinary text passes through unchanged), plus an assertion that the returned value exposes ONLY the port surface — a value still carrying the concrete adapter`s methods would let a caller reach around the gate.
+
+The adapter`s own transport gate is kept, not replaced. The two sit at different altitudes and neither subsumes the other: the port sees the caller`s semantic input, `request()` sees the assembled body where the schema/tool/user side channels live.
+
+One detail that would have been silent if wrong: the wrapper methods are `async`. A plain function that throws before returning a promise is a different contract from the adapter it stands in for, and every caller`s `.catch` would break at exactly the moment the gate fires. Caught by the tests, not by reading.
+
+Verification: `npm run check` green, 206 suites / 3334 passed / 6 skipped (was 205/3328 before this slice — delta is exactly the 6 new tests).
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+The pre-generation safety gate now screens the language this system actually generates, covers every provider egress path, and is enforced at the port.
+
+The defect was not the one the audit named. `toLocaleLowerCase("en-US")` is a no-op for Han characters and was never the cause; the cause was `\b`, which cannot occur between two Han characters, so all sixteen rules were structurally unable to match the Traditional Chinese every prompt instructs the model to produce. The gate ran on every request, matched nothing it could match, and returned allow. Fixing the lowercase would have left that in place.
+
+Added a Chinese rule set written without `\b`; gated `embed()`, the path that ships character memories and private knowledge verbatim; and replaced field-by-field screening with a walk over the assembled request body, so the three side channels the audit found and anything added later are covered together. One exemption, by exact identity against the frozen constant: the safety instruction names what it prohibits, so screening it would have made the gate refuse every request in the system.
+
+AC#3 is met by a construction-time wrapper (`safeProvider.ts`) plus a source scan pinning the single construction site. Traced first: the real adapter is built in exactly one place, the capability probe, and production paths bind Fake providers — so this is future-proofing, not a live hole, and is described as such.
+
+Verified by execution, not by file text. The previous coverage used `readFileSync` + `toContain`, which passes for code that never runs and, worse here, for a call whose rules cannot match. The adapter tests drive the real class against a fetch spy and assert no network call occurred; AC#3 is tested against a hand-rolled ungated adapter. Fault injection: removing the Chinese rules turns 18 of 25 red. `npm run check` green at 206 suites / 3334 passed / 6 skipped.
+<!-- SECTION:FINAL_SUMMARY:END -->
