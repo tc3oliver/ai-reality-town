@@ -20,8 +20,12 @@
 import { MISTWOOD_PUBLIC_WORLD_ID } from '../canon/mistwoodSeed';
 import type { AcceptedEvent } from '../canon/model';
 import { mistwoodRuntimeContext } from '../visualRuntime/mistwoodRuntime';
+import { resolvePublishableLocationZone } from '../visual/locationVisualBinding';
+import { selectAmbientAnchor } from '../visualRuntime/ambientAnchor';
+import { timeBucketForSlot } from '../visualRuntime/seededRandom';
 import {
   bindingsFingerprint,
+  collectLocationFacts,
   emptyCharacterMotionFold,
   foldCharacterMotion,
   planCharacterTrajectories,
@@ -286,6 +290,79 @@ describe('ART-100 — the anchor chain reproduces a whole-log plan', () => {
       mapId: RUNTIME.mapId, nowMs: 5_000, grid: RUNTIME.grid, bindings: RUNTIME.bindings,
       seedPlacements: [], acceptedEvents: events, ...(motionFold ? { motionFold } : {}),
     });
+
+  /**
+   * What the anchor chain is SUPPOSED to hold, walked from the raw facts.
+   *
+   * Written out here because the obvious test — plan from events, plan from a fold, compare — is a
+   * TAUTOLOGY now that `planCharacterTrajectories` folds internally: both sides would run the same
+   * code and agree however wrong it was. Two fault injections (an anchor that never advances, and
+   * unbound hops that are never reported) stayed green against exactly that shape. This is the
+   * independent statement they now fail against, in the same spirit as `postCommitWorldState.test.ts`
+   * keeping the full-replay `completedWorldDays` as its specification.
+   */
+  function referenceChain(events: readonly AcceptedEvent[], bindings = RUNTIME.bindings) {
+    const byCharacter = new Map<string, { anchor: { x: number; y: number } | null; unbound: string[] }>();
+    const facts = collectLocationFacts(events);
+    for (const characterId of new Set(facts.map((fact) => fact.characterId))) {
+      const own = facts.filter((fact) => fact.characterId === characterId);
+      let anchor: { x: number; y: number } | null = null;
+      const unbound: string[] = [];
+      // Every hop but the last: the pre-ART-100 loop, verbatim.
+      for (const fact of own.slice(0, -1)) {
+        const binding = resolvePublishableLocationZone(bindings, fact.toLocationId);
+        if (!binding) { unbound.push(fact.toLocationId); continue; }
+        anchor = selectAmbientAnchor(binding, {
+          characterId, locationId: binding.locationId,
+          worldDay: fact.worldDay, timeBucket: timeBucketForSlot(fact.timeSlot),
+        });
+      }
+      byCharacter.set(characterId, { anchor, unbound });
+    }
+    return byCharacter;
+  }
+
+  it('carries the same anchor and unbound-hop list the raw fact walk produces', () => {
+    const events = fixtureEvents();
+    const fold = foldCharacterMotion(emptyCharacterMotionFold(), events, RUNTIME.bindings);
+    const expected = referenceChain(events);
+
+    // Non-vacuity: somebody really does have an intermediate hop, so `lastBoundHopAnchor` is a
+    // value rather than the null it starts as.
+    expect([...expected.values()].some((entry) => entry.anchor !== null)).toBe(true);
+    expect(fold.byCharacter.size).toBe(expected.size);
+    for (const [characterId, entry] of expected) {
+      expect(fold.byCharacter.get(characterId)?.lastBoundHopAnchor).toEqual(entry.anchor);
+      expect(fold.byCharacter.get(characterId)?.unboundHopLocationIds).toEqual(entry.unbound);
+    }
+  });
+
+  it('remembers a hop through a zone the map does not bind, in hop order', () => {
+    /**
+     * The fixture above walks bound zones only, so `unboundHopLocationIds` is empty throughout and
+     * an implementation that dropped it entirely would pass. A character routed through an
+     * unmapped location makes the list load-bearing — and the planner is expected to keep
+     * REPORTING that hop on every rebuild, which is the behaviour the fold has to reproduce
+     * without the history.
+     */
+    const [a, b] = ZONES;
+    const events = [
+      event({ sequenceNumber: 0, worldDay: 0, timeSlot: 'morning', locationId: a, participantIds: ['drifter'],
+        changes: [move('drifter', b, a)] }),
+      event({ sequenceNumber: 1, worldDay: 0, timeSlot: 'afternoon', participantIds: ['drifter'],
+        changes: [move('drifter', a, 'nowhere-at-all')] }),
+      event({ sequenceNumber: 2, worldDay: 1, timeSlot: 'morning', locationId: b, participantIds: ['drifter'],
+        changes: [move('drifter', 'nowhere-at-all', b)] }),
+    ];
+    const fold = foldCharacterMotion(emptyCharacterMotionFold(), events, RUNTIME.bindings);
+    expect(fold.byCharacter.get('drifter')?.unboundHopLocationIds).toEqual(['nowhere-at-all']);
+    expect(fold.byCharacter.get('drifter')?.unboundHopLocationIds)
+      .toEqual(referenceChain(events).get('drifter')?.unbound);
+
+    // ...and the planner turns that memory back into the problem the whole-log walk reported.
+    const problems = planWith([], fold).problems;
+    expect(problems.map((problem) => problem.locationId)).toContain('nowhere-at-all');
+  });
 
   it('plans identically from a fold built one event at a time, at EVERY split point', () => {
     const events = fixtureEvents();

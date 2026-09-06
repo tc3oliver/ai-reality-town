@@ -112,7 +112,11 @@ export type LocationFact = {
  * Accepted events arrive in whatever order the caller read them; sequence number is the only
  * ordering Canon guarantees is total, so the fold is defined against it rather than `acceptedAt`.
  */
-function collectLocationFacts(events: readonly AcceptedEventLike[]): readonly LocationFact[] {
+/**
+ * Exported for `liveRebuildEquivalence.test.ts`, which needs the raw fact list to state what the
+ * anchor chain is SUPPOSED to produce without going through the fold that produces it.
+ */
+export function collectLocationFacts(events: readonly AcceptedEventLike[]): readonly LocationFact[] {
   const facts: LocationFact[] = [];
   for (const event of events) {
     for (const change of event.stateChanges) {
