@@ -1,11 +1,11 @@
 ---
 id: ART-100
 title: Incremental public read-model projection updates
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-04 06:21'
-updated_date: '2026-09-06 10:37'
+updated_date: '2026-09-06 12:01'
 labels:
   - prd-1.0
   - epic-i
@@ -29,20 +29,20 @@ Every publicRead rebuild* function re-derives its payload by replaying the whole
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -490,3 +490,9 @@ harness 的 priming 改為**執行真正的 pipeline** 跑前一個事件,而不
 
 兩者都隨**世界日數**成長,不隨每日事件數成長。AC#1 gate 釘的是 `canonEvents`,上面兩項不在其中,所以是明說而非藏在綠燈後面。
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Bounded every whole-log read on the post-commit path. rebuildLiveProjection now resumes from a liveRebuildCheckpoints fold plus a replaySceneCandidates index whose Convex ranking reproduces selectReplayGroups exactly (maxSequenceNumber is provably unique per scene, so the sceneId tie-break is unreachable); the daily cycle resumes from worldDayLedgers/postCommitCursors. Monotone facts are checkpointed, retroactive ones (safety verdicts, exclusions, publication, event text) are always re-read. Verified by read measurement at two scale points: canonEvents 312 = 312 at 210 vs 410 events, AC#2 cycle identical at 250 vs 500, and total growth pinned exactly to the extra world days. Fault injection reddened the named gates and exposed three holes in the new tests (a plan-vs-fold tautology, an unbound-hop fixture that never walked an unbound zone, and unpinned character order), all closed with an independent reference specification. npm run check: 209 suites / 3424 passed, build clean. npm run e2e: 82 passed. PR #233 merged.
+<!-- SECTION:FINAL_SUMMARY:END -->
