@@ -55,6 +55,7 @@ import {
 import { resolveModuleConfig } from '../simulation/moduleConfig';
 import { CONFIGURABLE_MODULES } from '../shared/moduleModelConfig';
 import { listBudgetLedger, loadBudgetCounters } from '../simulation/tokenBudgetGate';
+import { readProviderRateWindow, type ProviderRateWindow } from '../simulation/providerRateFunctions';
 import {
   commandArgs,
   credentialArgs,
@@ -232,7 +233,11 @@ export const inspectTokenBudget = query({
     toWorldDay: v.number(),
   },
   handler: async (ctx, args): Promise<
-    TokenBudgetInspection & { clampedToWorldDay: number | null; ledgerScanLimitReached: boolean }
+    TokenBudgetInspection & {
+      clampedToWorldDay: number | null;
+      ledgerScanLimitReached: boolean;
+      providerRates: ProviderRateWindow;
+    }
   > => {
     await requireOperator(ctx, 'budget.inspect', args);
     const from = Math.trunc(args.fromWorldDay);
@@ -295,6 +300,20 @@ export const inspectTokenBudget = query({
         counters,
         ledger: ledgerRows,
       }),
+      /**
+       * ART-158 AC#2. Wall-clock RPM/TPM per requested route, alongside the world-day counters.
+       *
+       * Reported SEPARATELY from `counters` rather than folded into them, because they answer
+       * different questions over different clocks: a counter is "what has this world day spent",
+       * a rate is "how hard is the gateway being called right now". Deriving the second from the
+       * first is what AC#2 forbids — a world day is a simulation cursor an operator can
+       * accelerate or pause, so a per-minute figure computed from it would reset and jump for
+       * reasons that have nothing to do with request rate.
+       *
+       * `nowMs` is the query's own clock: rates are only meaningful relative to the moment they
+       * are read, and the window they cover is returned with them so a reader never assumes it.
+       */
+      providerRates: await readProviderRateWindow(ctx.db, args.worldId, Date.now()),
       clampedToWorldDay: to === requestedTo ? null : to,
       /**
        * True when the ledger fan-out hit {@link MAX_REPORT_LEDGER_ROWS} before reading every day

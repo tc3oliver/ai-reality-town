@@ -3,7 +3,7 @@ import { SimulationProviderError, type EmbeddingResult, type LanguageModelProvid
 import { PRE_GENERATION_PROVIDER_CONSTRAINT, assertPreGenerationSafe, chatMessagesToSafetyInput } from '../../safety/preGeneration';
 import type { OpenAICompatibleConfig } from './config';
 
-type Fetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+export type Fetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 export type AdapterDependencies = { fetch: Fetch; now: () => number; delay: (milliseconds: number) => Promise<void> };
 const defaults: AdapterDependencies = { fetch: globalThis.fetch.bind(globalThis), now: Date.now,
   delay: (milliseconds) => new Promise((resolve) => { setTimeout(resolve, milliseconds); }) };
@@ -129,17 +129,7 @@ export class OpenAICompatibleProvider implements LanguageModelProvider, Simulati
    * that silently became 0 would look exactly like genuine exhaustion.
    */
   private static rateLimitOf(headers: Headers): ProviderRateLimit | null {
-    const value = (name: string): number | null => {
-      const raw = headers.get(name);
-      if (raw === null) return null;
-      const parsed = Number(raw.trim());
-      return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
-    };
-    const limit = value('x-ratelimit-limit');
-    const remaining = value('x-ratelimit-remaining');
-    const resetAtEpochSeconds = value('x-ratelimit-reset');
-    if (limit === null || remaining === null || resetAtEpochSeconds === null) return null;
-    return { limit, remaining, resetAtEpochSeconds };
+    return readProviderRateLimit(headers);
   }
 
   /**
@@ -169,18 +159,7 @@ export class OpenAICompatibleProvider implements LanguageModelProvider, Simulati
    * OpenAI-compatible endpoint that does no routing still reports what served the call.
    */
   private static route(root: Record<string, unknown>): { resolvedModel: string | null; upstreamProvider: string | null } {
-    const text = (value: unknown): string | null =>
-      typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
-    const routed = root._routed_via;
-    if (routed && typeof routed === 'object' && !Array.isArray(routed)) {
-      const entry = routed as Record<string, unknown>;
-      return { resolvedModel: text(entry.model) ?? text(root.model), upstreamProvider: text(entry.platform) };
-    }
-    const flat = text(routed);
-    const separator = flat === null ? -1 : flat.indexOf('/');
-    return separator > 0 && flat !== null
-      ? { resolvedModel: flat.slice(separator + 1), upstreamProvider: flat.slice(0, separator) }
-      : { resolvedModel: text(root.model), upstreamProvider: null };
+    return readProviderRoute(root);
   }
 
   async structuredChat(request: StructuredChatRequest): Promise<StructuredChatResult> {
@@ -244,3 +223,67 @@ export class OpenAICompatibleProvider implements LanguageModelProvider, Simulati
 }
 
 export function traceWithoutSecrets(trace: ProviderTraceMetadata): ProviderTraceMetadata { return { ...trace }; }
+
+/**
+ * `x-ratelimit-*` as the gateway sent it, or `null` when it sent none (ART-158).
+ *
+ * Exported so the ART-158 AC#2 rate recorder reads the SAME headers, with the same
+ * treat-non-numeric-as-absent rule, as the adapter that puts them on the trace. A second parser
+ * would be free to disagree about whether a malformed `remaining` means zero or unknown, and those
+ * two readings look identical downstream while meaning opposite things.
+ */
+export function readProviderRateLimit(headers: Headers): ProviderRateLimit | null {
+  const value = (name: string): number | null => {
+    const raw = headers.get(name);
+    if (raw === null) return null;
+    const parsed = Number(raw.trim());
+    return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+  };
+  const limit = value('x-ratelimit-limit');
+  const remaining = value('x-ratelimit-remaining');
+  const resetAtEpochSeconds = value('x-ratelimit-reset');
+  if (limit === null || remaining === null || resetAtEpochSeconds === null) return null;
+  return { limit, remaining, resetAtEpochSeconds };
+}
+
+/**
+ * The route the gateway actually used, read out of its own response body.
+ *
+ * See {@link OpenAICompatibleProvider} for why both `_routed_via` shapes are handled and why an
+ * absent field yields `null` rather than the requested id. Exported for the rate recorder, for the
+ * same reason as {@link readProviderRateLimit}: one opinion about what served a call.
+ */
+export function readProviderRoute(
+  root: Record<string, unknown>,
+): { resolvedModel: string | null; upstreamProvider: string | null } {
+  const text = (value: unknown): string | null =>
+    typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+  const routed = root._routed_via;
+  if (routed && typeof routed === 'object' && !Array.isArray(routed)) {
+    const entry = routed as Record<string, unknown>;
+    return { resolvedModel: text(entry.model) ?? text(root.model), upstreamProvider: text(entry.platform) };
+  }
+  const flat = text(routed);
+  const separator = flat === null ? -1 : flat.indexOf('/');
+  return separator > 0 && flat !== null
+    ? { resolvedModel: flat.slice(separator + 1), upstreamProvider: flat.slice(0, separator) }
+    : { resolvedModel: text(root.model), upstreamProvider: null };
+}
+
+/**
+ * Token usage as the gateway reported it, or `null` for each half it did not report.
+ *
+ * Nullable per field rather than defaulting to zero: ART-158 AC#2 requires that a call the gateway
+ * gave no usage for is visible as unmeasured rather than as free. Zero and "did not say" are
+ * indistinguishable once written, and only one of them is true.
+ */
+export function readProviderUsage(
+  root: Record<string, unknown>,
+): { inputTokens: number | null; outputTokens: number | null } {
+  const data = root.usage && typeof root.usage === 'object' && !Array.isArray(root.usage)
+    ? root.usage as Record<string, unknown>
+    : {};
+  const count = (value: unknown): number | null =>
+    Number.isSafeInteger(value) && (value as number) >= 0 ? value as number : null;
+  return { inputTokens: count(data.prompt_tokens), outputTokens: count(data.completion_tokens) };
+}

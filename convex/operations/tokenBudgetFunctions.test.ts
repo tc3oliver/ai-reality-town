@@ -55,6 +55,8 @@ type Tables = {
   tokenBudgetLedger: Row[];
   moduleModelConfigs: Row[];
   operatorAuditLog: Row[];
+  /** ART-158 AC#2: the wall-clock rate buckets `inspectTokenBudget` now reports alongside. */
+  providerRateBuckets: Row[];
 };
 
 /** The slice of Convex these handlers use. Index constraints are `eq` chains. */
@@ -64,10 +66,18 @@ function memoryCtx(tables: Tables) {
       return {
         withIndex(_index: string, build?: (q: unknown) => unknown) {
           const constraints: Row = {};
-          const builder = { eq(field: string, value: unknown) { constraints[field] = value; return builder; } };
+          // `gt` is modelled because ART-158 AC#2's rate window is read as a RANGE from the
+          // window start — a fixture that silently ignored it would return every bucket ever
+          // written and make an expiring window look like a cumulative total.
+          const above: Row = {};
+          const builder = {
+            eq(field: string, value: unknown) { constraints[field] = value; return builder; },
+            gt(field: string, value: unknown) { above[field] = value; return builder; },
+          };
           if (build) build(builder);
           const matched = (tables[table] ?? []).filter((row) =>
-            Object.entries(constraints).every(([field, value]) => row[field] === value));
+            Object.entries(constraints).every(([field, value]) => row[field] === value)
+            && Object.entries(above).every(([field, value]) => Number(row[field]) > Number(value)));
           const chain = (rows: Row[]) => ({
             order: (direction: 'asc' | 'desc') => chain(direction === 'desc' ? [...rows].reverse() : rows),
             take: (count: number) => Promise.resolve(rows.slice(0, count)),
@@ -108,7 +118,7 @@ function anonymousCtx() {
 
 const emptyTables = (): Tables => ({
   tokenBudgetPolicies: [], tokenBudgetCounters: [], tokenBudgetLedger: [],
-  moduleModelConfigs: [], operatorAuditLog: [],
+  moduleModelConfigs: [], operatorAuditLog: [], providerRateBuckets: [],
 });
 
 const writeArgs = (over: Partial<TokenBudgetPolicy> & Row = {}) => ({

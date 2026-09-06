@@ -7,7 +7,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-09-06 09:09'
-updated_date: '2026-09-06 09:38'
+updated_date: '2026-09-06 15:41'
 labels:
   - prd-1.0
   - epic-o
@@ -52,7 +52,7 @@ ART-148 已消費 `_routed_via`。**三個 `x-ratelimit-*` header 目前被完�
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 The adapter surfaces x-ratelimit-limit/remaining/reset from the gateway response instead of discarding them
-- [ ] #2 Per-route free quota state (tokens, requests, RPM/TPM, daily allowance, reset time) is recorded against provider+model and is readable by an operator
+- [x] #2 Per-route free quota state (tokens, requests, RPM/TPM, daily allowance, reset time) is recorded against provider+model and is readable by an operator
 - [x] #3 A 429 or exhausted free quota falls back to the next FREE route in the chain, and the fallback is recorded
 - [x] #4 A provider failure falls back to the next FREE route
 - [x] #5 When every free route is unavailable the call FAILS rather than escalating; no paid route is ever selected
@@ -63,19 +63,19 @@ ART-148 已消費 `_routed_via`。**三個 `x-ratelimit-*` header 目前被完�
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -143,4 +143,20 @@ id, name, object, owned_by, supported_parameters, unavailable_reason
 2. **但 429 是 per-route 的。** 第 2 次在 remaining=118(還很充足)時就 429,而緊接著第 3 次 `auto` 成功。所以某條 route 被限流**不代表** key 用完 —— 換一條確實可能成功。
 
 因此 fallback chain **值得做**,但它的用途是繞過「單一 route 不可用/被限流」,不是繞過帳號額度。把它寫成後者會是一個結構上不可能成立的功能。
+
+## AC#2 — real time-bucketed RPM/TPM
+
+Deriving rates from `tokenBudgetCounters` was rejected outright: a world day is a simulation cursor an operator can accelerate, pause or hand-advance, so a per-minute figure computed from it has no relationship to the last sixty seconds and resets at a moment unrelated to request rate.
+
+**Window.** Epoch-aligned one-second buckets; `bucketStartMs = floor(atMs/1000)*1000` covering `[start, start+1000)`. The window at `now` is `bucketStartMs > now - 60_000` — trailing 60s quantised to the second, at most 60 buckets per route. Expiry is applied as a COMPARISON in `summarizeProviderRates`, not delegated to the vacuum, so a stale row cannot inflate a rate; the range read is separately bounded by the same window so read cost does not grow with world age.
+
+**Counted at the fetch seam.** Every seam above it counts something coarser than a request: per scene misses semantic retries, per reservation misses route hops, per structuredChat misses hops, per hop misses the transport ladder. One fetch is one request the gateway received.
+
+**Honest counting.** A 429 is a request AND separately `rateLimited`. Tokens stay null when the gateway reported none (`callsWithoutUsage` carries the blind spot) — zero and 'did not say' are indistinguishable once written. Buckets key on the REQUESTED route (the only identity a refused call has); resolutions are recorded alongside and sum to the request count including null entries. No price/tier/paid metadata anywhere.
+
+**Operator surface.** `inspectTokenBudget` returns `providerRates`: requests, tokens, served/rateLimited/failed, callsWithoutUsage, resolutions, last allowance with reset, window bounds, and `truncated`.
+
+**Evidence.** `providerRateWindow.test.ts` (24) specifies the window; `providerRateWiring.test.ts` (14) drives a REAL authoring call through the recorder the live action installs into the real registered mutations, only `fetch` stubbed. npm run check: 214 suites / 3538 passed, boundaries valid, build clean.
+
+**Injections.** 12 (cumulative RPM) reddened 3 tests immediately. 13 (cumulative TPM) and 14 (window bound dropped from the read) both SURVIVED and exposed two real test holes — TPM was never pinned against the window independently of RPM, and the read bound was masked by the in-memory filter so its loss showed only as spurious truncation on an aged world. Both closed with new tests; re-injection then reddened each by name. No injection produced 'Tests: 0 total'.
 <!-- SECTION:NOTES:END -->
