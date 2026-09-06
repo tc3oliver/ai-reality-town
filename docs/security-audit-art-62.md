@@ -192,6 +192,37 @@ winner and never resets: permanent DoS of a public feature, remote, unauthentica
 actually bites**, so the declared ceiling provides no protection at all. Durable fix: maintain
 per-candidate tallies on the round row so the read is O(catalog), not O(ballots).
 
+> **RESOLVED 2026-09-06 (ART-155), together with N-2.** The tally is now a counter on the round row
+> (`environmentVoteRounds.votesByCandidate`), maintained in the same transaction as the ballot
+> write. The public ballot query and the closing cron each read exactly one document, and neither
+> touches `environmentVoteBallots` at all. Increment-only is sound because a ballot's `candidateId`
+> is write-once — `MAX_ACCEPTED_VOTES_PER_DEVICE_PER_ROUND` is 1, so no vote can move between
+> candidates; the schema comment says what must change first if that limit is ever raised.
+>
+> `MAX_SUBMISSIONS_PER_ROUND` is also lowered 100,000 → 4,096, i.e. BELOW the read limit rather
+> than six times above it. Not because anything still enumerates ballots — nothing does — but so
+> that the ceiling and the limit stop being two facts that contradict each other, and any path that
+> ever does need to enumerate a round can do so in one query by construction. The limit itself is
+> exported as `CONVEX_MAX_DOCUMENTS_PER_QUERY` so the derivation has a visible input, and a test
+> fails if the ceiling ever rises above it again.
+>
+> **N-2 had to be fixed for N-1's fix to be sound.** The recommendation above ("maintain tallies")
+> is necessary but not sufficient: the argument that a round's ballots fit in one query rests on
+> ROWS being capped, and while `VOTE_ROUND_FULL` fell through to the insert they were not — a round
+> at its ceiling kept allocating a row per new device forever, into a table that is deliberately
+> never vacuumed. So the row cap was decorative in exactly the way the ceiling was, and the two
+> findings are one bound with two holes in it. `NON_WRITING_VOTE_REJECTION_CODES` now mirrors
+> `viewerProgress.ts`'s `NON_WRITING_REJECTION_CODES`, and the wiring derives its early return from
+> that list rather than keeping a second copy.
+>
+> Verified with a `db` double that **refuses an over-large read the way Convex does**, which is the
+> load-bearing part: a double that happily returned 16,385 rows would have let the original code
+> pass every assertion. Fault injection confirms it — restoring the unbounded collect turns exactly
+> the three read-cost tests red and leaves the nine policy tests green. `npm test`: 205 suites,
+> 3317 passed. Note that `environmentVoteFunctions.ts` had **no test at all** before this;
+> `environmentVote.test.ts` covered the pure policy, which was never wrong, and the defect lived
+> entirely in the wiring.
+
 **N-2 (MEDIUM, CODE_BLOCKER) — `VOTE_ROUND_FULL` still allocates a row.** The early return at
 `environmentVoteFunctions.ts:184-186` covers only `VOTE_DEVICE_ATTEMPTS_EXHAUSTED`.
 `VOTE_ROUND_FULL` falls through to the insert at `:196`, so the ceiling caps accepted votes but not
@@ -199,6 +230,11 @@ rows, and `environmentVoteBallots` is not in `TablesToVacuum` (`crons.ts:60-84`)
 permanent. This contradicts the module's own comment at `environmentVote.ts:66-71`, and it is the
 mechanism that makes N-1 reachable. The sibling surface gets this right — `viewerProgress.ts:190-195`
 includes `PROGRESS_WORLD_FULL` in `NON_WRITING_REJECTION_CODES`.
+
+> **RESOLVED 2026-09-06 (ART-155).** Fixed as part of N-1, because N-1's fix is unsound without it
+> — see the note under N-1. `VOTE_ROUND_FULL` and `VOTE_ROUND_NOT_OPEN` now write nothing;
+> refusals that judged the submission still cost an attempt, which is what keeps the endpoint from
+> being a free oracle.
 
 **N-3 (MEDIUM) — ballot stuffing; no rate limiter exists and a docstring claims one is required.**
 `submitEnvironmentVote` identifies callers by `args.deviceKey`, a raw client string hashed with
@@ -273,9 +309,12 @@ fixed in this repository today; the third is code plus one deployment configurat
 Secrets scan is clean — tracked tree and full `git log --all -p` history, no matches for any
 credential pattern.
 
-**Update, 2026-09-06.** Still not clear, on **two** open High findings rather than three: H-1 is
-closed apart from its unobservable log question (§0.1). The remaining two are tracked as ART-155
-(N-1) and ART-156 (H-4), both pure code.
+**Update, 2026-09-06.** Still not clear, on **one** open High finding rather than three.
+
+- **H-1 → resolved** apart from its unobservable log question (§0.1), by ART-154 plus the
+  deployment env.
+- **N-1 → resolved** by ART-155, and **N-2 with it** — the two were one bound with two holes.
+- **H-4 → still open**, tracked as ART-156. It is pure code and fixable in this repository.
 
 One thing has got worse, and it is not a finding: the Convex deployment is disabled for exceeding
 free-plan limits, verified on the dev CLI, the prod CLI and the raw HTTP API. Function metadata
