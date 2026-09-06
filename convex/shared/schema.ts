@@ -156,6 +156,17 @@ export const sharedTables = {
      * structural, so this never carries yesterday's routing into today.
      */
     aliasResolutions: v.optional(v.array(v.object({ alias: v.string(), model: v.string() }))),
+    /**
+     * ART-148. Free-quota attribution per upstream ROUTE, which is what a free tier is actually
+     * held against — the same model id reached through two providers draws on two allowances.
+     * Requests as well as tokens: a free tier commonly bounds both, and a route can exhaust its
+     * request allowance while far under its token allowance.
+     */
+    usageByRoute: v.optional(v.array(v.object({
+      provider: v.string(), model: v.string(), tokens: v.number(), requests: v.number(),
+    }))),
+    /** Settled calls the gateway named no route for, so their usage could not be attributed. */
+    unattributedCalls: v.optional(v.number()),
   })
     .index('by_world_and_day', ['worldId', 'worldDay']),
 

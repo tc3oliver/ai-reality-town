@@ -7,7 +7,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-08-29 05:40'
-updated_date: '2026-09-06 08:49'
+updated_date: '2026-09-06 09:10'
 labels:
   - prd-1.0
   - epic-o
@@ -97,4 +97,81 @@ The deployment sets LLM_MODEL to the alias `auto` rather than a concrete model i
 - **#2** 已達成:別名解析不遞增,具體漂移照常遞增
 - **#3** 已達成:9 條具名測試 + 3 次故障注入
 - **#4** 已達成:`inspectTokenBudget` 原樣回傳 counters,而 `tokensByModel` 現在鍵在具體模型上,另有 `aliasResolutions` 顯示 `auto` 解析到什麼;ledger 的 `settledModel` 早已記錄具體模型
+
+## 更正:本任務原本的描述說錯了根因
+
+任務描述宣稱 `modelMeteringMismatches`「每一次呼叫都遞增」。**追到程式碼後,事實相反:它一次都不可能遞增。**
+
+鏈路是閉環的:
+
+```
+sceneBudget: input.run(granted.model)
+  → adapter:  trace.model = request.model ?? config.chatModel   // 就是 granted.model
+  → sceneBudget: reportedModel = result.trace.model             // 又是 granted.model
+  → settleReservation: settlement.model === settlement.reportedModel  // 恆等
+```
+
+`reportedModel` 的 docblock 寫著「the model the provider itself REPORTED running」,但它的來源是**我們送出去的請求**。這正是 CLAUDE.md §9 那條規則:**驗證器不得被餵入它自己的輸入,否則檢查就是恆真式**。整段漂移偵測是死的,而且它的註解主張了與程式碼相反的事。
+
+我第一版的修正(對 alias 抑制 mismatch)因此是**在治一個不存在的症狀**,還讓一個本來就死的檢查更死。已推翻。
+
+## 真正的缺陷:adapter 丟掉了閘道的答案
+
+`openAICompatible.ts` 解析出回應 body 後,只用 `chatModel`(請求值)填 trace,`root.model` 從未被讀取。所以系統從來不知道 `auto` 實際跑了什麼。
+
+## 對真部署實測到的閘道契約
+
+`https://llm.shouri.app` 同一個回應同時給出:
+
+- body `_routed_via`: `{ platform: 'xkiro', model: 'deepseek/deepseek-v4-pro' }` —— **物件**
+- header `x-routed-via`: `xkiro/deepseek/deepseek-v4-pro` —— 字串,model 半段本身含斜線
+- header `x-ratelimit-limit / -remaining / -reset`
+
+兩種形狀都實作了,因為各自是其所在位置唯一可得的形式。字串形只在**第一個**斜線切分 —— 切最後一個會把 provider 讀成 `xkiro/deepseek`,一個 off-by-one 造成兩個錯誤歸屬。
+
+我第一次的實作只處理字串形,`text(root._routed_via)` 對物件回傳 null,於是靜默退回 `root.model`:model 對了、provider 是 null。是實測才抓到,不是推理。
+
+## 語意重寫(依你的定義)
+
+- **usage 記在解析後的 `provider + model`,不是 alias。** `auto` 只是 routing alias,不擁有任何額度、速率或可靠度歷史。
+- **mismatch = 預期的具體模型 vs 閘道回報的實際模型。** alias→具體**不是** mismatch(閘道正在做它的工作);具體→不同的具體**才是**。
+- **`resolvedModel: null`(閘道沒說)既不是 mismatch 也不是可歸屬用量**,單獨計入 `unattributedCalls`。把「沒說」和「說了非預期的」併成一桶會讓兩者都不可讀。
+- 新增 `usageByRoute`(provider / model / tokens / **requests**),因為免費層通常同時以 token 與 request 設限,只算 token 會讓 request 耗盡完全隱形。
+- 同一個 model id 經兩個 upstream 各自消耗**各自的**免費額度,所以 route key 必須帶 provider。
+
+## 兩處刻意的行為反轉(已在測試中明寫)
+
+先前有兩條測試主張「mismatch 時 token 仍記在 metered key,讓評估過的上限就是被扣的上限」。那是**金額**語意下的正確答案,在這個部署下是錯的:所有 route 都是免費層,這些計數器是**免費額度歸屬**。實際跑的模型才是消耗了自己額度的那個,把 token 記在沒跑的模型上會同時謊報兩邊。分歧沒有遺失 —— 由 `modelMeteringMismatches` 與 ledger 的 `settledModel` 保存。
+
+## 不再宣稱是「成本預算」問題
+
+本任務原本的敘述帶有金額控制框架。此部署為 **free-only**,不需要金額預算,也不會為 `auto` 或任何 route 建立金額 bucket。相關描述已重寫為免費額度與速率歸屬。
+
+## 證據
+
+`npm run check` 全綠:**208 suites / 3401 passed**。
+
+故障注入四次,每次只紅該紅的:
+
+| 注入 | 轉紅 |
+| --- | --- |
+| adapter 不讀閘道答案(原始缺陷) | 「回報解析後的 route」 |
+| route key 拿掉 provider | 三條 route 歸屬測試 |
+| mismatch 不區分 null 解析 | 「具體請求 + 閘道沒回答不算 mismatch」 |
+| 上限不解析 alias | 「上限綁定」 |
+
+第三次注入**第一輪沒有轉紅** —— 我漏了「具體請求 + null 解析」這個組合的測試,補上後才紅。這正是「不可能失敗的斷言」,靠注入才發現。
+
+**真部署驗證**(`probeConfiguredOpenAICompatibleProvider`):
+
+```
+model: "auto"  →  upstreamProvider: "xkiro"
+                  resolvedModel:    "deepseek/deepseek-v4-pro"
+```
+
+修正前這個回應的路由資訊會被整個丟棄。
+
+## 不屬於本任務的部分 → ART-158
+
+`x-ratelimit-*` 三個 header 目前仍被丟棄(adapter 的 `request()` 不上傳 headers)。免費額度治理、429/耗盡時的 free-route fallback、每 route 可靠度統計,以及 `FREE_ONLY=true` 下「絕不 fallback 到 paid route」的強制不變量,都在 **ART-158**。本任務只做到讓實際 route **可被觀測與正確歸屬** —— 那是上述每一項的前提,但不是它們本身。
 <!-- SECTION:NOTES:END -->

@@ -2,8 +2,14 @@ import { SimulationProviderError, type LanguageModelProvider } from '../provider
 import type { OpenAICompatibleConfig } from './config';
 
 export type ProviderCapabilityProbe = {
-  chat: { compatible: true; model: string };
-  embedding: { compatible: true; model: string; dimension: number };
+  /**
+   * `model` is the CONFIGURED id, which may be a routing alias. `resolvedModel` and
+   * `upstreamProvider` are what the gateway said actually served the probe, or null when it did
+   * not say — the only way to see, without running a world day, whether an alias like `auto` is
+   * observable at all in this deployment (ART-148).
+   */
+  chat: { compatible: true; model: string; resolvedModel: string | null; upstreamProvider: string | null };
+  embedding: { compatible: true; model: string; resolvedModel: string | null; dimension: number };
 };
 
 export async function probeProviderCapabilities(
@@ -31,6 +37,10 @@ export async function probeProviderCapabilities(
   if (embedding.embedding.length !== config.embeddingDimension) {
     throw new SimulationProviderError('permanent', 'LLM_EMBEDDING_DIMENSION_MISMATCH', `expected ${config.embeddingDimension} embedding dimensions`);
   }
-  return { chat: { compatible: true, model: config.chatModel },
-    embedding: { compatible: true, model: config.embeddingModel, dimension: config.embeddingDimension } };
+  return {
+    chat: { compatible: true, model: config.chatModel,
+      resolvedModel: chat.trace.resolvedModel, upstreamProvider: chat.trace.upstreamProvider },
+    embedding: { compatible: true, model: config.embeddingModel,
+      resolvedModel: embedding.trace.resolvedModel, dimension: config.embeddingDimension },
+  };
 }

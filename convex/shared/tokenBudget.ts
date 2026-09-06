@@ -499,7 +499,28 @@ export type BudgetCounters = {
    * today's, and the row is keyed on `worldDay` so rollover clears it structurally.
    */
   aliasResolutions: ReadonlyArray<{ alias: string; model: string }>;
+  /**
+   * ART-148. Free-quota attribution: what each upstream ROUTE consumed today, sorted by
+   * provider then model.
+   *
+   * Separate from {@link tokensByModel}, which answers the policy question "has this MODEL passed
+   * its configured token cap". This list answers the operational one — "how much of `xkiro`'s free
+   * daily allowance for `deepseek-v4-flash` have we used" — and those differ whenever the same
+   * model id is reachable through more than one upstream, because each upstream grants its own
+   * allowance. Requests are counted alongside tokens: a free tier is usually bounded by both.
+   */
+  usageByRoute: ReadonlyArray<RouteUsage>;
+  /**
+   * Settled calls the gateway gave no route for, so their usage could not be attributed.
+   *
+   * A tally rather than a derived number, for the same reason as `modelMeteringMismatches`: an
+   * unattributable call looks identical to an attributed one in every aggregate that matters.
+   */
+  unattributedCalls: number;
 };
+
+/** One upstream route's consumption of its own free allowance, for one world day. */
+export type RouteUsage = { provider: string; model: string; tokens: number; requests: number };
 
 export function emptyBudgetCounters(worldId: string, worldDay: number): BudgetCounters {
   return {
@@ -518,6 +539,8 @@ export function emptyBudgetCounters(worldId: string, worldDay: number): BudgetCo
     lowImportanceCallsOnFastModel: 0,
     modelMeteringMismatches: 0,
     aliasResolutions: [],
+    usageByRoute: [],
+    unattributedCalls: 0,
   };
 }
 
@@ -830,17 +853,18 @@ function modelBudgetFor(policy: TokenBudgetPolicy, model: string): number | null
 }
 
 /**
- * Configured model ids that are NOT models: they hand the choice of concrete model to the gateway,
+ * Configured model ids that are NOT models: they hand the choice of concrete route to the gateway,
  * which reports back which one it actually ran (ART-148).
  *
- * The deployment sets `LLM_MODEL=auto`. Before this was recognised, `auto` was treated as an
- * ordinary model id, with two consequences that pointed in opposite directions:
+ * The deployment sets `LLM_MODEL=auto`. An alias is a ROUTING instruction, so it must never own
+ * usage: `auto` has no quota, no rate limit and no reliability history of its own. The provider
+ * and model the gateway resolves to are what actually hold those things, and metering `auto`
+ * accumulates a bucket that describes nothing.
  *
- *  - the per-model daily cap metered a bucket named `auto`, which no real model ever spends
- *    against, so the cap was effectively unenforced; and
- *  - `modelMeteringMismatches` incremented on EVERY call, because the metered key (`auto`) never
- *    equals the reported one. The counter that exists to detect silent drift was saturated by
- *    design, so a genuine mismatch was indistinguishable from the constant background.
+ * NOT a monetary concern in this deployment. Every route in the chain is free-tier, so there is no
+ * spend to control; what these counters exist for is FREE QUOTA and rate-limit attribution — which
+ * upstream route consumed which share of its own daily allowance. Booking that against an alias
+ * loses exactly the attribution the quota accounting depends on.
  *
  * A constant rather than a policy field: which ids are aliases is a property of the provider
  * gateway, not of a world's budget. Making it configurable would invite a world to be configured
@@ -871,26 +895,36 @@ export function resolveModelForCounters(counters: BudgetCounters, model: string)
 // Settlement
 // ---------------------------------------------------------------------------
 
-/** What a granted call actually consumed, as the provider reported it. */
+/** What a granted call actually consumed, as the gateway reported it. */
 export type BudgetSettlement = {
   module: ConfigurableModule;
-  /** The key the reservation was METERED under — the model the decision named. */
+  /**
+   * The model the reservation NAMED. May be a routing alias (`auto`), in which case it names no
+   * model and owns no usage.
+   */
   model: string;
   /**
-   * The model the provider itself REPORTED running, from `ProviderTraceMetadata.model`.
+   * The model the GATEWAY said served the call, read from the response body — or `null` when the
+   * gateway did not say.
    *
-   * The two are the same number in a healthy deployment and are kept as separate fields because
-   * the case where they diverge is the one failure in this whole subsystem whose symptom is
-   * SILENCE: the per-model cap would meter one bucket while a different model spent, so budgets
-   * would appear to work while the real model ran unbounded. Nothing infers this — it is
-   * compared at the moment the tokens are booked, which is the only moment both ids exist.
+   * This replaced a field called `reportedModel` that was sourced from `trace.model`, which the
+   * adapter filled with the model it had just REQUESTED. The consequence was the failure mode
+   * CLAUDE.md §9 names outright: a validator handed its own input. `settlement.model` and
+   * `reportedModel` were the same value routed through the provider and back, so the mismatch
+   * check compared a value with itself and could never fire, while its docblock claimed it was
+   * catching gateways that answer with a different model.
    *
-   * The known way to reach it is the ART-72 provider adapter landing without re-pointing
-   * `deploymentModelId` (see `worldDayLiveFunctions.ts`), which `sceneBudgetProviderPin.test.ts`
-   * additionally catches at BUILD time. This field catches the cases a source pin cannot see —
-   * chiefly a gateway that answers with a different model id from the one it was asked for.
+   * `null` is a genuine state — a gateway that omits `model` leaves the usage unattributable, and
+   * that must be visible rather than silently booked against whatever was asked for.
    */
-  reportedModel: string;
+  resolvedModel: string | null;
+  /**
+   * The upstream route the gateway attributed the call to (`xkiro`, `orcarouter`, …), or `null`.
+   *
+   * Free quota, rate limits and reliability are per PROVIDER as well as per model: the same model
+   * id served by two routes draws on two separate allowances, so attribution needs both halves.
+   */
+  upstreamProvider: string | null;
   importance: WorkImportance;
   /** `inputTokens + outputTokens` from the provider trace. */
   tokens: number;
@@ -899,30 +933,48 @@ export type BudgetSettlement = {
   onFastModel: boolean;
 };
 
+/** Stand-ins for a route the gateway declined to name, so unattributed usage stays countable. */
+export const UNKNOWN_PROVIDER = 'unknown-provider';
+export const UNRESOLVED_MODEL = 'unresolved-model';
+
 /**
- * The model a settlement's tokens are BOOKED under.
+ * The model a settlement's tokens are capped against.
  *
- * For an alias the answer is what the gateway reported, because that is the model that actually
- * spent; booking under `auto` would accumulate a bucket no cap is ever written against (ART-148).
- * For a concrete id the answer is the metered key, unchanged — booking a genuine mismatch under
- * the reported model would move the tokens out of the bucket the cap is watching, which is the
- * opposite of what a mismatch calls for.
+ * An alias NEVER owns usage: `auto` is a routing instruction with no quota of its own. When the
+ * gateway names the model, that is the answer. When it does not, an alias call books under
+ * {@link UNRESOLVED_MODEL} rather than under `auto` — a bucket named `auto` would claim to be a
+ * model's consumption while describing nothing.
+ *
+ * A concrete request the gateway answered with a DIFFERENT concrete model books under what
+ * actually ran, because that is whose allowance was consumed. The divergence is not lost — it is
+ * counted by {@link isModelMeteringMismatch} — but the accounting has to follow reality rather
+ * than keep charging a model that never ran.
  */
-export function settlementBookingModel(settlement: BudgetSettlement): string {
-  return isModelAlias(settlement.model) ? settlement.reportedModel : settlement.model;
+export function settlementCappedModel(settlement: BudgetSettlement): string {
+  return settlement.resolvedModel
+    ?? (isModelAlias(settlement.model) ? UNRESOLVED_MODEL : settlement.model);
 }
 
 /**
- * True when the tokens were booked against a different model from the one that ran them.
+ * True when a call was served by a model other than the one it was EXPECTED to resolve to.
  *
- * An alias resolving to a concrete model is NOT a mismatch (ART-148): `auto` -> `glm-4.6` is the
- * gateway doing exactly its job, and counting it made this signal fire on every call, which is
- * indistinguishable from never firing. Genuine drift — a concrete id answered by a different
- * concrete id — still counts.
+ * The comparison is expectation vs reality, and the expectation only exists for a concrete
+ * request: asking for `glm-4.6` and being served `other-model` is drift worth counting. Asking for
+ * `auto` sets up no expectation at all — the gateway choosing a route is it doing its job — so an
+ * alias call cannot be a mismatch, only a resolution.
+ *
+ * A `null` resolution is not a mismatch either. "The gateway did not say" is a different fact from
+ * "the gateway said something unexpected", and collapsing them would put an unattributable call
+ * and a genuinely drifting one in the same bucket.
  */
 export function isModelMeteringMismatch(settlement: BudgetSettlement): boolean {
-  if (isModelAlias(settlement.model)) return false;
-  return settlement.model !== settlement.reportedModel;
+  if (isModelAlias(settlement.model) || settlement.resolvedModel === null) return false;
+  return settlement.model !== settlement.resolvedModel;
+}
+
+/** True when the gateway gave no route, so this call's usage cannot be attributed to a model. */
+export function isUnattributedUsage(settlement: BudgetSettlement): boolean {
+  return settlement.resolvedModel === null;
 }
 
 /**
@@ -934,11 +986,38 @@ function recordAliasResolution(
   settlement: BudgetSettlement,
 ): Array<{ alias: string; model: string }> {
   const next = entries.map((entry) => ({ ...entry }));
-  if (!isModelAlias(settlement.model)) return next;
+  // Only a call that actually resolved teaches anything. A `null` resolution must not overwrite a
+  // known one with a guess, or one uninformative response would blind the cap for the rest of the day.
+  if (!isModelAlias(settlement.model) || settlement.resolvedModel === null) return next;
   const existing = next.find((entry) => entry.alias === settlement.model);
-  if (existing) existing.model = settlement.reportedModel;
-  else next.push({ alias: settlement.model, model: settlement.reportedModel });
+  if (existing) existing.model = settlement.resolvedModel;
+  else next.push({ alias: settlement.model, model: settlement.resolvedModel });
   return next.sort((left, right) => left.alias.localeCompare(right.alias));
+}
+
+/**
+ * Add one call's usage to the per-ROUTE list, which is what free quota is actually held against.
+ *
+ * Tokens AND requests: a free tier is usually bounded by both, and a route can exhaust its request
+ * allowance while well under its token allowance. Counting only tokens would make that invisible.
+ */
+function addRouteUsage(
+  entries: ReadonlyArray<RouteUsage>,
+  settlement: BudgetSettlement,
+): RouteUsage[] {
+  const provider = settlement.upstreamProvider ?? UNKNOWN_PROVIDER;
+  const model = settlement.resolvedModel
+    ?? (isModelAlias(settlement.model) ? UNRESOLVED_MODEL : settlement.model);
+  const next = entries.map((entry) => ({ ...entry }));
+  const existing = next.find((entry) => entry.provider === provider && entry.model === model);
+  if (existing) {
+    existing.tokens += settlement.tokens;
+    existing.requests += 1;
+  } else {
+    next.push({ provider, model, tokens: settlement.tokens, requests: 1 });
+  }
+  return next.sort((left, right) =>
+    left.provider.localeCompare(right.provider) || left.model.localeCompare(right.model));
 }
 
 /**
@@ -956,6 +1035,7 @@ export function grantReservation(counters: BudgetCounters, decision: BudgetDecis
     tokensByModule: counters.tokensByModule.map((entry) => ({ ...entry })),
     tokensByModel: counters.tokensByModel.map((entry) => ({ ...entry })),
     aliasResolutions: counters.aliasResolutions.map((entry) => ({ ...entry })),
+    usageByRoute: counters.usageByRoute.map((entry) => ({ ...entry })),
     inFlight: counters.inFlight + 1,
     grantedCalls: counters.grantedCalls + 1,
   };
@@ -1083,6 +1163,7 @@ export function refuseReservation(counters: BudgetCounters): BudgetCounters {
     tokensByModule: counters.tokensByModule.map((entry) => ({ ...entry })),
     tokensByModel: counters.tokensByModel.map((entry) => ({ ...entry })),
     aliasResolutions: counters.aliasResolutions.map((entry) => ({ ...entry })),
+    usageByRoute: counters.usageByRoute.map((entry) => ({ ...entry })),
     refusedCalls: counters.refusedCalls + 1,
   };
 }
@@ -1104,8 +1185,12 @@ export function settleReservation(counters: BudgetCounters, settlement: BudgetSe
     totalTokens: counters.totalTokens + settlement.tokens,
     retryTokens: counters.retryTokens + (settlement.countedAsRetry ? settlement.tokens : 0),
     tokensByModule: addModuleTokens(counters.tokensByModule, settlement.module, settlement.tokens),
-    tokensByModel: addModelTokens(counters.tokensByModel, settlementBookingModel(settlement), settlement.tokens),
+    // The per-model cap follows what ACTUALLY RAN. An alias owns no usage, and an unresolved call
+    // is booked as explicitly unattributed rather than against the alias.
+    tokensByModel: addModelTokens(counters.tokensByModel, settlementCappedModel(settlement), settlement.tokens),
     aliasResolutions: recordAliasResolution(counters.aliasResolutions, settlement),
+    usageByRoute: addRouteUsage(counters.usageByRoute, settlement),
+    unattributedCalls: counters.unattributedCalls + (isUnattributedUsage(settlement) ? 1 : 0),
     inFlight: Math.max(0, counters.inFlight - 1),
     settledCalls: counters.settledCalls + 1,
     // Counted, not thrown. A throw would take the world down on a gateway that merely answers
@@ -1130,6 +1215,7 @@ export function releaseReservation(counters: BudgetCounters): BudgetCounters {
     tokensByModule: counters.tokensByModule.map((entry) => ({ ...entry })),
     tokensByModel: counters.tokensByModel.map((entry) => ({ ...entry })),
     aliasResolutions: counters.aliasResolutions.map((entry) => ({ ...entry })),
+    usageByRoute: counters.usageByRoute.map((entry) => ({ ...entry })),
     inFlight: Math.max(0, counters.inFlight - 1),
   };
 }

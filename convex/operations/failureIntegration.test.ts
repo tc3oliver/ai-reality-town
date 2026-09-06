@@ -149,7 +149,8 @@ describe('ART-74 AC#1 — provider failure retries safely', () => {
     expect(flaky.callCount).toBe(2);                  // the failed call was retried, not swallowed
     expect(result.trace.retryCount).toBeGreaterThanOrEqual(1); // retry surfaced in the trace
     expect(result.trace.provider).toBe('fake');       // trace is the normalized shape, not a raw error
-    expect(result.trace.model).toBe(FAKE_SCENE_MODEL);
+    expect(result.trace.requestedModel).toBe(FAKE_SCENE_MODEL);
+    expect(result.trace.resolvedModel).toBe(FAKE_SCENE_MODEL);
     expect(Number.isFinite(result.trace.inputTokens) && result.trace.inputTokens >= 0).toBe(true);
     expect(Number.isFinite(result.trace.outputTokens) && result.trace.outputTokens >= 0).toBe(true);
   });

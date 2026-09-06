@@ -110,6 +110,8 @@ function toCounters(row: Doc<'tokenBudgetCounters'>): BudgetCounters {
     // Absent on rows written before ART-148, which is correctly read as "no alias has resolved
     // yet today" — the cap then binds from this day's first settlement, exactly as on a new row.
     aliasResolutions: (row.aliasResolutions ?? []).map((entry) => ({ ...entry })),
+    usageByRoute: (row.usageByRoute ?? []).map((entry) => ({ ...entry })),
+    unattributedCalls: row.unattributedCalls ?? 0,
   };
 }
 
@@ -148,6 +150,8 @@ async function writeCounters(db: WriteDb, counters: BudgetCounters): Promise<voi
     lowImportanceCallsOnFastModel: counters.lowImportanceCallsOnFastModel,
     modelMeteringMismatches: counters.modelMeteringMismatches,
     aliasResolutions: counters.aliasResolutions.map((entry) => ({ ...entry })),
+    usageByRoute: counters.usageByRoute.map((entry) => ({ ...entry })),
+    unattributedCalls: counters.unattributedCalls,
   };
   if (existing) await db.patch(existing._id, row);
   else await db.insert('tokenBudgetCounters', row);
@@ -354,7 +358,7 @@ export function createConvexBudgetPort(
       await db.patch(row._id, {
         resolution: 'settled',
         settledTokens: settlement.tokens,
-        settledModel: settlement.reportedModel,
+        settledModel: settlement.resolvedModel,
       });
     },
 

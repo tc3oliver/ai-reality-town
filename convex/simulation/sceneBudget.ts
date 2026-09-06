@@ -190,10 +190,12 @@ export async function runBudgetedAttempt<T>(
   const settlement: BudgetSettlement = {
     module: request.module,
     model: granted.model,
-    // The provider's own answer to "which model ran this", captured at the only moment both ids
-    // exist. `settleReservation` compares the two and counts the divergence; see
-    // `BudgetSettlement.reportedModel` for why that comparison is worth making at all.
-    reportedModel: result.trace.model,
+    // The GATEWAY's answer to "what actually served this", read from its response body — not the
+    // id we asked for. Sourcing this from the request (as `trace.model` used to be) made the
+    // comparison below a tautology: it compared `granted.model` with itself routed through the
+    // provider, so it could never fire while claiming to catch gateway drift.
+    resolvedModel: result.trace.resolvedModel,
+    upstreamProvider: result.trace.upstreamProvider,
     importance: request.importance,
     tokens: result.trace.inputTokens + result.trace.outputTokens,
     countedAsRetry: granted.countedAsRetry,

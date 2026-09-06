@@ -61,8 +61,25 @@ export type StructuredChatRequest = {
 };
 
 export type ProviderTraceMetadata = {
+  /** Which ADAPTER served the call. Not the upstream route — see {@link upstreamProvider}. */
   provider: 'fake' | 'openai-compatible';
-  model: string;
+  /**
+   * The model id SENT to the gateway. May be a routing alias such as `auto`, in which case it
+   * names no model at all and must never own usage.
+   *
+   * Named `model` historically, and the name was the bug: everything downstream read it as "the
+   * model that ran" while it only ever echoed the request.
+   */
+  requestedModel: string;
+  /**
+   * The model the gateway said actually served the request, or `null` when it did not say.
+   *
+   * `null` is a real state, not a defect to paper over: usage that cannot be attributed to a
+   * concrete model must be visible as unattributed rather than silently booked against the alias.
+   */
+  resolvedModel: string | null;
+  /** The upstream route the gateway attributed the call to, when it exposes one. */
+  upstreamProvider: string | null;
   inputTokens: number;
   outputTokens: number;
   latencyMs: number;
