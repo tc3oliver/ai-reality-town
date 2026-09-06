@@ -138,6 +138,27 @@ export const viewerTables = {
     voteCount: v.number(),
     /** Every submission, accepted or refused. The abuse ceiling is checked against this. */
     submissionCount: v.number(),
+    /**
+     * Accepted votes per candidate id — the tally, maintained on the round instead of recomputed
+     * by reading the round's ballots (ART-155).
+     *
+     * A counter as a column on the row that owns the thing being counted, which is the shape
+     * `voteCount` and `submissionCount` above already have and the shape
+     * `viewerProgressCounters`' docblock argues for at length. Reading it costs nothing extra:
+     * both consumers — the public ballot query and the closing cron — already hold this row.
+     *
+     * INCREMENT-ONLY, and safe as such because a ballot's `candidateId` is write-once:
+     * `MAX_ACCEPTED_VOTES_PER_DEVICE_PER_ROUND` is 1, and `evaluateVoteSubmission` refuses a
+     * second accepted vote from a device that already has one, so no device can ever move its
+     * vote from one candidate to another. If that limit is ever raised above 1, THIS COUNTER
+     * NEEDS A DECREMENT PATH FIRST — otherwise a changed vote would be counted twice and the
+     * tally would drift upward with no error anywhere.
+     *
+     * Optional only so the schema change deploys against rounds opened before it existed;
+     * `openDueRounds` writes `{}` on every new round, so a missing value means "opened before
+     * ART-155" and nothing else. `readRoundTally` handles that case explicitly.
+     */
+    votesByCandidate: v.optional(v.record(v.string(), v.number())),
     winnerCandidateId: v.optional(v.string()),
     closedAt: v.optional(v.number()),
     createdAt: v.number(),

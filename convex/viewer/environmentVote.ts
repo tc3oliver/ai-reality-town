@@ -68,8 +68,35 @@ export const MAX_ATTEMPTS_PER_DEVICE_PER_ROUND = 5;
  * {@link MAX_ACCEPTED_VOTES_PER_DEVICE_PER_ROUND} is buying rows out of this budget. Capping
  * accepted votes alone would have left the row count unbounded, which is the resource that
  * actually costs something.
+ *
+ * ## Why this number, and why it moved (ART-155)
+ *
+ * It was 100,000, chosen as "a big number that bounds the work". That reasoning was wrong about
+ * which work: **Convex refuses a single query that reads more than 16,384 documents** — a limit
+ * this repository already cites for itself in `convex/operations/tokenBudgetFunctions.ts` — so a
+ * ceiling of 100,000 rows sat six times above the point at which anything enumerating those rows
+ * stops working. The failure was not graceful. `getEnvironmentVoteBallot` is anonymous, and the
+ * closing cron reads the same set, so a round pushed past ~16k rows would have thrown for every
+ * visitor AND become impossible to close — permanently stuck, not degraded.
+ *
+ * Both of those enumerations are gone; the tally now lives on the round row
+ * (`environmentVoteRounds.votesByCandidate`). The ceiling is nonetheless set BELOW the read limit
+ * rather than left where it was, so the two facts stay consistent: any path that ever needs to
+ * enumerate a round's ballots — the ART-155 migration read, an operator script, a future feature —
+ * can do so in one query by construction, instead of being correct only for as long as nobody
+ * writes such a path.
+ *
+ * `VOTE_ROUND_FULL` is a refusal, not an error, so reaching it degrades the round rather than
+ * breaking the surface.
  */
-export const MAX_SUBMISSIONS_PER_ROUND = 100_000;
+export const MAX_SUBMISSIONS_PER_ROUND = 4_096;
+
+/**
+ * The Convex per-query document limit, restated here because {@link MAX_SUBMISSIONS_PER_ROUND}
+ * is derived from it and a derivation with an invisible input is a derivation nobody can check.
+ * `environmentVote.test.ts` fails if the ceiling ever rises above it again.
+ */
+export const CONVEX_MAX_DOCUMENTS_PER_QUERY = 16_384;
 
 /** Accepted shape of an opaque device key: an opaque token, never prose and never an identity. */
 const DEVICE_KEY_PATTERN = /^[a-z0-9][a-z0-9-]{7,63}$/;
@@ -84,6 +111,45 @@ export const VOTE_REJECTION_CODES = [
   'VOTE_INPUT_REJECTED',
 ] as const;
 export type VoteRejectionCode = (typeof VOTE_REJECTION_CODES)[number];
+
+/**
+ * Refusals that must allocate NO row (ART-155, audit finding N-2).
+ *
+ * The rule is the one `viewerProgress.ts`'s {@link NON_WRITING_REJECTION_CODES} already states:
+ * a refusal that examined the submission still records its attempt, because that is what stops
+ * the surface being a free oracle for probing the classifier — but a refusal decided BEFORE
+ * looking at the submission must not buy the caller a row, or the ceiling it enforces is
+ * decorative.
+ *
+ * `VOTE_ROUND_FULL` was the one that got this wrong. It is checked against
+ * {@link MAX_SUBMISSIONS_PER_ROUND}, then fell through to the insert anyway, so a round at its
+ * ceiling kept allocating one new row per new device forever — the ceiling capped accepted votes
+ * and nothing else, and `environmentVoteBallots` is deliberately not vacuumed. That made the row
+ * count unbounded no matter what the ceiling said, which is both what made the read limit
+ * reachable in the first place and what would defeat ART-155's bound: the whole argument that a
+ * round's ballots fit in one query rests on rows being capped, not just votes.
+ *
+ * `VOTE_ROUND_NOT_OPEN` is here for the same reason and was already safe by accident — a closed
+ * round is refused before the ballot is consulted.
+ *
+ * The omissions are deliberate. `VOTE_INPUT_REJECTED`, `VOTE_CANDIDATE_UNKNOWN` and
+ * `VOTE_DEVICE_LIMIT_REACHED` all mean the caller submitted something and it was JUDGED, so they
+ * must cost an attempt — those are exactly the refusals the budget exists for.
+ * `VOTE_DEVICE_KEY_INVALID` is judged too and is left costing an attempt for that reason, even
+ * though a malformed key has no stable identity for the budget to attach to; it is bounded by
+ * `submissionCount` like everything else, and moving it is a change to the attempt semantics that
+ * this finding did not raise.
+ */
+export const NON_WRITING_VOTE_REJECTION_CODES: readonly VoteRejectionCode[] = [
+  'VOTE_DEVICE_ATTEMPTS_EXHAUSTED',
+  'VOTE_ROUND_NOT_OPEN',
+  'VOTE_ROUND_FULL',
+];
+
+/** Whether a refusal with this code must leave no row behind. */
+export function voteRefusalWritesNothing(code: VoteRejectionCode): boolean {
+  return NON_WRITING_VOTE_REJECTION_CODES.includes(code);
+}
 
 export type VoteSubmission = {
   worldId: string;
@@ -312,6 +378,44 @@ export function tallyRound(round: VoteRound, ballots: readonly { candidateId: st
   return round.candidateIds.map((candidateId) => ({ candidateId, votes: counts.get(candidateId) ?? 0 }));
 }
 
+/**
+ * The same tally, read from the round's own maintained counters instead of from its ballots
+ * (ART-155). Zero document reads: the caller already holds the round row.
+ *
+ * Deliberately reproduces {@link tallyRound}'s two rules rather than trusting the stored map,
+ * because the map is persisted state and the ballot is not immutable:
+ *
+ *  - every candidate on the ballot appears, including at zero, so an unvoted option still renders
+ *    as offered rather than as absent;
+ *  - a counter for an id NOT on this ballot is ignored, not surfaced — the same protection
+ *    `tallyRound` gives against a row written before the ballot changed.
+ *
+ * `environmentVote.test.ts` pins that the two functions agree on the same round, which is what
+ * keeps the migration path and the fast path from drifting into two different answers.
+ */
+export function tallyFromCounters(
+  round: VoteRound,
+  votesByCandidate: Readonly<Record<string, number>>,
+): VoteTally {
+  return round.candidateIds.map((candidateId) => ({
+    candidateId,
+    votes: Math.max(0, Math.trunc(votesByCandidate[candidateId] ?? 0)),
+  }));
+}
+
+/**
+ * The counters a round should hold, derived from its ballots. Used once per legacy round to
+ * migrate it onto {@link tallyFromCounters}, and never on a hot path.
+ */
+export function countersFromBallots(
+  round: VoteRound,
+  ballots: readonly { candidateId: string }[],
+): Record<string, number> {
+  const counters: Record<string, number> = {};
+  for (const { candidateId, votes } of tallyRound(round, ballots)) counters[candidateId] = votes;
+  return counters;
+}
+
 export type RoundOutcome =
   | { status: 'open' }
   | { status: 'closed'; winner: null; tally: VoteTally; reason: 'NO_VOTES' }
@@ -330,8 +434,20 @@ export type RoundOutcome =
  * changes nobody asked for, which is a stronger claim than 「勝出」 supports.
  */
 export function closeRound(round: VoteRound, ballots: readonly { candidateId: string }[], now: number): RoundOutcome {
+  return closeRoundFromTally(round, tallyRound(round, ballots), now);
+}
+
+/**
+ * {@link closeRound}, decided from an already-computed tally (ART-155).
+ *
+ * The cron reaches the tally through the round's own counters rather than by enumerating its
+ * ballots, so it needs the decision without the enumeration. Splitting it out rather than
+ * changing `closeRound`'s signature keeps the ballot-shaped entry point — which is what the
+ * existing tests and the one-time migration read both use — and makes the two provably the same
+ * decision, because one calls the other.
+ */
+export function closeRoundFromTally(round: VoteRound, tally: VoteTally, now: number): RoundOutcome {
   if (isRoundOpen(round, now)) return { status: 'open' };
-  const tally = tallyRound(round, ballots);
   const leader = tally.reduce<{ candidateId: string; votes: number } | null>(
     (best, entry) => (best === null || entry.votes > best.votes ? entry : best),
     null,
