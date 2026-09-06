@@ -93,6 +93,32 @@ describe('AC#2 — RPM and TPM are a window, not a total', () => {
     expect(summarizeProviderRates(buckets, T0 + 5 * RATE_WINDOW_MS)).toEqual([]);
   });
 
+  /**
+   * TPM must respect the window INDEPENDENTLY of RPM.
+   *
+   * Fault injection found this missing: making `tokensPerMinute` a cumulative sum while leaving
+   * the request count windowed passed every other test in this file. The route stayed in the
+   * window because of its fresh request, so the "drops to zero" test — which asserts the route
+   * disappears entirely — never saw the token figure at all. A route with old tokens and a new
+   * request is the case that separates the two.
+   */
+  it('windows TOKENS as well as requests, for a route that is still active', () => {
+    const buckets = foldAll([
+      call({ atMs: T0, inputTokens: 1_000, outputTokens: 1_000 }),
+      call({ atMs: T0 + RATE_WINDOW_MS + 5_000, inputTokens: 7, outputTokens: 3 }),
+    ]);
+
+    const summaries = summarizeProviderRates(buckets, T0 + RATE_WINDOW_MS + 5_500);
+
+    // The route is still present — it was called half a second ago — so this cannot pass by the
+    // route being filtered out. Only the FRESH tokens count.
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0].requestsPerMinute).toBe(1);
+    expect(summaries[0].tokensPerMinute).toBe(10);
+    expect(summaries[0].inputTokens).toBe(7);
+    expect(summaries[0].outputTokens).toBe(3);
+  });
+
   it('excludes an expired bucket even when it is handed to the summary', () => {
     // The stale-row case: a vacuum has not run, so an old bucket is still readable. Expiry is a
     // comparison here rather than a promise about storage, so the rate is unaffected.

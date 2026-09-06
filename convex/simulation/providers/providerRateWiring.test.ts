@@ -20,7 +20,7 @@ import type { GroupedScene, SceneGroupingResult } from '../sceneGrouping';
 import { authorSlotScenes, type SceneAuthoringPlan, type SceneAuthoringStore } from '../worldDayLive';
 import { persistValidatedSceneSimulation, findReusableSceneSimulation } from '../sceneSimulationFunctions';
 import { reserveSceneBudget, settleSceneBudget, releaseSceneBudget } from '../tokenBudgetGateFunctions';
-import { recordProviderCall, readProviderRateWindow } from '../providerRateFunctions';
+import { recordProviderCall, readProviderRateWindow, MAX_RATE_WINDOW_ROWS } from '../providerRateFunctions';
 import { RATE_WINDOW_MS } from '../../shared/providerRateWindow';
 import { createLiveSceneAuthor, LIVE_ROUTE_CHAIN_ENV } from './liveSceneAuthor';
 import { createProviderCallRecorder } from './providerCallRecorder';
@@ -344,6 +344,59 @@ describe('AC#2 — a live authoring call reaches the rate store', () => {
     // questions — which is the whole reason this is not derived from the counters.
     expect((await window(tables, RATE_WINDOW_MS + 5_000)).summaries).toEqual([]);
     expect(tables.tokenBudgetCounters[0].totalTokens).toBe(460);
+  });
+});
+
+describe('AC#2 — the read is bounded by the window, not by the world age', () => {
+  /**
+   * Fault injection found this untested: removing the window bound from the range read left every
+   * assertion green, because `summarizeProviderRates` filters expired buckets again in memory. The
+   * RESULT stayed right — but the read became unbounded, so on a world that had been running a
+   * while it would hit the row cap on ancient rows and report `truncated: true` while silently
+   * dropping the buckets that are actually inside the window.
+   *
+   * That is the failure this pins: a read whose cost, and whose completeness, depend on how long
+   * the world has existed rather than on how many routes were called in the last minute.
+   */
+  it('is unaffected by a backlog of expired buckets far exceeding the row cap', async () => {
+    const tables = emptyTables();
+    // Well past the cap, all long expired — the shape a running world accumulates between vacuums.
+    for (let index = 0; index < MAX_RATE_WINDOW_ROWS + 200; index += 1) {
+      tables.providerRateBuckets.push({
+        _id: `providerRateBuckets:old-${index}`, schemaVersion: 1, worldId: WORLD_ID,
+        requestedModel: `stale-route-${index % 20}`,
+        bucketStartMs: T0 - RATE_WINDOW_MS * 10 - index * 1_000,
+        requests: 1, served: 1, rateLimited: 0, failed: 0,
+        inputTokens: 999, outputTokens: 999, callsWithoutUsage: 0,
+        resolutions: [], allowance: null, updatedAt: T0,
+      });
+    }
+
+    await authorWithMetering({ responses: [served(scene(1), 'deepseek-v4-pro')], tables });
+    const { summaries, truncated } = await window(tables);
+
+    // Complete, not truncated, and reporting only the one call that happened in the window.
+    expect(truncated).toBe(false);
+    expect(summaries).toEqual([expect.objectContaining({
+      requestedModel: 'auto', requestsPerMinute: 1, tokensPerMinute: 460,
+    })]);
+  });
+
+  it('reports truncation when genuinely more in-window rows exist than the cap', async () => {
+    // The negative control for the test above: `truncated` must be able to be true, or asserting
+    // it false proves nothing.
+    const tables = emptyTables();
+    for (let index = 0; index <= MAX_RATE_WINDOW_ROWS; index += 1) {
+      tables.providerRateBuckets.push({
+        _id: `providerRateBuckets:live-${index}`, schemaVersion: 1, worldId: WORLD_ID,
+        requestedModel: `route-${index}`, bucketStartMs: T0 - index,
+        requests: 1, served: 1, rateLimited: 0, failed: 0,
+        inputTokens: 1, outputTokens: 1, callsWithoutUsage: 0,
+        resolutions: [], allowance: null, updatedAt: T0,
+      });
+    }
+
+    expect((await window(tables)).truncated).toBe(true);
   });
 });
 
