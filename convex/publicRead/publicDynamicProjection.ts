@@ -49,6 +49,7 @@ import {
  * reachable values is looking at a different contract than one that does not.
  */
 import { applyConversationState, conversationStatesFor } from './conversationState';
+import { emptyLiveFold, foldLiveEvents } from './liveFold';
 
 export const PUBLIC_DYNAMIC_RUNTIME_VERSION = 4;
 
@@ -332,23 +333,10 @@ export function seedPlacementsFromCharacterRows(
  * stood, whereas removing them from the output only removes them.
  */
 export function excludedCharacterIds(events: readonly AcceptedEventLike[]): Set<string> {
-  const ordered = [...events].sort((left, right) => left.sequenceNumber - right.sequenceNumber);
-  const excluded = new Set<string>();
-  for (const event of ordered) {
-    for (const change of event.stateChanges) {
-      const characterId = change.characterId;
-      if (typeof characterId !== 'string' || characterId.length === 0) continue;
-      const record = change as { alive?: unknown; field?: unknown; toValue?: unknown };
-      if (change.type === 'character_life_changed' && typeof record.alive === 'boolean') {
-        if (record.alive) excluded.delete(characterId);
-        else excluded.add(characterId);
-      } else if (change.type === 'character_state_changed' && record.field === 'active') {
-        if (record.toValue === true) excluded.delete(characterId);
-        else if (record.toValue === false) excluded.add(characterId);
-      }
-    }
-  }
-  return excluded;
+  // ART-100: one implementation, shared with `buildLiveProjection`'s character maps. This used to
+  // walk the events with its own copy of the rules; the two copies were subtly different and only
+  // one of them was right about a malformed `alive`. See `liveFold.ts`.
+  return new Set(foldLiveEvents(emptyLiveFold(), events).excludedCharacterIds);
 }
 
 /**

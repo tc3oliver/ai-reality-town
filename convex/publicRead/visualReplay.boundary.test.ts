@@ -118,6 +118,13 @@ describe('FR-O013 AC#4 — the replay builder cannot reach a generator or a writ
       // so a new dependency in the replay builder's closure is a reviewed decision, and it did
       // its job here.
       'convex/publicRead/conversationState.ts',
+      // ART-100 Slice 6. `excludedCharacterIds` no longer walks the event log itself; it and
+      // `buildLiveProjection` now share one last-write-wins fold, so a stored Live checkpoint and
+      // a full replay cannot come to disagree. Admitted deliberately: the module imports NOTHING
+      // (its `LiveLocation` is declared there rather than imported back from `liveState.ts`,
+      // precisely so this closure does not grow a path into `convex/canon/`), and it is a pure
+      // function over its arguments like every other entry here.
+      'convex/publicRead/liveFold.ts',
       'convex/publicRead/publicDynamicProjection.ts',
       'convex/visual/locationVisualBinding.ts',
       'convex/visualRuntime/ambientAnchor.ts',

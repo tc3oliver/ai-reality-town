@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-08-04 06:21'
-updated_date: '2026-09-06 04:04'
+updated_date: '2026-09-06 04:58'
 labels:
   - prd-1.0
   - epic-i
@@ -107,6 +107,31 @@ Every publicRead rebuild* function re-derives its payload by replaying the whole
 ## 驗證
 
 `npm run check`、`npm run e2e`,以及逐 AC 故障注入(本 repo 慣例)。
+
+## Slice 6 — `rebuildLiveProjection`(AC#1 的最後一項,實測歸因後重新界定)
+
+先更正 Slice 3 留下的「結構性阻塞」結論:**過寬**。真正綁住全量讀取的是**五個**消費端,不是「快照會洩漏 seed 位置」這一個理由,而其中兩個可以直接用既有機制解掉。
+
+`rebuildLiveProjection` 內 `acceptedEvents`(全表 collect)的消費端,逐一界定:
+
+1. `canonCharacterLocations(worldId, acceptedEvents)`(`liveStateFunctions.ts:100-109`)—— 它就是 `replayWorldEvents(emptyProjection, events).characterLocations`。`characterLocations` **不在** `SEED_BASELINE_FIELDS` 內,所以「快照續接 === 從空重播」的論證與 Slice 2 對 `relationshipHistory` 用的**是同一條**,直接改用 `readProjectionViaSnapshot`。零新機制。
+2. `redactWithheldSummaries(acceptedEvents)` → `buildLiveProjection`(`liveState.ts:103-189`)—— 它自己**不讀**投影的 `locations`,而是從 `location_state_changed` 自建一份 LWW map;另外三個結構(`positionByCharacter`、`aliveByCharacter`、`knownCharacters`)也全是 LWW / 集合聯集。四者皆為**逐事件單調**,無追溯依賴,可增量維護。`recentEvents` 只要最後 N 筆 + withheld 集合,兩者皆有界。
+3. `sceneEventRows` → `withheldEventIds` / `buildActiveScenePresentations` —— 需界定 active scene 的實際窗口(疑為當日),未定。
+4. `excludedCharacterIds(acceptedEvents)` —— 需界定。
+5. `buildPublicDynamicProjectionResult({ acceptedEvents })` → `buildVisualReplay` —— 最難的一項,且**仍然**成立:`visualReplay.ts:361` 在整段歷史上排 importance 取前 `REPLAY_MAX_SCENES = 3`,`foldLocations(ordered, firstSequence, group.maxSequenceNumber)`(`:380`、`:562`)再對勝出場景取其前後的精確位置狀態,而勝出場景可以落在世界壽命的任何一天。
+
+### 為何必須整批落地
+
+讀取量只在**五個消費端全部有界**之後才會下降 —— 只要還有一個需要完整 `acceptedEvents`,那次全表 collect 就還在,量測數字**一動也不會動**。因此不拆成多個 PR 分批交付:單獨做第 1 項是零收益的擾動。
+
+### 需要的新機制(僅第 2、5 項需要)
+
+- 一份**非 seed** 的 live-fold 快取:`locations` / `positionByCharacter` / `aliveByCharacter` / `knownCharacters`,由空基準線摺疊而得,在 stage 20 與日快照一起寫。不能重用 canon 快照,因為 `locations` 是 seed 欄位 —— 這是原「結構性阻塞」論證裡**唯一**站得住的部分。
+- `buildVisualReplay` 需要一份增量維護的「候選場景 importance 前 K 名」摘要,加上以場景邊界為鍵的位置 fold 快取。
+
+### AC#3 的防護
+
+每一項都必須有一條「有無快取,發布 payload 位元相同」的等價測試(沿用 `stableStringify`),且 fixture 必須先驗**非空**再驗相等 —— 這正是本任務稍早已經犯過一次的失敗模式(`snapshotReplay.test.ts` 斷言 `{}` 等於 `{}`)。
 <!-- SECTION:PLAN:END -->
 
 ## Implementation Notes
@@ -306,4 +331,45 @@ stage 17 寫 recap → `invalidate()` → stage 20 再讀一次世界狀態。re
 `completedWorldDaysBounded` 也仍在成長,但是 O(days) 而非 O(events)。若它成為瓶頸,維護式摘要是解法,而且需要的形狀比完整日期陣列窄:三個消費端分別只要「小於某日的完成日數量」(`episodeNumberFor`)、成員測試、以及對 `episodeWorldDays` 的小型差集。已寫入該函式 docblock。
 
 PR #224,auto-merge 已啟用(2026-09-06T04:02:53Z)。
+
+## Slice 6 進度:共用的 Live fold(PR #225)
+
+### 交付
+
+新增 `convex/publicRead/liveFold.ts`:`LiveFoldState`、`emptyLiveFold()`、`foldLiveEvents(prior, events)`。
+
+`buildLiveProjection` 的位置/角色 map 與 `excludedCharacterIds` **合併為同一份實作**。先前是兩份,規則重疊但**不相同** —— 只有其中一份會先型別檢查 `alive` 才採信。兩份實作正是「checkpoint 與 replay 在已發布輸出上悄悄分歧」的成因。
+
+`buildLiveProjection` 新增選用的 `priorFold`,省略即為原本的全量重播,位元不變。
+
+### 從空摺疊,而非續接 CanonSnapshot
+
+`locations` 是 `SEED_BASELINE_FIELDS` 之一。**「從 canon 快照減去 seed」已評估並否決**:事件可以把某個位置設成與 seed 相同的值,因此「與 initial 快照不同」無法區分「從未被觸碰」與「被改回同值」,而且會朝錯的方向解 —— 丟掉一個事件確實寫過的位置。
+
+### 讀取量尚未下降,而這是預期的
+
+五個消費端只要還有一個需要完整 `acceptedEvents`,那次 collect 就還在。單獨落地本 slice 對量測數字**零影響**,已在 PR 內明說,以免被誤讀為失敗的最佳化。
+
+### 兩條 boundary test 抓到我的真實錯誤(不是需要放寬的雜訊)
+
+第一版把 `LiveLocation` 宣告在 `liveState.ts` 再往下 import。**那一條 type edge** 就把四個 `convex/canon/` 模組拉進 ambient client 的閉包,而該處**連 type position 都禁止**該 root。改為在 `liveFold.ts` 內宣告(該檔 import 任何東西都沒有),再由 `liveState.ts` re-export。pin 只為那一條刻意新增的 edge 更新,且是在違規被**修好之後**才更新,不是被遷就。
+
+第三條失敗是我自己的註解散文:內含一個 Canon 偵測器 boundary test 會在 client 檔案裡 grep 的符號名。散文也會被掃描。已改寫。
+
+### 驗證證據
+
+- `npm run check` 全綠:**208 suites / 3364 passed / 6 skipped**
+- 承載性質(`fold(all) === fold(fold(prefix), suffix)`)在**每一個** split point 上斷言,fixture 同時涵蓋全部五個摺疊結構 —— 不是挑一個方便的邊界測一次
+- 每條相等斷言都先驗**非空**(本任務先前已犯過一次 `{}` 等於 `{}`)
+- 故障注入:重設 `lastSequenceNumber` → split-point 性質轉紅;移除 `alive` 型別檢查 → 兩條 malformed 測試轉紅;讓 active flag 寫入 `knownCharacters` → 該條轉紅
+
+### 注入找到我自己測試的漏洞(已修)
+
+第一版 malformed-`alive` 測試用的是 **truthy** 值(`'not-a-boolean'`)。移除守衛後它仍然綠 —— 因為 truthy 會走 `delete` 分支,結果同樣是空集合,守衛對該輸入根本不起作用。已補上 falsy(`null`)與 truthy 兩個方向,現在注入會讓兩條都轉紅。
+
+這正是「測試名稱指涉的性質根本沒被觸及」那個失敗模式的第三次現身,而這次是注入抓到的,不是靠閱讀。
+
+### 剩餘(AC#1 仍紅)
+
+`canonCharacterLocations`(快照即可)、`buildActiveScenePresentations`(窗口有界,fallback 需小心)、`buildVisualReplay`(仍是真正困難的一項:跨全史排 importance + `foldLocations` 需要勝出場景前後的精確位置)。五者必須整批落地讀取量才會動。
 <!-- SECTION:NOTES:END -->
