@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-08-04 06:21'
-updated_date: '2026-08-29 06:44'
+updated_date: '2026-09-06 04:04'
 labels:
   - prd-1.0
   - epic-i
@@ -240,9 +240,70 @@ harness 檔案中殘留一條 `DEBUG multiday numbers` 測試(含 `console.log`)
 
 ## AC#1 現況(誠實)
 
+> **已於下方 Slice 4 以 stack 歸因實測推翻部分內容。** `rebuildWorldProjection`、`rebuildCharacterProjection`、`readProjectionViaSnapshot` 的回退在「多日+有快照」fixture 上實測為**平坦**;下表的比值 1.895 來自已被證明無法偵測線性項的舊閘門。以 Slice 4 的表為準。
+
 比值 **1.895**(基線 1.898)。我拆掉 `loadCanonRows` 移除一處全量讀取,但 `loadProjection` 的兩個獨立呼叫點在無快照的 fixture 下各加回一次 —— 對該 fixture 而言是打平,不是回歸。多日含快照變體為 1.754(三處呼叫點同時修好)。
 
 仍在做全量 collect 的呼叫點:`rebuildWorldProjection`、`rebuildCharacterProjection`(進行中)、`rebuildLiveProjection`(結構性阻塞,見上)、`loadCharacterKnowledge`/`loadCharacterMemories` 的無快照回退、`rebuildRelationshipGraphProjection` 的無快照回退。
 
 已確認消失:`rebuildTimelineProjection` 與 `rebuildEpisodeIndexProjection` 完全不再觸碰 `canonEvents`。
+
+## Slice 4 — AC#1 的閘門本身是錯的(先修尺,再量)
+
+### 發現:`ratio < 1.5` 無法偵測它宣稱要偵測的東西
+
+審查者 HIGH-3 屬實,而且比原本描述的更嚴重。對 `total = C + kN`,在 N=30/60 下只要 `C > 30k` 就過關 —— 一個**完全線性**的 `k` 項可以帶著綠燈通過。也就是說:即使 AC#1 轉綠,那個綠也不代表 AC#1 成立。
+
+改為字面斷言:`large.byTable.canonEvents === small.byTable.canonEvents`。
+
+### 換到「多日 + 有快照」fixture,並說明為何這不是放水
+
+單日 fixture 的世界日**永不結束**,所以永遠不存在日快照,所以任何投影都**必須**從空重播 —— 在該 fixture 上 O(N) 是「正確答案的正確成本」,不是缺陷。用一個結構上不可能受惠於修正的 fixture 去量 AC#1,量到的是 harness 不是系統。
+
+生產環境從不長那樣:`importWorld` 寫 `initial` 快照,stage 20 每個世界日邊界寫日快照。
+
+### 用 stack 歸因取代推測:嫌疑犯從 7 個降到 3 個
+
+在 `recordRead` 內捕捉 stack 並依呼叫點聚合(臨時儀器,未進 PR)。原 docblock 列了 7 個 `by_world_and_sequence` 全表呼叫點;實測只有 3 個在成長,而且 66 列的差距**全部**由它們構成:
+
+| 呼叫點 | 30 → 60 | 狀態 |
+|---|---|---|
+| `liveStateFunctions.ts` `rebuildLiveProjection` | 30 → 60 | 結構性,未解 |
+| `onboardingSummaryFunctions.ts` 尾端掃描 | 30 → 60 | **本次加上限** |
+| `completedWorldDaysBounded` | 6 → 12 | O(days),已去除加倍 |
+
+已確認**平坦**(先前被列為嫌疑犯,實際已修好):`rebuildWorldProjection`(40)、`rebuildCharacterProjection`(10)、`readProjectionViaSnapshot`(15)、`rebuildVoteConsequenceProjection`(10)、`loadWorldState` 點查(8)、recap 視窗(2)。`rebuildTimelineProjection` 與 `rebuildEpisodeIndexProjection` 為**零**。
+
+原 docblock 那份七項清單已整段刪除,換成上表 —— 它誤導了包含我自己在內的讀者。
+
+### 修正 1:`loadWorldState` 的 Canon 半邊跨 `invalidate()` 快取
+
+stage 17 寫 recap → `invalidate()` → stage 20 再讀一次世界狀態。recap 寫入**不可能**改變任何由 `canonEvents` 導出的東西,而且本管線從不寫 Canon(模組 docblock 早已載明此不變式)。第二次抓取是純浪費,而且是**回歸**:先前的 `loadCanonRows` 快取同樣不被 `invalidate` 清除,移除它時弄丟了這個性質。
+
+新增 `CanonWorldView`(`event`、`completedWorldDays`、`worldDayFirstSequenceNumber`、`latestWorldDay`)獨立快取,不被 `invalidate` 清除。
+
+`canonEvents:by_world_and_day`:36 → 23(小)、48 → 29(大) —— 正好是那個加倍,消失。
+
+### 修正 2:onboarding 尾端掃描加上 `MAX_SCANNED_EVENTS = 200` 上限
+
+「以 N 為界」仍然是 O(N),而使它線性的型態是**可達的**而非理論的:fact 收集要三筆 `fact_created`,而一個一輩子只產出兩筆的世界會在**每一次** post-commit 都翻頁到耗盡。這正好落在本任務要疏通的交易位元組預算上。
+
+**上限有真實代價,寫明而非埋起來**:超過之後,摘要報告的是近期尾端找到的重大事件與 facts,而不是歷史深處存在的那些。這對**這個** payload 是站得住腳的 —— 它是「當前情勢」onboarding 摘要(FR-H001),400 個事件前的 fact 回答的是另一個問題。對一個宣稱涵蓋完整歷史的投影就**不**站得住腳,docblock 明文寫了這條界線。
+
+`take` 的頁面大小也依剩餘預算裁切(`Math.min(pageSize, MAX - read)`),否則跨越上限的那一頁會整頁計費 —— 那是「建議」不是「上限」。
+
+### 驗證證據
+
+- `npm run check` 全綠:**207 suites / 3354 passed / 6 skipped**
+- 故障注入(移除上限與預算裁切)→ **恰好** 3 條 cap 測試轉紅,而**兩條配對的正向案例維持綠**(證明它們測的是邊界,不是上限存在與否)
+- 故障注入(在 `invalidate` 內重新清除 `canonView`)→ slope 測試轉紅,數字**正好** 6 → 12,即預測的加倍
+- slope 測試釘的是**斜率不是常數**:每趟成本混合了 `loadWorldState` 的日探測與 `rebuildVoteConsequenceProjection` 的日範圍讀取,兩者都可能因各自的理由變動;必須成立的是「每個世界日只探測一次」,所以多 6 天就必須多 6 次讀取
+
+### AC#1 仍為紅 —— 剩下一項,且是設計不是綁定
+
+`rebuildLiveProjection`(30 → 60,最大的單一項)。需要一份新的、增量維護的**非 seed** 位置/角色快取,加上以場景邊界為鍵的位置 fold 快取。`locations` 是 `SEED_BASELINE_FIELDS` 之一,所以直接改用快照會發布今天 replay-from-empty 從不呈現的 seed 資料,違反 AC#3;而 `buildVisualReplay` 必須在**整段**歷史上排序重要性才能挑出前幾名。
+
+`completedWorldDaysBounded` 也仍在成長,但是 O(days) 而非 O(events)。若它成為瓶頸,維護式摘要是解法,而且需要的形狀比完整日期陣列窄:三個消費端分別只要「小於某日的完成日數量」(`episodeNumberFor`)、成員測試、以及對 `episodeWorldDays` 的小型差集。已寫入該函式 docblock。
+
+PR #224,auto-merge 已啟用(2026-09-06T04:02:53Z)。
 <!-- SECTION:NOTES:END -->
