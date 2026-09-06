@@ -593,7 +593,7 @@ describe('AC#3 — the resource report measures a real run', () => {
       origin: 'scheduled_simulation' as const,
     };
     const trace = {
-      provider: 'fake' as const, requestedModel: FAKE_SCENE_MODEL, resolvedModel: FAKE_SCENE_MODEL, upstreamProvider: 'fake',
+      provider: 'fake' as const, requestedModel: FAKE_SCENE_MODEL, resolvedModel: FAKE_SCENE_MODEL, upstreamProvider: 'fake', rateLimit: null,
       inputTokens: 40, outputTokens: 10, latencyMs: 1, retryCount: 0,
     };
 

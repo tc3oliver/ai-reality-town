@@ -196,6 +196,9 @@ export async function runBudgetedAttempt<T>(
     // provider, so it could never fire while claiming to catch gateway drift.
     resolvedModel: result.trace.resolvedModel,
     upstreamProvider: result.trace.upstreamProvider,
+    // The free-tier allowance this call observed. Free-only deployment: this is the number that
+    // can actually stop the world, which is why it is settled alongside the tokens.
+    allowance: result.trace.rateLimit,
     importance: request.importance,
     tokens: result.trace.inputTokens + result.trace.outputTokens,
     countedAsRetry: granted.countedAsRetry,

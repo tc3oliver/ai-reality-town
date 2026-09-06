@@ -21,7 +21,7 @@ import type {
 import { withPreGenerationSafety } from './safeProvider';
 
 const TRACE = {
-  provider: 'openai-compatible' as const, requestedModel: 'unguarded', resolvedModel: 'unguarded', upstreamProvider: 'fake',
+  provider: 'openai-compatible' as const, requestedModel: 'unguarded', resolvedModel: 'unguarded', upstreamProvider: 'fake', rateLimit: null,
   inputTokens: 0,
   outputTokens: 0,
   latencyMs: 0,

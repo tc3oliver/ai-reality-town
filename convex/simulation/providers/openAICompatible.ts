@@ -1,5 +1,5 @@
 import type { SimulationInput } from '../model';
-import { SimulationProviderError, type EmbeddingResult, type LanguageModelProvider, type ProviderTraceMetadata, type SimulationProvider, type StructuredChatRequest, type StructuredChatResult } from '../provider';
+import { SimulationProviderError, type EmbeddingResult, type LanguageModelProvider, type ProviderRateLimit, type ProviderTraceMetadata, type SimulationProvider, type StructuredChatRequest, type StructuredChatResult } from '../provider';
 import { PRE_GENERATION_PROVIDER_CONSTRAINT, assertPreGenerationSafe, chatMessagesToSafetyInput } from '../../safety/preGeneration';
 import type { OpenAICompatibleConfig } from './config';
 
@@ -71,7 +71,7 @@ export class OpenAICompatibleProvider implements LanguageModelProvider, Simulati
     url: string,
     body: Record<string, unknown>,
     overrides: { timeoutMs?: number; maxAttempts?: number } = {},
-  ): Promise<{ body: unknown; retryCount: number; latencyMs: number }> {
+  ): Promise<{ body: unknown; rateLimit: ProviderRateLimit | null; retryCount: number; latencyMs: number }> {
     // ART-156 / audit H-4: the LAST gate, on the only line in this class that reaches the
     // network. The per-method calls above screen the caller's own input with the right
     // `inputKind`; this screens the request body as ACTUALLY ASSEMBLED, which is a different
@@ -100,7 +100,8 @@ export class OpenAICompatibleProvider implements LanguageModelProvider, Simulati
         }
         let parsed: unknown;
         try { parsed = await response.json() as unknown; } catch { throw new SimulationProviderError('permanent', 'LLM_RESPONSE_INVALID', 'provider response was not JSON'); }
-        return { body: parsed, retryCount: attempt - 1, latencyMs: Math.max(0, this.dependencies.now() - started) };
+        return { body: parsed, rateLimit: OpenAICompatibleProvider.rateLimitOf(response.headers),
+          retryCount: attempt - 1, latencyMs: Math.max(0, this.dependencies.now() - started) };
       } catch (error) {
         last = error;
         const transient = error instanceof SimulationProviderError ? error.kind === 'transient' : true;
@@ -111,6 +112,28 @@ export class OpenAICompatibleProvider implements LanguageModelProvider, Simulati
     if (last instanceof SimulationProviderError) throw last;
     if (last instanceof DOMException && last.name === 'AbortError') throw new SimulationProviderError('transient', 'LLM_TIMEOUT', `provider exceeded ${timeoutMs}ms timeout`);
     throw new SimulationProviderError('transient', 'LLM_NETWORK_ERROR', 'provider network request failed');
+  }
+
+  /**
+   * The free-tier allowance the gateway reported, or null when it reported none (ART-158).
+   *
+   * All three headers are required together: a `remaining` with no `limit` cannot say how close to
+   * exhaustion a route is, and reporting a partial reading as a complete one would understate the
+   * risk. Non-numeric or negative values are treated as absent rather than coerced — a `remaining`
+   * that silently became 0 would look exactly like genuine exhaustion.
+   */
+  private static rateLimitOf(headers: Headers): ProviderRateLimit | null {
+    const value = (name: string): number | null => {
+      const raw = headers.get(name);
+      if (raw === null) return null;
+      const parsed = Number(raw.trim());
+      return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+    };
+    const limit = value('x-ratelimit-limit');
+    const remaining = value('x-ratelimit-remaining');
+    const resetAtEpochSeconds = value('x-ratelimit-reset');
+    if (limit === null || remaining === null || resetAtEpochSeconds === null) return null;
+    return { limit, remaining, resetAtEpochSeconds };
   }
 
   /**
@@ -175,7 +198,7 @@ export class OpenAICompatibleProvider implements LanguageModelProvider, Simulati
     try { output = JSON.parse(message.content) as unknown; } catch { throw new SimulationProviderError('permanent', 'LLM_STRUCTURED_OUTPUT_INVALID', 'chat response content is not valid JSON'); }
     const tokens = usage(root.usage);
     return { output, trace: { provider: 'openai-compatible', requestedModel: chatModel,
-      ...OpenAICompatibleProvider.route(root), ...tokens,
+      ...OpenAICompatibleProvider.route(root), ...tokens, rateLimit: response.rateLimit,
       latencyMs: response.latencyMs, retryCount: response.retryCount } };
   }
 
@@ -203,7 +226,8 @@ export class OpenAICompatibleProvider implements LanguageModelProvider, Simulati
     const tokens = usage(root.usage);
     return { embedding, trace: { provider: 'openai-compatible', requestedModel: this.config.embeddingModel,
       ...OpenAICompatibleProvider.route(root),
-      ...tokens, latencyMs: response.latencyMs, retryCount: response.retryCount } };
+      ...tokens, rateLimit: response.rateLimit,
+      latencyMs: response.latencyMs, retryCount: response.retryCount } };
   }
 
   async proposeEvent(input: SimulationInput): Promise<unknown> {

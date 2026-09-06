@@ -10,7 +10,8 @@ const config = (overrides: Partial<OpenAICompatibleConfig> = {}): OpenAICompatib
   chatUrl: 'https://llm.example/v1/chat/completions', embeddingUrl: 'https://llm.example/v1/embeddings', chatModel: 'chat-model',
   embeddingModel: 'embed-model', embeddingDimension: 3, apiKey: 'test-secret-never-log', allowUnauthenticated: false,
   timeoutMs: 100, maxAttempts: 3, ...overrides });
-const response = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+const response = (body: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response =>
+  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...extraHeaders } });
 const chatBody = (output: unknown) => ({ choices: [{ message: { content: JSON.stringify(output) } }], usage: { prompt_tokens: 4, completion_tokens: 2 } });
 const foundationInput = (): SimulationInput => ({ seed: 7, worldId: 'w', worldDay: 1, timeSlot: 'morning',
   idempotencyKey: 'k', traceId: 't', scenario: 'success', proposedBy: { type: 'character', id: 'a' },
@@ -39,7 +40,7 @@ describe('NFR-004 OpenAI-compatible provider adapter', () => {
     // is the honest answer to "which model served this" when the gateway did not say — not the
     // requested id echoed back, which is what this adapter used to report.
     expect(result).toEqual({ output: { ok: true }, trace: { provider: 'openai-compatible',
-      requestedModel: 'chat-model', resolvedModel: null, upstreamProvider: null,
+      requestedModel: 'chat-model', resolvedModel: null, upstreamProvider: null, rateLimit: null,
       inputTokens: 4, outputTokens: 2, latencyMs: 0, retryCount: 0 } });
     expect(authorization).toBe('Bearer test-secret-never-log');
     expect(JSON.stringify(result)).not.toContain('test-secret-never-log');
@@ -110,6 +111,47 @@ describe('NFR-004 OpenAI-compatible provider adapter', () => {
     expect(result.trace.resolvedModel).toBeNull();
   });
 
+  /**
+   * ART-158. The free-tier allowance is the only thing that can actually stop this world running,
+   * and the adapter used to discard it: `request()` returned the body and dropped the headers.
+   */
+  it('reports the free-tier allowance the gateway sent', async () => {
+    const provider = new OpenAICompatibleProvider(config(), { fetch: () => Promise.resolve(
+      response(chatBody({ ok: true }), 200, {
+        'x-ratelimit-limit': '120', 'x-ratelimit-remaining': '119', 'x-ratelimit-reset': '1788685622',
+      })), now: () => 10 });
+
+    const result = await provider.structuredChat({ messages: [{ role: 'user', content: 'input' }],
+      schemaName: 'test', jsonSchema: { type: 'object' }, temperature: 0, maxTokens: 20 });
+
+    expect(result.trace.rateLimit).toEqual({ limit: 120, remaining: 119, resetAtEpochSeconds: 1_788_685_622 });
+  });
+
+  it('treats a PARTIAL allowance reading as absent rather than as a complete one', async () => {
+    // `remaining` with no `limit` cannot say how close to exhaustion a route is. Reporting it as a
+    // reading would understate the risk; reporting it as null says plainly that we do not know.
+    const provider = new OpenAICompatibleProvider(config(), { fetch: () => Promise.resolve(
+      response(chatBody({ ok: true }), 200, { 'x-ratelimit-remaining': '4' })), now: () => 10 });
+
+    const result = await provider.structuredChat({ messages: [{ role: 'user', content: 'input' }],
+      schemaName: 'test', jsonSchema: { type: 'object' }, temperature: 0, maxTokens: 20 });
+
+    expect(result.trace.rateLimit).toBeNull();
+  });
+
+  it('does not coerce a non-numeric allowance into a number', async () => {
+    // A `remaining` that silently became 0 would be indistinguishable from genuine exhaustion.
+    const provider = new OpenAICompatibleProvider(config(), { fetch: () => Promise.resolve(
+      response(chatBody({ ok: true }), 200, {
+        'x-ratelimit-limit': '120', 'x-ratelimit-remaining': 'unknown', 'x-ratelimit-reset': '1788685622',
+      })), now: () => 10 });
+
+    const result = await provider.structuredChat({ messages: [{ role: 'user', content: 'input' }],
+      schemaName: 'test', jsonSchema: { type: 'object' }, temperature: 0, maxTokens: 20 });
+
+    expect(result.trace.rateLimit).toBeNull();
+  });
+
   it('normalizes embeddings and rejects incompatible dimensions', async () => {
     const good = new OpenAICompatibleProvider(config(), { fetch: () => Promise.resolve(response({ data: [{ embedding: [0.1, 0.2, 0.3] }], usage: { prompt_tokens: 1 } })) });
     expect((await good.embed('hello')).embedding).toEqual([0.1, 0.2, 0.3]);
@@ -145,8 +187,8 @@ describe('NFR-004 OpenAI-compatible provider adapter', () => {
       calls += 1; return Promise.resolve(calls === 1 ? response(chatBody({ probe: 'ok' })) : response({ data: [{ embedding: [0, 0, 0] }] }));
     } });
     await expect(probeProviderCapabilities(provider, config())).resolves.toEqual({ chat: { compatible: true, model: 'chat-model', resolvedModel: null, upstreamProvider: null }, embedding: { compatible: true, model: 'embed-model', resolvedModel: null, dimension: 3 } });
-    const incompatible = { structuredChat: (_request: StructuredChatRequest) => Promise.resolve({ output: { probe: 'wrong' }, trace: { provider: 'openai-compatible' as const, requestedModel: 'x', resolvedModel: 'x', upstreamProvider: null, inputTokens: 0, outputTokens: 0, latencyMs: 0, retryCount: 0 } }),
-      embed: () => Promise.resolve({ embedding: [0, 0, 0], trace: { provider: 'openai-compatible' as const, requestedModel: 'x', resolvedModel: 'x', upstreamProvider: null, inputTokens: 0, outputTokens: 0, latencyMs: 0, retryCount: 0 } }) };
+    const incompatible = { structuredChat: (_request: StructuredChatRequest) => Promise.resolve({ output: { probe: 'wrong' }, trace: { provider: 'openai-compatible' as const, requestedModel: 'x', resolvedModel: 'x', upstreamProvider: null, rateLimit: null, inputTokens: 0, outputTokens: 0, latencyMs: 0, retryCount: 0 } }),
+      embed: () => Promise.resolve({ embedding: [0, 0, 0], trace: { provider: 'openai-compatible' as const, requestedModel: 'x', resolvedModel: 'x', upstreamProvider: null, rateLimit: null, inputTokens: 0, outputTokens: 0, latencyMs: 0, retryCount: 0 } }) };
     await expect(probeProviderCapabilities(incompatible, config())).rejects.toMatchObject({ code: 'LLM_STRUCTURED_OUTPUT_UNSUPPORTED' });
   });
 

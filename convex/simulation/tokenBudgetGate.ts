@@ -110,7 +110,10 @@ function toCounters(row: Doc<'tokenBudgetCounters'>): BudgetCounters {
     // Absent on rows written before ART-148, which is correctly read as "no alias has resolved
     // yet today" — the cap then binds from this day's first settlement, exactly as on a new row.
     aliasResolutions: (row.aliasResolutions ?? []).map((entry) => ({ ...entry })),
-    usageByRoute: (row.usageByRoute ?? []).map((entry) => ({ ...entry })),
+    usageByRoute: (row.usageByRoute ?? []).map((entry) => ({
+      ...entry, failures: entry.failures ?? 0, rateLimited: entry.rateLimited ?? 0,
+      allowance: entry.allowance ?? null,
+    })),
     unattributedCalls: row.unattributedCalls ?? 0,
   };
 }

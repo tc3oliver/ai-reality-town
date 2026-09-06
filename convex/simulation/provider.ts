@@ -60,6 +60,19 @@ export type StructuredChatRequest = {
   maxAttempts?: number;
 };
 
+/**
+ * A free-tier allowance as the gateway reported it (ART-158).
+ *
+ * `resetAt` is the epoch SECONDS value the gateway sends, kept in its own unit rather than
+ * normalised to milliseconds at the edge: every other timestamp in this codebase is milliseconds,
+ * so a silently converted one would be indistinguishable from a wrong one at the point it is read.
+ */
+export type ProviderRateLimit = {
+  limit: number;
+  remaining: number;
+  resetAtEpochSeconds: number;
+};
+
 export type ProviderTraceMetadata = {
   /** Which ADAPTER served the call. Not the upstream route — see {@link upstreamProvider}. */
   provider: 'fake' | 'openai-compatible';
@@ -80,6 +93,15 @@ export type ProviderTraceMetadata = {
   resolvedModel: string | null;
   /** The upstream route the gateway attributed the call to, when it exposes one. */
   upstreamProvider: string | null;
+  /**
+   * The free-tier allowance state the gateway reported for this call, or `null` when it reported
+   * none (ART-158).
+   *
+   * Read from `x-ratelimit-limit` / `-remaining` / `-reset`. This deployment is free-only, so
+   * these are not billing figures — they are how much of a free allowance is left and when it
+   * refills, which is the only thing that can actually stop the world running.
+   */
+  rateLimit: ProviderRateLimit | null;
   inputTokens: number;
   outputTokens: number;
   latencyMs: number;

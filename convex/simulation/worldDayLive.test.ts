@@ -444,7 +444,7 @@ describe('FR-C001…FR-C005 live world-day execution', () => {
         calls.push(request);
         return Promise.resolve({
           output: narrateGroupedScene(JSON.parse(request.messages[1].content) as GroupedScene),
-          trace: { provider: 'openai-compatible', requestedModel: 'swapped-in', resolvedModel: 'swapped-in', upstreamProvider: 'fake', inputTokens: 1, outputTokens: 2, latencyMs: 3, retryCount: 0 },
+          trace: { provider: 'openai-compatible', requestedModel: 'swapped-in', resolvedModel: 'swapped-in', upstreamProvider: 'fake', rateLimit: null, inputTokens: 1, outputTokens: 2, latencyMs: 3, retryCount: 0 },
         });
       },
       embed: () => Promise.reject(new Error('not used')),
@@ -578,7 +578,7 @@ describe('FR-C002 neglected-character reachability (ART-101)', () => {
       arcIds: [], trigger: 'The refinancing deadline lands', dramaticPressure: 'The audit is not finished',
     };
     const result = finalizeWholeSceneOutput('sim', scene, parseWholeSceneOutput(narrateGroupedScene(scene), scene), 1,
-      { provider: 'fake', requestedModel: 'fake-whole-scene-v1', resolvedModel: 'fake-whole-scene-v1', upstreamProvider: 'fake', inputTokens: 1, outputTokens: 1, latencyMs: 0, retryCount: 0 });
+      { provider: 'fake', requestedModel: 'fake-whole-scene-v1', resolvedModel: 'fake-whole-scene-v1', upstreamProvider: 'fake', rateLimit: null, inputTokens: 1, outputTokens: 1, latencyMs: 0, retryCount: 0 });
     expect(withArrivalStateChanges(result, port.lastSnapshot())).toBe(result);
   });
 
@@ -597,7 +597,7 @@ describe('FR-C002 neglected-character reachability (ART-101)', () => {
       arcIds: [], trigger: 'The refinancing deadline lands', dramaticPressure: 'The audit is not finished',
     };
     const result = finalizeWholeSceneOutput('sim', scene, parseWholeSceneOutput(narrateGroupedScene(scene), scene), 1,
-      { provider: 'fake', requestedModel: 'fake-whole-scene-v1', resolvedModel: 'fake-whole-scene-v1', upstreamProvider: 'fake', inputTokens: 1, outputTokens: 1, latencyMs: 0, retryCount: 0 });
+      { provider: 'fake', requestedModel: 'fake-whole-scene-v1', resolvedModel: 'fake-whole-scene-v1', upstreamProvider: 'fake', rateLimit: null, inputTokens: 1, outputTokens: 1, latencyMs: 0, retryCount: 0 });
 
     const stamped = withSceneProvenance(result);
     expect(stamped.output.proposedEvents.length).toBeGreaterThan(0);
@@ -619,7 +619,7 @@ describe('FR-C002 neglected-character reachability (ART-101)', () => {
       arcIds: [], trigger: 'A ledger goes missing', dramaticPressure: 'The auditor is waiting',
     };
     const base = finalizeWholeSceneOutput('sim', scene, parseWholeSceneOutput(narrateGroupedScene(scene), scene), 1,
-      { provider: 'fake', requestedModel: 'fake-whole-scene-v1', resolvedModel: 'fake-whole-scene-v1', upstreamProvider: 'fake', inputTokens: 1, outputTokens: 1, latencyMs: 0, retryCount: 0 });
+      { provider: 'fake', requestedModel: 'fake-whole-scene-v1', resolvedModel: 'fake-whole-scene-v1', upstreamProvider: 'fake', rateLimit: null, inputTokens: 1, outputTokens: 1, latencyMs: 0, retryCount: 0 });
     const withExtra = {
       ...base,
       output: {

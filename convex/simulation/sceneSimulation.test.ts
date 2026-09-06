@@ -43,7 +43,7 @@ class SequenceProvider implements LanguageModelProvider {
     const next = this.results.shift();
     if (next instanceof Error) return Promise.reject(next);
     return Promise.resolve({ output: next, trace: { provider: 'fake', requestedModel: 'scene-fake-v1', resolvedModel: 'scene-fake-v1',
-      upstreamProvider: 'fake', inputTokens: 10,
+      upstreamProvider: 'fake', rateLimit: null, inputTokens: 10,
       outputTokens: 20, latencyMs: 1, retryCount: 0 } });
   }
   embed(): Promise<never> { return Promise.reject(new Error('not used')); }
@@ -449,7 +449,7 @@ describe('ART-157 — a provider that knows only what the prompt told it', () =>
           relationshipChanges: [], knowledgeChanges: [], memories: [], rumors: [],
           continuityWarnings: [],
         },
-        trace: { provider: 'openai-compatible', requestedModel: 'test', resolvedModel: 'test', upstreamProvider: 'fake', inputTokens: 0, outputTokens: 0, latencyMs: 0, retryCount: 0 },
+        trace: { provider: 'openai-compatible', requestedModel: 'test', resolvedModel: 'test', upstreamProvider: 'fake', rateLimit: null, inputTokens: 0, outputTokens: 0, latencyMs: 0, retryCount: 0 },
       });
     },
     embed: () => Promise.reject(new Error('unused')),

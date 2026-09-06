@@ -113,6 +113,7 @@ const settlement = (over: Partial<BudgetSettlement> = {}): BudgetSettlement => (
   model: FAKE_SCENE_MODEL,
   resolvedModel: FAKE_SCENE_MODEL,
   upstreamProvider: 'fake',
+  allowance: null,
   importance: 'standard',
   tokens: 1_200,
   countedAsRetry: false,

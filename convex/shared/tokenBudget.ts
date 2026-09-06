@@ -519,8 +519,31 @@ export type BudgetCounters = {
   unattributedCalls: number;
 };
 
-/** One upstream route's consumption of its own free allowance, for one world day. */
-export type RouteUsage = { provider: string; model: string; tokens: number; requests: number };
+/**
+ * One upstream route's consumption of its own free allowance, for one world day.
+ *
+ * `failures` and `rateLimited` sit here rather than in a separate table because reliability is a
+ * property OF a route: a route that answers half the time is a different thing from one that
+ * answers always, and reading its usage without that context makes a failing route look merely
+ * quiet (ART-158).
+ *
+ * `allowance` is the LAST reading the gateway sent, not an accumulation — an allowance is a level,
+ * and summing levels produces a number that means nothing.
+ */
+export type RouteUsage = {
+  provider: string;
+  model: string;
+  tokens: number;
+  requests: number;
+  /** Calls to this route that failed outright (provider error, timeout, network). */
+  failures: number;
+  /** Calls refused because the route's free allowance was exhausted (HTTP 429). */
+  rateLimited: number;
+  allowance: RouteAllowance | null;
+};
+
+/** The free-tier allowance a route last reported: a level and when it refills. */
+export type RouteAllowance = { limit: number; remaining: number; resetAtEpochSeconds: number };
 
 export function emptyBudgetCounters(worldId: string, worldDay: number): BudgetCounters {
   return {
@@ -925,6 +948,8 @@ export type BudgetSettlement = {
    * id served by two routes draws on two separate allowances, so attribution needs both halves.
    */
   upstreamProvider: string | null;
+  /** The free-tier allowance the gateway reported on this call, or null when it reported none. */
+  allowance: RouteAllowance | null;
   importance: WorkImportance;
   /** `inputTokens + outputTokens` from the provider trace. */
   tokens: number;
@@ -1013,8 +1038,14 @@ function addRouteUsage(
   if (existing) {
     existing.tokens += settlement.tokens;
     existing.requests += 1;
+    // Last reading wins: an allowance is a LEVEL, so the newest observation is the only one that
+    // describes the route now. A null reading does not erase a known one -- "the gateway did not
+    // say this time" is not evidence the allowance changed.
+    if (settlement.allowance !== null) existing.allowance = { ...settlement.allowance };
   } else {
-    next.push({ provider, model, tokens: settlement.tokens, requests: 1 });
+    next.push({ provider, model, tokens: settlement.tokens, requests: 1,
+      failures: 0, rateLimited: 0,
+      allowance: settlement.allowance === null ? null : { ...settlement.allowance } });
   }
   return next.sort((left, right) =>
     left.provider.localeCompare(right.provider) || left.model.localeCompare(right.model));

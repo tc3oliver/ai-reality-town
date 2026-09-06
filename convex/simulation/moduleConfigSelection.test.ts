@@ -77,7 +77,7 @@ class RecordingProvider implements LanguageModelProvider {
     this.calls.push(request);
     return Promise.resolve({
       output: sceneOutput(),
-      trace: { provider: 'fake', requestedModel: 'scene-fake-v1', resolvedModel: 'scene-fake-v1', upstreamProvider: 'fake', inputTokens: 10, outputTokens: 20, latencyMs: 1, retryCount: 0 },
+      trace: { provider: 'fake', requestedModel: 'scene-fake-v1', resolvedModel: 'scene-fake-v1', upstreamProvider: 'fake', rateLimit: null, inputTokens: 10, outputTokens: 20, latencyMs: 1, retryCount: 0 },
     });
   }
   embed(): Promise<never> { return Promise.reject(new Error('not used')); }
@@ -184,7 +184,7 @@ describe('AC#1 — the configured values reach the provider call, not the hardco
         this.calls.push(request);
         return Promise.resolve({
           output: { not: 'a scene' },
-          trace: { provider: 'fake', requestedModel: 'm', resolvedModel: 'm', upstreamProvider: 'fake', inputTokens: 0, outputTokens: 0, latencyMs: 0, retryCount: 0 },
+          trace: { provider: 'fake', requestedModel: 'm', resolvedModel: 'm', upstreamProvider: 'fake', rateLimit: null, inputTokens: 0, outputTokens: 0, latencyMs: 0, retryCount: 0 },
         });
       }
       embed(): Promise<never> { return Promise.reject(new Error('not used')); }
