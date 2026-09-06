@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-08-04 06:21'
-updated_date: '2026-09-06 04:04'
+updated_date: '2026-09-06 04:37'
 labels:
   - prd-1.0
   - epic-i
@@ -107,6 +107,31 @@ Every publicRead rebuild* function re-derives its payload by replaying the whole
 ## 驗證
 
 `npm run check`、`npm run e2e`,以及逐 AC 故障注入(本 repo 慣例)。
+
+## Slice 6 — `rebuildLiveProjection`(AC#1 的最後一項,實測歸因後重新界定)
+
+先更正 Slice 3 留下的「結構性阻塞」結論:**過寬**。真正綁住全量讀取的是**五個**消費端,不是「快照會洩漏 seed 位置」這一個理由,而其中兩個可以直接用既有機制解掉。
+
+`rebuildLiveProjection` 內 `acceptedEvents`(全表 collect)的消費端,逐一界定:
+
+1. `canonCharacterLocations(worldId, acceptedEvents)`(`liveStateFunctions.ts:100-109`)—— 它就是 `replayWorldEvents(emptyProjection, events).characterLocations`。`characterLocations` **不在** `SEED_BASELINE_FIELDS` 內,所以「快照續接 === 從空重播」的論證與 Slice 2 對 `relationshipHistory` 用的**是同一條**,直接改用 `readProjectionViaSnapshot`。零新機制。
+2. `redactWithheldSummaries(acceptedEvents)` → `buildLiveProjection`(`liveState.ts:103-189`)—— 它自己**不讀**投影的 `locations`,而是從 `location_state_changed` 自建一份 LWW map;另外三個結構(`positionByCharacter`、`aliveByCharacter`、`knownCharacters`)也全是 LWW / 集合聯集。四者皆為**逐事件單調**,無追溯依賴,可增量維護。`recentEvents` 只要最後 N 筆 + withheld 集合,兩者皆有界。
+3. `sceneEventRows` → `withheldEventIds` / `buildActiveScenePresentations` —— 需界定 active scene 的實際窗口(疑為當日),未定。
+4. `excludedCharacterIds(acceptedEvents)` —— 需界定。
+5. `buildPublicDynamicProjectionResult({ acceptedEvents })` → `buildVisualReplay` —— 最難的一項,且**仍然**成立:`visualReplay.ts:361` 在整段歷史上排 importance 取前 `REPLAY_MAX_SCENES = 3`,`foldLocations(ordered, firstSequence, group.maxSequenceNumber)`(`:380`、`:562`)再對勝出場景取其前後的精確位置狀態,而勝出場景可以落在世界壽命的任何一天。
+
+### 為何必須整批落地
+
+讀取量只在**五個消費端全部有界**之後才會下降 —— 只要還有一個需要完整 `acceptedEvents`,那次全表 collect 就還在,量測數字**一動也不會動**。因此不拆成多個 PR 分批交付:單獨做第 1 項是零收益的擾動。
+
+### 需要的新機制(僅第 2、5 項需要)
+
+- 一份**非 seed** 的 live-fold 快取:`locations` / `positionByCharacter` / `aliveByCharacter` / `knownCharacters`,由空基準線摺疊而得,在 stage 20 與日快照一起寫。不能重用 canon 快照,因為 `locations` 是 seed 欄位 —— 這是原「結構性阻塞」論證裡**唯一**站得住的部分。
+- `buildVisualReplay` 需要一份增量維護的「候選場景 importance 前 K 名」摘要,加上以場景邊界為鍵的位置 fold 快取。
+
+### AC#3 的防護
+
+每一項都必須有一條「有無快取,發布 payload 位元相同」的等價測試(沿用 `stableStringify`),且 fixture 必須先驗**非空**再驗相等 —— 這正是本任務稍早已經犯過一次的失敗模式(`snapshotReplay.test.ts` 斷言 `{}` 等於 `{}`)。
 <!-- SECTION:PLAN:END -->
 
 ## Implementation Notes
