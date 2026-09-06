@@ -731,6 +731,12 @@ export const runLiveWorldDayCycle = internalMutation({
     slotId: v.optional(v.id('scheduledSlots')),
     maxSlots: v.optional(v.number()),
     maxPostCommitEvents: v.optional(v.number()),
+    /**
+     * Who authors this cycle's scenes (ART-159). Required, and passed straight through to
+     * `runQueuedWorldDaySlot` — a default here would reintroduce exactly the silent choice that
+     * made the deterministic fake the production author, one level further from the decision.
+     */
+    sceneAuthor: v.union(v.literal('deterministic_fake'), v.literal('preauthored')),
     now: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<{
@@ -743,73 +749,115 @@ export const runLiveWorldDayCycle = internalMutation({
     }
     const slotResult: { worldId: string; executed: number; slots: WorldDaySlotOutcome[] } = await ctx.runMutation(
       runQueuedWorldDaySlotRef,
-      { worldId: args.worldId, slotId: args.slotId, maxSlots: args.maxSlots ?? 1, now },
+      { worldId: args.worldId, slotId: args.slotId, maxSlots: args.maxSlots ?? 1,
+        sceneAuthor: args.sceneAuthor, now },
     );
-    /**
-     * ART-100 AC#2. One bounded page of candidates instead of the whole accepted-event log and
-     * the whole post-commit run table — both of which were read, and filtered in memory, before a
-     * single event was processed.
-     *
-     * `postCommitCursors` records how far a contiguous run of completed post-commit runs reaches.
-     * Everything at or below it is settled and is never looked at again, so the cost of a call
-     * does not grow with how much the world has already done.
-     */
-    const cursorRow = await ctx.db.query('postCommitCursors')
-      .withIndex('by_world', (q) => q.eq('worldId', args.worldId)).unique();
-    const cursor = cursorRow?.settledThroughSequenceNumber ?? -1;
-    const page = maxPostCommitEvents + POST_COMMIT_CURSOR_CATCHUP;
-    const [candidateRows, runRows] = await Promise.all([
-      ctx.db.query('canonEvents')
-        .withIndex('by_world_and_sequence', (q) => q.eq('worldId', args.worldId).gt('sequenceNumber', cursor))
-        .take(page),
-      ctx.db.query('postCommitRuns')
-        .withIndex('by_world_and_sequence', (q) =>
-          q.eq('worldId', args.worldId).gt('sourceEventSequenceNumber', cursor))
-        .take(page),
-    ]);
-    const settled = new Set(runRows
-      .filter((run) => run.status === 'completed')
-      .map((run) => run.sourceEventSequenceNumber));
-
-    /**
-     * Advance the cursor over the leading settled events, and only those.
-     *
-     * Stopping at the first unsettled event is what keeps a directly-invoked, out-of-order run
-     * from stranding its predecessors. Advancing here — before any work — is also what guarantees
-     * PROGRESS: a page that turns out to be entirely settled still moves the cursor, so the next
-     * call reaches new events rather than re-reading the same page forever.
-     */
-    let settledThrough = cursor;
-    for (const row of candidateRows) {
-      if (!settled.has(row.sequenceNumber)) break;
-      settledThrough = row.sequenceNumber;
-    }
-    if (settledThrough > cursor) {
-      const advanced = {
-        schemaVersion: 1 as const, worldId: args.worldId,
-        settledThroughSequenceNumber: settledThrough, updatedAt: now,
-      };
-      if (cursorRow) await ctx.db.patch(cursorRow._id, advanced);
-      else await ctx.db.insert('postCommitCursors', advanced);
-    }
-
-    const postCommit: PostCommitOutcome[] = [];
-    for (const row of candidateRows.filter(({ sequenceNumber }) => !settled.has(sequenceNumber))) {
-      if (postCommit.length >= maxPostCommitEvents) break;
-      const run = await executeLivePostCommit(ctx, {
-        worldId: args.worldId,
-        sourceEventId: deriveEventId(args.worldId, row.sequenceNumber),
-        sourceEventSequenceNumber: row.sequenceNumber,
-        worldDay: row.worldDay,
-      }, row.traceId, now);
-      postCommit.push(toOutcome(run));
-      if (run.status !== 'completed') break;
-    }
     return {
       worldId: args.worldId,
       executed: slotResult.executed,
       slots: slotResult.slots,
-      postCommit,
+      postCommit: await drainPostCommitBacklog(ctx, args.worldId, maxPostCommitEvents, now),
     };
   },
 });
+
+/**
+ * The post-commit half of a live cycle, on its own.
+ *
+ * The live path cannot use {@link runLiveWorldDayCycle}: its slot must be executed from an action
+ * so a provider can be called, and an action has no transaction to share with the drain. So the
+ * action runs the slot itself and then calls this. Same body, same cursor, same bound — only the
+ * caller differs.
+ */
+export const drainLivePostCommit = internalMutation({
+  args: {
+    worldId: v.string(),
+    maxPostCommitEvents: v.optional(v.number()),
+    now: v.optional(v.number()),
+  },
+  handler: (ctx, args): Promise<PostCommitOutcome[]> => {
+    const maxPostCommitEvents = args.maxPostCommitEvents ?? DEFAULT_MAX_POST_COMMIT_EVENTS;
+    if (!Number.isSafeInteger(maxPostCommitEvents) || maxPostCommitEvents < 1 || maxPostCommitEvents > MAX_POST_COMMIT_EVENTS) {
+      throw new Error('INVALID_POST_COMMIT_BATCH_SIZE');
+    }
+    return drainPostCommitBacklog(ctx, args.worldId, maxPostCommitEvents, args.now ?? Date.now());
+  },
+});
+
+/**
+ * Take the next bounded page of accepted events through stages 11–21.
+ *
+ * Extracted from {@link runLiveWorldDayCycle} for ART-159: the live path runs its slot from an
+ * ACTION (a Convex mutation cannot call a provider), so "execute the slot" and "drain the
+ * backlog" can no longer be one transaction. Both callers share this body rather than each
+ * having their own copy, because the cursor arithmetic below is the part that must not diverge —
+ * two implementations of "how far is settled" would be two chances to strand an event.
+ */
+async function drainPostCommitBacklog(
+  ctx: GenericMutationCtx<DataModel>,
+  worldId: string,
+  maxPostCommitEvents: number,
+  now: number,
+): Promise<PostCommitOutcome[]> {
+  /**
+   * ART-100 AC#2. One bounded page of candidates instead of the whole accepted-event log and
+   * the whole post-commit run table — both of which were read, and filtered in memory, before a
+   * single event was processed.
+   *
+   * `postCommitCursors` records how far a contiguous run of completed post-commit runs reaches.
+   * Everything at or below it is settled and is never looked at again, so the cost of a call
+   * does not grow with how much the world has already done.
+   */
+  const cursorRow = await ctx.db.query('postCommitCursors')
+    .withIndex('by_world', (q) => q.eq('worldId', worldId)).unique();
+  const cursor = cursorRow?.settledThroughSequenceNumber ?? -1;
+  const page = maxPostCommitEvents + POST_COMMIT_CURSOR_CATCHUP;
+  const [candidateRows, runRows] = await Promise.all([
+    ctx.db.query('canonEvents')
+      .withIndex('by_world_and_sequence', (q) => q.eq('worldId', worldId).gt('sequenceNumber', cursor))
+      .take(page),
+    ctx.db.query('postCommitRuns')
+      .withIndex('by_world_and_sequence', (q) =>
+        q.eq('worldId', worldId).gt('sourceEventSequenceNumber', cursor))
+      .take(page),
+  ]);
+  const settled = new Set(runRows
+    .filter((run) => run.status === 'completed')
+    .map((run) => run.sourceEventSequenceNumber));
+
+  /**
+   * Advance the cursor over the leading settled events, and only those.
+   *
+   * Stopping at the first unsettled event is what keeps a directly-invoked, out-of-order run
+   * from stranding its predecessors. Advancing here — before any work — is also what guarantees
+   * PROGRESS: a page that turns out to be entirely settled still moves the cursor, so the next
+   * call reaches new events rather than re-reading the same page forever.
+   */
+  let settledThrough = cursor;
+  for (const row of candidateRows) {
+    if (!settled.has(row.sequenceNumber)) break;
+    settledThrough = row.sequenceNumber;
+  }
+  if (settledThrough > cursor) {
+    const advanced = {
+      schemaVersion: 1 as const, worldId,
+      settledThroughSequenceNumber: settledThrough, updatedAt: now,
+    };
+    if (cursorRow) await ctx.db.patch(cursorRow._id, advanced);
+    else await ctx.db.insert('postCommitCursors', advanced);
+  }
+
+  const postCommit: PostCommitOutcome[] = [];
+  for (const row of candidateRows.filter(({ sequenceNumber }) => !settled.has(sequenceNumber))) {
+    if (postCommit.length >= maxPostCommitEvents) break;
+    const run = await executeLivePostCommit(ctx, {
+      worldId,
+      sourceEventId: deriveEventId(worldId, row.sequenceNumber),
+      sourceEventSequenceNumber: row.sequenceNumber,
+      worldDay: row.worldDay,
+    }, row.traceId, now);
+    postCommit.push(toOutcome(run));
+    if (run.status !== 'completed') break;
+  }
+  return postCommit;
+}

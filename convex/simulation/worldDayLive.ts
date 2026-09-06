@@ -62,15 +62,23 @@ import {
 import {
   groupCharacterIntents,
   MAX_MAJOR_SCENE_PARTICIPANTS,
+  type GroupedScene,
   type SceneGroupingInput,
   type SceneGroupingResult,
 } from './sceneGrouping';
-import { simulateWholeScene, type SceneSimulationResult } from './sceneSimulation';
-import { unmeteredWorldDayBudgetPort, type WorldDayBudgetPort } from './sceneBudget';
+import {
+  simulateWholeScene,
+  type SceneSimulationResult,
+  type WholeSceneSimulationOptions,
+} from './sceneSimulation';
+import {
+  unmeteredWorldDayBudgetPort,
+  type SceneBudgetGate,
+  type WorldDayBudgetPort,
+} from './sceneBudget';
 import { wholeSceneOptionsFor } from './moduleConfig';
 import type { ConfigurableModule, EffectiveModuleConfig } from '../shared/moduleModelConfig';
 import type { LanguageModelProvider } from './provider';
-import { FakeWholeSceneProvider } from './fakeSceneNarrator';
 import {
   WorldDayOrchestrationError,
   type StageContext,
@@ -823,6 +831,169 @@ async function canonRuleContext(store: CanonCommitStore, worldId: string) {
   return { projection, ruleContext };
 }
 
+// --- scene authoring --------------------------------------------------------
+
+/**
+ * The error a pass raises when it reaches a scene it is not allowed to author (ART-159).
+ *
+ * A STABLE code rather than a generic throw, because `describeWorldDayError` maps it onto
+ * `scheduledSlots.errorCode` and the caller has to tell it apart from a real failure: this one
+ * means "the network half of this slot has not run yet", which is a normal step in the live
+ * sequence, while every other code means the slot is broken.
+ */
+export const SCENE_AUTHORING_DEFERRED = 'SCENE_AUTHORING_DEFERRED';
+
+/**
+ * Everything needed to author one slot's scenes, with no database handle in it.
+ *
+ * Serializable on purpose: on the live path this crosses a Convex mutation→action boundary, and
+ * a field that could not survive `JSON` would have to be re-derived on the far side by code that
+ * could disagree with this side. Deriving it ONCE — in {@link buildSceneAuthoringPlan}, inside
+ * the transaction that read the snapshot — is what keeps the prompt the author sees consistent
+ * with the world Canon will validate the result against.
+ */
+export type SceneAuthoringPlan = {
+  readonly slot: WorldDaySlotIdentity;
+  readonly groupingRunId: string;
+  readonly scenes: readonly GroupedScene[];
+  readonly options: WholeSceneSimulationOptions;
+  /**
+   * The model the reservation is keyed on, resolved BEFORE the call.
+   *
+   * FR-M003's per-model daily cap has to name a model, and ART-52's `model` is `null` for a module
+   * that inherits the deployment's. It may well be a routing alias such as `auto` that names no
+   * model at all — that is expected and handled at settlement, where ART-148 books whatever the
+   * gateway said actually served the call.
+   */
+  readonly requestedModel: string;
+  /** ART-157, per scene: the destinations Canon will accept from that scene's location. */
+  readonly legalDestinationIds: Readonly<Record<string, readonly string[]>>;
+};
+
+/**
+ * The two persistence calls and the accountant that authoring needs.
+ *
+ * Narrower than {@link WorldDayLivePort} deliberately. The live path binds this to
+ * `ctx.runQuery`/`ctx.runMutation` from an action, where none of the port's other methods exist;
+ * asking for the whole port would have forced that binding to stub out methods it cannot
+ * implement, and a stub is a thing that can be called by mistake.
+ */
+export type SceneAuthoringStore = {
+  loadPersistedSceneSimulation(
+    worldId: string, groupingRunId: string, simulationRunId: string,
+  ): Promise<SceneSimulationResult | null>;
+  persistSceneSimulation(groupingRunId: string, result: SceneSimulationResult): Promise<void>;
+  budget: SceneBudgetGate;
+};
+
+/** The Simulation Run ID a scene's result is stored under. One rule, so both passes agree. */
+export const sceneSimulationRunId = (sceneId: string): string => `${sceneId}:simulation`;
+
+/**
+ * Derive the authoring plan for a slot from the same stage-1 snapshot the Director planned against.
+ *
+ * The module configuration is read ONCE per slot, not per scene: every scene in a slot is authored
+ * under the same configuration, and re-reading would let a mid-slot change split one slot's scenes
+ * across two configurations with nothing recording which got which.
+ */
+export async function buildSceneAuthoringPlan(
+  port: Pick<WorldDayLivePort, 'loadModuleConfig' | 'budget'>,
+  slot: WorldDaySlotIdentity,
+  grouping: GroupingArtifact,
+  snapshot: LiveWorldSnapshot,
+): Promise<SceneAuthoringPlan> {
+  const config = await port.loadModuleConfig(slot.worldId, 'scene_simulation');
+  const legalDestinationIds: Record<string, readonly string[]> = {};
+  for (const scene of grouping.result.scenes) {
+    legalDestinationIds[scene.sceneId] = legalDestinationsFrom(snapshot.locations, scene.locationId);
+  }
+  return {
+    slot,
+    groupingRunId: grouping.groupingRunId,
+    scenes: grouping.result.scenes,
+    options: wholeSceneOptionsFor(config),
+    requestedModel: config.model ?? await port.budget.deploymentModelId(),
+    legalDestinationIds,
+  };
+}
+
+/**
+ * Author every scene in a slot, reusing whatever is already persisted.
+ *
+ * ## `provider === null` is a pass that must not author
+ *
+ * This function runs on both sides of the live path's mutation/action split, and the difference
+ * between them is exactly this argument. A Convex mutation cannot perform network I/O, so the
+ * transactional passes are handed `null`: they reuse every scene that is already stored and
+ * REFUSE — with {@link SCENE_AUTHORING_DEFERRED} — the moment they meet one that is not. The
+ * action in between is handed a real provider and authors the missing ones.
+ *
+ * The refusal happens BEFORE `runBudgetedAttempt`, which matters: a "deferring provider" that
+ * threw from inside the call would first have taken a reservation and then released it, writing
+ * a ledger row and moving the day's counters for a call that was never going to happen.
+ *
+ * ## Why this is not simply "the live path authors, the fake path reuses"
+ *
+ * Reuse is ART-149's, and it is load-bearing for correctness rather than only for cost:
+ * `simulate_scenes` is ONE orchestration checkpoint for the whole slot, so a failure on scene 3
+ * re-runs scenes 1 and 2 as well. Both passes therefore have to consult persistence first, and
+ * having them share one loop is what stops the live path and the deterministic path from
+ * disagreeing about what "already authored" means.
+ */
+export async function authorSlotScenes(
+  provider: LanguageModelProvider | null,
+  store: SceneAuthoringStore,
+  plan: SceneAuthoringPlan,
+): Promise<SceneSimulationResult[]> {
+  const results: SceneSimulationResult[] = [];
+  for (const scene of plan.scenes) {
+    const simulationRunId = sceneSimulationRunId(scene.sceneId);
+    const reused = await store.loadPersistedSceneSimulation(
+      plan.slot.worldId, plan.groupingRunId, simulationRunId);
+    if (reused) {
+      results.push(reused);
+      continue;
+    }
+    if (provider === null) {
+      throw new WorldDayOrchestrationError(SCENE_AUTHORING_DEFERRED,
+        `scene ${scene.sceneId} has not been authored yet and this pass may not call a provider`);
+    }
+    const result = await simulateWholeScene(provider, simulationRunId, scene, {
+      ...plan.options,
+      // ART-157. Derived per scene from the SAME stage-1 snapshot the Director planned
+      // against, so the author is told exactly what Canon will accept. Before this the
+      // prompt named no location at all and every movement it proposed was refused.
+      legalDestinationIds: [...(plan.legalDestinationIds[scene.sceneId] ?? [])],
+      budget: {
+        gate: store.budget,
+        reservation: {
+          worldId: plan.slot.worldId,
+          worldDay: plan.slot.worldDay,
+          module: 'scene_simulation',
+          requestedModel: plan.requestedModel,
+          // Every scene the Director plans is a MAJOR scene — `parseAndValidateDirectorPlan`
+          // admits at most MAX_MAJOR_SCENES_PER_SLOT of them and calls them nothing else — so
+          // there is no low-importance LLM work on this path and saying `standard` is the
+          // only honest classification. §16.3's fast-model ratio therefore has an empty
+          // denominator in this deployment, which `summarizeResourceUsage` reports as `null`
+          // with a reason rather than as a number.
+          importance: 'standard',
+          origin: 'scheduled_simulation',
+        },
+        // Derived from the scene, so a resumed or retried slot re-uses the same decision ids
+        // and cannot double-count one call against the day's budget.
+        decisionIdPrefix: `${scene.sceneId}:budget`,
+      },
+    });
+    // Persisted by whoever authored it, so the next pass can reuse it. Skipped for a reused
+    // result: the row it came from is already the persisted one, and re-persisting would only
+    // re-derive the same dedup answer at the cost of another write.
+    await store.persistSceneSimulation(plan.groupingRunId, result);
+    results.push(result);
+  }
+  return results;
+}
+
 // --- stage handlers ---------------------------------------------------------
 
 /**
@@ -830,14 +1001,15 @@ async function canonRuleContext(store: CanonCommitStore, worldId: string) {
  * adapter over an already-tested capability; a stage that throws leaves Canon untouched
  * because nothing is written before {@link commitProposedEvent} runs in the final stage.
  *
- * Scene authoring goes through the vendor-neutral {@link LanguageModelProvider} port and
- * defaults to the deterministic, zero-cost {@link FakeWholeSceneProvider}. A real adapter
- * (ART-72) is injected here instead; provider construction stays inside the adapter root
- * that the architecture boundary reserves for it.
+ * Scene authoring goes through the vendor-neutral {@link LanguageModelProvider} port. There is
+ * deliberately NO DEFAULT (ART-159): the deterministic {@link FakeWholeSceneProvider} used to be
+ * one, which meant the production entry point selected it by saying nothing, and a reviewer
+ * reading that call site saw no decision at all. Every binding now names its author, and `null`
+ * names the transactional pass that may not call one — see {@link authorSlotScenes}.
  */
 export function createWorldDayStageHandlers(
   port: WorldDayLivePort,
-  provider: LanguageModelProvider = new FakeWholeSceneProvider(),
+  provider: LanguageModelProvider | null,
 ): WorldDayStageHandlers {
   return {
     load_world_state: async (context): Promise<WorldStateArtifact> => ({
@@ -944,58 +1116,16 @@ export function createWorldDayStageHandlers(
       const slot = slotOf(context);
       const grouping = artifact<GroupingArtifact>(context, 'group_intents_into_scenes');
       const { snapshot } = artifact<WorldStateArtifact>(context, 'load_world_state');
-      // FR-K005 / ART-52. Read ONCE per slot, not per scene: every scene in a slot is authored
-      // under the same configuration, and re-reading would let a mid-slot change split one
-      // slot's scenes across two configurations with nothing recording which got which.
-      const config = await port.loadModuleConfig(slot.worldId, 'scene_simulation');
-      const options = wholeSceneOptionsFor(config);
-      // FR-M003 / ART-59. The per-MODEL cap needs a model id BEFORE the call, and ART-52's
-      // `model` is `null` for a module that inherits the deployment's `LLM_MODEL`; the port
-      // supplies that id so the reservation and the settlement book against the same key.
-      const requestedModel = config.model ?? await port.budget.deploymentModelId();
+      const plan = await buildSceneAuthoringPlan(port, slot, grouping, snapshot);
+      const authored = await authorSlotScenes(provider, port, plan);
       const results: SceneSimulationResult[] = [];
       const withheldSceneIds: string[] = [];
-      for (const scene of grouping.result.scenes) {
-        const simulationRunId = `${scene.sceneId}:simulation`;
-        // ART-149. `simulate_scenes` is one checkpoint for the whole slot, so a failure on any
-        // scene re-runs every earlier scene too. Persistence already deduplicated on
-        // `simulationRunId`, but only AFTER the provider call — the retry paid for output it then
-        // discarded. Reusing the stored result here is what makes the retry free, and it is the
-        // same result: the row holds the finalized `SceneSimulationResult`, and the pure
-        // derivations below are re-applied to it exactly as to a fresh one.
-        const reused = await port.loadPersistedSceneSimulation(slot.worldId, grouping.groupingRunId, simulationRunId);
-        const result = reused ?? await simulateWholeScene(provider, simulationRunId, scene, {
-          ...options,
-          // ART-157. Derived per scene from the SAME stage-1 snapshot the Director planned
-          // against, so the author is told exactly what Canon will accept. Before this the
-          // prompt named no location at all and every movement it proposed was refused.
-          legalDestinationIds: legalDestinationsFrom(snapshot.locations, scene.locationId),
-          budget: {
-            gate: port.budget,
-            reservation: {
-              worldId: slot.worldId,
-              worldDay: slot.worldDay,
-              module: 'scene_simulation',
-              requestedModel,
-              // Every scene the Director plans is a MAJOR scene — `parseAndValidateDirectorPlan`
-              // admits at most MAX_MAJOR_SCENES_PER_SLOT of them and calls them nothing else — so
-              // there is no low-importance LLM work on this path and saying `standard` is the
-              // only honest classification. §16.3's fast-model ratio therefore has an empty
-              // denominator in this deployment, which `summarizeResourceUsage` reports as `null`
-              // with a reason rather than as a number.
-              importance: 'standard',
-              origin: 'scheduled_simulation',
-            },
-            // Derived from the scene, so a resumed or retried slot re-uses the same decision ids
-            // and cannot double-count one call against the day's budget.
-            decisionIdPrefix: `${scene.sceneId}:budget`,
-          },
-        });
-        // Skipped when reused: the row this result came from is already the persisted one, and
-        // re-persisting would only re-derive the same dedup answer at the cost of another write.
-        if (!reused) await port.persistSceneSimulation(grouping.groupingRunId, result);
-        // FR-C005 AC#5: high-risk output goes to safety review instead of Canon.
-        if (result.reviewStatus === 'required') withheldSceneIds.push(scene.sceneId);
+      for (const result of authored) {
+        // FR-C005 AC#5: high-risk output goes to safety review instead of Canon. Re-derived from
+        // the RESULT on every pass rather than carried across the split, so a scene authored in
+        // an action is gated by the same rule inside the transaction that commits it — and by
+        // the verdict stored with it, which `persistValidatedSceneSimulation` computed itself.
+        if (result.reviewStatus === 'required') withheldSceneIds.push(result.scene.sceneId);
         // FR-P004 AC#1: every event committed from here carries the Scene whose safety
         // classification governs whether its text may be shown.
         else results.push(withSceneProvenance(withArrivalStateChanges(result, snapshot)));
