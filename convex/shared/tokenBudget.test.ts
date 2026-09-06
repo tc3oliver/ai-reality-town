@@ -64,6 +64,11 @@ const MODEL = 'writer-large';
 const FAST = 'writer-fast';
 const PROVIDER = 'xkiro';
 
+/** Expected {@link RouteUsage} entry: reliability and allowance default to a clean, unread route. */
+const route = (over: Partial<import('./tokenBudget').RouteUsage> & { provider: string; model: string }) => ({
+  tokens: 0, requests: 0, failures: 0, rateLimited: 0, allowance: null, ...over,
+});
+
 const policyWith = (overrides: Partial<TokenBudgetPolicy> = {}): TokenBudgetPolicy => ({
   ...TOKEN_BUDGET_POLICY_DEFAULTS,
   ...overrides,
@@ -112,6 +117,7 @@ function spend(
     countedAsRetry: false,
     onFastModel: false,
     upstreamProvider: PROVIDER,
+    allowance: null,
     ...overrides,
     model,
     // Defaults to the healthy case: the gateway served what was asked for. A test that wants the
@@ -898,7 +904,7 @@ describe('metering integrity — the ART-72 landmine, detected at runtime', () =
     });
     expect(isModelMeteringMismatch({
       module: 'scene_simulation', model: 'fake-whole-scene-v1', resolvedModel: 'gpt-4o',
-      upstreamProvider: PROVIDER,
+      upstreamProvider: PROVIDER, allowance: null,
       importance: 'standard', tokens: 500, countedAsRetry: false, onFastModel: false,
     })).toBe(true);
     expect(counters.modelMeteringMismatches).toBe(1);
@@ -1085,7 +1091,7 @@ describe('ART-148 model aliases', () => {
     });
 
     expect(counters.usageByRoute).toEqual([
-      { provider: 'xkiro', model: CONCRETE, tokens: 500, requests: 1 },
+      route({ provider: 'xkiro', model: CONCRETE, tokens: 500, requests: 1 }),
     ]);
   });
 
@@ -1101,8 +1107,8 @@ describe('ART-148 model aliases', () => {
     });
 
     expect(counters.usageByRoute).toEqual([
-      { provider: 'orcarouter', model: 'qwen3.8-27b-free', tokens: 200, requests: 1 },
-      { provider: 'xkiro', model: 'qwen3.8-27b-free', tokens: 300, requests: 1 },
+      route({ provider: 'orcarouter', model: 'qwen3.8-27b-free', tokens: 200, requests: 1 }),
+      route({ provider: 'xkiro', model: 'qwen3.8-27b-free', tokens: 300, requests: 1 }),
     ]);
   });
 
@@ -1111,7 +1117,7 @@ describe('ART-148 model aliases', () => {
     for (let call = 0; call < 3; call += 1) {
       counters = spend(counters, 10, { model: ALIAS, resolvedModel: CONCRETE, upstreamProvider: 'xkiro' });
     }
-    expect(counters.usageByRoute).toEqual([{ provider: 'xkiro', model: CONCRETE, tokens: 30, requests: 3 }]);
+    expect(counters.usageByRoute).toEqual([route({ provider: 'xkiro', model: CONCRETE, tokens: 30, requests: 3 })]);
   });
 
   it('books an unresolved alias call as unattributed rather than against the alias', () => {
@@ -1122,7 +1128,7 @@ describe('ART-148 model aliases', () => {
     expect(tokensForModel(counters, ALIAS)).toBe(0);
     expect(counters.unattributedCalls).toBe(1);
     expect(counters.usageByRoute).toEqual([
-      { provider: 'unknown-provider', model: 'unresolved-model', tokens: 400, requests: 1 },
+      route({ provider: 'unknown-provider', model: 'unresolved-model', tokens: 400, requests: 1 }),
     ]);
     // Not a mismatch: "the gateway did not say" is a different fact from "the gateway said
     // something unexpected", and collapsing them would make both unreadable.
@@ -1142,6 +1148,91 @@ describe('ART-148 model aliases', () => {
     // A concrete request still names a model, so its usage is attributable to that model even
     // though the gateway did not confirm it — unlike an alias, which names none.
     expect(tokensForModel(counters, MODEL)).toBe(250);
+  });
+
+  it('records the LAST allowance reading, because an allowance is a level not a total', () => {
+    let counters = spend(emptyBudgetCounters(WORLD, 0), 10, {
+      model: ALIAS, resolvedModel: CONCRETE, upstreamProvider: 'xkiro',
+      allowance: { limit: 120, remaining: 119, resetAtEpochSeconds: 1_788_685_622 },
+    });
+    counters = spend(counters, 10, {
+      model: ALIAS, resolvedModel: CONCRETE, upstreamProvider: 'xkiro',
+      allowance: { limit: 120, remaining: 118, resetAtEpochSeconds: 1_788_685_622 },
+    });
+
+    // Summing 119 + 118 would produce a number that means nothing.
+    expect(counters.usageByRoute[0].allowance)
+      .toEqual({ limit: 120, remaining: 118, resetAtEpochSeconds: 1_788_685_622 });
+    expect(counters.usageByRoute[0].requests).toBe(2);
+  });
+
+  it('does not erase a known allowance when the gateway reports none', () => {
+    // "The gateway did not say this time" is not evidence the allowance changed.
+    let counters = spend(emptyBudgetCounters(WORLD, 0), 10, {
+      model: ALIAS, resolvedModel: CONCRETE, upstreamProvider: 'xkiro',
+      allowance: { limit: 120, remaining: 100, resetAtEpochSeconds: 42 },
+    });
+    counters = spend(counters, 10, {
+      model: ALIAS, resolvedModel: CONCRETE, upstreamProvider: 'xkiro', allowance: null,
+    });
+
+    expect(counters.usageByRoute[0].allowance).toEqual({ limit: 120, remaining: 100, resetAtEpochSeconds: 42 });
+  });
+
+  it('models no monetary cost anywhere: this deployment is free-only', () => {
+    // ART-158 AC#7, asserted as an ABSENCE so it fails if a currency bucket is ever introduced.
+    // The gateway exposes no price field on any of its 254 routes, so a cost number here could
+    // only ever be invented.
+    const counters = spend(emptyBudgetCounters(WORLD, 0), 500, {
+      model: ALIAS, resolvedModel: CONCRETE, upstreamProvider: 'xkiro',
+    });
+    const serialized = JSON.stringify(counters).toLowerCase();
+    for (const forbidden of ['cost', 'price', 'currency', 'usd', 'cents', 'billing', 'spendmoney']) {
+      expect(serialized).not.toContain(forbidden);
+    }
+    // The alias never OWNS usage. It may still appear in `aliasResolutions`, which is a routing
+    // map rather than a bucket — recording that `auto` resolved to a model is the opposite of
+    // charging `auto`. So this asserts on the two lists that hold consumption, not on the blob.
+    expect(counters.tokensByModel.map(({ model }) => model)).not.toContain(ALIAS);
+    expect(counters.usageByRoute.flatMap((entry) => [entry.provider, entry.model])).not.toContain(ALIAS);
+    expect(counters.aliasResolutions).toEqual([{ alias: ALIAS, model: CONCRETE }]);
+  });
+
+  it('attributes a failed call to its route without booking tokens or a request', () => {
+    // AC#8. A released call ran nothing, so it must not inflate usage -- but it IS evidence about
+    // the route. Dropping it is what made a failing route read as a quiet one.
+    const counters = releaseReservation(emptyBudgetCounters(WORLD, 0),
+      { provider: 'xkiro', model: CONCRETE, kind: 'failed' });
+
+    expect(counters.usageByRoute).toEqual([
+      route({ provider: 'xkiro', model: CONCRETE, failures: 1 }),
+    ]);
+    expect(counters.usageByRoute[0].tokens).toBe(0);
+    expect(counters.usageByRoute[0].requests).toBe(0);
+  });
+
+  it('separates an exhausted allowance from a broken route', () => {
+    // They call for opposite responses: 429 refills on a clock and the route is fine; an error is
+    // a route to stop choosing. Merged, a busy-but-healthy route is indistinguishable from a
+    // broken one -- the exact question these statistics exist to answer.
+    let counters = releaseReservation(emptyBudgetCounters(WORLD, 0),
+      { provider: 'xkiro', model: CONCRETE, kind: 'rate_limited' });
+    counters = releaseReservation(counters, { provider: 'xkiro', model: CONCRETE, kind: 'failed' });
+
+    expect(counters.usageByRoute).toEqual([
+      route({ provider: 'xkiro', model: CONCRETE, failures: 1, rateLimited: 1 }),
+    ]);
+  });
+
+  it('still frees the concurrency slot when no failure is attributed', () => {
+    // The pre-ART-158 call shape. A release with no route information must behave exactly as it
+    // did, or every existing caller would start writing phantom route entries.
+    const granted = grantReservation(emptyBudgetCounters(WORLD, 0), evaluate({}));
+    expect(granted.inFlight).toBe(1);
+
+    const released = releaseReservation(granted);
+    expect(released.inFlight).toBe(0);
+    expect(released.usageByRoute).toEqual([]);
   });
 
   it('does not let an unresolved call overwrite a known alias resolution', () => {

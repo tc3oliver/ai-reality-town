@@ -519,8 +519,31 @@ export type BudgetCounters = {
   unattributedCalls: number;
 };
 
-/** One upstream route's consumption of its own free allowance, for one world day. */
-export type RouteUsage = { provider: string; model: string; tokens: number; requests: number };
+/**
+ * One upstream route's consumption of its own free allowance, for one world day.
+ *
+ * `failures` and `rateLimited` sit here rather than in a separate table because reliability is a
+ * property OF a route: a route that answers half the time is a different thing from one that
+ * answers always, and reading its usage without that context makes a failing route look merely
+ * quiet (ART-158).
+ *
+ * `allowance` is the LAST reading the gateway sent, not an accumulation — an allowance is a level,
+ * and summing levels produces a number that means nothing.
+ */
+export type RouteUsage = {
+  provider: string;
+  model: string;
+  tokens: number;
+  requests: number;
+  /** Calls to this route that failed outright (provider error, timeout, network). */
+  failures: number;
+  /** Calls refused because the route's free allowance was exhausted (HTTP 429). */
+  rateLimited: number;
+  allowance: RouteAllowance | null;
+};
+
+/** The free-tier allowance a route last reported: a level and when it refills. */
+export type RouteAllowance = { limit: number; remaining: number; resetAtEpochSeconds: number };
 
 export function emptyBudgetCounters(worldId: string, worldDay: number): BudgetCounters {
   return {
@@ -925,6 +948,8 @@ export type BudgetSettlement = {
    * id served by two routes draws on two separate allowances, so attribution needs both halves.
    */
   upstreamProvider: string | null;
+  /** The free-tier allowance the gateway reported on this call, or null when it reported none. */
+  allowance: RouteAllowance | null;
   importance: WorkImportance;
   /** `inputTokens + outputTokens` from the provider trace. */
   tokens: number;
@@ -1013,8 +1038,14 @@ function addRouteUsage(
   if (existing) {
     existing.tokens += settlement.tokens;
     existing.requests += 1;
+    // Last reading wins: an allowance is a LEVEL, so the newest observation is the only one that
+    // describes the route now. A null reading does not erase a known one -- "the gateway did not
+    // say this time" is not evidence the allowance changed.
+    if (settlement.allowance !== null) existing.allowance = { ...settlement.allowance };
   } else {
-    next.push({ provider, model, tokens: settlement.tokens, requests: 1 });
+    next.push({ provider, model, tokens: settlement.tokens, requests: 1,
+      failures: 0, rateLimited: 0,
+      allowance: settlement.allowance === null ? null : { ...settlement.allowance } });
   }
   return next.sort((left, right) =>
     left.provider.localeCompare(right.provider) || left.model.localeCompare(right.model));
@@ -1209,13 +1240,45 @@ export function settleReservation(counters: BudgetCounters, settlement: BudgetSe
  * reporting). Separated from {@link settleReservation} so "spent nothing" is not written as
  * "settled 0 tokens", which would inflate the low-importance call count with calls that never ran.
  */
-export function releaseReservation(counters: BudgetCounters): BudgetCounters {
+/**
+ * How a granted call failed, when it failed before reporting any usage (ART-158).
+ *
+ * `rate_limited` is separated from `failed` because they call for opposite responses: an exhausted
+ * free allowance refills on a clock and the route is fine, whereas a route that errors is a route
+ * to stop choosing. Merging them would make a healthy-but-busy route indistinguishable from a
+ * broken one, which is the whole question reliability statistics exist to answer.
+ */
+export type RouteFailure = {
+  provider: string | null;
+  model: string | null;
+  kind: 'failed' | 'rate_limited';
+};
+
+/** Attribute one failed call to its route, creating the entry if this is the route's first call. */
+function addRouteFailure(entries: ReadonlyArray<RouteUsage>, failure: RouteFailure): RouteUsage[] {
+  const provider = failure.provider ?? UNKNOWN_PROVIDER;
+  const model = failure.model ?? UNRESOLVED_MODEL;
+  const next = entries.map((entry) => ({ ...entry }));
+  const existing = next.find((entry) => entry.provider === provider && entry.model === model);
+  const target = existing ?? { provider, model, tokens: 0, requests: 0, failures: 0, rateLimited: 0, allowance: null };
+  if (failure.kind === 'rate_limited') target.rateLimited += 1;
+  else target.failures += 1;
+  if (!existing) next.push(target);
+  return next.sort((left, right) =>
+    left.provider.localeCompare(right.provider) || left.model.localeCompare(right.model));
+}
+
+export function releaseReservation(counters: BudgetCounters, failure: RouteFailure | null = null): BudgetCounters {
   return {
     ...counters,
     tokensByModule: counters.tokensByModule.map((entry) => ({ ...entry })),
     tokensByModel: counters.tokensByModel.map((entry) => ({ ...entry })),
     aliasResolutions: counters.aliasResolutions.map((entry) => ({ ...entry })),
-    usageByRoute: counters.usageByRoute.map((entry) => ({ ...entry })),
+    // A released call ran nothing, so it books no tokens and no request -- but it IS evidence
+    // about the route, and dropping it is what made a failing route read as a quiet one.
+    usageByRoute: failure === null
+      ? counters.usageByRoute.map((entry) => ({ ...entry }))
+      : addRouteFailure(counters.usageByRoute, failure),
     inFlight: Math.max(0, counters.inFlight - 1),
   };
 }

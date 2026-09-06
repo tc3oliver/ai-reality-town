@@ -196,6 +196,8 @@ export class FakeWholeSceneProvider implements LanguageModelProvider {
       requestedModel: FAKE_SCENE_MODEL,
       resolvedModel: FAKE_SCENE_MODEL,
       upstreamProvider: 'fake',
+      // The fake has no allowance to run out of, and saying so is different from reporting one.
+      rateLimit: null,
       inputTokens: Math.ceil(input.length / 4),
       outputTokens: Math.ceil(output.length / 4),
       latencyMs: 0,

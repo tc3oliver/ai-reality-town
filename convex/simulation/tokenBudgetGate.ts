@@ -51,6 +51,7 @@ import {
   type BudgetLimit,
   type BudgetReservationRequest,
   type BudgetSettlement,
+  type RouteFailure,
   type EffectiveTokenBudgetPolicy,
   type OverBudgetStrategy,
   type WorkImportance,
@@ -110,7 +111,10 @@ function toCounters(row: Doc<'tokenBudgetCounters'>): BudgetCounters {
     // Absent on rows written before ART-148, which is correctly read as "no alias has resolved
     // yet today" — the cap then binds from this day's first settlement, exactly as on a new row.
     aliasResolutions: (row.aliasResolutions ?? []).map((entry) => ({ ...entry })),
-    usageByRoute: (row.usageByRoute ?? []).map((entry) => ({ ...entry })),
+    usageByRoute: (row.usageByRoute ?? []).map((entry) => ({
+      ...entry, failures: entry.failures ?? 0, rateLimited: entry.rateLimited ?? 0,
+      allowance: entry.allowance ?? null,
+    })),
     unattributedCalls: row.unattributedCalls ?? 0,
   };
 }
@@ -362,11 +366,11 @@ export function createConvexBudgetPort(
       });
     },
 
-    async release(request: BudgetReservationRequest, decisionId: string): Promise<void> {
+    async release(request: BudgetReservationRequest, decisionId: string, failure: RouteFailure | null = null): Promise<void> {
       const row = await resolvablePending(db, decisionId);
       if (!row) return;
       const counters = await loadBudgetCounters(db, request.worldId, request.worldDay);
-      await writeCounters(db, releaseReservation(counters));
+      await writeCounters(db, releaseReservation(counters, failure));
       await db.patch(row._id, { resolution: 'released', settledTokens: null, settledModel: null });
     },
   };

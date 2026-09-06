@@ -45,10 +45,29 @@ import {
   type BudgetLedgerEntry,
   type BudgetReservationRequest,
   type BudgetSettlement,
+  type RouteFailure,
   type TokenBudgetPolicy,
 } from '../shared/tokenBudget';
 import type { ConfigurableModule } from '../shared/moduleModelConfig';
 import type { ProviderTraceMetadata } from './provider';
+import { SimulationProviderError } from './provider';
+
+/**
+ * Classify a failed provider call for {@link RouteFailure}.
+ *
+ * The route is only known when the gateway answered, and a call that threw usually did not get
+ * that far -- so `provider` is null and the model is the one we ASKED for. That is honest: it
+ * records which request failed without inventing a resolution the gateway never sent.
+ *
+ * HTTP 429 reaches here as the transient `LLM_HTTP_RETRYABLE` after the adapter's own retries are
+ * exhausted, and is classified as `rate_limited` rather than `failed` because an exhausted free
+ * allowance refills on a clock while an error does not.
+ */
+function routeFailureFrom(error: unknown, requestedModel: string): RouteFailure {
+  const rateLimited = error instanceof SimulationProviderError
+    && error.code === 'LLM_HTTP_RETRYABLE';
+  return { provider: null, model: requestedModel, kind: rateLimited ? 'rate_limited' : 'failed' };
+}
 
 /**
  * The accountant, as the scene path sees it.
@@ -88,7 +107,7 @@ export interface SceneBudgetGate {
    * spent nothing AND ran nothing, and counting it as a settled call would inflate the
    * low-importance call census with calls that never happened.
    */
-  release(request: BudgetReservationRequest, decisionId: string): Promise<void>;
+  release(request: BudgetReservationRequest, decisionId: string, failure?: RouteFailure | null): Promise<void>;
 }
 
 /**
@@ -184,7 +203,10 @@ export async function runBudgetedAttempt<T>(
     // The slot is freed on EVERY exit from a granted reservation. A leaked in-flight count does
     // not merely mis-report: it permanently consumes one of `maxConcurrentCalls` for the world
     // day, so a world with a limit of 2 stops simulating entirely after two provider failures.
-    await gate.release(request, decisionId);
+    // ART-158 AC#8: the failure is attributed to the route that failed, not merely swallowed.
+    // A released call books no tokens and no request -- it ran nothing -- but a route that keeps
+    // erroring has to be visible as failing rather than as quiet.
+    await gate.release(request, decisionId, routeFailureFrom(error, granted.model));
     throw error;
   }
   const settlement: BudgetSettlement = {
@@ -196,6 +218,9 @@ export async function runBudgetedAttempt<T>(
     // provider, so it could never fire while claiming to catch gateway drift.
     resolvedModel: result.trace.resolvedModel,
     upstreamProvider: result.trace.upstreamProvider,
+    // The free-tier allowance this call observed. Free-only deployment: this is the number that
+    // can actually stop the world, which is why it is settled alongside the tokens.
+    allowance: result.trace.rateLimit,
     importance: request.importance,
     tokens: result.trace.inputTokens + result.trace.outputTokens,
     countedAsRetry: granted.countedAsRetry,
@@ -316,10 +341,10 @@ export class InMemoryBudgetAccountant implements WorldDayBudgetPort {
     return Promise.resolve();
   }
 
-  release(request: BudgetReservationRequest, decisionId: string): Promise<void> {
+  release(request: BudgetReservationRequest, decisionId: string, failure: RouteFailure | null = null): Promise<void> {
     if (!this.entries.has(decisionId) || this.resolved.has(decisionId)) return Promise.resolve();
     this.resolved.add(decisionId);
-    this.put(releaseReservation(this.countersFor(request.worldId, request.worldDay)));
+    this.put(releaseReservation(this.countersFor(request.worldId, request.worldDay), failure));
     return Promise.resolve();
   }
 }

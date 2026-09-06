@@ -164,6 +164,13 @@ export const sharedTables = {
      */
     usageByRoute: v.optional(v.array(v.object({
       provider: v.string(), model: v.string(), tokens: v.number(), requests: v.number(),
+      /** Reliability is a property OF a route: usage without it makes a failing route look quiet. */
+      failures: v.optional(v.number()),
+      rateLimited: v.optional(v.number()),
+      /** The LAST allowance reading, not an accumulation -- an allowance is a level. */
+      allowance: v.optional(v.union(v.object({
+        limit: v.number(), remaining: v.number(), resetAtEpochSeconds: v.number(),
+      }), v.null())),
     }))),
     /** Settled calls the gateway named no route for, so their usage could not be attributed. */
     unattributedCalls: v.optional(v.number()),
