@@ -176,6 +176,40 @@ Four gaps, in descending severity:
 
 Disposition: **CODE_BLOCKER.**
 
+
+#### Update, 2026-09-06 (ART-156) — the language gap and the ungated paths are closed; the port-level gate is not
+
+**Traditional Chinese is now screened.** The rule set is split into `EN_RULES` and `ZH_RULES`, with
+Chinese patterns written WITHOUT `\b` — which was the actual defect. `toLocaleLowerCase('en-US')`
+was named in the finding but is a no-op for Han characters and was neither the cause nor a problem;
+recorded because fixing that instead would have left the real defect in place. NFKC folding turned
+out to be load-bearing for the identification-number rule, since a full-width number is the same
+personal datum as a half-width one.
+
+**`embed()` is gated.** It was the path shipping character memories and private knowledge verbatim,
+so it was never the lesser exposure.
+
+**The side channels are gated, by walking the assembled request body rather than naming fields.**
+The inventory listed three (`jsonSchema.description`, `tools[].function.description`, `body.user`);
+a fixed list of three field names would have closed exactly those and nothing added later. The scan
+sits on `request()` — the only line in the adapter that reaches the network — so a new METHOD
+cannot ship unscreened text. One exemption, by exact identity against the frozen constant:
+`PRE_GENERATION_PROVIDER_CONSTRAINT` itself, which necessarily names what it prohibits and would
+otherwise make the gate refuse every request in the system. A test asserts a near-copy is NOT
+exempted.
+
+**Coverage is now by execution.** The previous test used `readFileSync` + `toContain`, which passes
+for code that never runs — and, worse here, passes for a call whose rules cannot match. The new
+suite drives the real adapter against a `fetch` spy and asserts **no network call occurred**.
+Fault injection: removing `ZH_RULES` turns 18 of 25 tests red.
+
+**AC#3 NOT met, and deliberately not claimed.** The gate is enforced at the adapter's transport
+chokepoint, not at the provider port. A second adapter class would have its own transport and
+inherit nothing. Enforcing at the port needs a wrapper applied at construction, and there is
+currently one construction site (`providers/actions.ts`) used only for the capability probe — so
+the wrapper's real value depends on where production generation obtains its provider, which was
+not traced in this pass. Left open on ART-156 rather than marked done.
+
 ### 0.3 New findings — the risk has moved to code written after this audit
 
 The 2026-08-04 surface has been largely secured. The residual risk is now concentrated in the
