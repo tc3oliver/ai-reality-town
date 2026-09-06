@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-08-04 06:21'
-updated_date: '2026-09-06 10:29'
+updated_date: '2026-09-06 10:37'
 labels:
   - prd-1.0
   - epic-i
@@ -22,9 +22,9 @@ Every publicRead rebuild* function re-derives its payload by replaying the whole
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A post-commit run's document reads do not grow linearly with total accepted-event count
-- [ ] #2 runLiveWorldDayCycle can process a whole time slot (3+ events) in one transaction on a world with hundreds of accepted events
-- [ ] #3 Projection payloads remain byte-identical to the full-replay output for the same canon prefix
+- [x] #1 A post-commit run's document reads do not grow linearly with total accepted-event count
+- [x] #2 runLiveWorldDayCycle can process a whole time slot (3+ events) in one transaction on a world with hundreds of accepted events
+- [x] #3 Projection payloads remain byte-identical to the full-replay output for the same canon prefix
 <!-- AC:END -->
 
 ## Definition of Done
