@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-08-04 06:21'
-updated_date: '2026-09-06 04:37'
+updated_date: '2026-09-06 04:58'
 labels:
   - prd-1.0
   - epic-i
@@ -331,4 +331,45 @@ stage 17 寫 recap → `invalidate()` → stage 20 再讀一次世界狀態。re
 `completedWorldDaysBounded` 也仍在成長,但是 O(days) 而非 O(events)。若它成為瓶頸,維護式摘要是解法,而且需要的形狀比完整日期陣列窄:三個消費端分別只要「小於某日的完成日數量」(`episodeNumberFor`)、成員測試、以及對 `episodeWorldDays` 的小型差集。已寫入該函式 docblock。
 
 PR #224,auto-merge 已啟用(2026-09-06T04:02:53Z)。
+
+## Slice 6 進度:共用的 Live fold(PR #225)
+
+### 交付
+
+新增 `convex/publicRead/liveFold.ts`:`LiveFoldState`、`emptyLiveFold()`、`foldLiveEvents(prior, events)`。
+
+`buildLiveProjection` 的位置/角色 map 與 `excludedCharacterIds` **合併為同一份實作**。先前是兩份,規則重疊但**不相同** —— 只有其中一份會先型別檢查 `alive` 才採信。兩份實作正是「checkpoint 與 replay 在已發布輸出上悄悄分歧」的成因。
+
+`buildLiveProjection` 新增選用的 `priorFold`,省略即為原本的全量重播,位元不變。
+
+### 從空摺疊,而非續接 CanonSnapshot
+
+`locations` 是 `SEED_BASELINE_FIELDS` 之一。**「從 canon 快照減去 seed」已評估並否決**:事件可以把某個位置設成與 seed 相同的值,因此「與 initial 快照不同」無法區分「從未被觸碰」與「被改回同值」,而且會朝錯的方向解 —— 丟掉一個事件確實寫過的位置。
+
+### 讀取量尚未下降,而這是預期的
+
+五個消費端只要還有一個需要完整 `acceptedEvents`,那次 collect 就還在。單獨落地本 slice 對量測數字**零影響**,已在 PR 內明說,以免被誤讀為失敗的最佳化。
+
+### 兩條 boundary test 抓到我的真實錯誤(不是需要放寬的雜訊)
+
+第一版把 `LiveLocation` 宣告在 `liveState.ts` 再往下 import。**那一條 type edge** 就把四個 `convex/canon/` 模組拉進 ambient client 的閉包,而該處**連 type position 都禁止**該 root。改為在 `liveFold.ts` 內宣告(該檔 import 任何東西都沒有),再由 `liveState.ts` re-export。pin 只為那一條刻意新增的 edge 更新,且是在違規被**修好之後**才更新,不是被遷就。
+
+第三條失敗是我自己的註解散文:內含一個 Canon 偵測器 boundary test 會在 client 檔案裡 grep 的符號名。散文也會被掃描。已改寫。
+
+### 驗證證據
+
+- `npm run check` 全綠:**208 suites / 3364 passed / 6 skipped**
+- 承載性質(`fold(all) === fold(fold(prefix), suffix)`)在**每一個** split point 上斷言,fixture 同時涵蓋全部五個摺疊結構 —— 不是挑一個方便的邊界測一次
+- 每條相等斷言都先驗**非空**(本任務先前已犯過一次 `{}` 等於 `{}`)
+- 故障注入:重設 `lastSequenceNumber` → split-point 性質轉紅;移除 `alive` 型別檢查 → 兩條 malformed 測試轉紅;讓 active flag 寫入 `knownCharacters` → 該條轉紅
+
+### 注入找到我自己測試的漏洞(已修)
+
+第一版 malformed-`alive` 測試用的是 **truthy** 值(`'not-a-boolean'`)。移除守衛後它仍然綠 —— 因為 truthy 會走 `delete` 分支,結果同樣是空集合,守衛對該輸入根本不起作用。已補上 falsy(`null`)與 truthy 兩個方向,現在注入會讓兩條都轉紅。
+
+這正是「測試名稱指涉的性質根本沒被觸及」那個失敗模式的第三次現身,而這次是注入抓到的,不是靠閱讀。
+
+### 剩餘(AC#1 仍紅)
+
+`canonCharacterLocations`(快照即可)、`buildActiveScenePresentations`(窗口有界,fallback 需小心)、`buildVisualReplay`(仍是真正困難的一項:跨全史排 importance + `foldLocations` 需要勝出場景前後的精確位置)。五者必須整批落地讀取量才會動。
 <!-- SECTION:NOTES:END -->
