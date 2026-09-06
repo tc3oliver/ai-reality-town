@@ -18,6 +18,43 @@ const usage = (value: unknown): { inputTokens: number; outputTokens: number } =>
     outputTokens: typeof data.completion_tokens === 'number' ? data.completion_tokens : 0 };
 };
 
+/**
+ * Every string anywhere in a request body, so the safety gate screens what is actually sent
+ * rather than what the caller thought it was sending (ART-156).
+ *
+ * Walks the whole structure instead of naming fields. The audit's egress inventory listed three
+ * that were reaching the provider unscreened — `json_schema.schema`'s embedded `description`s,
+ * `tools[].function.description`, and `user` — and a fixed list of field names would have closed
+ * exactly those three and nothing added afterwards. Keys are collected as well as values: a JSON
+ * Schema carries meaning in its property names.
+ */
+function freeTextOf(value: unknown, depth = 0, out: string[] = []): string[] {
+  // A request body is configuration-shaped, not user-shaped; this bound exists so a cyclic or
+  // pathological structure cannot make the gate itself the failure.
+  if (depth > 12) return out;
+  if (typeof value === 'string') {
+    // The one carve-out, and it is not a loophole: {@link PRE_GENERATION_PROVIDER_CONSTRAINT} is
+    // the policy TEXT this module prepends to every request, and it necessarily NAMES the things
+    // it prohibits ("Do not generate ... explicit sexual content"). Screening it would make the
+    // gate reject every request the moment it started screening the assembled body — the gate
+    // refusing its own instruction. Matched by exact identity against the frozen constant, so no
+    // caller-supplied string can wear this exemption.
+    if (value !== PRE_GENERATION_PROVIDER_CONSTRAINT) out.push(value);
+    return out;
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) freeTextOf(entry, depth + 1, out);
+    return out;
+  }
+  if (value && typeof value === 'object') {
+    for (const [key, entry] of Object.entries(value)) {
+      out.push(key);
+      freeTextOf(entry, depth + 1, out);
+    }
+  }
+  return out;
+}
+
 export class OpenAICompatibleProvider implements LanguageModelProvider, SimulationProvider {
   readonly name = 'llm' as const;
   private readonly dependencies: AdapterDependencies;
@@ -35,6 +72,16 @@ export class OpenAICompatibleProvider implements LanguageModelProvider, Simulati
     body: Record<string, unknown>,
     overrides: { timeoutMs?: number; maxAttempts?: number } = {},
   ): Promise<{ body: unknown; retryCount: number; latencyMs: number }> {
+    // ART-156 / audit H-4: the LAST gate, on the only line in this class that reaches the
+    // network. The per-method calls above screen the caller's own input with the right
+    // `inputKind`; this screens the request body as ACTUALLY ASSEMBLED, which is a different
+    // question and catches the fields nobody was looking at — `json_schema.schema`'s
+    // descriptions, tool descriptions, `user`, and anything a future method adds. A new method
+    // on this adapter cannot ship unscreened text without deleting this line.
+    //
+    // NOT a substitute for a port-level gate: a second adapter class would have its own
+    // transport and inherit nothing from here. See this task's notes.
+    assertPreGenerationSafe({ worldText: '', promptText: '', contextText: freeTextOf(body) });
     const started = this.dependencies.now();
     const maxAttempts = overrides.maxAttempts ?? this.config.maxAttempts;
     const timeoutMs = overrides.timeoutMs ?? this.config.timeoutMs;
@@ -90,7 +137,17 @@ export class OpenAICompatibleProvider implements LanguageModelProvider, Simulati
       latencyMs: response.latencyMs, retryCount: response.retryCount } };
   }
 
+  /**
+   * ART-156 / audit H-4: embeddings are screened too.
+   *
+   * This path was ungated. It is not a lesser exposure than chat — it is the one that ships
+   * character memories and private knowledge verbatim to the provider, whereas `structuredChat`
+   * at least sends an assembled prompt. The text is screened as `context` rather than `prompt`
+   * because it is not an instruction: labelling it correctly is what makes a rejection's
+   * `inputKind` mean something to whoever reads it.
+   */
   async embed(text: string): Promise<EmbeddingResult> {
+    assertPreGenerationSafe({ worldText: '', promptText: '', contextText: [text] });
     const response = await this.request(this.config.embeddingUrl, { model: this.config.embeddingModel, input: text });
     const root = record(response.body, 'LLM_EMBEDDING_INCOMPATIBLE');
     if (!Array.isArray(root.data) || root.data.length === 0) throw new SimulationProviderError('permanent', 'LLM_EMBEDDING_INCOMPATIBLE', 'embedding response has no data');
