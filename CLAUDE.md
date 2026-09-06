@@ -73,12 +73,105 @@ High-level, long-term rules (not implemented in the bootstrap session):
 
 See `docs/architecture/adr/` and `docs/DEVELOPMENT.md`.
 
-## 7. Stop Rule
+## 7. Commands
+
+`npm run check` is the gate. It runs, in order: `check:architecture` → `test:architecture` →
+`check:asset-licenses` → `test:asset-licenses` → `typecheck` → `lint` → `test` → `build`.
+`npm run check:offline` is the same with `test:foundation` instead of the full suite.
+
+**`npm run e2e` is NOT part of `check`, and is not a required CI status check.** Run it
+separately (`build:e2e` → Playwright) before claiming a change is verified — especially for
+anything touching routes, fixtures, or the post-commit pipeline. It is slow enough that it
+should be run alone.
+
+| Need | Command |
+| --- | --- |
+| One test file | `npm test -- --runTestsByPath <path>` |
+| Long-run 30-day sim | `npm run test:longrun` (env-gated, `ART60_LONG_RUN=1`) |
+| Boundary policy only | `npm run check:architecture` / `npm run test:architecture` |
+| Bootstrap health | `npm run agent:check` |
+
+Three Jest projects, selected by filename: `*.test.ts` (unit, no DOM), `*.a11y.test.tsx`
+(jsdom + jest-axe), `*.dom.test.tsx`. The a11y suite renders through
+`renderToStaticMarkup` — **no effects run and no events fire**, so any component it covers
+needs a presentational export separate from the `useQuery` default, and its layout must be a
+pure function.
+
+Two traps worth knowing:
+
+- **`npx jest` directly fails** on `import.meta` (different module config). Always go through
+  `npm test`.
+- **`lint` enumerates specific directories.** `npx eslint convex/` reports problems outside
+  that set; they are scope, not regressions.
+
+## 8. Architecture Map
+
+A Convex backend under `convex/`, a React client under `src/`, and a **module dependency
+policy** in `architecture/module-boundaries.json` enforced by
+`scripts/architecture/check-boundaries.mjs`. The policy is the fastest way to understand the
+system: `shared` depends on nothing, `canon` depends only on `shared`, and everything else is
+declared explicitly. Read it before adding a cross-module import.
+
+The two pipelines are the spine:
+
+- **`convex/simulation/worldDayLive.ts`** — PRD §12 stages 1–10. Director plans a slot, scenes
+  are authored through the vendor-neutral `LanguageModelProvider` port, proposals are committed
+  to Canon.
+- **`convex/operations/postCommitLive.ts`** — stages 11–21, run after each accepted event:
+  projections, knowledge, memory, arcs, episodes, recaps, the safety gate, editorial
+  publication, and the public read-model rebuilds.
+
+Public reads never reach Canon. `convex/publicRead/` publishes versioned, content-hash-deduped
+snapshots (`commitReadModelVersion`) and serves them (`serveReadModel`) with last-known-good
+fallback. Adding a read model means registering the kind in three places: `readModel.ts`,
+`publicRead/schema.ts`, `readModelFunctions.ts`.
+
+The policy also carries two enforcement surfaces that are easy to trip:
+
+- **`publicFunctionSurface`** — every registered public function must be declared, with a gate
+  (`anonymous` / `operator` / `viewer`). `publicReadOnlyGuarantee.test.ts` asserts declared ==
+  found *exhaustively*, and separately pins the `publicFunctionRef` literals under `src/`.
+  Adding a public function is an architectural change, not a line edit.
+- **`canonWriteBoundary.forbiddenModules`** — modules that may not name a write symbol at all.
+  This is how "derived content must not produce new Canon" is a build failure rather than a
+  convention.
+
+**LLM configuration lives in the Convex deployment environment** (`npx convex env list`), not
+in `.env.local`. A real OpenAI-compatible adapter exists but is currently reachable only from
+a probe action; the world-day path binds the deterministic `FakeWholeSceneProvider`.
+
+## 9. Conventions That Are Not Obvious From The Code
+
+- **Fault injection is the standard of evidence.** A passing test is not evidence a guarantee
+  holds; break the guarantee, watch the named test fail, restore it. Assertions that cannot
+  fail have shipped here more than once.
+- **`Tests: 0 total` means the suite failed to load.** In a grep-filtered summary it is
+  indistinguishable from a clean pass. Always check the total against a baseline.
+- **Anything added to the post-commit pipeline must sit downstream of `rebuildLiveProjection`
+  and `rebuildOnboardingSummary`.** That stage is not failure-isolated, so a throw upstream of
+  them stops a safety withhold from propagating.
+- **Never `.collect()` a whole world on a per-event path**, especially on `v.any()` LLM-blob
+  tables. Index-scope the read or bound it and justify it.
+- **A validator must not be handed its own input.** Derive the accepted set independently
+  (e.g. read Canon by index) or the check is a tautology.
+- **Truncation is never silent** — publish what was omitted and why.
+- **The E2E fixture transport throws on an unregistered query.** A new `modelRef` needs a
+  branch in `src/e2e/fixtureWorld.ts`, keyed through a shared ref-builder so the fixture cannot
+  drift from the server.
+- **Comments must argue what the code does.** Several defects here have been a docblock
+  asserting the opposite of its own function; when correcting one, say plainly that the old
+  claim was wrong rather than silently replacing it.
+- **When diffing a branch, use the merge-base** (`git diff $(git merge-base HEAD origin/main)`).
+  Diffing against a moved `origin/main` shows other tasks' files as deletions.
+- UI copy is zh-Hant, inline — there is no i18n framework. Bound text with the helpers in
+  `convex/shared/publicText.ts`.
+
+## 10. Stop Rule
 
 - Completing one task, milestone, plan, commit, or PR is **not** a stop condition.
 - Stop only when the requested delivery scope is complete, or all remaining work is genuinely human-blocked.
 
-## 8. References
+## 11. References
 
 - `docs/agent/AUTONOMOUS-DEVELOPMENT.md`
 - `docs/agent/HUMAN-BLOCKERS.md`
