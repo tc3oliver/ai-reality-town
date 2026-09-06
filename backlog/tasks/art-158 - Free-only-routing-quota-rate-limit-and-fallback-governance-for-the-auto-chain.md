@@ -3,11 +3,11 @@ id: ART-158
 title: >-
   Free-only routing: quota, rate-limit and fallback governance for the auto
   chain
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-09-06 09:09'
-updated_date: '2026-09-06 15:41'
+updated_date: '2026-09-06 16:27'
 labels:
   - prd-1.0
   - epic-o
@@ -76,7 +76,7 @@ ART-148 已消費 `_routed_via`。**三個 `x-ratelimit-*` header 目前被完�
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -160,3 +160,9 @@ Deriving rates from `tokenBudgetCounters` was rejected outright: a world day is 
 
 **Injections.** 12 (cumulative RPM) reddened 3 tests immediately. 13 (cumulative TPM) and 14 (window bound dropped from the read) both SURVIVED and exposed two real test holes — TPM was never pinned against the window independently of RPM, and the read bound was masked by the in-memory filter so its loss showed only as spurious truncation on an aged world. Both closed with new tests; re-injection then reddened each by name. No injection produced 'Tests: 0 total'.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Free-only routing governance complete. AC#2 was the last open criterion and is delivered as REAL wall-clock time buckets rather than derived from world-day counters: epoch-aligned one-second buckets, a 60-second window applied as a comparison so a stale row cannot inflate a rate, counted at the fetch seam because every seam above it counts something coarser than a request. A 429 is a request AND separately rate-limited; tokens stay null when the gateway reported none, with callsWithoutUsage carrying the blind spot; buckets key on the requested route with resolutions recorded alongside. Readable via inspectTokenBudget.providerRates. Verified by 24 window-specification tests, 14 live-wiring tests through the real registered mutations, three injections (two of which exposed real test holes, now closed), and a live gateway run reporting rpm=1 tpm=377 allowance=117/120 reset=1788711105. PR #235 merged.
+<!-- SECTION:FINAL_SUMMARY:END -->
