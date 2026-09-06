@@ -137,11 +137,37 @@ export type LiveCharacter = {
   assets: Array<{ assetId: string; sourceEventId: string }>;
 };
 
+/**
+ * A location as the scene author may see it (ART-157).
+ *
+ * Widening what the model is shown, so the widening is argued rather than assumed: a location's
+ * existence, its exits, whether it is open, and whether it is already full are all things a
+ * character standing in the world can see by looking. None of it is Canon-secret — those travel
+ * as opaque `protectedFactIds` and are unaffected. `name`/`description` are deliberately NOT
+ * included: the author does not need them to choose a legal destination, and every field added
+ * here is a field a scene could start narrating.
+ */
+export type LiveLocationView = {
+  locationId: string;
+  active: boolean;
+  capacity: number;
+  /** How many characters Canon currently places here. */
+  occupancy: number;
+  connectedLocationIds: string[];
+};
+
 /** Everything stage 1 loads. Contains only data the Director/characters may legitimately see. */
 export type LiveWorldSnapshot = {
   worldId: string;
   lastSequenceNumber: number;
   characters: LiveCharacter[];
+  /**
+   * The map, as far as a character can see it. Present so the scene author can be TOLD which
+   * destinations are legal instead of guessing (ART-157): `GroupedScene` carries only the scene's
+   * own `locationId`, so before this the whole-scene prompt asked for a `toLocationId` while
+   * offering no legal value, and Canon refused every movement it produced.
+   */
+  locations: LiveLocationView[];
   activeArcs: LiveArc[];
   recentMajorEventIds: string[];
   environmentFactIds: string[];
@@ -300,6 +326,37 @@ export type WorldSnapshotSources = {
   activeArcs: readonly LiveArc[];
 };
 
+/**
+ * Which destinations a scene at `locationId` may legally send someone to (ART-157).
+ *
+ * `validateCanon` refuses a `character_location_changed` on FOUR separate grounds — the
+ * destination being unknown, non-existent, INACTIVE, or already at capacity. Offering the author
+ * bare connected ids would satisfy only the first two and the world would simply start failing on
+ * the other two instead, so all four are applied here.
+ *
+ * Capacity is compared with `>=`, not `>`: the destination must have room for one MORE character,
+ * and a location already at capacity has none. Occupancy is Canon's own count, so a scene is never
+ * offered a destination the commit-time rule would then refuse.
+ *
+ * Returns them sorted, because this string reaches a prompt and a prompt that reorders between
+ * runs makes two identical worlds produce different provider input for no reason.
+ */
+export function legalDestinationsFrom(
+  locations: readonly LiveLocationView[],
+  locationId: string,
+): string[] {
+  const byId = new Map(locations.map((location) => [location.locationId, location]));
+  const origin = byId.get(locationId);
+  if (!origin) return [];
+  return origin.connectedLocationIds
+    .filter((candidate) => candidate !== locationId)
+    .map((candidate) => byId.get(candidate))
+    .filter((candidate): candidate is LiveLocationView =>
+      candidate !== undefined && candidate.active && candidate.occupancy < candidate.capacity)
+    .map(({ locationId: id }) => id)
+    .sort((left, right) => left.localeCompare(right));
+}
+
 /** Share of the recent window taken by its single most common event type (0…1). */
 export function repetitionScore(eventTypes: readonly string[]): number {
   if (eventTypes.length === 0) return 0;
@@ -367,6 +424,18 @@ export function buildLiveWorldSnapshot(sources: WorldSnapshotSources): LiveWorld
     worldId: slot.worldId,
     lastSequenceNumber: projection.lastSequenceNumber,
     characters: characters.sort((left, right) => left.characterId.localeCompare(right.characterId)),
+    // ART-157. Occupancy is read from `locationOccupancy` — the projection's own answer to "who
+    // is standing here" — rather than recounted from `characterLocations`, so this cannot come to
+    // disagree with the capacity rule `validateCanon` enforces at commit time.
+    locations: Object.values(projection.locations)
+      .map((location): LiveLocationView => ({
+        locationId: location.locationId,
+        active: location.active,
+        capacity: location.capacity,
+        occupancy: (projection.locationOccupancy[location.locationId] ?? []).length,
+        connectedLocationIds: [...location.connectedLocationIds].sort((a, b) => a.localeCompare(b)),
+      }))
+      .sort((left, right) => left.locationId.localeCompare(right.locationId)),
     activeArcs: [...sources.activeArcs].sort((left, right) => left.arcId.localeCompare(right.arcId)),
     recentMajorEventIds: recent.map(({ eventId }) => eventId),
     environmentFactIds: Object.keys(projection.worldEnvironment).sort((left, right) => left.localeCompare(right)),
@@ -870,6 +939,10 @@ export function createWorldDayStageHandlers(
       for (const scene of grouping.result.scenes) {
         const result = await simulateWholeScene(provider, `${scene.sceneId}:simulation`, scene, {
           ...options,
+          // ART-157. Derived per scene from the SAME stage-1 snapshot the Director planned
+          // against, so the author is told exactly what Canon will accept. Before this the
+          // prompt named no location at all and every movement it proposed was refused.
+          legalDestinationIds: legalDestinationsFrom(snapshot.locations, scene.locationId),
           budget: {
             gate: port.budget,
             reservation: {

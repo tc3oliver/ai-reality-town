@@ -84,7 +84,7 @@ class RecordingProvider implements LanguageModelProvider {
 }
 
 const snapshot = (): LiveWorldSnapshot => ({
-  worldId: WORLD_ID, lastSequenceNumber: 0, characters: [], activeArcs: [],
+  worldId: WORLD_ID, lastSequenceNumber: 0, characters: [], locations: [], activeArcs: [],
   recentMajorEventIds: [], environmentFactIds: [], viewerInterventionEventIds: [],
   protectedFactIds: [], repetitionScore: 0,
 });
