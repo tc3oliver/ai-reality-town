@@ -166,6 +166,60 @@ describe('ART-158 free route chain', () => {
  * be set wrong, whereas a second endpoint or a paid-tier concept cannot hide from a scan of the
  * module that would have to contain it.
  */
+describe('an explicit request.model is a decision, and is tried FIRST', () => {
+  /**
+   * Fault injection found this untested: making `chainFor` ignore `request.model` and always walk
+   * the configured chain passed every test in this file.
+   *
+   * It is the defect ART-159 fixed. ART-59's over-budget downgrade and ART-52's per-module
+   * override both reach the provider as `request.model`; a chain that overwrote it left the
+   * accountant granting a reservation against the fast class, RECORDING that it had, and the call
+   * running on the configured route anyway. A budget control that is decided and then discarded is
+   * worse than none, because the ledger says it worked.
+   */
+  it('calls the requested model before any configured route', async () => {
+    const provider = new RoutedProvider(new Set(['downgraded']));
+    const chained = new FreeRouteChainProvider(provider, ['auto', 'backup']);
+
+    await chained.structuredChat({ ...chatRequest(), model: 'downgraded' });
+
+    expect(provider.asked[0]).toBe('downgraded');
+  });
+
+  it('keeps the configured routes behind it as fallbacks', async () => {
+    // Dropping them would leave a downgraded call with no fallback at all. Nothing is escalated by
+    // keeping them: every route on this endpoint is free, so a later hop is a different queue.
+    const provider = new RoutedProvider(new Set(['backup']));
+    const chained = new FreeRouteChainProvider(provider, ['auto', 'backup']);
+
+    await chained.structuredChat({ ...chatRequest(), model: 'downgraded' });
+
+    expect(provider.asked).toEqual(['downgraded', 'auto', 'backup']);
+  });
+
+  it('does not duplicate a requested model that is already in the chain', async () => {
+    const provider = new RoutedProvider(new Set(['backup']));
+    const chained = new FreeRouteChainProvider(provider, ['auto', 'backup']);
+
+    await chained.structuredChat({ ...chatRequest(), model: 'auto' });
+
+    // A repeated id would spend allowance retrying a route that just failed for a reason that has
+    // not changed.
+    expect(provider.asked).toEqual(['auto', 'backup']);
+  });
+
+  it('uses the configured chain unchanged when no model is requested', async () => {
+    // The negative control: ART-52 requires that a module inheriting the deployment's LLM_MODEL
+    // sends NO override, and that case must not gain a phantom first hop.
+    const provider = new RoutedProvider(new Set(['backup']));
+    const chained = new FreeRouteChainProvider(provider, ['auto', 'backup']);
+
+    await chained.structuredChat(chatRequest());
+
+    expect(provider.asked).toEqual(['auto', 'backup']);
+  });
+});
+
 describe('ART-158 AC#6 — no paid route is reachable', () => {
   it('the chain names no provider, endpoint or tier of its own', async () => {
     const source = await import('node:fs').then(({ readFileSync }) =>

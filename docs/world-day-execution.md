@@ -66,6 +66,70 @@ callback on a slot's commits, they are a cursor over accepted events.
 See [`openai-compatible-provider.md`](./openai-compatible-provider.md) for the route chain,
 the failure classification and the deployment variables.
 
+## What drives it (ART-160)
+
+Two crons, and they are counterparts:
+
+| cron | interval | what it does |
+| --- | --- | --- |
+| `tickAllPublicSchedules` | 1 min | RESERVES due slots (`queued` rows) |
+| `driveLiveWorlds` | 2 min | DRAINS them: prepare → author → finalize, per world |
+| `drainAllLivePostCommit` | 1 min | stages 11–21 over the accepted-event cursor |
+
+Before ART-160 only the first existed, so a deployed world reserved slots forever and executed
+none — draining them was an operator invoking three functions by hand.
+
+### One claim per world, and why that is the whole story
+
+`claimLiveSlot` gives a world exactly **one time-bounded claim**. A live lease means "someone is on
+it"; an expired one means "take it over". That single branch answers every way the sequence can be
+interrupted, because from the outside they are indistinguishable and the remedy is identical:
+
+| interruption | what happens |
+| --- | --- |
+| duplicate cron or action delivery | second driver is told `busy` and does nothing |
+| action never started | lease lapses, next tick takes over |
+| action crashed or timed out | same |
+| process restarted | same |
+| authoring finished, finalize never ran | same — and the authored scenes are reused, not re-paid for |
+| slot already reached Canon | the run short-circuits and commits nothing further |
+
+`busy` means **do nothing** — explicitly not "take the next queued slot". World time is ordered, and
+authoring slot N+1 against a world that slot N has not finished advancing produces scenes about a
+state that never existed.
+
+`LIVE_SLOT_LEASE_MS` is 12 minutes and **must exceed the platform's action ceiling** (Convex caps
+actions at 10). A shorter lease would expire under a healthy run and let a second driver author the
+same world — the exact double-spend the lease prevents. The cost is stated: a crashed driver's slot
+is unavailable for up to that long.
+
+Resuming is safe rather than tolerated: `executeWorldDay` restarts at its last completed
+checkpoint, `authorSlotScenes` reuses persisted scenes, and `commitProposedEvent` dedups on
+`idempotencyKey`.
+
+A **paused** world is excluded when the driver lists worlds; an **emergency-stopped** one throws out
+of `prepareQueuedWorldDaySlot` *before* anything is claimed, so a refused world is never left
+holding a lease. A world that refuses is recorded and the tick moves on — one broken world must not
+become a broken tick.
+
+## Concurrency (ART-161)
+
+`authorSlotScenes` runs a bounded worker pool sized by the world's `maxConcurrentCalls`.
+
+An **unconfigured** limit (`null`, the policy default) means **1**, not unbounded. Reading "no
+opinion" as "fan out over every scene at once" would make a world that never asked for concurrency
+empty a shared key allowance in one burst.
+
+Results are written **by index**, so commit order is scene order regardless of which provider call
+returns first. That is load-bearing: Canon's sequence numbers would otherwise depend on gateway
+latency, and a replay of the same slot could produce a different world.
+
+A process-local pool bounds nothing on its own. What makes it sound is that a second driver for the
+same world **cannot exist** — that is ART-160's lease. The durable `inFlight` counter in
+`tokenBudgetCounters` remains the enforcement of record, evaluated on every reservation; the pool
+exists so the gate is never asked to grant more than it would allow, which would turn a limit into
+a stream of refusals.
+
 ## Who gets cast, and how a stranded character gets back in
 
 Scene selection is neglect-first, then rotating. Locations that can hold a multi-character

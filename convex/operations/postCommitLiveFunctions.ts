@@ -70,6 +70,7 @@ import type { rebuildLiveProjection as rebuildLiveProjectionExport } from '../pu
 import type { rebuildOnboardingSummary as rebuildOnboardingSummaryExport } from '../publicRead/onboardingSummaryFunctions';
 import type { persistDailySnapshot as persistDailySnapshotExport } from '../canon/snapshotOperations';
 import type { runQueuedWorldDaySlot as runQueuedWorldDaySlotExport } from '../simulation/worldDayLiveFunctions';
+import { drivableWorldIds } from '../simulation/schedulerOperations';
 import type { AcceptedEvent } from '../canon/model';
 import { TIME_SLOTS } from '../canon/eventTypes';
 import { rowToAcceptedEvent } from '../canon/serialize';
@@ -781,6 +782,42 @@ export const drainLivePostCommit = internalMutation({
       throw new Error('INVALID_POST_COMMIT_BATCH_SIZE');
     }
     return drainPostCommitBacklog(ctx, args.worldId, maxPostCommitEvents, args.now ?? Date.now());
+  },
+});
+
+/**
+ * Drain post-commit for every running public world (ART-160), invoked by cron.
+ *
+ * The live driver cannot do this itself: it is the provider composition root inside
+ * `convex/simulation/providers`, and `simulation` may not depend on `operations`. That separation
+ * costs nothing, because stages 11–21 were never a callback on a slot's commits — the cursor picks
+ * up whatever has been accepted, whoever accepted it.
+ *
+ * Bounded per world per tick by the same page size the one-world entry point uses, so a backlog is
+ * worked off over several ticks rather than in one transaction that would exceed a read budget.
+ */
+export const drainAllLivePostCommit = internalMutation({
+  args: {
+    maxPostCommitEvents: v.optional(v.number()),
+    now: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<{ worldId: string; postCommit: PostCommitOutcome[] }[]> => {
+    const maxPostCommitEvents = args.maxPostCommitEvents ?? DEFAULT_MAX_POST_COMMIT_EVENTS;
+    if (!Number.isSafeInteger(maxPostCommitEvents) || maxPostCommitEvents < 1 || maxPostCommitEvents > MAX_POST_COMMIT_EVENTS) {
+      throw new Error('INVALID_POST_COMMIT_BATCH_SIZE');
+    }
+    const now = args.now ?? Date.now();
+    const drained: { worldId: string; postCommit: PostCommitOutcome[] }[] = [];
+    // The SAME rule the live driver uses to decide which worlds it may advance, shared rather than
+    // restated — two definitions of "a world the pipeline runs for" could disagree, and the one
+    // that ran fewer would strand events with nothing saying why.
+    for (const worldId of await drivableWorldIds(ctx.db)) {
+      drained.push({
+        worldId,
+        postCommit: await drainPostCommitBacklog(ctx, worldId, maxPostCommitEvents, now),
+      });
+    }
+    return drained;
   },
 });
 

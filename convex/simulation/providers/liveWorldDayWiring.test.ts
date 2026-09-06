@@ -75,6 +75,7 @@ const plan = (scenes: GroupedScene[], requestedModel = 'auto'): SceneAuthoringPl
   options: { maxAttempts: 1, temperature: 0.4, maxTokens: 4_000 },
   requestedModel,
   legalDestinationIds: Object.fromEntries(scenes.map((entry) => [entry.sceneId, ['mistwood-square']])),
+  maxConcurrentScenes: 1,
 });
 
 /** A well-formed whole-scene output for `scene`, as the gateway would return it. */
@@ -338,6 +339,35 @@ describe('AC#6 — a general failure is classified differently from a 429', () =
 
     expect(error).toBeNull();
     expect(requests.map(({ model }) => model)).toEqual(['auto', 'gemini-2.5-flash']);
+  });
+
+  /**
+   * A broken gateway is not an exhausted allowance.
+   *
+   * Fault injection found this untested: reporting EVERY retryable status as rate-limited passed
+   * every assertion here, because the tests above only counted ATTEMPTS. `LLM_HTTP_RETRYABLE`
+   * covers 408, 429 and all 5xx — they are all worth retrying — but only one of them says the key
+   * ran out, and an operator reading `rateLimited` on a 500 goes hunting for a quota problem while
+   * the gateway is simply down.
+   */
+  it('books a 500 as a failure, NOT as rate limiting', async () => {
+    const { tables } = await authorLive({
+      responses: [jsonResponse({}, 500), jsonResponse({}, 500)],
+    });
+
+    const usage = countersOf(tables).usageByRoute as Array<Row>;
+    expect(usage.some((entry) => Number(entry.failures) > 0)).toBe(true);
+    expect(usage.every((entry) => Number(entry.rateLimited) === 0)).toBe(true);
+  });
+
+  it('books a 429 as rate limiting, NOT as a plain failure — the paired control', async () => {
+    const { tables } = await authorLive({
+      responses: [jsonResponse({}, 429), jsonResponse({}, 429)],
+    });
+
+    const usage = countersOf(tables).usageByRoute as Array<Row>;
+    expect(usage.some((entry) => Number(entry.rateLimited) > 0)).toBe(true);
+    expect(usage.every((entry) => Number(entry.failures) === 0)).toBe(true);
   });
 
   it('a 429 and a 400 do not produce the same number of attempts', async () => {
@@ -667,6 +697,8 @@ describe('the function paths the live action uses name real exports', () => {
       // ART-158 AC#2. Exercised by `providerRateWiring.test.ts`, which drives the recorder the
       // action installs; named here so the set stays exhaustive rather than merely passing.
       'simulation/providerRateFunctions:recordProviderCall',
+      // ART-160. Exercised by `liveOrchestration.test.ts`, which drives the cron entry point.
+      'simulation/schedulerOperations:listDrivableWorlds',
     ].sort());
   });
 });
