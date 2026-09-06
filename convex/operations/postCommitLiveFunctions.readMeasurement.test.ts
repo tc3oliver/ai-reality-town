@@ -74,7 +74,7 @@ import { rebuildRelationshipGraphProjection } from '../publicRead/relationshipGr
 import { reassessMajorActiveArcEntries } from '../story/entryRecommendationFunctions';
 import { refreshArcStagnationPrompts } from '../story/resolutionFunctions';
 import { generateIncrementalRecap } from '../recaps/functions';
-import { runPostCommitPipeline } from './postCommitLiveFunctions';
+import { runLiveWorldDayCycle, runPostCommitPipeline } from './postCommitLiveFunctions';
 
 type Row = Record<string, unknown>;
 type Tables = Record<string, Row[]>;
@@ -363,6 +363,17 @@ function makeCtx(tables: Tables, stats: ReadStats) {
     'story/entryRecommendationFunctions:reassessMajorActiveArcEntries': reassessMajorActiveArcEntries as unknown as Registered,
     'story/resolutionFunctions:refreshArcStagnationPrompts': refreshArcStagnationPrompts as unknown as Registered,
     'recaps/functions:generateIncrementalRecap': generateIncrementalRecap as unknown as Registered,
+    /**
+     * STUBBED, and the only stub in this table. `runQueuedWorldDaySlot` is PRD §12 stages 1–10 —
+     * a Director plan, scene authoring through a provider port, and a Canon commit. AC#2 is about
+     * what the cycle does with events that are ALREADY accepted, so the fixture seeds them
+     * directly and this returns "no slot was due", which is a real branch of the live cycle (it is
+     * what happens whenever the schedule has nothing queued) rather than an invented one.
+     */
+    'simulation/worldDayLiveFunctions:runQueuedWorldDaySlot': {
+      _handler: (_ctx: unknown, args: unknown) =>
+        Promise.resolve({ worldId: (args as { worldId: string }).worldId, executed: 0, slots: [] }),
+    } as unknown as Registered,
   };
   const ctx = {
     db,
@@ -773,5 +784,172 @@ describe('ART-100 Slice 0 — post-commit document-read measurement harness', ()
     // open day (or by a snapshot tail, or by a named set of sequence numbers) reports an identical
     // count, and a read bounded by history does not.
     expect(large.byTable.canonEvents).toBe(small.byTable.canonEvents);
+  });
+});
+
+/**
+ * ART-100 AC#2 — a whole time slot in one transaction, on a world with hundreds of events.
+ *
+ * The criterion is about `runLiveWorldDayCycle`, not about a single post-commit run, and it used
+ * to fail for two independent reasons: the batch size was pinned at 1, and the cycle opened by
+ * collecting EVERY accepted event and EVERY post-commit run to work out what was left to do —
+ * inside the very transaction whose byte budget the batch size existed to protect.
+ */
+describe('ART-100 AC#2 — runLiveWorldDayCycle over a whole time slot', () => {
+  const HUNDREDS = 400;
+
+  /**
+   * A world of `eventCount` accepted events across finished days.
+   *
+   * `withSnapshot` seeds a real daily snapshot at the penultimate day boundary, which is what
+   * stage 20 writes at every world-day boundary in production. Without one, every
+   * `readProjectionViaSnapshot` call site falls back to a full replay — five of them, so a
+   * snapshot-less fixture measures ~5N and says nothing about the cycle's own scan.
+   */
+  function seedWorld(worldId: string, eventCount: number, now: number, withSnapshot = true): Tables {
+    const tables = emptyTables();
+    const events: Row[] = [];
+    let sequenceNumber = 0;
+    let day = 0;
+    for (; sequenceNumber < eventCount; day += 1) {
+      for (let index = 0; index < 5 && sequenceNumber < eventCount; index += 1) {
+        const timeSlot = index === 4 ? LAST_TIME_SLOT : 'morning';
+        events.push(canonRow(worldId, sequenceNumber, day, timeSlot));
+        sequenceNumber += 1;
+      }
+      tables.dailyEpisodes.push(withheldEpisodeRow(worldId, day, now));
+    }
+    tables.canonEvents.push(...events);
+    if (withSnapshot && day >= 2) {
+      const lastCompletedDay = day - 2;
+      seedDailySnapshot(
+        tables, worldId,
+        events.filter((row) => (row.worldDay as number) <= lastCompletedDay),
+        lastCompletedDay, now,
+      );
+    }
+    return tables;
+  }
+
+  const runCycle = (ctx: ReturnType<typeof makeCtx>, worldId: string, now: number, maxPostCommitEvents?: number) =>
+    (runLiveWorldDayCycle as unknown as Registered)._handler(ctx, {
+      worldId, now, ...(maxPostCommitEvents === undefined ? {} : { maxPostCommitEvents }),
+    }) as Promise<{ postCommit: Array<{ status: string; sourceEventId: string }> }>;
+
+  it('takes a whole time slot through stages 11-21 in ONE call, by default', async () => {
+    const worldId = 'ac2-slot';
+    const now = 10_000_000;
+    const tables = seedWorld(worldId, HUNDREDS, now);
+    const stats = freshReadStats();
+    const ctx = makeCtx(tables, stats);
+
+    const result = await runCycle(ctx, worldId, now);
+
+    // A time slot is three or more events, which is what AC#2 names. The default used to be 1.
+    expect(result.postCommit.length).toBeGreaterThanOrEqual(3);
+    expect(result.postCommit.every((run) => run.status === 'completed')).toBe(true);
+    // ...on a world of hundreds of accepted events, which is the other half of the criterion.
+    expect(tables.canonEvents).toHaveLength(HUNDREDS);
+  });
+
+  it('costs no more to open the cycle on a large world than on a small one', async () => {
+    /**
+     * The read that made AC#2 impossible was the cycle's OWN opening scan, before any event was
+     * processed. Measured at two sizes with the batch pinned to 1 so the per-event work is equal
+     * and the difference is the scan alone.
+     */
+    const now = 10_000_000;
+    const measure = async (eventCount: number, worldId: string): Promise<number> => {
+      const tables = seedWorld(worldId, eventCount, now);
+      const stats = freshReadStats();
+      const ctx = makeCtx(tables, stats);
+      // One unmeasured call to reach steady state: the first ever cycle on a world pays a cold
+      // start for the Live checkpoint, the day ledger and the settled-through cursor, all of which
+      // read history ONCE and then never again. Measuring that would be measuring the catch-up,
+      // not the criterion.
+      await runCycle(ctx, worldId, now, 1);
+      stats.byTable = {};
+      stats.byIndex = {};
+      stats.docsRead = 0;
+      await runCycle(ctx, worldId, now, 1);
+      return stats.byTable.canonEvents ?? 0;
+    };
+    // Both sizes sit above `onboardingSummaryFunctions.MAX_SCANNED_EVENTS`, for the reason the
+    // AC#1 gate's own fixtures do: a cap is only observable as flatness on either side of it.
+    const small = await measure(250, 'ac2-small');
+    const large = await measure(500, 'ac2-large');
+    expect(small).toBeGreaterThan(0);
+    expect(large).toBe(small);
+  });
+
+  it('does not skip an event whose post-commit run failed, however far the world has advanced', async () => {
+    /**
+     * The negative path the cursor exists to protect. Runs need not form a prefix —
+     * `runPostCommitPipeline` can be invoked directly for any event — so a cursor that jumped to
+     * the highest completed run would strand everything below it, silently and permanently.
+     */
+    const worldId = 'ac2-gap';
+    const now = 10_000_000;
+    const tables = seedWorld(worldId, 50, now);
+    const stats = freshReadStats();
+    const ctx = makeCtx(tables, stats);
+
+    // Event 0 is settled; event 1 failed; events 2 and 3 completed out of order.
+    for (const sequenceNumber of [0, 2, 3]) {
+      tables.postCommitRuns.push({
+        runId: `${worldId}:${sequenceNumber}`, worldId,
+        sourceEventId: `${worldId}#event#${sequenceNumber}`,
+        sourceEventSequenceNumber: sequenceNumber, worldDay: 0,
+        status: 'completed', attemptCount: 1, createdAt: now, updatedAt: now,
+      });
+    }
+    tables.postCommitRuns.push({
+      runId: `${worldId}:1`, worldId, sourceEventId: `${worldId}#event#1`,
+      sourceEventSequenceNumber: 1, worldDay: 0,
+      status: 'failed', attemptCount: 1, createdAt: now, updatedAt: now,
+    });
+
+    const result = await runCycle(ctx, worldId, now, 1);
+
+    // The failed event is retried, NOT skipped in favour of the newest unsettled one.
+    expect(result.postCommit).toHaveLength(1);
+    expect(result.postCommit[0].sourceEventId).toBe(`${worldId}#event#1`);
+    // ...and the cursor stopped below it rather than jumping past the completed 2 and 3.
+    const cursor = tables.postCommitCursors[0] as { settledThroughSequenceNumber: number } | undefined;
+    expect(cursor?.settledThroughSequenceNumber).toBe(0);
+  });
+
+  it('keeps making progress when a whole page is already settled', async () => {
+    /**
+     * Without a persisted cursor the cycle re-read the same settled prefix on every call and
+     * returned empty while work remained — a stall, not a slowdown. The cursor advances over
+     * settled events even when none of them produce work, so the next call reaches new ones.
+     */
+    const worldId = 'ac2-stall';
+    const now = 10_000_000;
+    const tables = seedWorld(worldId, 200, now);
+    const settledThrough = 99;
+    for (let sequenceNumber = 0; sequenceNumber <= settledThrough; sequenceNumber += 1) {
+      tables.postCommitRuns.push({
+        runId: `${worldId}:${sequenceNumber}`, worldId,
+        sourceEventId: `${worldId}#event#${sequenceNumber}`,
+        sourceEventSequenceNumber: sequenceNumber, worldDay: Math.floor(sequenceNumber / 5),
+        status: 'completed', attemptCount: 1, createdAt: now, updatedAt: now,
+      });
+    }
+    const stats = freshReadStats();
+    const ctx = makeCtx(tables, stats);
+
+    let calls = 0;
+    let processed = 0;
+    while (processed === 0 && calls < 10) {
+      processed = (await runCycle(ctx, worldId, now, 1)).postCommit.length;
+      calls += 1;
+    }
+    expect(processed).toBe(1);
+    // Bounded catch-up: 100 settled events at 32 per call, so a handful of calls, not one per
+    // event and not an infinite loop.
+    expect(calls).toBeLessThanOrEqual(5);
+    expect(calls).toBeGreaterThan(1);
   });
 });

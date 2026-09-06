@@ -8,6 +8,30 @@
  * invoked by a cron, the orchestrator, or an operator. Public reads use the
  * generic {@link getPublishedReadModel} (modelKind `liveState`), which is
  * failure-isolated and triggers no generation (AC#2).
+ *
+ * ## What this reads, and what it deliberately does not (ART-100)
+ *
+ * It ran after every accepted event and read the world's ENTIRE accepted-event log to do it —
+ * the last O(total canon) read on the post-commit path, and the largest single term in that
+ * task's measurement. Five separate consumers inside this handler needed those events, so
+ * bounding any one of them alone would have moved nothing. All five are bounded now:
+ *
+ * | consumer | now resumes from |
+ * | --- | --- |
+ * | `buildLiveProjection`'s location/character maps | `liveRebuildCheckpoints.fold` + the tail |
+ * | `excludedCharacterIds` | the same fold |
+ * | `buildVisualReplay` | `replaySceneCandidates`, ranked by index; the winners' own events |
+ * | `buildActiveScenePresentations` | the current world day, plus the newest scene |
+ * | `canonCharacterLocations` / the Visual Runtime's anchor chain | the newest `canonSnapshots` row; `liveRebuildCheckpoints.motionFold` |
+ *
+ * **The retroactive facts are still read fresh, every time.** The safety gate's withheld set,
+ * the excluded characters, episode publication state and the events' own text can all change for
+ * an arbitrarily old event when an operator acts, so none of them is checkpointed. That split —
+ * an index of WHICH events matter, never a cache of what they say — is the whole reason this is
+ * safe, and `liveSceneIndex.ts` states it at length.
+ *
+ * The checkpoint and the index are derived caches. Both are folds of accepted Canon, neither
+ * holds a fact that is not already there, and `rebuildFromScratch` re-derives them.
  */
 
 import { v } from 'convex/values';

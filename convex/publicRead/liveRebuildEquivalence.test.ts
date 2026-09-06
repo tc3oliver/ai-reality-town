@@ -337,6 +337,27 @@ describe('ART-100 — the anchor chain reproduces a whole-log plan', () => {
     }
   });
 
+  it('lists characters in the order Canon first placed them', () => {
+    /**
+     * `publicDynamicProjection` sorts the published character list by id, so this order is only
+     * observable through the ORDER of runtime problems — which is why an injection that reversed
+     * it slipped past every other assertion here. Stated against the raw fact list rather than
+     * against the fold, for the same reason `referenceChain` is.
+     */
+    const events = fixtureEvents();
+    const expected: string[] = [];
+    for (const fact of collectLocationFacts(events)) {
+      if (!expected.includes(fact.characterId)) expected.push(fact.characterId);
+    }
+    expect(expected.length).toBeGreaterThan(1);
+    expect(foldCharacterMotion(emptyCharacterMotionFold(), events, RUNTIME.bindings).factCharacterIds)
+      .toEqual(expected);
+    // ...and it survives being folded in two pieces, which is the whole point of storing it.
+    const head = foldCharacterMotion(emptyCharacterMotionFold(), events.slice(0, 2), RUNTIME.bindings);
+    expect(foldCharacterMotion(head, events.slice(2), RUNTIME.bindings).factCharacterIds)
+      .toEqual(expected);
+  });
+
   it('remembers a hop through a zone the map does not bind, in hop order', () => {
     /**
      * The fixture above walks bound zones only, so `unboundHopLocationIds` is empty throughout and
