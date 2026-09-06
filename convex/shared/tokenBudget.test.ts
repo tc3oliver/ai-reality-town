@@ -35,11 +35,13 @@ import {
   grantReservation,
   hashTokenBudgetPolicy,
   classifyPriorLedgerState,
+  isModelAlias,
   isModelMeteringMismatch,
   isReplayableGrant,
   refuseReservation,
   releaseReservation,
   resolveEffectiveTokenBudgetPolicy,
+  resolveModelForCounters,
   routeModelForWork,
   selectOverBudgetStrategy,
   settleReservation,
@@ -1015,5 +1017,97 @@ describe('the replay predicate — both halves falsifiable', () => {
     expect(classifyPriorLedgerState(null)).toBe('none');
     expect(classifyPriorLedgerState({ outcome: 'over_budget' })).toBe('refusal');
     expect(classifyPriorLedgerState({ outcome: 'allowed' })).toBe('resolved_grant');
+  });
+});
+
+/**
+ * ART-148. The deployment sets `LLM_MODEL=auto`, an alias the gateway resolves per call.
+ *
+ * Treated as an ordinary model id it broke the subsystem in two opposite directions at once: the
+ * per-model cap metered a bucket named `auto` that no real model ever spends against, so it was
+ * effectively unenforced; and `modelMeteringMismatches` incremented on every single call, so the
+ * counter that exists to detect silent drift was saturated by design.
+ *
+ * Both halves are pinned here, and so is the honest limit — the FIRST call of a world day cannot
+ * bind the cap, because the concrete id does not exist until the gateway answers.
+ */
+describe('ART-148 model aliases', () => {
+  const ALIAS = 'auto';
+  const CONCRETE = 'glm-4.6';
+
+  it('recognises the deployment alias and leaves concrete ids alone', () => {
+    expect(isModelAlias(ALIAS)).toBe(true);
+    expect(isModelAlias(CONCRETE)).toBe(false);
+    expect(isModelAlias(MODEL)).toBe(false);
+  });
+
+  it('books an alias call under the model that actually ran, not under the alias', () => {
+    const counters = spend(emptyBudgetCounters(WORLD, 0), 500, { model: ALIAS, reportedModel: CONCRETE });
+
+    expect(tokensForModel(counters, CONCRETE)).toBe(500);
+    expect(tokensForModel(counters, ALIAS)).toBe(0);
+    expect(counters.tokensByModel.map(({ model }) => model)).not.toContain(ALIAS);
+  });
+
+  it('does not count alias resolution as a metering mismatch', () => {
+    const counters = spend(emptyBudgetCounters(WORLD, 0), 500, { model: ALIAS, reportedModel: CONCRETE });
+    expect(counters.modelMeteringMismatches).toBe(0);
+  });
+
+  it('still counts genuine drift between two concrete models', () => {
+    const counters = spend(emptyBudgetCounters(WORLD, 0), 500, { model: MODEL, reportedModel: CONCRETE });
+
+    expect(counters.modelMeteringMismatches).toBe(1);
+    // Genuine drift books under the METERED key, so the cap keeps watching the bucket it was
+    // configured against rather than quietly following the provider somewhere else.
+    expect(tokensForModel(counters, MODEL)).toBe(500);
+    expect(tokensForModel(counters, CONCRETE)).toBe(0);
+  });
+
+  it('records what the alias resolved to, so the next reservation can meter it', () => {
+    const counters = spend(emptyBudgetCounters(WORLD, 0), 10, { model: ALIAS, reportedModel: CONCRETE });
+
+    expect(counters.aliasResolutions).toEqual([{ alias: ALIAS, model: CONCRETE }]);
+    expect(resolveModelForCounters(counters, ALIAS)).toBe(CONCRETE);
+    expect(resolveModelForCounters(counters, MODEL)).toBe(MODEL);
+  });
+
+  it('binds the per-model daily cap to the resolved model on a later alias call', () => {
+    const policy = policyWith({ modelDailyTokenBudgets: [{ model: CONCRETE, dailyTokenBudget: 1_000 }] });
+    const counters = spend(emptyBudgetCounters(WORLD, 0), 950, { model: ALIAS, reportedModel: CONCRETE });
+    // Guard the denominator: the cap can only bind if the spend actually landed on CONCRETE.
+    expect(tokensForModel(counters, CONCRETE)).toBe(950);
+
+    const decision = evaluate({ policy, counters, request: { requestedModel: ALIAS, estimatedTokens: 100 } });
+
+    expect(decision.outcome).toBe('over_budget');
+    expect(decision.breachedLimits).toContain('model_daily_tokens');
+  });
+
+  it('allows an alias call that fits inside the resolved model budget', () => {
+    const policy = policyWith({ modelDailyTokenBudgets: [{ model: CONCRETE, dailyTokenBudget: 1_000 }] });
+    const counters = spend(emptyBudgetCounters(WORLD, 0), 500, { model: ALIAS, reportedModel: CONCRETE });
+
+    const decision = evaluate({ policy, counters, request: { requestedModel: ALIAS, estimatedTokens: 100 } });
+
+    expect(decision.outcome).toBe('allowed');
+  });
+
+  it('cannot bind the cap on the day\'s FIRST alias call, and that limit is real', () => {
+    // Stated rather than hidden: nothing has resolved `auto` yet today, so there is no concrete
+    // model to meter against. The cap binds from the second call onwards. Asserting this keeps a
+    // future reader from mistaking the gap for an oversight.
+    const policy = policyWith({ modelDailyTokenBudgets: [{ model: CONCRETE, dailyTokenBudget: 1 }] });
+    const fresh = emptyBudgetCounters(WORLD, 0);
+
+    expect(fresh.aliasResolutions).toEqual([]);
+    expect(evaluate({ policy, counters: fresh, request: { requestedModel: ALIAS } }).outcome).toBe('allowed');
+  });
+
+  it('does not carry an alias resolution across a world day boundary', () => {
+    const today = spend(emptyBudgetCounters(WORLD, 0), 10, { model: ALIAS, reportedModel: CONCRETE });
+    expect(today.aliasResolutions).toHaveLength(1);
+    // Rollover is structural: tomorrow is a different row, built from zero.
+    expect(emptyBudgetCounters(WORLD, 1).aliasResolutions).toEqual([]);
   });
 });

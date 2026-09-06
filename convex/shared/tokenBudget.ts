@@ -490,6 +490,15 @@ export type BudgetCounters = {
    * reported running. Expected to be 0 forever; see {@link BudgetSettlement.reportedModel}.
    */
   modelMeteringMismatches: number;
+  /**
+   * ART-148. The concrete model each {@link MODEL_ALIASES} entry most recently resolved to today,
+   * sorted by alias. Written by settlement, read by the next reservation so the per-model cap can
+   * bind to a real model instead of to the alias.
+   *
+   * Per world DAY, like every other counter here: yesterday's routing is not evidence about
+   * today's, and the row is keyed on `worldDay` so rollover clears it structurally.
+   */
+  aliasResolutions: ReadonlyArray<{ alias: string; model: string }>;
 };
 
 export function emptyBudgetCounters(worldId: string, worldDay: number): BudgetCounters {
@@ -508,6 +517,7 @@ export function emptyBudgetCounters(worldId: string, worldDay: number): BudgetCo
     lowImportanceCalls: 0,
     lowImportanceCallsOnFastModel: 0,
     modelMeteringMismatches: 0,
+    aliasResolutions: [],
   };
 }
 
@@ -718,7 +728,11 @@ export function evaluateReservation(input: {
   const countedAsRetry = request.attempt > 1;
   const spend = request.estimatedTokens;
   const moduleTokens = tokensForModule(counters, request.module);
-  const modelTokens = tokensForModel(counters, routed.model);
+  // ART-148. An alias is metered against whatever the gateway last resolved it to, so the cap
+  // binds to the model that will actually spend rather than to a bucket named `auto` that nothing
+  // ever spends against. Non-alias ids resolve to themselves, so this is a no-op for them.
+  const cappedModel = resolveModelForCounters(counters, routed.model);
+  const modelTokens = tokensForModel(counters, cappedModel);
 
   const breached: BudgetLimit[] = [];
   const over = (used: number, limit: number | null): boolean => limit !== null && used + spend > limit;
@@ -728,7 +742,7 @@ export function evaluateReservation(input: {
   }
   if (over(counters.totalTokens, policy.worldDailyTokenBudget)) breached.push('world_daily_tokens');
   if (over(moduleTokens, input.moduleDailyTokenBudget)) breached.push('module_daily_tokens');
-  if (over(modelTokens, modelBudgetFor(policy, routed.model))) breached.push('model_daily_tokens');
+  if (over(modelTokens, modelBudgetFor(policy, cappedModel))) breached.push('model_daily_tokens');
   if (countedAsRetry) {
     if (over(counters.retryTokens, policy.retryTokenBudget)) breached.push('retry_tokens');
     // The share is evaluated INCLUDING this call on both sides:
@@ -815,6 +829,44 @@ function modelBudgetFor(policy: TokenBudgetPolicy, model: string): number | null
   return policy.modelDailyTokenBudgets.find((entry) => entry.model === model)?.dailyTokenBudget ?? null;
 }
 
+/**
+ * Configured model ids that are NOT models: they hand the choice of concrete model to the gateway,
+ * which reports back which one it actually ran (ART-148).
+ *
+ * The deployment sets `LLM_MODEL=auto`. Before this was recognised, `auto` was treated as an
+ * ordinary model id, with two consequences that pointed in opposite directions:
+ *
+ *  - the per-model daily cap metered a bucket named `auto`, which no real model ever spends
+ *    against, so the cap was effectively unenforced; and
+ *  - `modelMeteringMismatches` incremented on EVERY call, because the metered key (`auto`) never
+ *    equals the reported one. The counter that exists to detect silent drift was saturated by
+ *    design, so a genuine mismatch was indistinguishable from the constant background.
+ *
+ * A constant rather than a policy field: which ids are aliases is a property of the provider
+ * gateway, not of a world's budget. Making it configurable would invite a world to be configured
+ * with the wrong answer to a question it does not own.
+ */
+export const MODEL_ALIASES: ReadonlySet<string> = new Set(['auto']);
+
+/** True when `model` names an alias rather than a concrete model. See {@link MODEL_ALIASES}. */
+export function isModelAlias(model: string): boolean {
+  return MODEL_ALIASES.has(model);
+}
+
+/**
+ * The concrete model an alias most recently resolved to today, or the id unchanged.
+ *
+ * HONEST LIMIT: the gateway picks per call, and the first call of a world day has no prior
+ * resolution to read, so the per-model cap cannot bind to a concrete model on that first call.
+ * It binds from the second call onwards. That is strictly better than metering a bucket nothing
+ * ever spends against, and it is a consequence of the alias itself — the concrete id does not
+ * exist until the call returns.
+ */
+export function resolveModelForCounters(counters: BudgetCounters, model: string): string {
+  if (!isModelAlias(model)) return model;
+  return counters.aliasResolutions.find((entry) => entry.alias === model)?.model ?? model;
+}
+
 // ---------------------------------------------------------------------------
 // Settlement
 // ---------------------------------------------------------------------------
@@ -847,9 +899,46 @@ export type BudgetSettlement = {
   onFastModel: boolean;
 };
 
-/** True when the tokens were booked against a different model from the one that ran them. */
+/**
+ * The model a settlement's tokens are BOOKED under.
+ *
+ * For an alias the answer is what the gateway reported, because that is the model that actually
+ * spent; booking under `auto` would accumulate a bucket no cap is ever written against (ART-148).
+ * For a concrete id the answer is the metered key, unchanged — booking a genuine mismatch under
+ * the reported model would move the tokens out of the bucket the cap is watching, which is the
+ * opposite of what a mismatch calls for.
+ */
+export function settlementBookingModel(settlement: BudgetSettlement): string {
+  return isModelAlias(settlement.model) ? settlement.reportedModel : settlement.model;
+}
+
+/**
+ * True when the tokens were booked against a different model from the one that ran them.
+ *
+ * An alias resolving to a concrete model is NOT a mismatch (ART-148): `auto` -> `glm-4.6` is the
+ * gateway doing exactly its job, and counting it made this signal fire on every call, which is
+ * indistinguishable from never firing. Genuine drift — a concrete id answered by a different
+ * concrete id — still counts.
+ */
 export function isModelMeteringMismatch(settlement: BudgetSettlement): boolean {
+  if (isModelAlias(settlement.model)) return false;
   return settlement.model !== settlement.reportedModel;
+}
+
+/**
+ * Record which concrete model an alias resolved to, so the NEXT reservation's per-model cap can
+ * bind to it. Sorted on write for the same reason the token lists are: these counters are hashed.
+ */
+function recordAliasResolution(
+  entries: ReadonlyArray<{ alias: string; model: string }>,
+  settlement: BudgetSettlement,
+): Array<{ alias: string; model: string }> {
+  const next = entries.map((entry) => ({ ...entry }));
+  if (!isModelAlias(settlement.model)) return next;
+  const existing = next.find((entry) => entry.alias === settlement.model);
+  if (existing) existing.model = settlement.reportedModel;
+  else next.push({ alias: settlement.model, model: settlement.reportedModel });
+  return next.sort((left, right) => left.alias.localeCompare(right.alias));
 }
 
 /**
@@ -866,6 +955,7 @@ export function grantReservation(counters: BudgetCounters, decision: BudgetDecis
     ...counters,
     tokensByModule: counters.tokensByModule.map((entry) => ({ ...entry })),
     tokensByModel: counters.tokensByModel.map((entry) => ({ ...entry })),
+    aliasResolutions: counters.aliasResolutions.map((entry) => ({ ...entry })),
     inFlight: counters.inFlight + 1,
     grantedCalls: counters.grantedCalls + 1,
   };
@@ -992,6 +1082,7 @@ export function refuseReservation(counters: BudgetCounters): BudgetCounters {
     ...counters,
     tokensByModule: counters.tokensByModule.map((entry) => ({ ...entry })),
     tokensByModel: counters.tokensByModel.map((entry) => ({ ...entry })),
+    aliasResolutions: counters.aliasResolutions.map((entry) => ({ ...entry })),
     refusedCalls: counters.refusedCalls + 1,
   };
 }
@@ -1013,7 +1104,8 @@ export function settleReservation(counters: BudgetCounters, settlement: BudgetSe
     totalTokens: counters.totalTokens + settlement.tokens,
     retryTokens: counters.retryTokens + (settlement.countedAsRetry ? settlement.tokens : 0),
     tokensByModule: addModuleTokens(counters.tokensByModule, settlement.module, settlement.tokens),
-    tokensByModel: addModelTokens(counters.tokensByModel, settlement.model, settlement.tokens),
+    tokensByModel: addModelTokens(counters.tokensByModel, settlementBookingModel(settlement), settlement.tokens),
+    aliasResolutions: recordAliasResolution(counters.aliasResolutions, settlement),
     inFlight: Math.max(0, counters.inFlight - 1),
     settledCalls: counters.settledCalls + 1,
     // Counted, not thrown. A throw would take the world down on a gateway that merely answers
@@ -1037,6 +1129,7 @@ export function releaseReservation(counters: BudgetCounters): BudgetCounters {
     ...counters,
     tokensByModule: counters.tokensByModule.map((entry) => ({ ...entry })),
     tokensByModel: counters.tokensByModel.map((entry) => ({ ...entry })),
+    aliasResolutions: counters.aliasResolutions.map((entry) => ({ ...entry })),
     inFlight: Math.max(0, counters.inFlight - 1),
   };
 }

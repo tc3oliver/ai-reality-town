@@ -148,6 +148,14 @@ export const sharedTables = {
      * every other angle, so the count has to survive independently of anyone thinking to ask.
      */
     modelMeteringMismatches: v.number(),
+    /**
+     * ART-148. The concrete model each configured alias (`auto`) most recently resolved to today.
+     *
+     * Optional so rows written before ART-148 stay readable: an absent list means "no alias has
+     * resolved yet today", which is exactly how such a row should behave. Day rollover is
+     * structural, so this never carries yesterday's routing into today.
+     */
+    aliasResolutions: v.optional(v.array(v.object({ alias: v.string(), model: v.string() }))),
   })
     .index('by_world_and_day', ['worldId', 'worldDay']),
 
