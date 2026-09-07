@@ -174,9 +174,42 @@ export function narrateGroupedScene(scene: GroupedScene): Record<string, unknown
    * `summaryText` still clamps to `MAX_PUBLIC_SUMMARY_LENGTH`, and clamping is measured in code
    * units, so the text is written to sit well inside the limit rather than to rely on the clamp.
    */
+  /**
+   * Each participant's stance is part of the day's public record, not only of `keyActions`.
+   *
+   * It was narrated only into `keyActions`, which the Episode builder does not draw on, so the
+   * single richest piece of per-scene information never reached the recap pool. A day whose scenes
+   * happened to repeat then composed below the 400 中文字 Standard floor — which was an accurate
+   * report of a fixture too thin to represent a normal product scene, not a reason to relax the
+   * band. Naming who did what is the density a real scene has.
+   */
+  /**
+   * ## Why this sentence is the length it is
+   *
+   * A day's recap has to satisfy TWO bands at once from the same pool, and they pull in opposite
+   * directions. The Quick Recap is 80–150 中文字 and is composed of whole sentences, so it needs a
+   * unit small enough that two of them fit; the Standard Recap is 400–800 中文字 over the day, so
+   * the units must not be so small that a day of them cannot reach the floor.
+   *
+   * Both were violated in turn while writing this. Too short, and a day whose scenes repeated
+   * composed under 400 (`RECAP_STANDARD_BELOW_MINIMUM`). Spelling out every participant's stance
+   * took a scene to ~98 中文字, which made the episode headline 69 and its one-line summary 109 —
+   * no pair fits in 150, so every day failed with `RECAP_QUICK_UNSATISFIABLE`. Neither failure was
+   * a reason to move a band; both were the fixture not carrying a normal scene's shape.
+   *
+   * So: one scene-level sentence of roughly 45 中文字. Two of them make a Quick Recap, and a day of
+   * them makes a Standard one.
+   *
+   * Ordered most-distinguishing first, with no participant roll-call. The roll-call duplicated the
+   * key actions and on a large cast pushed the scene-specific outcome past
+   * `MAX_PUBLIC_SUMMARY_LENGTH`; the clamp then cut exactly the differentiating tail, so two scenes
+   * at one location truncated to the SAME text. That is why the run's distinct-text count fell
+   * when the sentence got longer. Outcome first means the half that distinguishes a scene is never
+   * the half at risk.
+   */
   const summary = summaryText(
-    `在 ${scene.locationId}，${scene.participantIds.join('、')} 因為「${scene.trigger}」而聚在一起；`
-    + `${pick(OUTCOMES, sceneSeed)}，${pick(STAKES, sceneSeed >>> 3)}。`,
+    `${pick(OUTCOMES, sceneSeed)}，${pick(STAKES, sceneSeed >>> 3)}。`
+    + `這場交涉發生在 ${scene.locationId}，起因是「${scene.trigger}」。`,
   );
   const proposed = sceneProposedEvent(scene, summary);
   return {

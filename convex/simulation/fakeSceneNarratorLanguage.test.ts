@@ -126,13 +126,33 @@ describe('the deterministic fixture author narrates in zh-Hant (FR-G003)', () =>
     expect(new Set(summaries).size).toBeGreaterThan(1);
   });
 
-  it('stays inside the Canon public-summary limit without relying on the clamp', () => {
-    for (let index = 0; index < 24; index += 1) {
-      const summary = narration(index, ['lin-yingxue', 'qiu-an', 'gao-wenrui']).proposed.publicSummary ?? '';
-      expect(summary.length).toBeLessThanOrEqual(MAX_PUBLIC_SUMMARY_LENGTH);
-      // An ellipsis would mean the text was cut, and a cut sentence is what the recap composer
-      // refuses to produce; the fixture must not hand it one either.
-      expect(summary.endsWith('…')).toBe(false);
+  /**
+   * The public sentence must not grow with the cast, and the reason is a defect this migration
+   * caused and then removed.
+   *
+   * An earlier version spelled out every participant's stance and listed every participant by
+   * name. On a large cast that overran `MAX_PUBLIC_SUMMARY_LENGTH`, and the clamp cut the tail —
+   * where the scene's outcome and stake live — so two different scenes at one location truncated
+   * to the SAME text. The measured distinct-scene count FELL from 46 to 41 as the sentence got
+   * longer. The sentence is now scene-level only, so this holds by construction rather than by
+   * luck of cast size.
+   */
+  it('keeps the public summary independent of cast size, so the clamp never fires', () => {
+    const cast = ['lin-yingxue', 'qiu-an', 'gao-wenrui', 'pei-lan', 'he-jun', 'zhao-ming', 'tang-ruoxi'];
+    const byIndex = new Map<number, string>();
+    for (let size = 1; size <= cast.length; size += 1) {
+      for (let index = 0; index < 24; index += 1) {
+        const summary = narration(index, cast.slice(0, size)).proposed.publicSummary ?? '';
+        expect(summary.length).toBeLessThanOrEqual(MAX_PUBLIC_SUMMARY_LENGTH);
+        // An ellipsis would mean the text was cut, and a cut sentence is what the recap composer
+        // refuses to produce; the fixture must not hand it one either.
+        expect(summary.endsWith('…')).toBe(false);
+        // Same scene, any cast: same sentence. A summary that varied with cast size is what put
+        // the differentiating half of it at risk of the clamp.
+        const seen = byIndex.get(index);
+        if (seen === undefined) byIndex.set(index, summary);
+        else expect(summary).toBe(seen);
+      }
     }
   });
 

@@ -37,7 +37,12 @@ import { replayArcProjection } from '../story/projection';
 import { composeRecaps, type RecapComposition } from '../recaps/recapComposition';
 import { validateRecapCoverage } from '../recaps/coverageValidation';
 import { episodeCandidate, toCoverageSource } from '../recaps/coverageValidationFunctions';
-import { buildDeepRecap, buildMachineSummary, validateRecapFormats, type RecapFormats } from '../recaps/recapFormats';
+import {
+  buildDeepRecap, buildMachineSummary, validateRecapFormats,
+  QUICK_RECAP_MAX, QUICK_RECAP_MIN, STANDARD_RECAP_MAX, STANDARD_RECAP_MIN,
+  type RecapFormats,
+} from '../recaps/recapFormats';
+import { countChineseCharacters } from '../shared/publicText';
 import { applyArcPortfolioControl, type ArcPortfolioEntry } from '../story/portfolio';
 import { createArcResolutionDecision, detectArcStagnation, type ArcResolutionDecision } from '../story/resolution';
 import { deriveConsequenceSummaries, type ConsequenceSummary } from '../story/consequenceSummary';
@@ -1388,6 +1393,78 @@ describe('live post-commit pipeline over real world-day commits (AC#1/#2/#3/#4)'
  * ART-164 FR-G002. `deriveRecapTargets` proves which levels are ASKED for; this proves the live
  * pipeline actually produces them, and that the selective tier stays incremental as canon grows.
  */
+/**
+ * ART-164 FR-G003. `buildDeepRecap`, `buildMachineSummary` and `validateRecapFormats` were built,
+ * tested and called by nothing, and no table stored their output — so Quick / Standard / Deep /
+ * Machine Summary existed for no episode any running world produced.
+ *
+ * These tests are therefore about the LIVE PATH producing them. `recapComposition.test.ts` and
+ * `recapFormats.test.ts` cover what the artifacts must contain.
+ */
+describe('the four FR-G003 recap formats from the live path', () => {
+  it('produces and persists all four formats for every episode a world day completes', async () => {
+    const canon = seededCanon();
+    const harness = createLivePostCommitPort(canon, new MemoryReadStore());
+    const runStore = new MemoryPostCommitStore();
+    await runWorldDays(canon, 3, () => []);
+    const runs = await runPostCommitForAll(canon, harness.port, runStore);
+    expect(runs.every(({ status }) => status === 'completed')).toBe(true);
+
+    const readyEpisodeDays = [...harness.episodes.entries()]
+      .filter(([, row]) => row.status === 'ready' && row.episode).map(([worldDay]) => worldDay);
+    expect(readyEpisodeDays.length).toBeGreaterThan(0);
+    // Every completed episode has formats. Not "at least one" — the acceptance criterion is that
+    // no episode ships without them.
+    // eslint-disable-next-line no-console
+    expect(readyEpisodeDays.every((worldDay) => harness.recapFormats.get(worldDay)?.status === 'ready')).toBe(true);
+
+    const acceptedIds = new Set(canon.committedEvents().map(({ eventId }) => eventId));
+    for (const worldDay of readyEpisodeDays) {
+      const stored = harness.storedRecapFormats.get(worldDay);
+      expect(stored).toBeDefined();
+      const { formats } = stored as { formats: RecapFormats };
+      expect(countChineseCharacters(formats.quickRecap)).toBeGreaterThanOrEqual(QUICK_RECAP_MIN);
+      expect(countChineseCharacters(formats.quickRecap)).toBeLessThanOrEqual(QUICK_RECAP_MAX);
+      expect(countChineseCharacters(formats.standardRecap)).toBeGreaterThanOrEqual(STANDARD_RECAP_MIN);
+      expect(countChineseCharacters(formats.standardRecap)).toBeLessThanOrEqual(STANDARD_RECAP_MAX);
+      expect(formats.deepRecap.length).toBeGreaterThan(0);
+      // All seven Machine Summary fields FR-G003 names, present on the live artifact.
+      expect(Object.keys(formats.machineSummary).sort()).toEqual([
+        'newQuestions', 'requiredPriorFacts', 'resolvedQuestions', 'schemaVersion',
+        'storyArcProgress', 'whatChanged', 'whoIsAffected', 'whyItHappened',
+      ]);
+      // Provenance resolves to canon, so no recap claims an event the world never accepted.
+      expect(formats.sourceEventIds.length).toBeGreaterThan(0);
+      expect(formats.sourceEventIds.every((eventId) => acceptedIds.has(eventId))).toBe(true);
+    }
+
+    // And the pipeline records the outcome on its own artifact, so a failure is queryable rather
+    // than only visible as a missing row.
+    const recorded = runStore.checkpoints
+      .filter((row) => row.stage === 'episode' && row.status === 'completed')
+      .flatMap((row) => (row.artifact as EpisodeArtifact).recapFormats);
+    expect(recorded.length).toBeGreaterThan(0);
+    expect(recorded.some(({ status }) => status === 'ready')).toBe(true);
+  });
+
+  it('never gives one episode two conflicting sets of formats', async () => {
+    const canon = seededCanon();
+    const harness = createLivePostCommitPort(canon, new MemoryReadStore());
+    await runWorldDays(canon, 2, () => []);
+    await runPostCommitForAll(canon, harness.port, new MemoryPostCommitStore());
+    const first = new Map([...harness.storedRecapFormats.entries()]
+      .map(([day, value]) => [day, JSON.stringify(value.formats)]));
+    expect(first.size).toBeGreaterThan(0);
+
+    // A full replay: the run store is fresh, so every stage re-executes rather than resuming.
+    await runPostCommitForAll(canon, harness.port, new MemoryPostCommitStore());
+    expect(harness.storedRecapFormats.size).toBe(first.size);
+    for (const [day, serialized] of first) {
+      expect(JSON.stringify(harness.storedRecapFormats.get(day)?.formats)).toBe(serialized);
+    }
+  });
+});
+
 describe('the recap pyramid over real world-day commits (FR-G002)', () => {
   it('produces all five levels, and the arc level summarises only that arc', async () => {
     const canon = seededCanon();
