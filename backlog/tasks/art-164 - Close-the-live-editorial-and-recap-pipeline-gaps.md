@@ -1,10 +1,10 @@
 ---
 id: ART-164
 title: Close the live editorial and recap pipeline gaps
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-09-07 14:47'
-updated_date: '2026-09-07 19:07'
+updated_date: '2026-09-07 19:08'
 labels:
   - prd-1.0
   - epic-g
