@@ -11,7 +11,7 @@
  */
 
 import { TIME_SLOTS } from '../canon/eventTypes';
-import { MAX_MAJOR_ACTIVE_ARCS } from '../story/portfolio';
+import { MAX_MAJOR_ACTIVE_ARCS, MAX_MINOR_ACTIVE_ARCS } from '../story/portfolio';
 import { ARC_STAGNATION_WORLD_DAYS } from '../story/resolution';
 import { FAKE_SCENE_MODEL } from '../simulation/fakeSceneNarrator';
 import {
@@ -69,6 +69,33 @@ function expectCleanRun(findings: LongRunFindings, worldDays: number): void {
   expect(findings.arcs.stagnantArcs).toEqual([]);
   expect(findings.arcs.stagnationThresholdWorldDays).toBe(ARC_STAGNATION_WORLD_DAYS);
   expect(findings.arcs.totalArcs).toBeGreaterThan(0);
+
+  // ART-163 — the invariants that hold at EVERY run length.
+  expect(findings.arcs.maxActiveMinorArcs).toBeLessThanOrEqual(MAX_MINOR_ACTIVE_ARCS);
+  expect(findings.arcs.minorOverLimitWorldDays).toEqual([]);
+  // Structurally impossible while every resolution is routed through a decision. Asserted anyway:
+  // this exact defect shipped once, with arcs reaching `resolved` carrying nothing at all.
+  expect(findings.arcs.terminalResolutionsWithoutEvidence).toEqual([]);
+  for (const resolution of findings.arcs.resolutions) {
+    expect(resolution.consequenceCount).toBe(resolution.terminal ? resolution.consequenceCount : 0);
+    if (resolution.terminal) expect(resolution.consequenceCount).toBeGreaterThan(0);
+  }
+  // A stagnant arc may hold a slot briefly; the ladder must take it back.
+  expect(findings.arcs.arcsHoldingActiveSlotWhileStagnant).toEqual([]);
+  // Arc state is replayable: the snapshot the run carried equals a fresh replay of the stream.
+  expect(findings.arcs.arcsWhereLiveAndReplayDisagree).toEqual([]);
+
+  // ART-163 — the run must show a story ENGINE, not a schema. Measured over the fixed seed:
+  // seven world days open six arcs, three of which reach `resolved` carrying an outcome and
+  // between three and four consequences each.
+  expect(findings.arcs.arcsWithTurningPoint.length).toBeGreaterThan(0);
+  expect(findings.arcs.arcsReachingResolution.length).toBeGreaterThan(0);
+  expect(findings.arcs.resolutions.some((resolution) => resolution.terminal)).toBe(true);
+  // FR-F005: closing an arc updates BOTH the character and the world summary input. The world
+  // subject is the one a per-character loop would silently omit.
+  expect(findings.arcs.consequenceSummarySubjects.some((subject) => subject.startsWith('world:'))).toBe(true);
+  expect(findings.arcs.consequenceSummarySubjects.some((subject) => subject.startsWith('character:'))).toBe(true);
+  expect(findings.arcs.consequenceSummaryCount).toBeGreaterThan(0);
 
   // Section 5.1 / AC#7 — every world day produced canon and exactly one non-empty episode.
   expect(findings.recapCoverage.worldDaysWithoutAcceptedEvent).toEqual([]);
@@ -294,6 +321,37 @@ describeThirtyDay('NFR-007 fixed-seed 30-day simulation (AC#2/#5/#6/#7)', () => 
     expect(findings.arcs.activeMajorByWorldDay).toHaveLength(30);
     expect(findings.arcs.overLimitWorldDays).toEqual([]);
     expectKnownFindings(findings, 30);
+  });
+
+  /**
+   * ART-163. Thirty days is where a story engine can be told from a data model: an arc that
+   * advances and closes over a week could be a coincidence of the seed, but a world that keeps
+   * opening arcs, carrying them through turning points and closing them with recorded outcomes
+   * for thirty days is doing the thing FR-F002–F005 describe.
+   */
+  it('keeps arcs advancing and closing for thirty world days (FR-F002/F004/F005)', () => {
+    expect(findings.arcs.activeMinorByWorldDay).toHaveLength(30);
+    expect(findings.arcs.minorOverLimitWorldDays).toEqual([]);
+    expect(findings.arcs.arcsWithTurningPoint.length).toBeGreaterThan(0);
+    expect(findings.arcs.resolvedArcs.length).toBeGreaterThan(0);
+    expect(findings.arcs.resolutions.filter(({ terminal }) => terminal).length).toBeGreaterThan(0);
+    // Every terminal resolution carries its evidence, over the whole run and not just the first.
+    expect(findings.arcs.terminalResolutionsWithoutEvidence).toEqual([]);
+    // No arc sat in an active slot past the stagnation threshold: the ladder took the slot back.
+    expect(findings.arcs.arcsHoldingActiveSlotWhileStagnant).toEqual([]);
+    expect(findings.arcs.stagnantArcs).toEqual([]);
+    /**
+     * The world never runs dry of live questions for LONGER THAN A CHANGEOVER.
+     *
+     * Not "never runs dry": FINDING 1 records that the fake author gives every event identical
+     * importance, so the three major arcs move in lockstep and all resolve on the same day,
+     * dipping the active count to zero one day in five. That is an artifact of the fixed seed's
+     * author, not of the arc engine, and asserting it away would be asserting a property this
+     * fixture has never had. What WOULD be a defect is the dip persisting — a world with no live
+     * question for a stretch — so that is what is pinned.
+     */
+    const dry = findings.arcs.worldDaysWithoutActiveMajorArc;
+    expect(dry.filter((day, index) => index > 0 && day === dry[index - 1] + 1)).toEqual([]);
   });
 
   it('produces canon and exactly one episode for every world day (AC#7)', () => {

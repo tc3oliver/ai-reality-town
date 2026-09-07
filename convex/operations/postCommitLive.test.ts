@@ -35,7 +35,8 @@ import { buildRecapSnapshot, type RecapSnapshot } from '../recaps/model';
 import { createArcLifecycle, transitionArcLifecycle, isActiveArcStatus } from '../story/lifecycle';
 import { replayArcProjection } from '../story/projection';
 import { applyArcPortfolioControl, type ArcPortfolioEntry } from '../story/portfolio';
-import { detectArcStagnation } from '../story/resolution';
+import { createArcResolutionDecision, detectArcStagnation, type ArcResolutionDecision } from '../story/resolution';
+import { deriveConsequenceSummaries, type ConsequenceSummary } from '../story/consequenceSummary';
 import { recommendArcEntry } from '../story/entryRecommendation';
 import type { ArcEventClassification, ArcLifecycleRecord, ArcProjectionEvent } from '../story/model';
 import { buildEpisodeIndex, EPISODE_INDEX_MODEL_KIND } from '../publicRead/episodeIndexProjection';
@@ -151,6 +152,7 @@ function acceptedEventFixture(overrides: Partial<AcceptedEvent> = {}): AcceptedE
 function arcStateFixture(overrides: Partial<LiveArcState> = {}): LiveArcState {
   return {
     arcId: 'arc:1', status: 'active', projectionRevision: 2, tier: 'major', lastTransitionWorldDay: 0,
+    lastProgressWorldDay: 0,
     fields: {
       title: 'The mill', premise: 'The mill is failing', currentQuestion: 'Who saves the mill?',
       coreCharacterIds: ['he-jun', 'zhao-ming'], incitingEventId: `${WORLD_ID}#event#0`,
@@ -551,6 +553,8 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
   const arcs = new Map<string, ArcRecord>();
   const classifications = new Map<number, ArcEventClassification>();
   const portfolio: ArcPortfolioEntry[] = [];
+  const resolutionDecisions: ArcResolutionDecision[] = [];
+  const consequenceSummaries = new Map<string, ConsequenceSummary>();
   const episodes = new Map<number, { status: string; episodeNumber: number; episode?: DailyEpisode; safetyClassificationId: string | null }>();
   const recaps: RecapSnapshot[] = [];
   const publications = new Map<string, PublicationRecord>();
@@ -615,6 +619,7 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
             highest,
             all.find(({ sequenceNumber }) => sequenceNumber === transition.sourceEventSequenceNumber)?.worldDay ?? 0,
           ), 0),
+          lastProgressWorldDay: record.projections[record.projections.length - 1].worldDay,
         })),
         characterIds: mistwoodCharacterSeed.characters.map(({ id }) => id),
         completedWorldDays: completed,
@@ -710,6 +715,27 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
           const prompt = detectArcStagnation(entry.projection, entry.tier, currentWorldDay);
           return prompt ? [prompt] : [];
         }).length);
+    },
+
+    // ART-163. The real decision constructor, not a stub: a double that accepted a terminal
+    // status without an outcome would let the very defect this wiring exists to close pass.
+    recordArcResolution(_worldId, decision) {
+      const recorded = createArcResolutionDecision(decision);
+      const prior = resolutionDecisions.find(({ decisionId }) => decisionId === recorded.decisionId);
+      if (prior) return Promise.resolve(prior);
+      resolutionDecisions.push(recorded);
+      const entry = portfolio.find(({ projection }) => projection.arcId === recorded.arcId);
+      if (entry) entry.tier = recorded.resultingTier;
+      return Promise.resolve(recorded);
+    },
+
+    applyArcConsequences(_worldId, decisionId) {
+      const decision = resolutionDecisions.find((entry) => entry.decisionId === decisionId);
+      if (!decision) throw new Error(`unknown resolution decision ${decisionId}`);
+      const resolutionEvent = events().find(({ eventId }) => eventId === decision.sourceEventId)!;
+      const summaries = deriveConsequenceSummaries(decision, [resolutionEvent]);
+      for (const summary of summaries) consequenceSummaries.set(summary.summaryId, summary);
+      return Promise.resolve({ applied: summaries.length });
     },
 
     generateEpisode(worldId, worldDay, episodeNumber) {
@@ -970,7 +996,10 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
     }),
   };
 
-  return { port, arcs, portfolio, episodes, recaps, publications, shareFormats, shareFormatCopy, rebuilt };
+  return {
+    port, arcs, portfolio, episodes, recaps, publications, shareFormats, shareFormatCopy, rebuilt,
+    resolutionDecisions, consequenceSummaries,
+  };
 }
 
 /** Run ART-97's world-day pipeline for whole world days, producing real accepted events. */

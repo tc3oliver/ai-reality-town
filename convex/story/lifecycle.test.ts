@@ -32,6 +32,51 @@ function expectArcError(operation: () => unknown, code: string): void {
   }
 }
 
+/**
+ * The FR-F002 transition table, written out INDEPENDENTLY of the module under test (ART-163).
+ *
+ * The suite below loops over `ALLOWED_ARC_TRANSITIONS` and asserts the code agrees with it, which
+ * is a validator handed its own input: fault injection added `resolved -> active` to the table and
+ * every test stayed green, because the expectation moved with the defect. A resurrection path
+ * would have been legal, and `Resolved Arc 不得繼續進入主要 active context` would have been a
+ * comment rather than a rule.
+ *
+ * This literal is the spec. Changing the engine's table without changing this is a failure, which
+ * is the point.
+ */
+const FR_F002_TRANSITIONS: Record<StoryArcStatus, StoryArcStatus[]> = {
+  emerging: ['active', 'archived'],
+  active: ['escalating', 'resolving'],
+  escalating: ['climax', 'resolving'],
+  climax: ['resolving'],
+  resolving: ['resolved'],
+  resolved: ['archived'],
+  archived: [],
+};
+
+describe('FR-F002 the transition table itself', () => {
+  it('matches the PRD lifecycle exactly, target for target', () => {
+    expect(ALLOWED_ARC_TRANSITIONS).toEqual(FR_F002_TRANSITIONS);
+  });
+
+  it('never returns a closed arc to the active family', () => {
+    // The structural property, asserted separately from the literal so that a future widening of
+    // the table has to argue with THIS rather than just edit a list.
+    for (const closed of ['resolved', 'archived'] as StoryArcStatus[]) {
+      for (const target of ALLOWED_ARC_TRANSITIONS[closed]) {
+        expect(isActiveArcStatus(target)).toBe(false);
+      }
+    }
+  });
+
+  it('is forward-only: archived is terminal and nothing re-enters emerging', () => {
+    expect(ALLOWED_ARC_TRANSITIONS.archived).toEqual([]);
+    for (const status of STORY_ARC_STATUSES) {
+      expect(ALLOWED_ARC_TRANSITIONS[status]).not.toContain('emerging');
+    }
+  });
+});
+
 describe('FR-F002 Story Arc lifecycle', () => {
   it('allows every declared transition and rejects every undeclared transition', () => {
     for (const fromStatus of STORY_ARC_STATUSES) {

@@ -49,7 +49,11 @@ import type {
 } from '../story/portfolioFunctions';
 import type { transitionArcLifecycleRecord as transitionArcLifecycleRecordExport } from '../story/functions';
 import type { updateArcProjection as updateArcProjectionExport } from '../story/projectionFunctions';
-import type { refreshArcStagnationPrompts as refreshArcStagnationPromptsExport } from '../story/resolutionFunctions';
+import type {
+  refreshArcStagnationPrompts as refreshArcStagnationPromptsExport,
+  recordArcResolutionDecision as recordArcResolutionDecisionExport,
+} from '../story/resolutionFunctions';
+import type { applyArcResolutionConsequences as applyArcResolutionConsequencesExport } from '../story/consequenceSummaryFunctions';
 import type { generateAcceptedEventEpisode as generateAcceptedEventEpisodeExport } from '../editorial/episodeFunctions';
 import type { generateEpisodeShareFormats as generateEpisodeShareFormatsExport } from '../editorial/shareFormatFunctions';
 import type { generateIncrementalRecap as generateIncrementalRecapExport } from '../recaps/functions';
@@ -160,6 +164,12 @@ const updateArcProjectionRef = internalFunctionRef<typeof updateArcProjectionExp
 );
 const refreshArcStagnationPromptsRef = internalFunctionRef<typeof refreshArcStagnationPromptsExport>(
   'story/resolutionFunctions:refreshArcStagnationPrompts',
+);
+const recordArcResolutionDecisionRef = internalFunctionRef<typeof recordArcResolutionDecisionExport>(
+  'story/resolutionFunctions:recordArcResolutionDecision',
+);
+const applyArcResolutionConsequencesRef = internalFunctionRef<typeof applyArcResolutionConsequencesExport>(
+  'story/consequenceSummaryFunctions:applyArcResolutionConsequences',
 );
 const generateAcceptedEventEpisodeRef = internalFunctionRef<typeof generateAcceptedEventEpisodeExport>(
   'editorial/episodeFunctions:generateAcceptedEventEpisode',
@@ -454,6 +464,10 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
           tier: tierByArc.get(lifecycle.arcId) ?? null,
           lastTransitionWorldDay: transitions.reduce(
             (highest, row) => Math.max(highest, worldDayBySequence.get(row.sourceEventSequenceNumber) ?? 0), 0),
+          // ART-163. The newest projection revision's world day IS the arc's `lastProgressTime`
+          // (`replayArcProjection` derives it from the event that appended the revision), so
+          // stagnation is measured against real progress rather than against lifecycle churn.
+          lastProgressWorldDay: latest.worldDay,
         }];
       });
 
@@ -529,6 +543,16 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
       const prompts = await ctx.runMutation(refreshArcStagnationPromptsRef,
         { worldId, currentWorldDay });
       return prompts.length;
+    },
+
+    async recordArcResolution(worldId, decision) {
+      return invalidate(await ctx.runMutation(recordArcResolutionDecisionRef, { worldId, decision }));
+    },
+
+    async applyArcConsequences(worldId, decisionId) {
+      const { applied } = await ctx.runMutation(applyArcResolutionConsequencesRef,
+        { worldId, decisionId, now });
+      return invalidate({ applied });
     },
 
     async generateEpisode(worldId, worldDay, episodeNumber) {

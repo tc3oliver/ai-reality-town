@@ -20,6 +20,13 @@ ART-63 audit is re-classified in place and the counts above move with it; the da
 this header is left as the audit found it. The `P1 delivered early` rows (ART-35, ART-87) are the
 existing precedent for a non-P0 clause counting as delivered.
 
+- **2026-09-07 — FR-F002/F004/F005 live closure** (ART-163). An audit of the Story Arc engine
+  against a running world found four capabilities implemented, unit-tested, registered and called
+  by nothing: `recordArcResolutionDecision`, `applyArcResolutionConsequences`, any action on a
+  stagnation prompt, and `validateMajorArcMemberships`. The rows above already read "delivered",
+  and were: the rules existed and passed their tests. What no test asked was whether the pipeline
+  used them. This is recorded as a closure rather than a re-classification because the requirement
+  was never satisfied on the path the world actually takes.
 - **2026-09-07 — FR-E005** moved `Deferred P1` → `P1 delivered` (ART-28,
   `docs/rumor-propagation-chains.md`). The `rumor` event type had existed since the foundation
   and was consumed by nothing; the scene author's `rumors[]` collection is narrative colour by
@@ -177,10 +184,10 @@ existing precedent for a non-P0 clause counting as delivered.
 | Clause ID | Summary | Classification | Owning task (status) | Objective verification |
 |---|---|---|---|---|
 | FR-F001 | Arc creation & classification (assign/merge/new-arc decision, Event Role taxonomy, bounded main-arc count, premise + current question required) | P0 delivered | ART-29 (Done) | `convex/story/classification.test.ts` |
-| FR-F002 | Arc lifecycle state machine (Emerging/Active/Escalating/Climax/Resolving/Resolved/Archived with rule-based transitions) | P0 delivered | ART-64 (Done) | `convex/story/lifecycle.test.ts` |
+| FR-F002 | Arc lifecycle state machine (Emerging/Active/Escalating/Climax/Resolving/Resolved/Archived with rule-based transitions) | P0 delivered | ART-64, ART-163 (Done) | `convex/story/lifecycle.test.ts`, `convex/operations/arcClosureLoop.test.ts`. ART-163 closed the live half: `Archived` was unreachable in production (no accepted event classifies into a `resolved` arc, so the classification-driven path stops one step short) and every resolution status is now gated by a recorded decision rather than by a legality check alone |
 | FR-F003 | Arc data contract (title, premise, current question, status, core characters, inciting event, latest turning point, essential facts, unresolved/resolved questions, recommended entry, heat score, last progress) | P0 delivered | ART-65 (Done) | `convex/story/projection.test.ts` |
-| FR-F004 | Arc count control (≤3 main active, ≤6 secondary, ≤6 core chars/arc, ≤2 arcs advanced per event; merge/demote/reject on overflow; no event deletion) | P0 delivered | ART-30 (Done) | `convex/story/portfolio.test.ts` |
-| FR-F005 | Arc resolution (14-day-stagnation alert, no unexplained disappearance, resolved arcs leave outcome+consequences, post-resolution summary update) | P0 delivered | ART-31, ART-82 (Done) | `convex/story/resolution.test.ts`, `consequenceSummary.test.ts` |
+| FR-F004 | Arc count control (≤3 main active, ≤6 secondary, ≤6 core chars/arc, ≤2 arcs advanced per event; merge/demote/reject on overflow; no event deletion) | P0 delivered | ART-30, ART-163 (Done) | `convex/story/portfolio.test.ts`, `convex/operations/arcClosureLoop.test.ts`. The ≤2-major-arcs-per-event clause was enforced nowhere in production until ART-163 wired `validateMajorArcMemberships` into the live classification; the ≤6 secondary clause now has a per-world-day checkpoint in the ART-60 harness, which previously sampled only the major pool |
+| FR-F005 | Arc resolution (14-day-stagnation alert, no unexplained disappearance, resolved arcs leave outcome+consequences, post-resolution summary update) | P0 delivered | ART-31, ART-82, ART-163 (Done) | `convex/story/resolution.test.ts`, `consequenceSummary.test.ts`, `convex/operations/arcClosureLoop.test.ts`, `docs/arc-stagnation-resolution.md`. ART-31 and ART-82 built and tested the rules; ART-163 found that `recordArcResolutionDecision` and `applyArcResolutionConsequences` had **no production caller**, so on the live path arcs reached `resolved` with no outcome, no consequences and no summary refresh, and a stagnation prompt was recorded but acted on by nothing. Resolution is now routed through a decision (decide → transition → apply), and a deterministic ladder gives a stalled arc's slot back without deleting the arc |
 | FR-F006 | Arc heat score (traceable, not freely LLM-decided, operator-visible composition) | Deferred P1 | ART-32 (To Do) | Does not block launch: arc priority for the homepage uses the deterministic portfolio/active-arc rules (FR-F004); heat score is a refinement that does not alter Canon or safety |
 
 ---

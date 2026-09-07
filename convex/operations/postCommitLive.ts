@@ -39,11 +39,19 @@ import {
   MAX_MAJOR_ACTIVE_ARCS,
   MAX_MAJOR_CORE_CHARACTERS,
   MAX_MINOR_ACTIVE_ARCS,
+  validateMajorArcMemberships,
   type ArcOverflowRemediation,
   type ArcPortfolioDecision,
   type ArcPortfolioEntry,
   type ArcTier,
 } from '../story/portfolio';
+import {
+  ARC_STAGNATION_WORLD_DAYS,
+  type ArcConsequence,
+  type ArcResolutionAction,
+  type ArcResolutionDecision,
+  type CreateArcResolutionDecision,
+} from '../story/resolution';
 import type {
   ArcEventClassification,
   ArcEventMembership,
@@ -74,6 +82,36 @@ export const ARC_TRANSITION_MIN_WORLD_DAY_GAP = 1;
 /** Upper bound on facts retained on an arc projection. */
 export const MAX_ARC_ESSENTIAL_FACTS = 10;
 
+/**
+ * How long a stalled arc keeps its MAJOR slot before it is downgraded (ART-163, FR-F004).
+ *
+ * The same threshold ART-31 detects stagnation at, deliberately: the prompt and the remediation
+ * must not disagree about when an arc has stalled, or an operator reads a prompt for an arc the
+ * pipeline has already acted on — or worse, sees no prompt for one it has.
+ */
+export const ARC_STAGNATION_DOWNGRADE_WORLD_DAYS = ARC_STAGNATION_WORLD_DAYS;
+
+/**
+ * How long before a stalled arc is wound down through the ordinary resolution path.
+ *
+ * Downgrading frees a major slot but the arc still occupies a minor one, so a world whose arcs all
+ * stall would eventually fill the minor pool too and stop forming arcs entirely. Twice the
+ * detection threshold gives a stalled story a full second window to pick back up — a rumor plot
+ * that goes quiet for two weeks and then breaks is a real shape — before the pipeline concludes it
+ * will not, and closes it with an outcome that says so.
+ */
+export const ARC_STAGNATION_WIND_DOWN_WORLD_DAYS = ARC_STAGNATION_WORLD_DAYS * 2;
+
+/**
+ * How long a resolved arc waits before it is archived.
+ *
+ * Archiving is otherwise unreachable: `candidateArcs` only considers emerging and active-family
+ * arcs, so no accepted event ever classifies into a `resolved` one, and the classification-driven
+ * transition path can never take the last step. An arc would sit at `resolved` for the life of the
+ * world, and "archived arcs stay queryable" would be a claim about a state nothing ever entered.
+ */
+export const ARC_ARCHIVE_AFTER_WORLD_DAYS = ARC_STAGNATION_WORLD_DAYS;
+
 // --- port ------------------------------------------------------------------
 
 export type PostCommitSource = {
@@ -94,6 +132,17 @@ export type LiveArcState = {
   tier: ArcTier | null;
   /** World day of the accepted event that caused the arc's last lifecycle transition. */
   lastTransitionWorldDay: number;
+  /**
+   * World day of the newest revision of the arc's projection stream — the arc's own
+   * `lastProgressTime.worldDay` (ART-163).
+   *
+   * Carried on the live state rather than read from `fields`, because `ArcProjectionFields`
+   * deliberately omits `lastProgressTime`: the projection stream DERIVES it from the event that
+   * appended each revision, so it is not a field a caller may state. Stagnation is measured
+   * against progress, not against lifecycle churn, so this and {@link lastTransitionWorldDay} are
+   * genuinely different numbers — an arc can transition without progressing.
+   */
+  lastProgressWorldDay: number;
 };
 
 /** Everything the stage handlers need to read once per stage, in one shape. */
@@ -158,6 +207,25 @@ export interface PostCommitLivePort {
   }): Promise<{ revision: number }>;
   /** ART-31 stagnation detection. */
   refreshStagnationPrompts(worldId: string, currentWorldDay: number): Promise<number>;
+  /**
+   * ART-31/ART-163 resolution decision boundary — the ONLY way this pipeline may reach
+   * `resolving`, `resolved` or `archived`.
+   *
+   * `createArcResolutionDecision` refuses a terminal status without a non-empty outcome and at
+   * least one consequence. Routing every resolution through here is what turns that from a rule a
+   * helper knows into a rule the running world obeys: before ART-163 the stage walked straight
+   * into `resolved` through {@link transitionArcLifecycle}, which asks only whether the transition
+   * is legal, so arcs closed with no outcome and no consequences at all.
+   */
+  recordArcResolution(worldId: string, decision: CreateArcResolutionDecision): Promise<ArcResolutionDecision>;
+  /**
+   * ART-82 consequence-summary application (FR-F005), idempotent by summary id.
+   *
+   * Runs AFTER the lifecycle transition and only for a terminal decision. This is the step that
+   * makes an arc's closure visible to everything downstream that reads a character or world
+   * summary; without it a resolution is a row nothing consults.
+   */
+  applyArcConsequences(worldId: string, decisionId: string): Promise<{ applied: number }>;
   /** ART-33 daily episode assembly (idempotent per world day). */
   generateEpisode(worldId: string, worldDay: number, episodeNumber: number): Promise<EpisodeOutcome>;
   /** ART-34 incremental recap generation. */
@@ -370,6 +438,178 @@ export function overflowRemediation(tier: ArcTier, activeMinorCount: number): Ar
   return { type: 'reject' };
 }
 
+// --- resolution (ART-163) ---------------------------------------------------
+
+/**
+ * The resolution action that produces a given lifecycle status, or `null` for a status that is
+ * ordinary forward motion.
+ *
+ * A total map rather than a condition, so adding a lifecycle status is a decision here rather than
+ * a silent fall-through to "not a resolution" — which is exactly how `resolved` came to be
+ * reachable without an outcome.
+ */
+const ARC_RESOLUTION_ACTION_BY_STATUS: Readonly<Record<StoryArcStatus, ArcResolutionAction | null>> = {
+  emerging: null, active: null, escalating: null, climax: null,
+  resolving: 'enter_resolving', resolved: 'resolve', archived: 'archive',
+};
+
+export const arcResolutionActionFor = (toStatus: StoryArcStatus): ArcResolutionAction | null =>
+  ARC_RESOLUTION_ACTION_BY_STATUS[toStatus];
+
+/** Statuses whose decision must carry an outcome and consequences. Mirrors `resolution.ts`. */
+export const isTerminalArcStatus = (status: StoryArcStatus): boolean =>
+  status === 'resolved' || status === 'archived';
+
+/**
+ * The outcome text an arc closes with, derived from the accepted resolution event.
+ *
+ * Derived, never authored. A provider proposes what happened in a scene; it does not get to write
+ * the world's verdict on a story it was telling — that is the same rule ART-28 applied to a
+ * rumor's objective truth, and for the same reason. The event's own public summary is preferred
+ * because it is the sentence the world already committed to; the fallback names the arc and the
+ * day so an outcome is never an empty string, which `createArcResolutionDecision` would refuse.
+ */
+export function deriveArcOutcome(arc: LiveArcState, event: AcceptedEvent): string {
+  const summary = event.publicSummary?.trim();
+  if (summary && summary.length > 0) return summary;
+  return `${arc.fields.title} closed on world day ${event.worldDay} (${event.timeSlot}).`;
+}
+
+/**
+ * Consequences of an arc closing: one per core character, plus one for the world.
+ *
+ * The world consequence is unconditional. An arc closing is world-level news by definition — it is
+ * the thing the town stops talking about — and `deriveConsequenceSummaries` keys the world summary
+ * off `affectsWorldSummary`, so omitting it would leave the world's summary input unchanged by
+ * every resolution the pipeline ever makes.
+ *
+ * Ids carry the resolution event's sequence number, so an arc that resolves and is later archived
+ * produces distinct consequences rather than colliding with its own earlier ones.
+ */
+export function deriveArcConsequences(arc: LiveArcState, event: AcceptedEvent): ArcConsequence[] {
+  const stem = `${arc.arcId}:consequence:${event.sequenceNumber}`;
+  const characters = [...arc.fields.coreCharacterIds]
+    .sort((left, right) => left.localeCompare(right))
+    .slice(0, MAX_MAJOR_CORE_CHARACTERS);
+  return [
+    ...characters.map((characterId) => ({
+      consequenceId: `${stem}:${characterId}`,
+      summary: `${characterId} carries the outcome of ${arc.fields.title} forward.`,
+      affectedCharacterIds: [characterId],
+      affectsWorldSummary: false,
+      sourceEventId: event.eventId,
+    })),
+    {
+      consequenceId: `${stem}:world`,
+      summary: `${arc.fields.title} is settled: ${arc.fields.currentQuestion}`,
+      affectedCharacterIds: [],
+      affectsWorldSummary: true,
+      sourceEventId: event.eventId,
+    },
+  ];
+}
+
+/**
+ * The resolution decision for one arc reaching one status, or `null` when the status is not a
+ * resolution at all.
+ *
+ * Outcome and consequences are attached ONLY for a terminal status — `createArcResolutionDecision`
+ * refuses them on a non-terminal one, and rightly: an arc entering `resolving` has not concluded
+ * anything yet, and recording consequences there would publish a result the story has not reached.
+ */
+export function deriveArcResolutionDecision(input: {
+  arc: LiveArcState;
+  event: AcceptedEvent;
+  toStatus: StoryArcStatus;
+  reason: string;
+}): CreateArcResolutionDecision | null {
+  const action = arcResolutionActionFor(input.toStatus);
+  if (!action) return null;
+  const terminal = isTerminalArcStatus(input.toStatus);
+  return {
+    worldId: input.event.worldId,
+    arcId: input.arc.arcId,
+    action,
+    fromStatus: input.arc.status,
+    fromTier: input.arc.tier ?? 'minor',
+    targetArcId: null,
+    outcome: terminal ? deriveArcOutcome(input.arc, input.event) : null,
+    consequences: terminal ? deriveArcConsequences(input.arc, input.event) : [],
+    sourceEventId: input.event.eventId,
+    sourceEventSequenceNumber: input.event.sequenceNumber,
+    reason: input.reason,
+    decidedAtWorldDay: input.event.worldDay,
+  };
+}
+
+/** One deterministic remediation for an arc that has stopped moving (ART-163, FR-F004). */
+export type ArcStagnationRemediation = {
+  arcId: string;
+  action: Extract<ArcResolutionAction, 'downgrade' | 'enter_resolving' | 'resolve' | 'archive'>;
+  stagnantWorldDays: number;
+};
+
+/**
+ * What to do about arcs that have stopped moving, keyed only on world-day gaps.
+ *
+ * A ladder rather than a single rule, because "a stalled arc must not hold a slot forever" and
+ * "a major arc must not vanish" pull against each other:
+ *
+ *  - at {@link ARC_STAGNATION_DOWNGRADE_WORLD_DAYS} a stalled MAJOR arc is downgraded. The major
+ *    slot is freed immediately, which is what unblocks new major arcs, and the arc itself keeps
+ *    existing at minor tier with its whole history intact. Nothing is dropped.
+ *  - at {@link ARC_STAGNATION_WIND_DOWN_WORLD_DAYS} the arc is wound down through the ordinary
+ *    resolution path — `enter_resolving`, then `resolve` on the next run — so it leaves the active
+ *    family carrying an explicit outcome. A story the world stopped telling is a real ending, and
+ *    the record says which kind it was.
+ *  - a `resolved` arc is archived {@link ARC_ARCHIVE_AFTER_WORLD_DAYS} after its resolution.
+ *    Measured from the last TRANSITION rather than the last progress: a resolved arc has stopped
+ *    progressing by definition, so measuring progress would archive it the instant it resolved.
+ *
+ * Sorted by arc id, and at most one action per arc per run: two decisions for the same arc in the
+ * same event would collide on `decisionId`, which is keyed by arc and sequence number.
+ */
+export function deriveStagnationRemediations(
+  arcs: readonly LiveArcState[],
+  latestWorldDay: number,
+): ArcStagnationRemediation[] {
+  const remediations: ArcStagnationRemediation[] = [];
+  for (const arc of [...arcs].sort((left, right) => left.arcId.localeCompare(right.arcId))) {
+    if (arc.status === 'resolved') {
+      const settled = latestWorldDay - arc.lastTransitionWorldDay;
+      if (settled >= ARC_ARCHIVE_AFTER_WORLD_DAYS) {
+        remediations.push({ arcId: arc.arcId, action: 'archive', stagnantWorldDays: settled });
+      }
+      continue;
+    }
+    if (!isActiveArcStatus(arc.status)) continue;
+    const stagnantWorldDays = latestWorldDay - arc.lastProgressWorldDay;
+    if (stagnantWorldDays < ARC_STAGNATION_DOWNGRADE_WORLD_DAYS) continue;
+    if (stagnantWorldDays >= ARC_STAGNATION_WIND_DOWN_WORLD_DAYS) {
+      remediations.push({
+        arcId: arc.arcId,
+        action: arc.status === 'resolving' ? 'resolve' : 'enter_resolving',
+        stagnantWorldDays,
+      });
+      continue;
+    }
+    if (arc.tier === 'major') {
+      remediations.push({ arcId: arc.arcId, action: 'downgrade', stagnantWorldDays });
+    }
+  }
+  return remediations;
+}
+
+/** The lifecycle status a stagnation remediation moves an arc to, or `null` for a tier-only change. */
+export function stagnationTargetStatus(
+  action: ArcStagnationRemediation['action'],
+): StoryArcStatus | null {
+  if (action === 'enter_resolving') return 'resolving';
+  if (action === 'resolve') return 'resolved';
+  if (action === 'archive') return 'archived';
+  return null;
+}
+
 /** Arc projection fields after an event, or null when nothing changed. */
 export function nextArcProjectionFields(
   current: ArcProjectionFields,
@@ -432,6 +672,17 @@ export type KnowledgeArtifact = { entries: Array<{ characterId: string; knowledg
 export type MemoryArtifact = { entries: Array<{ characterId: string; memoryCount: number; newMemoryIds: string[] }> };
 export type RelationshipArtifact = { modelRefs: string[] };
 export type ArcTransitionRecord = { arcId: string; fromStatus: StoryArcStatus; toStatus: StoryArcStatus };
+export type ArcResolutionRecord = {
+  arcId: string;
+  action: ArcResolutionAction;
+  decisionId: string;
+  resultingStatus: StoryArcStatus;
+  resultingTier: ArcTier;
+  /** Consequence summaries applied. Zero for a non-terminal decision, which records none. */
+  consequenceCount: number;
+  /** Set when the decision came from the stagnation ladder rather than from a classified event. */
+  stagnantWorldDays: number | null;
+};
 export type ArcArtifact = {
   classifiedArcIds: string[];
   createdArcId: string | null;
@@ -440,6 +691,8 @@ export type ArcArtifact = {
   deferredTransitions: Array<{ arcId: string; toStatus: StoryArcStatus; reason: string }>;
   projectionRevisions: Array<{ arcId: string; revision: number }>;
   stagnationPromptCount: number;
+  /** ART-163: every resolution this run recorded, classified or stagnation-driven. */
+  resolutions: ArcResolutionRecord[];
 };
 export type EpisodeArtifact = { episodes: Array<{ worldDay: number } & EpisodeOutcome> };
 export type RecapArtifact = { snapshots: Array<{ targetId: string; snapshotId: string; deduplicated: boolean }> };
@@ -557,12 +810,128 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
       const empty: ArcArtifact = {
         classifiedArcIds: [], createdArcId: null, portfolioDecision: null, transitions: [],
         deferredTransitions: [], projectionRevisions: [], stagnationPromptCount: 0,
+        resolutions: [],
       };
+      /**
+       * ART-163. Move one arc to a resolution status THROUGH a recorded decision.
+       *
+       * The order is the guarantee: decide, then transition, then apply consequences. Deciding
+       * first means a terminal status is unreachable without an outcome, because
+       * `createArcResolutionDecision` throws before the lifecycle is ever touched. Transitioning
+       * first — the shape this stage had before ART-163 — leaves an arc `resolved` with a failed
+       * decision behind it, which is the corrupt state rather than a refused one.
+       */
+      const resolveArc = async (
+        arc: LiveArcState,
+        toStatus: StoryArcStatus,
+        reason: string,
+        stagnantWorldDays: number | null,
+        into: ArcResolutionRecord[],
+      ): Promise<boolean> => {
+        const input = deriveArcResolutionDecision({ arc, event: state.event, toStatus, reason });
+        if (!input) return false;
+        const decision = await port.recordArcResolution(context.worldId, input);
+        await port.transitionArcLifecycle({
+          worldId: context.worldId, arcId: arc.arcId, expectedStatus: arc.status, toStatus,
+          sourceEventId: context.sourceEventId, sourceEventSequenceNumber: context.sourceEventSequenceNumber,
+          reason,
+        });
+        const applied = isTerminalArcStatus(toStatus)
+          ? (await port.applyArcConsequences(context.worldId, decision.decisionId)).applied
+          : 0;
+        into.push({
+          arcId: arc.arcId, action: decision.action, decisionId: decision.decisionId,
+          resultingStatus: decision.resultingStatus, resultingTier: decision.resultingTier,
+          consequenceCount: applied, stagnantWorldDays,
+        });
+        return true;
+      };
+
+      /**
+       * ART-163. The stagnation ladder, run on every commit whether or not the event classified.
+       *
+       * Outside the classification branch deliberately: a stalled arc is by definition one that no
+       * event is classifying into, so remediating it only when it appears in a classification
+       * would mean the arcs most in need of it are the ones never reached.
+       */
+      const remediateStagnation = async (
+        arcs: readonly LiveArcState[],
+        alreadyResolved: ReadonlySet<string>,
+        into: ArcResolutionRecord[],
+      ): Promise<void> => {
+        for (const remediation of deriveStagnationRemediations(arcs, state.latestWorldDay)) {
+          // One decision per arc per event: `decisionId` is keyed by arc and sequence number, so a
+          // second would collide with the first and be returned as its duplicate.
+          if (alreadyResolved.has(remediation.arcId)) continue;
+          const arc = arcs.find(({ arcId }) => arcId === remediation.arcId);
+          if (!arc) continue;
+          const reason = `no arc progress for ${remediation.stagnantWorldDays} world days`;
+          const toStatus = stagnationTargetStatus(remediation.action);
+          if (toStatus) {
+            await resolveArc(arc, toStatus, reason, remediation.stagnantWorldDays, into);
+            continue;
+          }
+          // A downgrade changes tier, not status. The decision is still recorded — it is the
+          // audit trail for why a major arc stopped being one — and `recordArcResolution` applies
+          // the resulting tier to the portfolio.
+          const decision = await port.recordArcResolution(context.worldId, {
+            worldId: context.worldId, arcId: arc.arcId, action: 'downgrade',
+            fromStatus: arc.status, fromTier: arc.tier ?? 'minor', targetArcId: null,
+            outcome: null, consequences: [],
+            sourceEventId: context.sourceEventId,
+            sourceEventSequenceNumber: context.sourceEventSequenceNumber,
+            reason, decidedAtWorldDay: state.event.worldDay,
+          });
+          into.push({
+            arcId: arc.arcId, action: decision.action, decisionId: decision.decisionId,
+            resultingStatus: decision.resultingStatus, resultingTier: decision.resultingTier,
+            consequenceCount: 0, stagnantWorldDays: remediation.stagnantWorldDays,
+          });
+        }
+      };
+
+      /**
+       * Re-derive the portfolio snapshot for every arc this run touched.
+       *
+       * Classified arcs AND resolved ones. The stagnation ladder changes an arc's status without
+       * that arc appearing in any classification — a stalled arc is precisely one no event is
+       * classifying into — so syncing only `classifiedArcIds` leaves the portfolio entry carrying
+       * a stale `active` status for an arc the lifecycle has already resolved. FR-F003 count
+       * control reads the ENTRY, so the freed slot would still read as occupied, which is the very
+       * "a stagnant arc holds its slot forever" failure this task exists to close.
+       *
+       * Found by the 30-day gate's live-vs-replay arc equality check, which is what that finding
+       * was added for; the 7-day run does not surface it because there the arcs that resolve are
+       * also classified in the same event.
+       */
+      const syncTouchedArcs = async (artifact: ArcArtifact): Promise<void> => {
+        const touched = [...new Set([
+          ...artifact.classifiedArcIds,
+          ...artifact.resolutions.map(({ arcId }) => arcId),
+        ])].sort();
+        for (const arcId of touched) {
+          await port.syncArcPortfolioEntry(context.worldId, arcId, context.sourceEventId);
+        }
+      };
+
       const classification = deriveArcClassification(state.event, state.arcs);
       if (!classification) {
+        await remediateStagnation(state.arcs, new Set(), empty.resolutions);
+        await syncTouchedArcs(empty);
         empty.stagnationPromptCount = await port.refreshStagnationPrompts(context.worldId, state.latestWorldDay);
         return empty;
       }
+      /**
+       * FR-F003: one accepted event may directly advance at most two MAJOR arcs.
+       *
+       * Enforced here because here is where events actually arrive. The rule lived in
+       * `validateMajorArcMemberships` with no caller, so an event that heat-sorted into three
+       * major arcs would have advanced all three.
+       */
+      validateMajorArcMemberships(
+        classification,
+        Object.fromEntries(state.arcs.flatMap((arc) => arc.tier ? [[arc.arcId, arc.tier] as const] : [])),
+      );
       await port.recordArcClassification(classification);
 
       const result: ArcArtifact = { ...empty, classifiedArcIds: classification.memberships.map(({ arcId }) => arcId) };
@@ -575,6 +944,8 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
         );
         // A freshly created arc already carries its revision-0 projection and `emerging`
         // lifecycle from the classification boundary; nothing further to advance here.
+        await remediateStagnation(state.arcs, new Set(), result.resolutions);
+        await syncTouchedArcs(result);
         result.stagnationPromptCount = await port.refreshStagnationPrompts(context.worldId, state.latestWorldDay);
         return result;
       }
@@ -610,17 +981,26 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
           result.deferredTransitions.push({ arcId: arc.arcId, toStatus, reason: 'ARC_ACTIVE_LIMIT_REACHED' });
           continue;
         }
-        await port.transitionArcLifecycle({
-          worldId: context.worldId, arcId: arc.arcId, expectedStatus: arc.status, toStatus,
-          sourceEventId: context.sourceEventId, sourceEventSequenceNumber: context.sourceEventSequenceNumber,
-          reason: `accepted event classified as ${membership.role}`,
-        });
+        const reason = `accepted event classified as ${membership.role}`;
+        // ART-163: a resolution status is reached only through a recorded decision. Ordinary
+        // forward motion still goes straight to the lifecycle boundary — an arc becoming
+        // `escalating` has concluded nothing and has no outcome to record.
+        if (!await resolveArc(arc, toStatus, reason, null, result.resolutions)) {
+          await port.transitionArcLifecycle({
+            worldId: context.worldId, arcId: arc.arcId, expectedStatus: arc.status, toStatus,
+            sourceEventId: context.sourceEventId, sourceEventSequenceNumber: context.sourceEventSequenceNumber,
+            reason,
+          });
+        }
         if (entersActiveFamily) activeCounts[tier] += 1;
         result.transitions.push({ arcId: arc.arcId, fromStatus: arc.status, toStatus });
       }
-      for (const arcId of result.classifiedArcIds) {
-        await port.syncArcPortfolioEntry(context.worldId, arcId, context.sourceEventId);
-      }
+      await remediateStagnation(
+        state.arcs,
+        new Set(result.resolutions.map(({ arcId }) => arcId)),
+        result.resolutions,
+      );
+      await syncTouchedArcs(result);
       result.stagnationPromptCount = await port.refreshStagnationPrompts(context.worldId, state.latestWorldDay);
       return result;
     },

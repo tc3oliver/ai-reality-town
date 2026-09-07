@@ -73,7 +73,10 @@ import {
 import { buildRecapSnapshot, type RecapSnapshot } from '../recaps/model';
 import { classifyPostGeneration } from '../safety/postGeneration';
 import { createArcLifecycle, isActiveArcStatus, transitionArcLifecycle } from '../story/lifecycle';
-import { applyArcPortfolioControl, MAX_MAJOR_ACTIVE_ARCS, type ArcPortfolioEntry } from '../story/portfolio';
+import { createArcResolutionDecision, type ArcResolutionDecision } from '../story/resolution';
+import { deriveConsequenceSummaries, type ConsequenceSummary } from '../story/consequenceSummary';
+import { applyArcPortfolioControl, MAX_MAJOR_ACTIVE_ARCS,
+  MAX_MINOR_ACTIVE_ARCS, type ArcPortfolioEntry } from '../story/portfolio';
 import { replayArcProjection } from '../story/projection';
 import { detectArcStagnation, ARC_STAGNATION_WORLD_DAYS } from '../story/resolution';
 import { recommendArcEntry } from '../story/entryRecommendation';
@@ -234,6 +237,37 @@ export type ArcFindings = {
   /** FR-F002 transitions the portfolio deferred instead of breaking a limit. */
   deferredTransitions: number;
   resolvedArcs: string[];
+  /** ART-163 — the minor half of FR-F003, sampled at the same checkpoints. */
+  activeMinorByWorldDay: number[];
+  maxActiveMinorArcs: number;
+  activeMinorLimit: number;
+  minorOverLimitWorldDays: number[];
+  /** Arcs whose projection ever recorded a turning point: the shape of a story progressing. */
+  arcsWithTurningPoint: string[];
+  /** Arcs that reached `resolving`, `resolved` or `archived`: the shape of one closing. */
+  arcsReachingResolution: string[];
+  /** Every resolution decision the pipeline recorded, in order. */
+  resolutions: Array<{
+    arcId: string; action: string; resultingStatus: string; resultingTier: string;
+    terminal: boolean; consequenceCount: number;
+  }>;
+  /**
+   * Terminal resolutions carrying no outcome or no consequence. Structurally impossible while
+   * every resolution goes through `createArcResolutionDecision`, and reported anyway: this is the
+   * exact defect ART-163 closed, and a finding that can only ever read zero is the cheapest way to
+   * notice if the routing is ever bypassed again.
+   */
+  terminalResolutionsWithoutEvidence: string[];
+  /** Consequence summaries applied, by scope — FR-F005's character/world summary input. */
+  consequenceSummaryCount: number;
+  consequenceSummarySubjects: string[];
+  /** Arcs that held an active slot for longer than the stagnation threshold at any checkpoint. */
+  arcsHoldingActiveSlotWhileStagnant: string[];
+  /**
+   * Arcs whose live portfolio snapshot disagrees with a fresh replay of their projection stream.
+   * The arc-state analogue of {@link ReplayFindings.equal}, which covers only canon.
+   */
+  arcsWhereLiveAndReplayDisagree: string[];
 };
 
 export type AppearanceFindings = {
@@ -372,7 +406,7 @@ function fnv1a(value: string, offsetBasis: number): number {
 export function contentDigest(value: unknown): string {
   const text = canonicalJson(value);
   return [2166136261, 84696351, 40389, 2654435761]
-    .map((basis, salt) => fnv1a(`${salt} ${text}`, basis).toString(16).padStart(8, '0'))
+    .map((basis, salt) => fnv1a(`${salt}\u0000${text}`, basis).toString(16).padStart(8, '0'))
     .join('');
 }
 
@@ -647,6 +681,8 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
   const publications = new Map<string, PublicationRecord>();
   const shareFormats = new Map<number, { status: string; reasonCodes: string[] }>();
   const stagnationPrompts: Array<{ arcId: string; stagnantWorldDays: number; status: string }> = [];
+  const resolutionDecisions: ArcResolutionDecision[] = [];
+  const consequenceSummaries = new Map<string, ConsequenceSummary>();
   let now = 10_000;
 
   const events = (): AcceptedEvent[] => canon.committedEvents();
@@ -702,6 +738,8 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
             highest,
             all.find(({ sequenceNumber }) => sequenceNumber === transition.sourceEventSequenceNumber)?.worldDay ?? 0,
           ), 0),
+          // ART-163: the newest projection revision's world day is the arc's last real progress.
+          lastProgressWorldDay: record.projections[record.projections.length - 1].worldDay,
         })),
         characterIds: mistwoodCharacterSeed.characters.map(({ id }) => id),
         completedWorldDays: completed,
@@ -803,6 +841,37 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
         stagnationPrompts.push({ arcId: prompt.arcId, stagnantWorldDays: prompt.stagnantWorldDays, status: prompt.status });
       }
       return Promise.resolve(raised);
+    },
+
+    /**
+     * ART-163. The same decision boundary the deployment binds, in memory.
+     *
+     * `createArcResolutionDecision` is called for real rather than stubbed: the whole point of
+     * routing resolutions through a decision is that a terminal status is refused without an
+     * outcome and consequences, and a harness that skipped the check would report a 30-day run as
+     * clean while the deployment threw on its first resolution.
+     */
+    recordArcResolution(_worldId, decision) {
+      const recorded = createArcResolutionDecision(decision);
+      const prior = resolutionDecisions.find(({ decisionId }) => decisionId === recorded.decisionId);
+      if (prior) return Promise.resolve(prior);
+      resolutionDecisions.push(recorded);
+      const entry = portfolio.find(({ projection }) => projection.arcId === recorded.arcId);
+      if (entry) entry.tier = recorded.resultingTier;
+      return Promise.resolve(recorded);
+    },
+
+    applyArcConsequences(_worldId, decisionId) {
+      const decision = resolutionDecisions.find((entry) => entry.decisionId === decisionId);
+      if (!decision) throw new Error(`unknown resolution decision ${decisionId}`);
+      const resolutionEvent = events().find(({ eventId }) => eventId === decision.sourceEventId);
+      if (!resolutionEvent) throw new Error('CONSEQUENCE_SOURCE_NOT_ACCEPTED');
+      for (const summary of deriveConsequenceSummaries(decision, [resolutionEvent])) {
+        consequenceSummaries.set(summary.summaryId, summary);
+      }
+      return Promise.resolve({
+        applied: deriveConsequenceSummaries(decision, [resolutionEvent]).length,
+      });
     },
 
     generateEpisode(worldId, worldDay, episodeNumber) {
@@ -1073,6 +1142,11 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
       && isMajor(lifecycle.arcId))
     .map(({ lifecycle }) => lifecycle.arcId).sort();
 
+  /** ART-163: the minor half of FR-F003's count control, which had no checkpoint at all. */
+  const activeMinorArcIds = (): string[] => [...arcs.values()]
+    .filter(({ lifecycle }) => isActiveArcStatus(lifecycle.status) && !isMajor(lifecycle.arcId))
+    .map(({ lifecycle }) => lifecycle.arcId).sort();
+
   const arcStatusCounts = (): Record<string, number> => {
     const counts: Record<string, number> = {};
     for (const { lifecycle } of arcs.values()) counts[lifecycle.status] = (counts[lifecycle.status] ?? 0) + 1;
@@ -1081,7 +1155,8 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
 
   return {
     port, arcs, portfolio, episodes, recaps, classifications, stagnationPrompts,
-    activeArcsForDirector, activeMajorArcIds, unresolvedMajorArcIds, arcStatusCounts,
+    resolutionDecisions, consequenceSummaries,
+    activeArcsForDirector, activeMajorArcIds, activeMinorArcIds, unresolvedMajorArcIds, arcStatusCounts,
   };
 }
 
@@ -1335,6 +1410,8 @@ export async function runLongRunSimulation(input: LongRunInput): Promise<LongRun
   const slots: SlotOutcome[] = [];
   const canonConflicts: CanonConflictFinding[] = [];
   const activeMajorByWorldDay: number[] = [];
+  const activeMinorByWorldDay: number[] = [];
+  const stagnantWhileActive = new Set<string>();
   const unresolvedMajorByWorldDay: number[] = [];
   const arcStatusByWorldDay: Array<Record<string, number>> = [];
   const arcsResolvedDuringRun = new Set<string>();
@@ -1381,6 +1458,13 @@ export async function runLongRunSimulation(input: LongRunInput): Promise<LongRun
 
     // Section 16.2 checkpoint: how many major arcs are active at the end of this world day.
     activeMajorByWorldDay.push(harness.activeMajorArcIds().length);
+    activeMinorByWorldDay.push(harness.activeMinorArcIds().length);
+    // ART-163: an arc still holding an active slot after the stagnation threshold is the failure
+    // the remediation ladder exists to prevent, so it is sampled per world day rather than only
+    // at the end — a slot held for ten days and then released would otherwise leave no trace.
+    for (const entry of harness.portfolio) {
+      if (detectArcStagnation(entry.projection, entry.tier, worldDay)) stagnantWhileActive.add(entry.projection.arcId);
+    }
     unresolvedMajorByWorldDay.push(harness.unresolvedMajorArcIds().length);
     arcStatusByWorldDay.push(harness.arcStatusCounts());
     for (const { lifecycle } of harness.arcs.values()) {
@@ -1435,6 +1519,41 @@ export async function runLongRunSimulation(input: LongRunInput): Promise<LongRun
     stagnationThresholdWorldDays: ARC_STAGNATION_WORLD_DAYS,
     deferredTransitions,
     resolvedArcs: [...arcsResolvedDuringRun].sort(),
+    activeMinorByWorldDay,
+    maxActiveMinorArcs: activeMinorByWorldDay.length === 0 ? 0 : Math.max(...activeMinorByWorldDay),
+    activeMinorLimit: MAX_MINOR_ACTIVE_ARCS,
+    minorOverLimitWorldDays: activeMinorByWorldDay.flatMap((count, index) =>
+      count > MAX_MINOR_ACTIVE_ARCS ? [startWorldDay + index] : []),
+    arcsWithTurningPoint: [...harness.arcs.entries()]
+      .filter(([, record]) => record.projections.some(({ fields }) => fields.latestTurningPointEventId !== null))
+      .map(([arcId]) => arcId).sort(),
+    arcsReachingResolution: [...harness.arcs.entries()]
+      .filter(([, record]) => record.lifecycle.transitions.some(({ toStatus }) =>
+        toStatus === 'resolving' || toStatus === 'resolved' || toStatus === 'archived'))
+      .map(([arcId]) => arcId).sort(),
+    resolutions: harness.resolutionDecisions.map((decision) => ({
+      arcId: decision.arcId, action: decision.action,
+      resultingStatus: decision.resultingStatus, resultingTier: decision.resultingTier,
+      terminal: decision.resultingStatus === 'resolved' || decision.resultingStatus === 'archived',
+      consequenceCount: decision.consequences.length,
+    })),
+    terminalResolutionsWithoutEvidence: harness.resolutionDecisions
+      .filter((decision) => (decision.resultingStatus === 'resolved' || decision.resultingStatus === 'archived')
+        && ((decision.outcome ?? '').trim().length === 0 || decision.consequences.length === 0))
+      .map((decision) => decision.decisionId).sort(),
+    consequenceSummaryCount: harness.consequenceSummaries.size,
+    consequenceSummarySubjects: [...new Set([...harness.consequenceSummaries.values()]
+      .map((summary) => `${summary.scope}:${summary.subjectId}`))].sort(),
+    arcsHoldingActiveSlotWhileStagnant: [...stagnantWhileActive].sort(),
+    // ART-163 live-vs-replay equality for ARC state, the analogue of `replay.equal` for canon:
+    // the portfolio entry each arc carried while the pipeline ran must equal a fresh replay of
+    // its projection stream against its lifecycle status.
+    arcsWhereLiveAndReplayDisagree: harness.portfolio.flatMap((entry) => {
+      const record = harness.arcs.get(entry.projection.arcId);
+      if (!record) return [entry.projection.arcId];
+      const replayedArc = replayArcProjection(record.projections, record.lifecycle.status);
+      return JSON.stringify(replayedArc) === JSON.stringify(entry.projection) ? [] : [entry.projection.arcId];
+    }).sort(),
   };
 
   // --- character appearance -------------------------------------------------
