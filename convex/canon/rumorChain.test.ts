@@ -90,7 +90,7 @@ async function commit(store: InMemoryCanonStore, proposal: ProposedEvent): Promi
 }
 
 /** The canon error code a refused proposal carries, or the thrown value if it was not one. */
-async function refusal(store: InMemoryCanonStore, proposal: ProposedEvent): Promise<string | unknown> {
+async function refusal(store: InMemoryCanonStore, proposal: ProposedEvent): Promise<unknown> {
   try {
     await commitProposedEvent(store, { proposed: proposal, traceId: `trace:${proposal.idempotencyKey}` });
     return 'ACCEPTED';

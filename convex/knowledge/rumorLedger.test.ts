@@ -91,7 +91,7 @@ const spreadWorld = (): Promise<WorldProjection> => world(
   propose('k:hop2', ['wu', 'hao'], [propagate('wu', 'hao', { content: '吳真燒了帳本。', confidence: 0.9 })]),
 );
 
-const codeOf = (run: () => unknown): string | unknown => {
+const codeOf = (run: () => unknown): unknown => {
   try {
     run();
     return 'ALLOWED';
