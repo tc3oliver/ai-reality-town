@@ -1166,14 +1166,22 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
        * hypothetical — outreach copy, the least critical artifact in the pipeline, could stop a
        * safety decision from propagating.
        *
-       * Still UNCONDITIONAL rather than gated on `safety.publishable`: the generator re-reads the
-       * Episode row and refuses a non-`ready` one itself, so running it on a withheld day records
-       * the REFUSAL — `blocked`, with its reason — where an operator can see it. Skipping the call
-       * would leave the day silently absent from the derived table, which reads identically to
-       * "not generated yet". It stays gated on an Episode existing at all, which is what
-       * `hasEpisode` preserves from the original placement.
+       * Still not gated on `safety.publishable`: the generator re-reads the Episode row and
+       * refuses a non-`ready` one itself, so running it on a withheld day records the REFUSAL —
+       * `blocked`, with its reason — where an operator can see it. Skipping the call would leave
+       * the day silently absent from the derived table, which reads identically to "not generated
+       * yet".
+       *
+       * It IS gated on the coverage verdict (ART-164), and the reason the safety argument above
+       * does not carry over is specific: a coverage refusal leaves the Episode row `ready`. The
+       * generator therefore cannot refuse for itself the way it can for a withhold — it would
+       * produce outreach copy for an episode the gate just refused to release, which is the leak
+       * the gate exists to prevent, by the one route that skips the read models. And the day is
+       * not silently absent either way: the refusal is on the publication artifact and in
+       * `episodeCoverageReports`, which is what made the original "record it, do not skip it"
+       * argument true in the first place.
        */
-      if (hasEpisode) {
+      if (hasEpisode && coverageReleasable) {
         const share = await port.generateShareFormats(context.worldId, safety.worldDay);
         shareFormatStatus = share.status;
         shareFormatReasonCodes = share.reasonCodes;

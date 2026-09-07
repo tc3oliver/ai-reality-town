@@ -1348,7 +1348,7 @@ describe('coverage and spoiler gate as a publication precondition (FR-G004)', ()
     const refusing: PostCommitLivePort = {
       ...harness.port,
       runCoverageGate: () => Promise.resolve({
-        releasable: false, findingCodes: ['COVERAGE_MISSING_HIGH_IMPORTANCE_EVENT'],
+        releasable: false, findingCodes: ['COVERAGE_HIGH_IMPORTANCE_OMITTED'],
       }),
     };
     const runs: PostCommitRun[] = [];
@@ -1374,7 +1374,7 @@ describe('coverage and spoiler gate as a publication precondition (FR-G004)', ()
     expect(artifacts.every(({ coverageReleasable }) => coverageReleasable === false)).toBe(true);
     // The reason is queryable rather than an unexplained absence of a publication.
     expect(artifacts.every(({ coverageFindingCodes }) =>
-      coverageFindingCodes.includes('COVERAGE_MISSING_HIGH_IMPORTANCE_EVENT'))).toBe(true);
+      coverageFindingCodes.includes('COVERAGE_HIGH_IMPORTANCE_OMITTED'))).toBe(true);
 
     for (const record of harness.publications.values()) {
       expect(record.status).toBe('generated');
@@ -1392,6 +1392,70 @@ describe('coverage and spoiler gate as a publication precondition (FR-G004)', ()
     expect(episodeCopyRows).toHaveLength(0);
     // And a gate is a read: it decides about derived content and touches no Accepted Event.
     expect(JSON.stringify(canon.committedEvents())).toBe(canonBefore);
+  });
+
+  /**
+   * The two tests above prove the gate is CALLED and that a refusal is honoured. Neither would
+   * fail if the bound gate were an optimistic double that always answered `releasable: true` —
+   * which is exactly how a pipeline ends up reporting zero violations without ever having looked
+   * for one. This test induces a genuine violation in the live artifact and requires the REAL
+   * validator to find it.
+   *
+   * The violation is a broken provenance claim: an Episode citing an event that is not in the
+   * accepted source set. That is decided from PROVENANCE METADATA — the cited IDs against canon —
+   * not by scanning the final text for keywords, which is the distinction FR-G004 turns on.
+   */
+  it('refuses a real violation found by the real validator, not by an optimistic double', async () => {
+    const canon = seededCanon();
+    const readStore = new MemoryReadStore();
+    const harness = createLivePostCommitPort(canon, readStore);
+    const runStore = new MemoryPostCommitStore();
+    await runWorldDays(canon, 3, () => []);
+    const committed = canon.committedEvents();
+
+    const leaking: PostCommitLivePort = {
+      ...harness.port,
+      async generateEpisode(worldId, worldDay, episodeNumber) {
+        const result = await harness.port.generateEpisode(worldId, worldDay, episodeNumber);
+        const row = harness.episodes.get(worldDay);
+        if (row?.episode && !result.deduplicated) {
+          // A defective Episode builder: it claims an event canon never accepted. Injected AFTER
+          // generation, so the Episode's own secret gate has already run and passed — the point is
+          // that this later gate catches what the earlier one does not look for.
+          row.episode = {
+            ...row.episode,
+            sourceEventIds: [...row.episode.sourceEventIds, `${WORLD_ID}#event#never-accepted`],
+          };
+        }
+        return result;
+      },
+    };
+
+    const runs: PostCommitRun[] = [];
+    for (const event of committed) {
+      runs.push(await executePostCommitPipeline({
+        runId: postCommitRunId(WORLD_ID, event.sequenceNumber), worldId: WORLD_ID,
+        sourceEventId: event.eventId, sourceEventSequenceNumber: event.sequenceNumber,
+        worldDay: event.worldDay,
+      }, runStore, createPostCommitStageHandlers(leaking), event.traceId));
+    }
+    expect(runs.every(({ status }) => status === 'completed')).toBe(true);
+
+    const artifacts = runStore.checkpoints
+      .filter((row) => row.stage === 'publication' && row.status === 'completed')
+      .map((row) => row.artifact as PublicationArtifact)
+      .filter(({ contentRef }) => contentRef !== null);
+    expect(artifacts.length).toBeGreaterThan(0);
+    expect(artifacts.some(({ coverageFindingCodes }) =>
+      coverageFindingCodes.includes('COVERAGE_SOURCE_NOT_ACCEPTED'))).toBe(true);
+    // Every episode carries the false claim, so none of them may be released.
+    expect(artifacts.every(({ coverageReleasable }) => coverageReleasable === false)).toBe(true);
+    expect(artifacts.every(({ publicationStatus }) => publicationStatus === 'generated')).toBe(true);
+    const episodeCopyRows = readStore.rows.filter(({ modelKind, modelRef }) =>
+      modelKind === EPISODE_MODEL_KIND && /^episode:\d+$/.test(modelRef));
+    expect(episodeCopyRows).toHaveLength(0);
+    // Outreach copy is public copy: a refused episode must not get share formats either.
+    expect(harness.shareFormats.size).toBe(0);
   });
 });
 
