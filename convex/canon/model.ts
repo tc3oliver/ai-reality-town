@@ -15,6 +15,7 @@ import type {
   KnowledgeTruthStatus,
   KnowledgeShareability,
   ProposedByType,
+  RumorStance,
   TimeSlot,
 } from './eventTypes';
 // Type-only, and deliberately so: `personaDeviation.ts` imports the reducer at runtime, and the
@@ -33,6 +34,7 @@ export type {
   KnowledgeTruthStatus,
   KnowledgeShareability,
   ProposedByType,
+  RumorStance,
   TimeSlot,
 } from './eventTypes';
 
@@ -139,6 +141,80 @@ export type StateChange =
       organizationType: string;
       headquartersLocationId: string | null;
       active: boolean;
+      reason: string;
+    }
+  /**
+   * FR-E005. A character starts a rumor.
+   *
+   * The claim is REQUIRED and is fact-SHAPED without being a fact: subject, predicate and the
+   * value the rumor asserts. That shape is what makes 客觀真假 derivable — the projection can
+   * compare the claim against Canon instead of asking the author whether their own rumor is
+   * true. A `claimedValue` that happens to match Canon does not create, imply or become a
+   * `fact_created`; see `RUMOR_CANNOT_BECOME_FACT` in `validators.ts`.
+   *
+   * `sourceType` is the originator's own provenance and may be anything EXCEPT `told`: at an
+   * origin there is, by definition, nobody who told them. Propagation pins `told` and does not
+   * take it from the proposer at all.
+   */
+  | {
+      type: 'rumor_originated';
+      rumorId: string;
+      originCharacterId: string;
+      content: string;
+      claimSubjectType: FactSubjectType;
+      claimSubjectId: string;
+      claimPredicate: string;
+      claimedValue: string | number | boolean;
+      confidence: number;
+      shareability: KnowledgeShareability;
+      /** Omitted legacy events normalize to `inference`. Never `told` — see above. */
+      sourceType?: Exclude<KnowledgeSourceType, 'told'>;
+    }
+  /**
+   * FR-E005. One hop: `fromCharacterId` tells `toCharacterId`.
+   *
+   * `content`/`claimedValue` are what the TELLER said this time. Identical to the version they
+   * hold means the rumor travelled intact; different means it mutated, and a new version is
+   * authored with the teller named as its author and their version as its parent. Prior versions
+   * are never rewritten, so "who said what, when" survives every distortion.
+   *
+   * The teller must already hold the rumor. That single rule is what makes a propagation CHAIN
+   * a chain rather than a set of unrelated sightings.
+   */
+  | {
+      type: 'rumor_propagated';
+      rumorId: string;
+      fromCharacterId: string;
+      toCharacterId: string;
+      content: string;
+      claimedValue: string | number | boolean;
+      confidence: number;
+    }
+  /** FR-E005. A holder changes what they make of a rumor they already hold. */
+  | {
+      type: 'rumor_belief_changed';
+      rumorId: string;
+      characterId: string;
+      stance: RumorStance;
+      confidence: number;
+    }
+  /**
+   * FR-E005 「已知更正」. A correction is APPENDED to the chain and supersedes nothing in place:
+   * the version it corrects keeps its original content, because "who believed the wrong version,
+   * and for how long" is the question this feature exists to answer.
+   *
+   * It deliberately does NOT change anybody's belief. A correction being known to the world is
+   * not the same as every character having heard and accepted it; that takes its own
+   * `rumor_propagated` and `rumor_belief_changed` events, which is the honest model of how a
+   * correction actually spreads.
+   */
+  | {
+      type: 'rumor_corrected';
+      rumorId: string;
+      /** `null` for a world/system correction, which only an admin or system may propose. */
+      correctingCharacterId: string | null;
+      correctedContent: string;
+      correctedValue: string | number | boolean;
       reason: string;
     };
 
@@ -336,6 +412,94 @@ export type CharacterKnowledgeRecord = {
   shareability: KnowledgeShareability;
   correctsKnowledgeId?: string;
   correctedByKnowledgeId?: string;
+  /**
+   * FR-E005 rumor provenance. Present only on records the rumor verbs produced.
+   *
+   * This is the reason there is no separate "who holds which rumor" table. A rumor a character
+   * holds IS knowledge they hold, with a source and a confidence, and the ledger already answers
+   * "what does this character know, and how do they know it" with authorization attached. A
+   * parallel store would answer the same question a second time, and the two would eventually
+   * disagree about a character who was told something and then died.
+   *
+   * `rumorVersionId` is what makes AC#2 representable: two characters can hold the SAME
+   * `rumorId` at DIFFERENT versions, with different stances and different confidence, and
+   * nothing anywhere merges them.
+   */
+  rumorId?: string;
+  rumorVersionId?: string;
+  rumorStance?: RumorStance;
+};
+
+/**
+ * One authored wording of a rumor. Immutable once written — a distortion appends, a correction
+ * appends, and neither edits.
+ */
+export type RumorVersionRecord = {
+  versionId: string;
+  content: string;
+  claimedValue: string | number | boolean;
+  /** Who first said it this way: the originator, or the teller who changed it in the retelling. */
+  authoredByCharacterId: string;
+  derivedFromVersionId: string | null;
+  createdAt: { worldDay: number; timeSlot: TimeSlot; eventId: string };
+};
+
+/** One telling. `fromCharacterId` is `null` exactly once per rumor: at its origin. */
+export type RumorPropagationHop = {
+  hopIndex: number;
+  fromCharacterId: string | null;
+  toCharacterId: string;
+  /** The version the receiver came away holding. */
+  versionId: string;
+  sourceEventId: string;
+  sequenceNumber: number;
+  worldDay: number;
+  timeSlot: TimeSlot;
+};
+
+export type RumorCorrectionRecord = {
+  correctionId: string;
+  /** Derived, never authored: a correction addresses whatever the current version was. */
+  correctsVersionId: string;
+  content: string;
+  correctedValue: string | number | boolean;
+  issuedByCharacterId: string | null;
+  reason: string;
+  sourceEventId: string;
+  worldDay: number;
+  timeSlot: TimeSlot;
+};
+
+/**
+ * A rumor's world-level record: the six things FR-E005 names, and nothing a character owns.
+ *
+ * Per-character belief is deliberately absent — it lives in `characterKnowledge`, keyed by
+ * `rumorId`. What is here is what the WORLD can say about the rumor; what a character makes of
+ * it is theirs.
+ */
+export type RumorChainState = {
+  rumorId: string;
+  /** 原始來源. */
+  originCharacterId: string;
+  originEventId: string;
+  claim: { subjectType: FactSubjectType; subjectId: string; predicate: string };
+  versions: RumorVersionRecord[];
+  /** 當前版本 — the most recently authored wording, not "the one everyone holds". */
+  currentVersionId: string;
+  /** 傳播鏈, in the order it happened. */
+  propagationChain: RumorPropagationHop[];
+  /** 已知更正, appended. */
+  corrections: RumorCorrectionRecord[];
+  knownCorrectionId: string | null;
+  /**
+   * 客觀真假 — DERIVED by comparing the current version's claim against Canon, never authored.
+   * `unknown` while Canon has said nothing about the claim, which is most rumors most of the time.
+   */
+  objectiveTruthStatus: KnowledgeTruthStatus;
+  /** 可信程度 — DERIVED from what its holders currently make of it. See `rumorChain.ts`. */
+  credibility: number;
+  shareability: KnowledgeShareability;
+  lastUpdatedEventId: string;
 };
 
 export type CharacterMemoryRecord = {
@@ -379,6 +543,8 @@ export type WorldProjection = {
   organizations: Record<string, ProjectedOrganization>;
   organizationMembers: Record<string, string[]>;
   organizationMembershipHistory: Record<string, OrganizationMembershipHistoryEntry[]>;
+  /** FR-E005 rumor chains, keyed by rumorId. Derived only from accepted events. */
+  rumors: Record<string, RumorChainState>;
 };
 
 /** A projection with no events applied yet (the starting point for replay). */
@@ -404,5 +570,6 @@ export function emptyProjection(worldId: string): WorldProjection {
     organizations: {},
     organizationMembers: {},
     organizationMembershipHistory: {},
+    rumors: {},
   };
 }

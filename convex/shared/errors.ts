@@ -47,7 +47,17 @@ export type CanonErrorCode =
   // same-direction change is refused pending a human look. Both are stable SCREAMING_SNAKE_CASE,
   // so `proposalReview.ts` reports them verbatim instead of `UNCLASSIFIED_REJECTION`.
   | 'UNSUPPORTED_PERSONA_REVERSAL'
-  | 'PERSONA_DEVIATION_REVIEW_REQUIRED';
+  | 'PERSONA_DEVIATION_REVIEW_REQUIRED'
+  // FR-E005 rumor chains. `RUMOR_SOURCE_NOT_HELD` is the one that carries the feature: a
+  // character may only come by a rumor through a chain that actually reached them, so a
+  // propagation from someone who has never heard it is refused rather than quietly recorded as
+  // a new origin. `RUMOR_CANNOT_BECOME_FACT` is the other half of AC#1 — a rumor may not be
+  // laundered into Canon by shipping a `fact_created` for its own claim alongside it.
+  | 'RUMOR_NOT_FOUND'
+  | 'RUMOR_ALREADY_EXISTS'
+  | 'RUMOR_SOURCE_NOT_HELD'
+  | 'RUMOR_CANNOT_BECOME_FACT'
+  | 'INVALID_RUMOR_CHANGE';
 
 export type CanonValidationError = {
   code: CanonErrorCode;

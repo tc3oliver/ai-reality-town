@@ -105,6 +105,43 @@ export const stateChangeValidator = v.union(
     description: v.string(), organizationType: v.string(),
     headquartersLocationId: v.union(v.string(), v.null()), active: v.boolean(), reason: v.string(),
   }),
+  // FR-E005. `sourceType` is the only optional field: it describes how the ORIGINATOR came by
+  // the claim, and a legacy event that never carried one normalizes to `inference` rather than
+  // being rejected.
+  v.object({
+    type: v.literal('rumor_originated'),
+    rumorId: v.string(), originCharacterId: v.string(), content: v.string(),
+    claimSubjectType: v.union(
+      v.literal('world'), v.literal('character'), v.literal('location'), v.literal('item'),
+    ),
+    claimSubjectId: v.string(), claimPredicate: v.string(),
+    claimedValue: v.union(v.string(), v.number(), v.boolean()),
+    confidence: v.number(),
+    shareability: v.union(v.literal('private'), v.literal('trusted'), v.literal('public')),
+    sourceType: v.optional(v.union(
+      v.literal('observed'), v.literal('public'), v.literal('evidence'),
+      // `told` is absent by construction, not by check: an origin has no teller.
+      v.literal('inference'), v.literal('memory'),
+    )),
+  }),
+  v.object({
+    type: v.literal('rumor_propagated'),
+    rumorId: v.string(), fromCharacterId: v.string(), toCharacterId: v.string(),
+    content: v.string(), claimedValue: v.union(v.string(), v.number(), v.boolean()),
+    confidence: v.number(),
+  }),
+  v.object({
+    type: v.literal('rumor_belief_changed'),
+    rumorId: v.string(), characterId: v.string(),
+    stance: v.union(v.literal('believes'), v.literal('doubts'), v.literal('rejects')),
+    confidence: v.number(),
+  }),
+  v.object({
+    type: v.literal('rumor_corrected'),
+    rumorId: v.string(), correctingCharacterId: v.union(v.string(), v.null()),
+    correctedContent: v.string(), correctedValue: v.union(v.string(), v.number(), v.boolean()),
+    reason: v.string(),
+  }),
 );
 
 export const proposedByValidator = v.object({
@@ -180,6 +217,12 @@ function normalizeStateChange(value: unknown, index: number): StateChange {
     // rejected by this outer filter before their own per-variant check could ever run.
     'locationId', 'name', 'description', 'locationType', 'capacity', 'connectedLocationIds',
     'active', 'organizationId', 'organizationType', 'headquartersLocationId',
+    // FR-E005. Listed for the same reason ART-141 had to list the two above: this outer filter
+    // runs before the per-variant check, so a name missing here is rejected as an unknown field
+    // and the variant's own rules never get to speak.
+    'rumorId', 'originCharacterId', 'claimSubjectType', 'claimSubjectId', 'claimPredicate',
+    'claimedValue', 'stance', 'fromCharacterId', 'toCharacterId', 'correctingCharacterId',
+    'correctedContent', 'correctedValue',
   ]);
   const change = source as unknown as StateChange;
   switch (change.type) {
@@ -238,6 +281,28 @@ function normalizeStateChange(value: unknown, index: number): StateChange {
       };
     case 'organization_state_changed':
       exactObject(value, path, ['type', 'organizationId', 'name', 'description', 'organizationType', 'headquartersLocationId', 'active', 'reason']);
+      return { ...change };
+    case 'rumor_originated':
+      exactObject(value, path, [
+        'type', 'rumorId', 'originCharacterId', 'content', 'claimSubjectType', 'claimSubjectId',
+        'claimPredicate', 'claimedValue', 'confidence', 'shareability', 'sourceType',
+      ]);
+      // Normalized here rather than defaulted in the reducer, so what is stored is what was
+      // meant: a reader of the accepted event should not have to know the reducer's fallbacks to
+      // know how the originator claims to have come by this.
+      return { ...change, sourceType: change.sourceType ?? 'inference' };
+    case 'rumor_propagated':
+      exactObject(value, path, [
+        'type', 'rumorId', 'fromCharacterId', 'toCharacterId', 'content', 'claimedValue', 'confidence',
+      ]);
+      return { ...change };
+    case 'rumor_belief_changed':
+      exactObject(value, path, ['type', 'rumorId', 'characterId', 'stance', 'confidence']);
+      return { ...change };
+    case 'rumor_corrected':
+      exactObject(value, path, [
+        'type', 'rumorId', 'correctingCharacterId', 'correctedContent', 'correctedValue', 'reason',
+      ]);
       return { ...change };
   }
 }

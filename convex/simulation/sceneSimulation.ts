@@ -2,7 +2,7 @@ import { normalizeProposedEventOutput } from '../canon/proposedEvent';
 import {
   CHARACTER_STATE_FIELDS, EVENT_TYPES, FACT_SUBJECT_TYPES, FACT_VISIBILITIES, KNOWLEDGE_SHAREABILITIES,
   KNOWLEDGE_SOURCE_TYPES, KNOWLEDGE_TRUTH_STATUSES, PROPOSED_BY_TYPES,
-  PUBLIC_TEXT_CHARACTER_STATE_FIELDS, TIME_SLOTS,
+  PUBLIC_TEXT_CHARACTER_STATE_FIELDS, RUMOR_STANCES, TIME_SLOTS,
 } from '../canon/eventTypes';
 import type { ProposedEvent } from '../canon/model';
 import { classifyPostGeneration, type PostGenerationClassification } from '../safety/postGeneration';
@@ -205,6 +205,23 @@ const stateChangeVariants = [
     fromValue: stateFieldValue, toValue: stateFieldValue, reason: text }),
   strictObject({ type: { const: 'location_state_changed' }, locationId: text, name: text, description: text,
     locationType: text, capacity: integer, connectedLocationIds: textArray, active: boolean, reason: text }),
+  // FR-E005. Present so a rumor can be PROPOSED at all: the `rumors` collection below is
+  // narrative colour and touches no domain state, so without these variants the rumor chain
+  // would be a projection nothing in production could ever write to.
+  //
+  // Every field is required because the request runs under strict mode, which has no optionals.
+  // That is fine for these four: `sourceType` is the only field canon treats as optional, and it
+  // is simply not offered here — a scene author has no better answer than the `inference` the
+  // normalizer already supplies.
+  strictObject({ type: { const: 'rumor_originated' }, rumorId: text, originCharacterId: text, content: text,
+    claimSubjectType: enumOf(FACT_SUBJECT_TYPES), claimSubjectId: text, claimPredicate: text,
+    claimedValue: primitive, confidence: number, shareability: enumOf(KNOWLEDGE_SHAREABILITIES) }),
+  strictObject({ type: { const: 'rumor_propagated' }, rumorId: text, fromCharacterId: text, toCharacterId: text,
+    content: text, claimedValue: primitive, confidence: number }),
+  strictObject({ type: { const: 'rumor_belief_changed' }, rumorId: text, characterId: text,
+    stance: enumOf(RUMOR_STANCES), confidence: number }),
+  strictObject({ type: { const: 'rumor_corrected' }, rumorId: text, correctingCharacterId: nullableText,
+    correctedContent: text, correctedValue: primitive, reason: text }),
   strictObject({ type: { const: 'organization_state_changed' }, organizationId: text, name: text, description: text,
     organizationType: text, headquartersLocationId: nullableText, active: boolean, reason: text }),
 ];
@@ -291,6 +308,11 @@ export const wholeSceneSystemPrompt = (scene: GroupedScene, context: WholeSceneP
     `Each proposedEvents item is a canonical world-state event, not a narrative beat: it carries the structured stateChanges that move the world forward. Never emit fields such as eventId, trigger or probability. A well-formed item for this scene looks like: ${JSON.stringify(example)}`,
     movementRule,
     'The memories, knowledgeChanges and rumors collections are short narrative notes about a proposed event, not state changes. Each memories or knowledgeChanges item has exactly characterId, content and proposedEventIndex; each rumors item has exactly sourceCharacterId, content and proposedEventIndex, where proposedEventIndex is the zero-based position in proposedEvents. Never give them interpretation, importance, emotionalWeight, confidence or visibility -- those belong only to a character_memory_formed entry inside proposedEvents stateChanges.',
+    // FR-E005. Said explicitly because the two things share a word: a `rumors` note is colour a
+    // reader sees, and it changes nothing. A rumor that the world actually tracks -- origin,
+    // chain, versions, belief -- exists only as rumor_* stateChanges, and only after Canon
+    // accepts them.
+    'A rumors note never creates a tracked rumor. To have the world actually record one, emit rumor_originated inside a proposedEvents stateChanges array, and spread it with rumor_propagated. A character may only be the fromCharacterId of a rumor_propagated, the characterId of a rumor_belief_changed, or the correctingCharacterId of a rumor_corrected if an earlier accepted change already gave them that rumor; anyone else will be rejected. Never state a rumor as fact: an event carrying a rumor_* change must not also carry a fact_created for the same subject and predicate.',
   ].join(' ');
 };
 

@@ -25,12 +25,14 @@ import {
   isKnowledgeShareability,
   isProposedByType,
   isRemediationEventType,
+  isRumorStance,
   isStateChangeType,
   isSupersedingEventType,
   isTimeSlot,
 } from './eventTypes';
 import type { CanonRuleContext, ProposedEvent, WorldProjection } from './model';
 import { assessPersonaDeviations, PERSONA_JUSTIFICATIONS } from './personaDeviation';
+import { claimKey, holdsRumor } from './rumorChain';
 
 // --- primitive guards -------------------------------------------------------
 
@@ -294,6 +296,90 @@ function validateStateChangeStructure(change: unknown, path: string): CanonValid
       if (typeof change.active !== 'boolean') return canonError('INVALID_EVENT_SHAPE', 'active must be boolean', undefined, `${path}.active`);
       return null;
     }
+    case 'rumor_originated': {
+      const error = unknownKeyError(change, [
+        'type', 'rumorId', 'originCharacterId', 'content', 'claimSubjectType', 'claimSubjectId',
+        'claimPredicate', 'claimedValue', 'confidence', 'shareability', 'sourceType',
+      ], path);
+      if (error) return error;
+      if (!isReference(change.rumorId))
+        return canonError('INVALID_EVENT_SHAPE', 'rumorId has invalid reference format', undefined, `${path}.rumorId`);
+      if (!isReference(change.originCharacterId))
+        return canonError('INVALID_EVENT_SHAPE', 'originCharacterId has invalid reference format', undefined, `${path}.originCharacterId`);
+      if (!isNonEmptyString(change.content))
+        return canonError('INVALID_EVENT_SHAPE', 'rumor content must be non-empty', undefined, `${path}.content`);
+      if (!isFactSubjectType(change.claimSubjectType))
+        return canonError('INVALID_EVENT_SHAPE', 'claimSubjectType is not supported', { claimSubjectType: change.claimSubjectType }, `${path}.claimSubjectType`);
+      if (!isReference(change.claimSubjectId))
+        return canonError('INVALID_EVENT_SHAPE', 'claimSubjectId has invalid reference format', undefined, `${path}.claimSubjectId`);
+      if (!isNonEmptyString(change.claimPredicate))
+        return canonError('INVALID_EVENT_SHAPE', 'claimPredicate must be a non-empty string', undefined, `${path}.claimPredicate`);
+      if (!isPrimitiveValue(change.claimedValue))
+        return canonError('INVALID_EVENT_SHAPE', 'claimedValue must be string | number | boolean', undefined, `${path}.claimedValue`);
+      if (!isFiniteNumber(change.confidence) || change.confidence < 0 || change.confidence > 1)
+        return canonError('INVALID_EVENT_SHAPE', 'confidence must be between 0 and 1', undefined, `${path}.confidence`);
+      if (!isKnowledgeShareability(change.shareability))
+        return canonError('INVALID_EVENT_SHAPE', 'rumor shareability is unsupported', undefined, `${path}.shareability`);
+      if (change.sourceType !== undefined) {
+        if (!isKnowledgeSourceType(change.sourceType))
+          return canonError('INVALID_EVENT_SHAPE', 'sourceType is unsupported', undefined, `${path}.sourceType`);
+        // Structural, because it is a property of the payload alone: at an origin there is by
+        // definition nobody who told them. `told` here would be a chain hop with no sender, and
+        // the whole point of 傳播鏈 is that every hop has one.
+        if (change.sourceType === 'told')
+          return canonError('INVALID_EVENT_SHAPE', 'a rumor origin cannot have been told to its originator', undefined, `${path}.sourceType`);
+      }
+      return null;
+    }
+    case 'rumor_propagated': {
+      const error = unknownKeyError(change, [
+        'type', 'rumorId', 'fromCharacterId', 'toCharacterId', 'content', 'claimedValue', 'confidence',
+      ], path);
+      if (error) return error;
+      if (!isReference(change.rumorId))
+        return canonError('INVALID_EVENT_SHAPE', 'rumorId has invalid reference format', undefined, `${path}.rumorId`);
+      if (!isReference(change.fromCharacterId))
+        return canonError('INVALID_EVENT_SHAPE', 'fromCharacterId has invalid reference format', undefined, `${path}.fromCharacterId`);
+      if (!isReference(change.toCharacterId))
+        return canonError('INVALID_EVENT_SHAPE', 'toCharacterId has invalid reference format', undefined, `${path}.toCharacterId`);
+      if (!isNonEmptyString(change.content))
+        return canonError('INVALID_EVENT_SHAPE', 'rumor content must be non-empty', undefined, `${path}.content`);
+      if (!isPrimitiveValue(change.claimedValue))
+        return canonError('INVALID_EVENT_SHAPE', 'claimedValue must be string | number | boolean', undefined, `${path}.claimedValue`);
+      if (!isFiniteNumber(change.confidence) || change.confidence < 0 || change.confidence > 1)
+        return canonError('INVALID_EVENT_SHAPE', 'confidence must be between 0 and 1', undefined, `${path}.confidence`);
+      return null;
+    }
+    case 'rumor_belief_changed': {
+      const error = unknownKeyError(change, ['type', 'rumorId', 'characterId', 'stance', 'confidence'], path);
+      if (error) return error;
+      if (!isReference(change.rumorId))
+        return canonError('INVALID_EVENT_SHAPE', 'rumorId has invalid reference format', undefined, `${path}.rumorId`);
+      if (!isReference(change.characterId))
+        return canonError('INVALID_EVENT_SHAPE', 'characterId has invalid reference format', undefined, `${path}.characterId`);
+      if (!isRumorStance(change.stance))
+        return canonError('INVALID_EVENT_SHAPE', 'rumor stance is unsupported', { stance: change.stance }, `${path}.stance`);
+      if (!isFiniteNumber(change.confidence) || change.confidence < 0 || change.confidence > 1)
+        return canonError('INVALID_EVENT_SHAPE', 'confidence must be between 0 and 1', undefined, `${path}.confidence`);
+      return null;
+    }
+    case 'rumor_corrected': {
+      const error = unknownKeyError(change, [
+        'type', 'rumorId', 'correctingCharacterId', 'correctedContent', 'correctedValue', 'reason',
+      ], path);
+      if (error) return error;
+      if (!isReference(change.rumorId))
+        return canonError('INVALID_EVENT_SHAPE', 'rumorId has invalid reference format', undefined, `${path}.rumorId`);
+      if (change.correctingCharacterId !== null && !isReference(change.correctingCharacterId))
+        return canonError('INVALID_EVENT_SHAPE', 'correctingCharacterId has invalid reference format', undefined, `${path}.correctingCharacterId`);
+      if (!isNonEmptyString(change.correctedContent))
+        return canonError('INVALID_EVENT_SHAPE', 'correctedContent must be non-empty', undefined, `${path}.correctedContent`);
+      if (!isPrimitiveValue(change.correctedValue))
+        return canonError('INVALID_EVENT_SHAPE', 'correctedValue must be string | number | boolean', undefined, `${path}.correctedValue`);
+      if (!isNonEmptyString(change.reason))
+        return canonError('INVALID_EVENT_SHAPE', 'reason must be a non-empty string', undefined, `${path}.reason`);
+      return null;
+    }
     default:
       return canonError('INVALID_EVENT_SHAPE', 'unhandled state change type', { type }, path);
   }
@@ -486,6 +572,47 @@ export function validateCanon(
   const changedCharacterStateFields = new Set<string>();
   const correctedKnowledgeIds = new Set<string>();
   const changedFactKeys = new Set<string>();
+  /** `factKey -> path`, so AC#1's refusal can point at the `fact_created` that tried it. */
+  const factKeyPaths = new Map<string, string>();
+  const changedRumorBeliefs = new Set<string>();
+  const correctedRumorIds = new Set<string>();
+  /**
+   * FR-E005. Rumor state as this event would leave it, built up as the changes are scanned.
+   *
+   * Prospective for the same reason `prospectiveOccupancy` is: one event may legitimately
+   * originate a rumor and then spread it two hops, and each of those hops has to be judged
+   * against the world the earlier changes in the SAME event produce. Judging every hop against
+   * the pre-event projection would reject the second hop of every chain that starts and travels
+   * in one scene — which is most of them.
+   */
+  const prospectiveRumors = new Map<string, { holders: Set<string>; claimKey: string }>();
+  const rumorState = (rumorId: string): { holders: Set<string>; claimKey: string } | undefined => {
+    const pending = prospectiveRumors.get(rumorId);
+    if (pending) return pending;
+    const chain = projection.rumors?.[rumorId];
+    if (!chain) return undefined;
+    const seeded = {
+      holders: new Set<string>(Object.keys(projection.characterKnowledge ?? {})
+        .filter((characterId) => holdsRumor(projection.characterKnowledge, characterId, rumorId))),
+      claimKey: claimKey(chain.claim.subjectType, chain.claim.subjectId, chain.claim.predicate),
+    };
+    prospectiveRumors.set(rumorId, seeded);
+    return seeded;
+  };
+
+  /**
+   * FR-E005 AC#1, first half. A `rumor` event that also establishes facts is a rumor promoting
+   * itself, whatever its `fact_created` claims to be about; the second half — same event, same
+   * claim, different change type — is checked after the scan, where both key sets are known.
+   */
+  if (event.eventType === 'rumor') {
+    const factIndex = event.stateChanges.findIndex((candidate) => candidate.type === 'fact_created');
+    if (factIndex >= 0) {
+      return canonError('RUMOR_CANNOT_BECOME_FACT', 'a rumor event cannot establish canonical facts', {
+        eventType: event.eventType,
+      }, `stateChanges[${factIndex}]`);
+    }
+  }
   const changedLocations = new Set<string>();
   const changedOrganizations = new Set<string>();
   const prospectiveOccupancy = Object.fromEntries(
@@ -631,11 +758,12 @@ export function validateCanon(
       if (change.subjectType === 'world' && change.subjectId !== event.worldId) {
         return canonError('INVALID_FACT_SUBJECT', 'world fact subject must match event world', { subjectId: change.subjectId }, path);
       }
-      const factKey = `${change.subjectType}\u0000${change.subjectId}\u0000${change.predicate}`;
+      const factKey = claimKey(change.subjectType, change.subjectId, change.predicate);
       if (changedFactKeys.has(factKey)) {
         return canonError('INVALID_FACT_SUBJECT', 'one event cannot version the same fact twice', { subjectId: change.subjectId, predicate: change.predicate }, path);
       }
       changedFactKeys.add(factKey);
+      factKeyPaths.set(factKey, path);
       if (change.subjectType === 'character' && knownCharacters && !knownCharacters.has(change.subjectId)) {
         return canonError('UNKNOWN_CHARACTER_REFERENCE', 'fact character subject does not exist', { subjectId: change.subjectId }, path);
       }
@@ -817,6 +945,148 @@ export function validateCanon(
       }
       continue;
     }
+
+    if (change.type === 'rumor_originated') {
+      if (knownCharacters && !knownCharacters.has(change.originCharacterId)) {
+        return canonError('UNKNOWN_CHARACTER_REFERENCE', 'rumor originator does not exist', { characterId: change.originCharacterId }, path);
+      }
+      if (!participants.has(change.originCharacterId)) {
+        return canonError('PARTICIPANT_MISMATCH', 'a rumor originator must be an event participant', { characterId: change.originCharacterId }, path);
+      }
+      if (rumorState(change.rumorId)) {
+        return canonError('RUMOR_ALREADY_EXISTS', 'a rumor with this id already exists', { rumorId: change.rumorId }, path);
+      }
+      // The claim's subject is checked exactly as a fact subject is. A rumor about a character
+      // who does not exist is not a rumor about a secret — it is a typo, and accepting it would
+      // put an unresolvable claim into a projection that has to answer 客觀真假 about it forever.
+      if (change.claimSubjectType === 'world' && change.claimSubjectId !== event.worldId) {
+        return canonError('INVALID_FACT_SUBJECT', 'world claim subject must match event world', { subjectId: change.claimSubjectId }, path);
+      }
+      if (change.claimSubjectType === 'character' && knownCharacters && !knownCharacters.has(change.claimSubjectId)) {
+        return canonError('UNKNOWN_CHARACTER_REFERENCE', 'rumor claim character subject does not exist', { subjectId: change.claimSubjectId }, path);
+      }
+      if (change.claimSubjectType === 'location' && knownLocations && !knownLocations.has(change.claimSubjectId)) {
+        return canonError('UNKNOWN_LOCATION_REFERENCE', 'rumor claim location subject does not exist', { subjectId: change.claimSubjectId }, path);
+      }
+      if (change.claimSubjectType === 'item' && knownItems && !knownItems.has(change.claimSubjectId)) {
+        return canonError('UNKNOWN_ITEM_REFERENCE', 'rumor claim item subject does not exist', { subjectId: change.claimSubjectId }, path);
+      }
+      prospectiveRumors.set(change.rumorId, {
+        holders: new Set([change.originCharacterId]),
+        claimKey: claimKey(change.claimSubjectType, change.claimSubjectId, change.claimPredicate),
+      });
+      continue;
+    }
+
+    if (change.type === 'rumor_propagated') {
+      const state = rumorState(change.rumorId);
+      if (!state) {
+        return canonError('RUMOR_NOT_FOUND', 'rumor does not exist in this world', { rumorId: change.rumorId }, path);
+      }
+      if (change.fromCharacterId === change.toCharacterId) {
+        return canonError('INVALID_RUMOR_CHANGE', 'a character cannot tell themselves a rumor', { characterId: change.fromCharacterId }, path);
+      }
+      if (knownCharacters && (!knownCharacters.has(change.fromCharacterId) || !knownCharacters.has(change.toCharacterId))) {
+        return canonError('UNKNOWN_CHARACTER_REFERENCE', 'rumor propagation character does not exist', undefined, path);
+      }
+      if (!participants.has(change.fromCharacterId) || !participants.has(change.toCharacterId)) {
+        return canonError('PARTICIPANT_MISMATCH', 'both ends of a rumor hop must be event participants', undefined, path);
+      }
+      /**
+       * FR-E005's load-bearing rule. Without it a "propagation" from a character who has never
+       * heard the rumor would be accepted and recorded as a hop, and the chain would claim a
+       * provenance that never happened — every character in the world could end up holding a
+       * rumor whose origin nothing connects them to.
+       */
+      if (!state.holders.has(change.fromCharacterId)) {
+        return canonError('RUMOR_SOURCE_NOT_HELD', 'the telling character does not hold this rumor', {
+          rumorId: change.rumorId, characterId: change.fromCharacterId,
+        }, path);
+      }
+      state.holders.add(change.toCharacterId);
+      continue;
+    }
+
+    if (change.type === 'rumor_belief_changed') {
+      const state = rumorState(change.rumorId);
+      if (!state) {
+        return canonError('RUMOR_NOT_FOUND', 'rumor does not exist in this world', { rumorId: change.rumorId }, path);
+      }
+      if (knownCharacters && !knownCharacters.has(change.characterId)) {
+        return canonError('UNKNOWN_CHARACTER_REFERENCE', 'rumor believer does not exist', { characterId: change.characterId }, path);
+      }
+      if (!participants.has(change.characterId)) {
+        return canonError('PARTICIPANT_MISMATCH', 'a rumor believer must be an event participant', { characterId: change.characterId }, path);
+      }
+      // You cannot change your mind about something nobody has told you.
+      if (!state.holders.has(change.characterId)) {
+        return canonError('RUMOR_SOURCE_NOT_HELD', 'character holds no version of this rumor', {
+          rumorId: change.rumorId, characterId: change.characterId,
+        }, path);
+      }
+      const beliefKey = `${change.characterId}:${change.rumorId}`;
+      if (changedRumorBeliefs.has(beliefKey)) {
+        return canonError('INVALID_RUMOR_CHANGE', 'a character may change their stance on a rumor at most once per event', {
+          rumorId: change.rumorId, characterId: change.characterId,
+        }, path);
+      }
+      changedRumorBeliefs.add(beliefKey);
+      continue;
+    }
+
+    if (change.type === 'rumor_corrected') {
+      const state = rumorState(change.rumorId);
+      if (!state) {
+        return canonError('RUMOR_NOT_FOUND', 'rumor does not exist in this world', { rumorId: change.rumorId }, path);
+      }
+      if (correctedRumorIds.has(change.rumorId)) {
+        return canonError('INVALID_RUMOR_CHANGE', 'a rumor may be corrected at most once per event', { rumorId: change.rumorId }, path);
+      }
+      correctedRumorIds.add(change.rumorId);
+      if (change.correctingCharacterId === null) {
+        // An unattributed correction is the WORLD speaking. A character-proposed event may not
+        // put words in its mouth; that is the difference between "Wu Zhen says otherwise" and
+        // "the record says otherwise", and the second one is an administrative act.
+        if (event.proposedBy.type !== 'admin' && event.proposedBy.type !== 'system') {
+          return canonError('INVALID_RUMOR_CHANGE', 'only an administrator or the system may issue an unattributed correction', {
+            proposedBy: event.proposedBy.type,
+          }, path);
+        }
+        continue;
+      }
+      if (knownCharacters && !knownCharacters.has(change.correctingCharacterId)) {
+        return canonError('UNKNOWN_CHARACTER_REFERENCE', 'correcting character does not exist', { characterId: change.correctingCharacterId }, path);
+      }
+      if (!participants.has(change.correctingCharacterId)) {
+        return canonError('PARTICIPANT_MISMATCH', 'a correcting character must be an event participant', { characterId: change.correctingCharacterId }, path);
+      }
+      // You can only correct a rumor you have actually heard; otherwise you are not correcting
+      // it, you are stating a fact, and that is a different event type with different rules.
+      if (!state.holders.has(change.correctingCharacterId)) {
+        return canonError('RUMOR_SOURCE_NOT_HELD', 'the correcting character does not hold this rumor', {
+          rumorId: change.rumorId, characterId: change.correctingCharacterId,
+        }, path);
+      }
+      continue;
+    }
+  }
+
+  /**
+   * FR-E005 AC#1, second half: this event touched a rumor AND established a canonical fact about
+   * that rumor's own claim.
+   *
+   * Checked here rather than inside the loop because the `fact_created` may appear on either
+   * side of the rumor change, and a rule that only fired in one order would be trivially evaded
+   * by reordering the array. Scoped to rumors this event touched: a later, unrelated event that
+   * settles an old rumor's claim is the world resolving it honestly, and the reducer's derived
+   * pass is what picks that up.
+   */
+  for (const [rumorId, state] of prospectiveRumors) {
+    const factPath = factKeyPaths.get(state.claimKey);
+    if (factPath === undefined) continue;
+    return canonError('RUMOR_CANNOT_BECOME_FACT', 'an event cannot both spread a rumor and establish its claim as canonical fact', {
+      rumorId,
+    }, factPath);
   }
 
   return validatePersonaConsistency(event, projection, ruleContext);
