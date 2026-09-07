@@ -29,3 +29,24 @@ publication tasks.
 npm test -- --runInBand convex/story/lifecycle.test.ts
 npm run check
 ```
+
+## Who decides a transition (ART-163)
+
+The domain does. A provider proposes classification and evidence — which arcs an event
+belongs to, how important it is, what role it plays — and every transition is then derived
+from the lifecycle table plus the arc's own state. There is no path by which a model names a
+final status.
+
+Two additions make that concrete on the live path:
+
+- **Resolution statuses are gated by a decision.** `resolving`, `resolved` and `archived` are
+  reachable only through a recorded `ArcResolutionDecision`; the terminal two require a
+  non-empty outcome and at least one consequence. See `docs/arc-stagnation-resolution.md`.
+- **Archived is reachable at all.** No accepted event classifies into a `resolved` arc, so the
+  classification-driven path stops one step short of `Archived`. The stagnation ladder takes
+  that step, 14 world days after resolution.
+
+Both are exercised end to end by `convex/operations/arcClosureLoop.test.ts` and over 30 world
+days by the ART-60 harness, which now asserts that at least one arc records a turning point,
+at least one reaches resolution, every terminal resolution carries its evidence, and no arc
+holds an active slot past the stagnation threshold.
