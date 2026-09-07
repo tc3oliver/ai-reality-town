@@ -83,7 +83,7 @@ describe('atomic world configuration import', () => {
     expect(plan?.initialSnapshot.projection).toEqual({
       worldId: 'mistwood', lastSequenceNumber: -1, characterLocations: {}, characterAlive: {}, characterStates: {},
       lastCharacterMovement: {}, itemOwners: {}, itemOwnershipHistory: {}, characterKnowledge: {}, characterMemories: {}, relationships: {}, relationshipHistory: {}, facts: [],
-      worldEnvironment: {}, environmentHistory: {},
+      worldEnvironment: {}, environmentHistory: {}, rumors: {},
       locations: {
         square: {
           locationId: 'square', name: 'Town Square', description: 'The center of Mistwood.',

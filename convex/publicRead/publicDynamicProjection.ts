@@ -232,6 +232,18 @@ export const PUBLIC_DYNAMIC_FORBIDDEN_FIELDS = [
   // these names live — are unreachable from `publicRead` by module boundary. Named anyway,
   // because the cheapest moment to forbid a field is before anything can emit it.
   'trigger', 'dramaticPressure', 'keyActions', 'dialogueHighlights', 'rumors',
+  /**
+   * FR-E005. `rumors` above forbade the scene-production note; these forbid the tracked chain,
+   * which is a strictly worse leak. A rumor chain names who started something, who repeated it
+   * to whom, and — through `credibility` — an aggregate of what every holder privately believes.
+   * `objectiveTruthStatus` is worse still: it is Canon's verdict on a claim the town has not
+   * settled, so publishing it would hand a viewer the answer to the secret the story is about.
+   *
+   * Named ahead of any emitter, which is the same reasoning the scene-production block above
+   * gives: the cheapest moment to forbid a field is before anything produces one.
+   */
+  'rumorId', 'rumorChains', 'rumorStance', 'rumorVersionId', 'propagationChain',
+  'objectiveTruthStatus', 'credibility', 'knownCorrectionId', 'originCharacterId',
 ] as const;
 
 export type PublicDynamicProjectionErrorCode =

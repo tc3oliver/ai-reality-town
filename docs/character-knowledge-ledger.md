@@ -21,6 +21,20 @@ Knowledge reads are internal. A character requester can read only its own ledger
 operations may read a target ledger for review. There is no public Convex query, and
 returned records are cloned so callers cannot mutate projection state.
 
+## Rumors are ledger records, not a second store
+
+ART-28 (FR-E005) records what a character holds about a rumor here, as an ordinary knowledge
+record carrying `rumorId`, `rumorVersionId` and `rumorStance`. A parallel "who believes which
+rumor" table would have been a second answer to *what does this character know*, and the two
+would eventually disagree — about a character who was told something and then died, say, or
+about a read the ledger's authorization refused and the other store did not.
+
+The consequences are worth stating because they are load-bearing rather than incidental:
+a rumor holding is superseded through the same `correctsKnowledgeId` link a correction uses,
+so belief history survives; propagation pins `sourceType: 'told'` so hearsay cannot claim to be
+first-hand; and `factId` is `rumor:<rumorId>`, which names the claim without asserting a fact
+exists for it. See `docs/rumor-propagation-chains.md`.
+
 ## Verification
 
 ```bash

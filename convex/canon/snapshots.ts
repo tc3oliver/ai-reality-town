@@ -113,6 +113,20 @@ export function cloneProjection(projection: WorldProjection): WorldProjection {
         ...entry, addedOrganizationIds: [...entry.addedOrganizationIds], removedOrganizationIds: [...entry.removedOrganizationIds],
       }))]),
     ),
+    /**
+     * FR-E005. Every rumor array is rebuilt, not shared: a snapshot exists so replay can resume
+     * from it, and a resumed replay that appended a distortion into the STORED chain's version
+     * array would rewrite the history the snapshot was taken to preserve.
+     */
+    rumors: Object.fromEntries(
+      Object.entries(projection.rumors ?? {}).map(([id, chain]) => [id, {
+        ...chain,
+        claim: { ...chain.claim },
+        versions: chain.versions.map((version) => ({ ...version, createdAt: { ...version.createdAt } })),
+        propagationChain: chain.propagationChain.map((hop) => ({ ...hop })),
+        corrections: chain.corrections.map((correction) => ({ ...correction })),
+      }]),
+    ),
   };
 }
 

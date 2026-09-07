@@ -67,8 +67,35 @@ export const STATE_CHANGE_TYPES = [
   'character_state_changed',
   'location_state_changed',
   'organization_state_changed',
+  // FR-E005. Four verbs, because the PRD asks for four separable histories: where a rumor came
+  // from, how it travelled and mutated, who currently believes what, and what correction is
+  // known. Collapsing them into one "rumor_changed" bag would make "A was told, then B doubted"
+  // indistinguishable from "A doubted, then B was told" — and the order is the story.
+  'rumor_originated',
+  'rumor_propagated',
+  'rumor_belief_changed',
+  'rumor_corrected',
 ] as const;
 export type StateChangeType = (typeof STATE_CHANGE_TYPES)[number];
+
+/**
+ * The four rumor verbs (FR-E005), named as a set so the reducer, the validators and the public
+ * boundary can ask "is this a rumor change?" without restating the list and drifting.
+ */
+export const RUMOR_STATE_CHANGE_TYPES = [
+  'rumor_originated', 'rumor_propagated', 'rumor_belief_changed', 'rumor_corrected',
+] as const;
+export type RumorStateChangeType = (typeof RUMOR_STATE_CHANGE_TYPES)[number];
+
+/**
+ * What a character currently does with a rumor they hold (FR-E005 「相信」/「否定」).
+ *
+ * Deliberately NOT a truth value. `KNOWLEDGE_TRUTH_STATUSES` says whether a claim is objectively
+ * true; this says whether a character accepts it. A world where those two are the same field is a
+ * world where believing something hard enough makes it so.
+ */
+export const RUMOR_STANCES = ['believes', 'doubts', 'rejects'] as const;
+export type RumorStance = (typeof RUMOR_STANCES)[number];
 
 export const KNOWLEDGE_SOURCE_TYPES = [
   'observed', 'told', 'public', 'evidence', 'inference', 'memory',
@@ -136,6 +163,8 @@ const KNOWLEDGE_SOURCE_TYPE_SET = new Set<string>(KNOWLEDGE_SOURCE_TYPES);
 const KNOWLEDGE_TRUTH_STATUS_SET = new Set<string>(KNOWLEDGE_TRUTH_STATUSES);
 const KNOWLEDGE_SHAREABILITY_SET = new Set<string>(KNOWLEDGE_SHAREABILITIES);
 const CHARACTER_STATE_FIELD_SET = new Set<string>(CHARACTER_STATE_FIELDS);
+const RUMOR_STATE_CHANGE_TYPE_SET = new Set<string>(RUMOR_STATE_CHANGE_TYPES);
+const RUMOR_STANCE_SET = new Set<string>(RUMOR_STANCES);
 
 export const isTimeSlot = (v: unknown): v is TimeSlot =>
   typeof v === 'string' && TIME_SLOT_SET.has(v);
@@ -161,3 +190,7 @@ export const isKnowledgeShareability = (v: unknown): v is KnowledgeShareability 
   typeof v === 'string' && KNOWLEDGE_SHAREABILITY_SET.has(v);
 export const isCharacterStateField = (v: unknown): v is CharacterStateField =>
   typeof v === 'string' && CHARACTER_STATE_FIELD_SET.has(v);
+export const isRumorStateChangeType = (v: unknown): v is RumorStateChangeType =>
+  typeof v === 'string' && RUMOR_STATE_CHANGE_TYPE_SET.has(v);
+export const isRumorStance = (v: unknown): v is RumorStance =>
+  typeof v === 'string' && RUMOR_STANCE_SET.has(v);
