@@ -39,8 +39,14 @@ const FORMERLY_STARVED_CHARACTER_IDS = ['lin-yingxue', 'su-meizhen', 'luo-shan',
 /**
  * Distinct scene texts the fake author can produce over this seed's cast and locations.
  * Measured, not chosen: both the 7-day and the 30-day run land on exactly this many.
+ *
+ * 12 -> 32 when ART-101 un-stranded the cast; 32 -> 46 when ART-164 rewrote the narrator in
+ * zh-Hant and gave a scene a deterministic outcome and stake as well as a place and a subject.
+ * The widening is a SIDE EFFECT of making the fixture carry a normal scene's worth of information
+ * — which FR-G003's 400 中文字 Standard Recap requires — and not an attempt to fix FINDING 2. The
+ * duplication below is still overwhelming and still the no-cost author's ceiling.
  */
-const DISTINCT_SCENE_TEXTS = 32;
+const DISTINCT_SCENE_TEXTS = 46;
 
 /** Asserts every NFR-007 property that the fixed seed satisfies cleanly. */
 function expectCleanRun(findings: LongRunFindings, worldDays: number): void {
@@ -164,10 +170,11 @@ function expectKnownFindings(findings: LongRunFindings, worldDays: number): void
   expect(findings.arcs.activeMajorByWorldDay.filter((count) => count > 0).every((count) => count === MAX_MAJOR_ACTIVE_ARCS)).toBe(true);
 
   // FINDING 2 — content repetition. The fake author's template output space still collapses
-  // the run onto a small set of distinct scene texts. ART-101's un-stranded cast widened it
-  // from twelve to thirty-two (30-day duplicate rate 97.3% → 92.9%), which is an improvement
-  // but not a fix: the remaining duplication is the no-cost author, not the Director, and is
-  // deferred to the ART-72 provider.
+  // the run onto a small set of distinct scene texts. ART-101's un-stranded cast widened it from
+  // twelve to thirty-two, and ART-164's zh-Hant narrator from thirty-two to forty-six. Both are
+  // improvements and neither is a fix: the remaining duplication is the no-cost author, not the
+  // Director, and is deferred to the ART-72 provider. A template with more slots has a larger
+  // output space and is still a template.
   expect(findings.repetition.distinctContentDigests).toBe(DISTINCT_SCENE_TEXTS);
   expect(findings.repetition.duplicateScenes).toBe(findings.repetition.scenes - DISTINCT_SCENE_TEXTS);
   expect(findings.repetition.duplicateGroups.length).toBeGreaterThan(0);

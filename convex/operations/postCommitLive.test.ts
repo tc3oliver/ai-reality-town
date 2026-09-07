@@ -1156,7 +1156,7 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
 
   return {
     port, arcs, portfolio, episodes, recaps, publications, shareFormats, shareFormatCopy, rebuilt,
-    resolutionDecisions, consequenceSummaries, coverageReports,
+    resolutionDecisions, consequenceSummaries, coverageReports, recapFormats, storedRecapFormats,
   };
 }
 

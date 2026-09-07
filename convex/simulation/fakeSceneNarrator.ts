@@ -44,8 +44,60 @@ function summaryText(value: string): string {
     : `${value.slice(0, MAX_PUBLIC_SUMMARY_LENGTH - 1).trimEnd()}…`;
 }
 
-const STANCES = ['weighs the request', 'presses for detail', 'offers a careful trade', 'holds back one fact'] as const;
-const READINGS = ['reads the room', 'notes an inconsistency', 'keeps the exchange civil', 'measures the risk'] as const;
+/**
+ * ## Why this fixture narrates in zh-Hant (ART-164)
+ *
+ * FR-G003 states the Episode recap contract in 中文字: Quick 80–150, Standard 400–800. This
+ * narrator wrote English, so `countChineseCharacters` measured zero on every deterministic day and
+ * the live recap path refused every episode with `RECAP_POOL_BELOW_MINIMUM`.
+ *
+ * The mismatch was between the FIXTURE and the product's language contract, not in the validator,
+ * so the fixture is what changed. The bands are unchanged, `countChineseCharacters` still counts
+ * only CJK ideographs, and a refused recap is still a failure rather than a completion.
+ *
+ * The text is written to carry a normal product scene's worth of information — who met, over what,
+ * how it went, and what it cost — because a recap composed from thin filler would satisfy the
+ * character count while proving nothing about composition. Entity IDs stay verbatim inside the
+ * prose: they are the scene's actual references, and substituting display names here would put a
+ * second naming scheme in the fixture that no other layer shares.
+ *
+ * Nothing about EVENT semantics changes: the same state changes, the same participants, the same
+ * visibilities, the same idempotency keys. Only the narrative strings differ.
+ */
+
+/** How a character carried themselves. Deterministically selected per scene and character. */
+const STANCES = [
+  '權衡對方的要求，沒有立刻答覆',
+  '追問細節，把含糊的部分逐一釘死',
+  '提出一個有條件的交換，並說明底線',
+  '保留了一項關鍵事實，只透露到必要為止',
+] as const;
+
+/** How a character read the room, used for the memory interpretation. */
+const READINGS = [
+  '判讀了在場所有人的態度',
+  '注意到說法之間對不上的地方',
+  '把場面維持在可以收尾的分寸內',
+  '重新估算了這件事的風險',
+] as const;
+
+/** How the exchange resolved. Widens the distinct-text space without inventing content. */
+const OUTCOMES = [
+  '談話停在一個雙方都沒有讓步的位置',
+  '雙方各退一步，但沒有人把話說死',
+  '對話中斷，留下一個沒有回答的問題',
+  '結論被推遲到下一次見面才處理',
+  '協議口頭成立，細節仍待確認',
+  '分歧被攤開，場面因此更清楚也更緊繃',
+] as const;
+
+/** What the scene cost or exposed. */
+const STAKES = [
+  '在場的人都清楚，這件事已經瞞不下去',
+  '這一次交換讓彼此的位置更難退回',
+  '有人開始重新計算自己能承擔多少',
+  '原本的默契被動搖，需要重新建立',
+] as const;
 
 const pick = <T>(options: readonly T[], seed: number): T => options[seed % options.length];
 
@@ -73,7 +125,7 @@ function sceneProposedEvent(scene: GroupedScene, summary: string): ProposedEvent
       fearDelta: 0,
       dependencyDelta: 0,
       familiarityDelta: 1 + (seed % 2),
-      reason: `They spoke directly during the scene at ${scene.locationId}.`,
+      reason: `兩人在 ${scene.locationId} 的這場談話中直接交手。`,
       // A public summary accompanies this event, so the change must be public too.
       visibility: 'public',
     });
@@ -83,8 +135,8 @@ function sceneProposedEvent(scene: GroupedScene, summary: string): ProposedEvent
     stateChanges.push({
       type: 'character_memory_formed',
       characterId,
-      content: `${characterId} took part in the exchange at ${scene.locationId}.`,
-      interpretation: `${characterId} ${pick(READINGS, seed)} and keeps their own goal in view.`,
+      content: `${characterId} 參與了在 ${scene.locationId} 的這場交涉。`,
+      interpretation: `${characterId} ${pick(READINGS, seed)}，同時沒有放下自己原本的目的。`,
       importance: ((seed % 5) + 3) / 10,
       emotionalWeight: ((seed % 7) - 3) / 10,
       confidence: ((seed % 4) + 6) / 10,
@@ -113,42 +165,53 @@ function sceneProposedEvent(scene: GroupedScene, summary: string): ProposedEvent
 
 /** Build the complete FR-C005 whole-scene output for one grouped scene. */
 export function narrateGroupedScene(scene: GroupedScene): Record<string, unknown> {
+  const sceneSeed = fingerprint(scene.sceneId);
+  /**
+   * The day's public sentence. Carries the four things a recap needs from a scene — place,
+   * participants, subject, and how it ended — so composing a Standard Recap from a day's events is
+   * a real composition rather than a character count met by repetition.
+   *
+   * `summaryText` still clamps to `MAX_PUBLIC_SUMMARY_LENGTH`, and clamping is measured in code
+   * units, so the text is written to sit well inside the limit rather than to rely on the clamp.
+   */
   const summary = summaryText(
-    `At ${scene.locationId}, ${scene.participantIds.join(' and ')} meet over: ${scene.trigger}`,
+    `在 ${scene.locationId}，${scene.participantIds.join('、')} 因為「${scene.trigger}」而聚在一起；`
+    + `${pick(OUTCOMES, sceneSeed)}，${pick(STAKES, sceneSeed >>> 3)}。`,
   );
   const proposed = sceneProposedEvent(scene, summary);
   return {
     schemaVersion: 1,
     sceneId: scene.sceneId,
-    sceneSummary: summaryText(`${summary} The pressure in the room: ${scene.dramaticPressure}`),
+    sceneSummary: summaryText(`${summary} 這場戲的壓力來自：${scene.dramaticPressure}`),
     keyActions: scene.participantIds.map((characterId) => ({
       characterId,
-      action: `${characterId} ${pick(STANCES, fingerprint(`${scene.sceneId}:action:${characterId}`))}.`,
+      action: `${characterId} ${pick(STANCES, fingerprint(`${scene.sceneId}:action:${characterId}`))}。`,
     })),
     dialogueHighlights: scene.participantIds.map((characterId) => ({
       characterId,
-      text: `${characterId}: "We settle this here, before it grows."`,
+      text: `${characterId}：「這件事就在這裡講清楚，別讓它繼續拖下去。」`,
     })),
     proposedEvents: [proposed],
     relationshipChanges: scene.participantIds.slice(0, -1).map((sourceCharacterId, index) => ({
       sourceCharacterId,
       targetCharacterId: scene.participantIds[index + 1],
-      summary: `${sourceCharacterId} and ${scene.participantIds[index + 1]} left the scene more familiar with each other.`,
+      summary: `${sourceCharacterId} 與 ${scene.participantIds[index + 1]} 在這場談話之後，`
+        + '對彼此的底線多了一分了解，也多了一分戒備。',
       proposedEventIndex: 0,
     })),
     knowledgeChanges: scene.participantIds.map((characterId) => ({
       characterId,
-      content: `${characterId} learned where the others now stand on: ${scene.trigger}`,
+      content: `${characterId} 弄清楚了其他人在「${scene.trigger}」這件事上現在站在哪一邊。`,
       proposedEventIndex: 0,
     })),
     memories: scene.participantIds.map((characterId) => ({
       characterId,
-      content: `${characterId} remembers the exchange at ${scene.locationId}.`,
+      content: `${characterId} 記住了在 ${scene.locationId} 的這場交涉，以及當時沒有說出口的部分。`,
       proposedEventIndex: 0,
     })),
     rumors: scene.participantIds.slice(0, 1).map((sourceCharacterId) => ({
       sourceCharacterId,
-      content: `People at ${scene.locationId} were seen talking at length.`,
+      content: `有人看見一群人在 ${scene.locationId} 談了很久，散場時臉色都不太好看。`,
       proposedEventIndex: 0,
     })),
     continuityWarnings: [],
