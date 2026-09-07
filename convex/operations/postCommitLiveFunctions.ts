@@ -343,7 +343,8 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
    * day, so it remains O(days). See that function's own docblock.
    */
   type CanonWorldView = Pick<PostCommitWorldState,
-    'event' | 'completedWorldDays' | 'worldDayFirstSequenceNumber' | 'latestWorldDay'>;
+    'event' | 'completedWorldDays' | 'worldDayFirstSequenceNumber' | 'timeSlotFirstSequenceNumber'
+    | 'seasonFirstSequenceNumber' | 'latestWorldDay'>;
   let canonView: CanonWorldView | null = null;
 
   /**
@@ -416,11 +417,20 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
     const completed = completedWorldDaysOf(firstPass.worldDays, latestWorldDay, latestDayEvents);
     episodeWorldDays = (await advanceDayLedger(worldId, completed)).episodeWorldDays;
 
+    const worldDayFirstSequenceNumber = dayEvents.reduce(
+      (lowest, candidate) => Math.min(lowest, candidate.sequenceNumber), event.sequenceNumber);
     canonView = {
       event,
       completedWorldDays: completed,
-      worldDayFirstSequenceNumber: dayEvents.reduce(
-        (lowest, candidate) => Math.min(lowest, candidate.sequenceNumber), event.sequenceNumber),
+      worldDayFirstSequenceNumber,
+      // Both derived from the day's events, already loaded — no extra read for either tier.
+      timeSlotFirstSequenceNumber: dayEvents
+        .filter((candidate) => candidate.timeSlot === event.timeSlot)
+        .reduce((lowest, candidate) => Math.min(lowest, candidate.sequenceNumber), event.sequenceNumber),
+      // See `PostCommitWorldState.seasonFirstSequenceNumber`: the day's own origin, because the
+      // pipeline reaches a season's first day before any later day of it. Back-scanning to the
+      // season's true start would be a read that grows with the season.
+      seasonFirstSequenceNumber: worldDayFirstSequenceNumber,
       latestWorldDay,
     };
     return canonView;
@@ -435,13 +445,12 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
       // `dailyEpisodes` is deliberately absent: `episodeWorldDays` is the only thing this state
       // ever read off it, and `worldDayLedgers` now maintains that list (ART-100). Sweeping the
       // table grew with the world's age for a set difference against a handful of pending days.
-      const [lifecycles, projectionRows, transitionRows, portfolioRows, characterRows, recapRows] = await Promise.all([
+      const [lifecycles, projectionRows, transitionRows, portfolioRows, characterRows] = await Promise.all([
         ctx.db.query('storyArcLifecycles').withIndex('by_world_and_arc', (q) => q.eq('worldId', worldId)).collect(),
         ctx.db.query('storyArcProjectionEvents').withIndex('by_world_arc_and_revision', (q) => q.eq('worldId', worldId)).collect(),
         ctx.db.query('storyArcLifecycleTransitions').withIndex('by_world_arc_and_revision', (q) => q.eq('worldId', worldId)).collect(),
         ctx.db.query('storyArcPortfolioEntries').withIndex('by_world_and_arc', (q) => q.eq('worldId', worldId)).collect(),
         ctx.db.query('worldCharacters').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).collect(),
-        ctx.db.query('recapSnapshots').withIndex('by_target_and_version', (q) => q.eq('worldId', worldId)).collect(),
       ]);
 
       const tierByArc = new Map<string, ArcTier>(portfolioRows.map((row) =>
@@ -479,19 +488,37 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
         }];
       });
 
-      const recapCursors: Record<string, number> = {};
-      for (const row of recapRows) {
-        const key = `${row.recapType}:${row.targetId}`;
-        recapCursors[key] = Math.max(recapCursors[key] ?? -1, row.sourceToSequenceNumber);
-      }
       worldState = {
         ...canon,
         arcs,
         characterIds: characterRows.map(({ characterId }) => characterId),
         episodeWorldDays,
-        recapCursors,
       };
       return worldState;
+    },
+
+    /**
+     * ART-164. One point read per target, replacing a `.collect()` of every recap snapshot in the
+     * world on every event. That sweep was already growing with the world's age; with the scene
+     * and arc tiers added it would grow with days times slots, which is exactly what
+     * "never `.collect()` a whole world on a per-event path" forbids.
+     *
+     * The watermark is the SCOPE end where a target has one. A selective arc recap's last matching
+     * event can be far behind the range it examined, and resuming from the event rather than the
+     * watermark would re-examine the same quiet stretch on every later run.
+     */
+    async loadRecapCursors(worldId, targets) {
+      const entries = await Promise.all(targets.map(async ({ recapType, targetId }) => {
+        const row = await ctx.db.query('recapSnapshots').withIndex('by_target_and_version',
+          (q) => q.eq('worldId', worldId).eq('recapType', recapType).eq('targetId', targetId))
+          .order('desc').first();
+        return row === null ? null
+          : { key: `${recapType}:${targetId}`, cursor: row.sourceScope?.toSequenceNumber ?? row.sourceToSequenceNumber };
+      }));
+      // No `invalidate`: this reads and writes nothing, so the cached world state is still current.
+      return Object.fromEntries(entries
+        .filter((entry): entry is { key: string; cursor: number } => entry !== null)
+        .map(({ key, cursor }) => [key, cursor]));
     },
 
     async rebuildWorldProjection(worldId) {
@@ -573,8 +600,9 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
         snapshotId: request.snapshotId, worldId, recapType: request.recapType, targetId: request.targetId,
         mode: 'incremental', fromSequenceNumber: request.fromSequenceNumber,
         toSequenceNumber: request.toSequenceNumber, generatedAt: now,
+        ...(request.arcId === undefined ? {} : { arcId: request.arcId }),
       });
-      return invalidate({ snapshotId: snapshot.id, deduplicated });
+      return invalidate({ snapshotId: snapshot?.id ?? null, deduplicated });
     },
 
     async generateRecapFormats(worldId, worldDay) {

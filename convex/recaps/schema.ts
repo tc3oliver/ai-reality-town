@@ -8,6 +8,12 @@ export const recapTables = {
     snapshotId: v.string(), schemaVersion: v.literal(1), worldId: v.string(), recapType, targetId: v.string(),
     sourceFromEventId: v.string(), sourceToEventId: v.string(), sourceFromSequenceNumber: v.number(),
     sourceToSequenceNumber: v.number(), content: v.string(), structuredPayload: v.any(), version: v.number(),
+    /**
+     * ART-164. Present only on a SELECTIVE tier (`arc`), where the events summarised are a subset
+     * of the range examined. Optional rather than defaulted so rows written before this task stay
+     * readable and keep meaning exactly what they meant: contiguous, event window == source range.
+     */
+    sourceScope: v.optional(v.object({ fromSequenceNumber: v.number(), toSequenceNumber: v.number() })),
     generatedAt: v.number(),
   })
     .index('by_snapshot_id', ['snapshotId'])

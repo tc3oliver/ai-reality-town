@@ -727,11 +727,6 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
       const latestWorldDay = days[days.length - 1];
       const completed = days.filter((day) => day < latestWorldDay
         || all.some((candidate) => candidate.worldDay === day && candidate.timeSlot === TIME_SLOTS[TIME_SLOTS.length - 1]));
-      const recapCursors: Record<string, number> = {};
-      for (const snapshot of recaps) {
-        const key = recapTargetKey(snapshot.recapType, snapshot.targetId);
-        recapCursors[key] = Math.max(recapCursors[key] ?? -1, snapshot.sourceToSequenceNumber);
-      }
       return Promise.resolve({
         event,
         arcs: [...arcs.values()].map((record): LiveArcState => ({
@@ -752,8 +747,12 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
         episodeWorldDays: [...episodes.keys()],
         worldDayFirstSequenceNumber: all.filter(({ worldDay }) => worldDay === event.worldDay)
           .reduce((lowest, candidate) => Math.min(lowest, candidate.sequenceNumber), event.sequenceNumber),
+        timeSlotFirstSequenceNumber: all
+          .filter(({ worldDay, timeSlot }) => worldDay === event.worldDay && timeSlot === event.timeSlot)
+          .reduce((lowest, candidate) => Math.min(lowest, candidate.sequenceNumber), event.sequenceNumber),
+        seasonFirstSequenceNumber: all.filter(({ worldDay }) => worldDay === event.worldDay)
+          .reduce((lowest, candidate) => Math.min(lowest, candidate.sequenceNumber), event.sequenceNumber),
         latestWorldDay,
-        recapCursors,
       });
     },
 
@@ -927,14 +926,51 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
       if (existing) return Promise.resolve({ snapshotId: existing.id, deduplicated: true });
       const prior = recaps.filter(({ recapType, targetId }) =>
         recapType === request.recapType && targetId === request.targetId).at(-1) ?? null;
+      const inRange = ({ sequenceNumber }: { sequenceNumber: number }): boolean =>
+        sequenceNumber >= request.fromSequenceNumber && sequenceNumber <= request.toSequenceNumber;
+      /**
+       * ART-164. The `arc` tier is SELECTIVE: its sources are the events that moved that arc's
+       * projection, taken from the arc's own revision list exactly as the deployment reads them
+       * from `storyArcProjectionEvents`. Summarising the whole range instead would make an arc
+       * summary a world summary wearing an arc's name.
+       */
+      if (request.arcId !== undefined) {
+        const moved = new Set((arcs.get(request.arcId)?.projections ?? [])
+          .map(({ sourceEventSequenceNumber }) => sourceEventSequenceNumber)
+          .filter((sequenceNumber) => inRange({ sequenceNumber })));
+        const acceptedEvents = events().filter(({ sequenceNumber }) => moved.has(sequenceNumber));
+        // Membership without progress is ordinary; nothing is written and the cursor stays put.
+        if (acceptedEvents.length === 0) return Promise.resolve({ snapshotId: null, deduplicated: false });
+        const snapshot = buildRecapSnapshot({
+          id: request.snapshotId, worldId, recapType: request.recapType, targetId: request.targetId, prior,
+          acceptedEvents, mode: 'incremental', generatedAt: now,
+          sourceScope: {
+            fromSequenceNumber: request.fromSequenceNumber, toSequenceNumber: request.toSequenceNumber,
+          },
+        });
+        recaps.push(snapshot);
+        return Promise.resolve({ snapshotId: snapshot.id, deduplicated: false });
+      }
       const snapshot = buildRecapSnapshot({
         id: request.snapshotId, worldId, recapType: request.recapType, targetId: request.targetId, prior,
-        acceptedEvents: events().filter(({ sequenceNumber }) =>
-          sequenceNumber >= request.fromSequenceNumber && sequenceNumber <= request.toSequenceNumber),
+        acceptedEvents: events().filter(inRange),
         mode: 'incremental', generatedAt: now,
       });
       recaps.push(snapshot);
       return Promise.resolve({ snapshotId: snapshot.id, deduplicated: false });
+    },
+
+    loadRecapCursors(_worldId, targets) {
+      const cursors: Record<string, number> = {};
+      for (const { recapType, targetId } of targets) {
+        const latest = recaps.filter((snapshot) =>
+          snapshot.recapType === recapType && snapshot.targetId === targetId).at(-1);
+        if (latest) {
+          cursors[recapTargetKey(recapType, targetId)] =
+            latest.sourceScope?.toSequenceNumber ?? latest.sourceToSequenceNumber;
+        }
+      }
+      return Promise.resolve(cursors);
     },
 
     /**

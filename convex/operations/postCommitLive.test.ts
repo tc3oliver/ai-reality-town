@@ -91,6 +91,8 @@ import {
   createPostCommitStageHandlers,
   deriveArcClassification,
   deriveRecapRequests,
+  deriveRecapTargets,
+  seasonOf,
   episodeNumberFor,
   newArcPortfolioEntry,
   nextArcProjectionFields,
@@ -295,24 +297,57 @@ describe('episode numbering and recap windows', () => {
     expect(episodeNumberFor([0, 1], 5)).toBeNull();
   });
 
+  const recapState = (): PostCommitWorldState => ({
+    event: acceptedEventFixture({ sequenceNumber: 7, worldDay: 2 } as Partial<AcceptedEvent>),
+    worldDayFirstSequenceNumber: 5, timeSlotFirstSequenceNumber: 6, seasonFirstSequenceNumber: 5,
+  } as PostCommitWorldState);
+
+  /**
+   * FR-G002 declares five levels. Before ART-164 this derivation emitted two, so `scene`, `arc`
+   * and `season` summaries existed for no world. The literal list is written out rather than
+   * derived from `RECAP_TYPES` on purpose: deriving the expectation from the same constant the
+   * code reads would let both drift together and still agree.
+   */
+  it('drives all five pyramid levels, each from its own origin', () => {
+    const targets = deriveRecapTargets(recapState(), ['arc-b', 'arc-a']);
+    expect(targets.map(({ recapType }) => recapType)).toEqual(['scene', 'episode', 'arc', 'arc', 'season', 'viewer_context']);
+    expect(targets.map(({ targetId }) => targetId)).toEqual([
+      'slot:2:morning', 'day:2', 'arc:arc-a', 'arc:arc-b', 'season:0', WORLD_ID,
+    ]);
+    // Each level starts where that level starts, not where the day does.
+    expect(targets.map(({ start }) => start)).toEqual([6, 5, 0, 0, 5, 0]);
+    // Only the arc tier is selective, and it carries the arc it selects by.
+    expect(targets.map(({ arcId }) => arcId ?? null)).toEqual([null, null, 'arc-a', 'arc-b', null, null]);
+  });
+
+  it('asks only for the arcs the event moved, so a quiet arc appends no empty version', () => {
+    expect(deriveRecapTargets(recapState(), []).some(({ recapType }) => recapType === 'arc')).toBe(false);
+  });
+
+  it('files a world day into a fixed season window, so a replay cannot re-file it', () => {
+    expect([0, 9, 10, 29].map(seasonOf)).toEqual([0, 0, 1, 2]);
+  });
+
   it('opens a day recap at the day boundary and a world recap at sequence zero', () => {
-    const state = {
-      event: acceptedEventFixture({ sequenceNumber: 7, worldDay: 2 } as Partial<AcceptedEvent>),
-      worldDayFirstSequenceNumber: 5, recapCursors: {},
-    } as PostCommitWorldState;
-    expect(deriveRecapRequests(state)).toEqual([
+    const state = recapState();
+    const requests = deriveRecapRequests(state.event, deriveRecapTargets(state, []), {});
+    expect(requests).toEqual([
+      { snapshotId: `recap:${WORLD_ID}:scene:slot:2:morning:7`, recapType: 'scene', targetId: 'slot:2:morning', fromSequenceNumber: 6, toSequenceNumber: 7 },
       { snapshotId: `recap:${WORLD_ID}:episode:day:2:7`, recapType: 'episode', targetId: 'day:2', fromSequenceNumber: 5, toSequenceNumber: 7 },
+      { snapshotId: `recap:${WORLD_ID}:season:season:0:7`, recapType: 'season', targetId: 'season:0', fromSequenceNumber: 5, toSequenceNumber: 7 },
       { snapshotId: `recap:${WORLD_ID}:viewer_context:${WORLD_ID}:7`, recapType: 'viewer_context', targetId: WORLD_ID, fromSequenceNumber: 0, toSequenceNumber: 7 },
     ]);
   });
 
   it('continues from the stored cursor and skips a target already covered', () => {
-    const state = {
-      event: acceptedEventFixture({ sequenceNumber: 7, worldDay: 2 } as Partial<AcceptedEvent>),
-      worldDayFirstSequenceNumber: 5,
-      recapCursors: { [recapTargetKey('episode', 'day:2')]: 6, [recapTargetKey('viewer_context', WORLD_ID)]: 7 },
-    } as PostCommitWorldState;
-    expect(deriveRecapRequests(state)).toEqual([
+    const state = recapState();
+    const requests = deriveRecapRequests(state.event, deriveRecapTargets(state, []), {
+      [recapTargetKey('scene', 'slot:2:morning')]: 7,
+      [recapTargetKey('episode', 'day:2')]: 6,
+      [recapTargetKey('season', 'season:0')]: 7,
+      [recapTargetKey('viewer_context', WORLD_ID)]: 7,
+    });
+    expect(requests).toEqual([
       { snapshotId: `recap:${WORLD_ID}:episode:day:2:7`, recapType: 'episode', targetId: 'day:2', fromSequenceNumber: 7, toSequenceNumber: 7 },
     ]);
   });
@@ -609,11 +644,6 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
       const latestWorldDay = days[days.length - 1];
       const completed = days.filter((day) => day < latestWorldDay
         || all.some((candidate) => candidate.worldDay === day && candidate.timeSlot === TIME_SLOTS[TIME_SLOTS.length - 1]));
-      const recapCursors: Record<string, number> = {};
-      for (const snapshot of recaps) {
-        const key = recapTargetKey(snapshot.recapType, snapshot.targetId);
-        recapCursors[key] = Math.max(recapCursors[key] ?? -1, snapshot.sourceToSequenceNumber);
-      }
       return Promise.resolve({
         event,
         arcs: [...arcs.values()].map((record): LiveArcState => ({
@@ -633,8 +663,12 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
         episodeWorldDays: [...episodes.keys()],
         worldDayFirstSequenceNumber: all.filter(({ worldDay }) => worldDay === event.worldDay)
           .reduce((lowest, candidate) => Math.min(lowest, candidate.sequenceNumber), event.sequenceNumber),
+        timeSlotFirstSequenceNumber: all
+          .filter(({ worldDay, timeSlot }) => worldDay === event.worldDay && timeSlot === event.timeSlot)
+          .reduce((lowest, candidate) => Math.min(lowest, candidate.sequenceNumber), event.sequenceNumber),
+        seasonFirstSequenceNumber: all.filter(({ worldDay }) => worldDay === event.worldDay)
+          .reduce((lowest, candidate) => Math.min(lowest, candidate.sequenceNumber), event.sequenceNumber),
         latestWorldDay,
-        recapCursors,
       });
     },
 
@@ -784,14 +818,44 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
       const existing = recaps.find(({ id }) => id === request.snapshotId);
       if (existing) return Promise.resolve({ snapshotId: existing.id, deduplicated: true });
       const prior = recaps.filter(({ recapType, targetId }) => recapType === request.recapType && targetId === request.targetId).at(-1) ?? null;
+      const inRange = ({ sequenceNumber }: { sequenceNumber: number }): boolean =>
+        sequenceNumber >= request.fromSequenceNumber && sequenceNumber <= request.toSequenceNumber;
+      // ART-164: the `arc` tier is SELECTIVE — the events that moved that arc's projection, read
+      // from the arc's own revision list, exactly as the deployment reads them.
+      if (request.arcId !== undefined) {
+        const moved = new Set((arcs.get(request.arcId)?.projections ?? [])
+          .map(({ sourceEventSequenceNumber }) => sourceEventSequenceNumber)
+          .filter((sequenceNumber) => inRange({ sequenceNumber })));
+        const acceptedEvents = events().filter(({ sequenceNumber }) => moved.has(sequenceNumber));
+        if (acceptedEvents.length === 0) return Promise.resolve({ snapshotId: null, deduplicated: false });
+        const arcSnapshot = buildRecapSnapshot({
+          id: request.snapshotId, worldId, recapType: request.recapType, targetId: request.targetId, prior,
+          acceptedEvents, mode: 'incremental', generatedAt: now,
+          sourceScope: { fromSequenceNumber: request.fromSequenceNumber, toSequenceNumber: request.toSequenceNumber },
+        });
+        recaps.push(arcSnapshot);
+        return Promise.resolve({ snapshotId: arcSnapshot.id, deduplicated: false });
+      }
       const snapshot = buildRecapSnapshot({
         id: request.snapshotId, worldId, recapType: request.recapType, targetId: request.targetId, prior,
-        acceptedEvents: events().filter(({ sequenceNumber }) =>
-          sequenceNumber >= request.fromSequenceNumber && sequenceNumber <= request.toSequenceNumber),
+        acceptedEvents: events().filter(inRange),
         mode: 'incremental', generatedAt: now,
       });
       recaps.push(snapshot);
       return Promise.resolve({ snapshotId: snapshot.id, deduplicated: false });
+    },
+
+    loadRecapCursors(_worldId, targets) {
+      const cursors: Record<string, number> = {};
+      for (const { recapType, targetId } of targets) {
+        const latest = recaps.filter((snapshot) =>
+          snapshot.recapType === recapType && snapshot.targetId === targetId).at(-1);
+        if (latest) {
+          cursors[recapTargetKey(recapType, targetId)] =
+            latest.sourceScope?.toSequenceNumber ?? latest.sourceToSequenceNumber;
+        }
+      }
+      return Promise.resolve(cursors);
     },
 
     /**

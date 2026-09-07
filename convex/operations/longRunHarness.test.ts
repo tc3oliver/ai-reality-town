@@ -105,7 +105,15 @@ function expectCleanRun(findings: LongRunFindings, worldDays: number): void {
   expect(findings.recapCoverage.emptyEpisodes).toEqual([]);
   // FR-G004 (ART-35) found no coverage gap and no spoiler in any released episode.
   expect(findings.recapCoverage.coverageFindings).toEqual([]);
-  expect(findings.recapCoverage.recapTypes).toEqual(['episode', 'viewer_context']);
+  /**
+   * FR-G002 (ART-34/ART-164) — all five declared pyramid levels ran, not two.
+   *
+   * This asserted `['episode', 'viewer_context']` until ART-164, which was an accurate record of a
+   * defect: `scene`, `arc` and `season` were declared in `RECAP_TYPES`, implemented in the model,
+   * and emitted by nothing, so they existed for no world. The old expectation is what a live run
+   * actually produced, so it passed for years while three levels of the pyramid were dead.
+   */
+  expect(findings.recapCoverage.recapTypes).toEqual(['arc', 'episode', 'scene', 'season', 'viewer_context']);
 
   // Token accounting: wired, internally sane, and honestly scoped to the fake provider.
   expect(findings.tokens.providers).toEqual(['fake']);

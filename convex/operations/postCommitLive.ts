@@ -34,6 +34,7 @@ import {
   parseArcEventClassification,
 } from '../story/classification';
 import { ALLOWED_ARC_TRANSITIONS, isActiveArcStatus } from '../story/lifecycle';
+import type { RecapType } from '../recaps/model';
 import { VOTE_CONSEQUENCE_LOOKAHEAD_DAYS } from '../publicRead/voteConsequenceProjection';
 import {
   MAX_MAJOR_ACTIVE_ARCS,
@@ -157,18 +158,31 @@ export type PostCommitWorldState = {
   episodeWorldDays: number[];
   /** First accepted sequence number of the event's world day. */
   worldDayFirstSequenceNumber: number;
+  /** First accepted sequence number of the event's own time slot: the `scene` tier's origin. */
+  timeSlotFirstSequenceNumber: number;
+  /**
+   * Where the event's season begins (ART-164).
+   *
+   * The pipeline processes canon in order from the world's first event, so a season target is
+   * created on the first day of its season and its cursor carries the rest. A world that adopted
+   * this tier mid-season starts its first season snapshot part-way through — recorded, not
+   * silently: `sourceFromSequenceNumber` and `sourceScope` say where coverage actually began. The
+   * alternative, back-scanning to the season's true start on every event, is a read that grows
+   * with the season and buys nothing a replay from sequence zero does not already give.
+   */
+  seasonFirstSequenceNumber: number;
   /** Highest accepted world day in canon right now. */
   latestWorldDay: number;
-  /** Last accepted sequence number already covered, per `recapTargetKey`. */
-  recapCursors: Record<string, number>;
 };
 
 export type RecapRequest = {
   snapshotId: string;
-  recapType: 'episode' | 'viewer_context';
+  recapType: RecapType;
   targetId: string;
   fromSequenceNumber: number;
   toSequenceNumber: number;
+  /** Present on the `arc` tier only: selects that arc's progress out of the range. */
+  arcId?: string;
 };
 
 export type EpisodeOutcome = { status: string; episodeNumber: number; deduplicated: boolean };
@@ -229,7 +243,16 @@ export interface PostCommitLivePort {
   /** ART-33 daily episode assembly (idempotent per world day). */
   generateEpisode(worldId: string, worldDay: number, episodeNumber: number): Promise<EpisodeOutcome>;
   /** ART-34 incremental recap generation. */
-  generateRecap(worldId: string, request: RecapRequest): Promise<{ snapshotId: string; deduplicated: boolean }>;
+  generateRecap(worldId: string, request: RecapRequest): Promise<{ snapshotId: string | null; deduplicated: boolean }>;
+  /**
+   * Watermarks for exactly the pyramid targets this commit will touch (ART-164).
+   *
+   * Takes the targets rather than returning every cursor in the world: with per-slot and per-arc
+   * levels, "every cursor in the world" grows with the world's age, and reading it on a per-event
+   * path is the pattern ART-100 removed from this pipeline. A missing key means the target has no
+   * prior snapshot and starts at its own origin.
+   */
+  loadRecapCursors(worldId: string, targets: readonly RecapTarget[]): Promise<Record<string, number>>;
   /**
    * ART-66/ART-164 — the four FR-G003 recap formats for a completed day's Episode.
    *
@@ -673,21 +696,86 @@ export function episodeNumberFor(completedWorldDays: readonly number[], worldDay
   return index < 0 ? null : index + 1;
 }
 
-/** Recap requests for this commit: the day-level episode recap and the world-level context recap. */
-export function deriveRecapRequests(state: PostCommitWorldState): RecapRequest[] {
+/**
+ * World days per season (ART-164). A season is a fixed window rather than a story judgement so the
+ * tier is replayable: which season an event belongs to must be derivable from the event alone, or
+ * a replay could file the same event under a different season than the live run did.
+ */
+export const SEASON_WORLD_DAYS = 10;
+
+export const seasonOf = (worldDay: number): number => Math.floor(worldDay / SEASON_WORLD_DAYS);
+
+/** One level of the FR-G002 pyramid, before its cursor is known. */
+export type RecapTarget = {
+  recapType: RecapType;
+  targetId: string;
+  /** Where this target begins when it has no prior snapshot. */
+  start: number;
+  /** Set on the `arc` tier: makes the source selection that arc's progress, not the whole range. */
+  arcId?: string;
+};
+
+/**
+ * Every pyramid level this commit advances (FR-G002).
+ *
+ * Before ART-164 this emitted `episode` and `viewer_context` only, so `scene`, `arc` and `season`
+ * summaries existed for no world — three of the five declared levels were unreachable.
+ *
+ * Which levels appear is a function of the event and the arcs it moved, so the set is bounded by a
+ * constant: one scene, one episode, one season, one viewer context, and at most the arcs a single
+ * event may advance. It never grows with world history.
+ *
+ * @param movedArcIds arcs this event actually advanced. Deliberately not "all active arcs": an arc
+ * that did not move has nothing new to summarise, and asking for one would append a version
+ * recording no progress and re-read a range that cannot have changed.
+ */
+export function deriveRecapTargets(
+  state: PostCommitWorldState,
+  movedArcIds: readonly string[],
+): RecapTarget[] {
   const { event } = state;
-  const to = event.sequenceNumber;
-  const targets: Array<{ recapType: RecapRequest['recapType']; targetId: string; start: number }> = [
+  return [
+    {
+      recapType: 'scene',
+      targetId: `slot:${event.worldDay}:${event.timeSlot}`,
+      start: state.timeSlotFirstSequenceNumber,
+    },
     { recapType: 'episode', targetId: `day:${event.worldDay}`, start: state.worldDayFirstSequenceNumber },
+    ...[...new Set(movedArcIds)].sort((left, right) => left.localeCompare(right)).map((arcId): RecapTarget => ({
+      recapType: 'arc', targetId: `arc:${arcId}`, start: 0, arcId,
+    })),
+    {
+      recapType: 'season',
+      targetId: `season:${seasonOf(event.worldDay)}`,
+      start: state.seasonFirstSequenceNumber,
+    },
     { recapType: 'viewer_context', targetId: event.worldId, start: 0 },
   ];
-  return targets.flatMap(({ recapType, targetId, start }) => {
-    const cursor = state.recapCursors[recapTargetKey(recapType, targetId)];
+}
+
+/**
+ * Turn targets plus their cursors into the requests to run, dropping any target already covered.
+ *
+ * Cursors arrive as an argument rather than being read off `PostCommitWorldState` because the
+ * pyramid now has per-slot and per-arc targets: sweeping every snapshot in the world to find them
+ * would grow with the world's age on a per-event path, which is the read pattern ART-100 removed
+ * from this pipeline. The caller reads exactly these targets' cursors, and there are a bounded
+ * number of them.
+ */
+export function deriveRecapRequests(
+  event: { worldId: string; sequenceNumber: number },
+  targets: readonly RecapTarget[],
+  cursors: Readonly<Record<string, number>>,
+): RecapRequest[] {
+  const to = event.sequenceNumber;
+  return targets.flatMap(({ recapType, targetId, start, arcId }) => {
+    const cursor = cursors[recapTargetKey(recapType, targetId)];
     const from = cursor === undefined ? start : cursor + 1;
     if (from > to) return [];
     return [{
       snapshotId: `recap:${event.worldId}:${recapType}:${targetId}:${to}`,
       recapType, targetId, fromSequenceNumber: from, toSequenceNumber: to,
+      ...(arcId === undefined ? {} : { arcId }),
     }];
   });
 }
@@ -730,7 +818,10 @@ export type EpisodeArtifact = {
   /** ART-164: the FR-G003 formats produced for each episode assembled this run. */
   recapFormats: RecapFormatRecord[];
 };
-export type RecapArtifact = { snapshots: Array<{ targetId: string; snapshotId: string; deduplicated: boolean }> };
+export type RecapArtifact = {
+  /** `snapshotId` is null where a selective tier found no progress in its range and wrote nothing. */
+  snapshots: Array<{ recapType: RecapType; targetId: string; snapshotId: string | null; deduplicated: boolean }>;
+};
 export type SafetyArtifact = {
   worldDay: number;
   episodeStatus: string | null;
@@ -1068,13 +1159,22 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
       return { episodes, recapFormats };
     },
 
-    // Stage 17: advance the recap pyramid (day-level episode recap, world-level context recap).
+    /**
+     * Stage 17: advance the FR-G002 recap pyramid — scene, episode, arc, season, viewer context.
+     *
+     * The arc level reads which arcs this event MOVED from the arc stage's own artifact rather
+     * than re-deriving them, so a resumed run advances exactly the arcs the completed arc stage
+     * advanced. Re-deriving here would let the two stages disagree about the same event.
+     */
     recap: async (context): Promise<RecapArtifact> => {
       const state = await port.loadWorldState(sourceOf(context));
+      const arcs = artifact<ArcArtifact>(context, 'arc');
+      const targets = deriveRecapTargets(state, arcs.classifiedArcIds);
+      const cursors = await port.loadRecapCursors(context.worldId, targets);
       const snapshots: RecapArtifact['snapshots'] = [];
-      for (const request of deriveRecapRequests(state)) {
+      for (const request of deriveRecapRequests(state.event, targets, cursors)) {
         const result = await port.generateRecap(context.worldId, request);
-        snapshots.push({ targetId: request.targetId, ...result });
+        snapshots.push({ recapType: request.recapType, targetId: request.targetId, ...result });
       }
       return { snapshots };
     },
