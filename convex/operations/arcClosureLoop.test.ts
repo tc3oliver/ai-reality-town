@@ -234,7 +234,7 @@ describe('AC#1 — a terminal status is unreachable without a recorded outcome',
       .toEqual([{ kind: 'transition', arcId: 'arc:1', toStatus: 'escalating' }]);
   });
 
-  it('refuses the transition outright when the outcome cannot be derived', async () => {
+  it('refuses the transition outright when the outcome cannot be derived', () => {
     // No public summary AND no title would leave the outcome empty; the title fallback keeps it
     // non-empty, so the constructor's refusal is provoked directly to prove it is load-bearing.
     expect(() => createArcResolutionDecision({
