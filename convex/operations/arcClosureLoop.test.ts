@@ -19,7 +19,9 @@ import { TIME_SLOTS } from '../canon/eventTypes';
 import type { AcceptedEvent } from '../canon/model';
 import { replayArcProjection } from '../story/projection';
 import type { ArcProjectionEvent, ArcProjectionFields, StoryArcStatus } from '../story/model';
-import { ArcPortfolioError, MAX_MAJOR_ACTIVE_ARCS, type ArcTier } from '../story/portfolio';
+import {
+  ArcPortfolioError, MAX_MAJOR_ACTIVE_ARCS, MAX_MINOR_ACTIVE_ARCS, type ArcTier,
+} from '../story/portfolio';
 import {
   createArcResolutionDecision,
   ArcResolutionError,
@@ -346,6 +348,58 @@ describe('AC#4/#5 — count control and the closed-arc boundary', () => {
     // heat-sorted into three major arcs advanced all three.
     await expect(gate.run()).rejects.toThrow(ArcPortfolioError);
     expect(MAX_MAJOR_ACTIVE_ARCS).toBe(3);
+  });
+
+  /**
+   * Found by fault injection: replacing the MAJOR limit in the stage with `MAX_SAFE_INTEGER` left
+   * the whole suite and the 30-day harness green, because the fixed seed never presents a fourth
+   * major candidate and `applyArcPortfolioControl` caps admission independently. Two enforcement
+   * points is right — admission and transition are different moments — but neither was isolated,
+   * so the transition guard could have been deleted unnoticed.
+   *
+   * The setup is deliberate: three active major arcs that share no core character with the event
+   * (so they are not candidates and cannot trip the ≤2-major-arcs-per-event rule), plus one
+   * emerging major arc that does.
+   */
+  const limitFixture = (tier: ArcTier, activeCount: number): LiveArcState[] => [
+    ...Array.from({ length: activeCount }, (_unused, index) => arc({
+      arcId: `arc:busy:${index}`, status: 'active', tier,
+      fields: arcFields({ coreCharacterIds: ['qiu-an'] }),
+    })),
+    arc({
+      arcId: 'arc:waiting', status: 'emerging', tier, lastTransitionWorldDay: 0,
+      fields: arcFields({ coreCharacterIds: ['he-jun'] }),
+    }),
+  ];
+
+  it('defers an emerging MAJOR arc rather than becoming a fourth active one', async () => {
+    const gate = harness({ arcs: limitFixture('major', MAX_MAJOR_ACTIVE_ARCS) });
+    const artifact = await gate.run();
+
+    expect(artifact.deferredTransitions).toEqual([
+      { arcId: 'arc:waiting', toStatus: 'active', reason: 'ARC_ACTIVE_LIMIT_REACHED' },
+    ]);
+    expect(gate.calls.filter((call) => call.kind === 'transition')).toEqual([]);
+  });
+
+  it('defers an emerging MINOR arc rather than becoming a seventh active one', async () => {
+    const gate = harness({ arcs: limitFixture('minor', MAX_MINOR_ACTIVE_ARCS) });
+    const artifact = await gate.run();
+
+    expect(artifact.deferredTransitions).toEqual([
+      { arcId: 'arc:waiting', toStatus: 'active', reason: 'ARC_ACTIVE_LIMIT_REACHED' },
+    ]);
+    expect(gate.calls.filter((call) => call.kind === 'transition')).toEqual([]);
+  });
+
+  it('lets it through as soon as a slot frees, so a deferral is not a silent drop', async () => {
+    const gate = harness({ arcs: limitFixture('major', MAX_MAJOR_ACTIVE_ARCS - 1) });
+    const artifact = await gate.run();
+
+    expect(artifact.deferredTransitions).toEqual([]);
+    expect(artifact.transitions).toEqual([
+      { arcId: 'arc:waiting', fromStatus: 'emerging', toStatus: 'active' },
+    ]);
   });
 
   it('never classifies an event into a resolved or archived arc', async () => {
