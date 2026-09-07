@@ -4,7 +4,7 @@ title: Close the live editorial and recap pipeline gaps
 status: In Progress
 assignee: []
 created_date: '2026-09-07 14:47'
-updated_date: '2026-09-07 14:48'
+updated_date: '2026-09-07 19:07'
 labels:
   - prd-1.0
   - epic-g
@@ -191,3 +191,108 @@ These are not part of this task's problem statement and must not be re-implement
 Commit before every injection; the 30-day gate takes ~10 minutes per run and must be re-run after
 any change to the pipeline.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## Root cause
+
+Three capabilities were implemented, unit-tested, registered as Convex functions, and called by
+nothing in production. Verified by grepping every caller of each registered function and exported
+builder outside its defining module and its own test.
+
+1. **FR-G003 recap formats never produced.** `buildDeepRecap`, `buildMachineSummary` and
+   `validateRecapFormats` had zero callers and no table stored their output. There was also no
+   builder at all for the Quick (80–150 中文字) and Standard (400–800 中文字) texts — the module
+   validated bands nothing could produce.
+2. **FR-G004 coverage and spoiler gate never ran.** Both registered functions had zero production
+   callers; the pure module was imported only by the long-run harness as an after-the-fact report.
+   `validate` was a bare lifecycle step, so an episode omitting a high-importance event, or leaking
+   an unreleased secret, walked to `ready` unchallenged.
+3. **FR-G002 pyramid drove 2 of 5 levels.** `deriveRecapRequests` emitted `episode` and
+   `viewer_context` only. The long-run harness recorded this accurately and passed for as long as
+   `scene`, `arc` and `season` were dead.
+
+Episode generation, the Current Situation onboarding summary and the Recommended Entry
+reassessment were already correctly wired and were not re-implemented.
+
+## What was built
+
+- `recapComposition.ts` — whole-sentence-unit composition of the Quick and Standard recaps.
+  Character-level trimming would hit a band exactly and is also how a sentence gets published
+  saying the opposite of what happened, so the composer never cuts inside a sentence: no reversed
+  meaning, no half entity, no dangling provenance. Below the floor it refuses with the
+  measurement; above the ceiling it drops whole units and records which events they carried.
+- `episodeRecapFormats` + `episodeCoverageReports` tables, both with the artifact recording
+  refusals rather than leaving them as absences.
+- `runEpisodeCoverageGate` — the gate as the live pipeline runs it, wired as the precondition of
+  `validate`.
+- `RecapSourceScope` — the selective source contract that made the arc tier expressible, plus
+  `scene`/`arc`/`season` targets, per-target cursors and `recapCursorOf`.
+- `fakeSceneNarrator` rewritten in zh-Hant.
+
+## Two design decisions worth keeping
+
+**The gate returns its verdict instead of throwing, and performs no transition.** Stage 19 is not
+failure-isolated, so a throw aborts `rebuildLiveProjection` and `rebuildOnboardingSummary` — a
+coverage refusal would stop a *safety* withhold from reaching the public surface. And a verdict
+function that advanced the lifecycle as a side effect would give the pipeline two owners of it.
+A refusal therefore leaves the publication at `generated`, whose only legal action is `validate`,
+so it cannot reach `published` by any route without needing a rule that says so.
+
+**Cursors are loaded per target.** `PostCommitWorldState.recapCursors` was populated by a
+`.collect()` of every recap snapshot in the world on every event. With per-slot and per-arc targets
+that would grow with days times slots, so this change removes an unbounded per-event read rather
+than adding to one.
+
+## Fault injections
+
+Fourteen run, each compiled, executed, and reddened a named test, then restored. Four survived on
+first run and are the most useful findings:
+
+- Replacing the bound validator with `{ releasable: true }` left everything green — the tests
+  proved the gate was *called*, not that it *decided*. Fixed by inducing a real provenance
+  violation through the live path.
+- Removing the selective out-of-scope check left everything green — the model suite had no
+  coverage of the sparse path at all.
+- Breaking the cursor to resume from a snapshot's newest match instead of the range it examined
+  left everything green. The two rules coincide for almost every live snapshot, so no pipeline test
+  can distinguish them; `recapCursorOf` was extracted and tested on the diverging case.
+- Stubbing out `port.generateRecapFormats` left everything green — nothing asserted the live path
+  produced the formats, which is the very defect class this task exists to fix.
+
+Injections into `*Functions.ts` modules cannot redden anything: their handler bodies need a Convex
+deployment and never execute under jest. That is a pre-existing limit of the test strategy, not
+something this task introduced, and the in-memory ports bind the REAL pure functions so the
+decisions themselves are exercised.
+
+## Fixture migration
+
+`fakeSceneNarrator` wrote English while FR-G003 states its contract in 中文字, so every
+deterministic day measured zero and every episode was refused. The fixture changed; no band moved,
+`countChineseCharacters` is unchanged, and `RECAP_POOL_BELOW_MINIMUM` is kept — it now proves the
+validator is right.
+
+Sizing the scene took three corrections, each found by a test. Too short and a day composed under
+400. Spelling out every participant's stance overran `MAX_PUBLIC_SUMMARY_LENGTH`, and the clamp cut
+the tail where the outcome lives, so two scenes at one location truncated to the same text — the
+distinct-scene count FELL, 46 to 41, as the sentence got longer. Ordering outcome-first and
+dropping the participant roll-call took it to 91 of 104. Then a ~98 中文字 scene made a 69 中文字
+headline and a 109 中文字 one-line summary, and no whole-sentence pair fits in 150. The bands pull
+in opposite directions and the fixture has to satisfy both; it is now one scene-level sentence of
+about 45 中文字.
+
+## Verification
+
+- `npm run check` — 3742 passed, 224 suites, exit 0.
+- `npm run e2e` — 82 passed.
+- `ART60_LONG_RUN=1 npm run test:longrun` — 16/16, including 100% world-day completion, replay
+  equality, the FR-F003 major-arc band at every checkpoint, arcs advancing and closing, exactly one
+  episode per world day, and all five recap types present.
+
+## Not done
+
+`DISTINCT_SCENE_TEXTS` is now per-run-length (7 -> 91, 30 -> 171) because the author's output space
+is no longer saturated at seven days. FINDING 2 is improved but not fixed: the author is still a
+template and the duplication is still its ceiling.
+<!-- SECTION:NOTES:END -->
