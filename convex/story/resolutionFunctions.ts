@@ -56,6 +56,27 @@ export const recordArcResolutionDecision = internalMutation({
       worldId: args.worldId, arcId: decision.arcId, decisionId: decision.decisionId,
       decision, sourceEventSequenceNumber: decision.sourceEventSequenceNumber,
     });
+    /**
+     * Apply the decision's `resultingTier` to the arc's portfolio entry (ART-163).
+     *
+     * `syncArcPortfolioEntry` deliberately leaves tier alone — tier is the admission decision, and
+     * re-deriving it from the projection would let an arc silently promote itself. A DOWNGRADE is
+     * the one thing that legitimately changes it afterwards, and it has to be applied here or the
+     * decision records an intent nothing carries out: the arc would keep its major slot while a
+     * decision on file said it had lost it, and FR-F003 count control reads the entry, not the
+     * decision.
+     *
+     * Idempotent — re-applying the same tier is skipped — and silent when the arc has no portfolio
+     * entry, which is the ordinary case for an arc that was rejected at admission.
+     */
+    const portfolioRow = await ctx.db.query('storyArcPortfolioEntries')
+      .withIndex('by_world_and_arc', (q) => q.eq('worldId', args.worldId).eq('arcId', decision.arcId)).unique();
+    if (portfolioRow) {
+      const entry = structuredClone(portfolioRow.entry) as ArcPortfolioEntry;
+      if (entry.tier !== decision.resultingTier) {
+        await ctx.db.patch(portfolioRow._id, { entry: { ...entry, tier: decision.resultingTier } });
+      }
+    }
     return decision;
   },
 });
