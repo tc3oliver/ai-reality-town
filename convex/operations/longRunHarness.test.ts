@@ -56,7 +56,7 @@ const FORMERLY_STARVED_CHARACTER_IDS = ['lin-yingxue', 'su-meizhen', 'luo-shan',
  * The measured distinct count FELL from 46 to 41. Ordering the sentence outcome-first and dropping
  * the participant roll-call — which the stances already name — took it to 91.
  */
-const DISTINCT_SCENE_TEXTS: Record<number, number> = { 7: 91 };
+const DISTINCT_SCENE_TEXTS: Record<number, number> = { 7: 91, 30: 171 };
 
 /** Asserts every NFR-007 property that the fixed seed satisfies cleanly. */
 function expectCleanRun(findings: LongRunFindings, worldDays: number): void {
