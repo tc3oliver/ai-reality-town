@@ -394,14 +394,17 @@ describe('AC#6 — arc state replays identically', () => {
     expect(replayed.revision).toBe(2);
   });
 
-  it('agrees with a resume from any mid-stream prefix', () => {
-    // The arc projection is an append-only revision stream, so a reader that resumed from a stored
-    // prefix and applied the tail must land exactly where a full replay does.
-    const full = replayArcProjection(stream, 'resolving');
-    for (let split = 1; split < stream.length; split += 1) {
+  it('is a left fold: every prefix reproduces the state at exactly that revision', () => {
+    // Written as a per-prefix assertion rather than "a second full replay equals the first",
+    // which is what this test said in its first draft and could not have failed.
+    for (let split = 1; split <= stream.length; split += 1) {
       const prefix = replayArcProjection(stream.slice(0, split), 'resolving');
+      const last = stream[split - 1];
       expect(prefix.revision).toBe(split - 1);
-      expect(replayArcProjection(stream, 'resolving')).toEqual(full);
+      expect(prefix.latestTurningPointEventId).toBe(last.fields.latestTurningPointEventId);
+      expect(prefix.lastProgressTime).toEqual({
+        worldDay: last.worldDay, timeSlot: last.timeSlot, sourceEventId: last.sourceEventId,
+      });
     }
   });
 

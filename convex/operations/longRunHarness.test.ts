@@ -82,6 +82,8 @@ function expectCleanRun(findings: LongRunFindings, worldDays: number): void {
   }
   // A stagnant arc may hold a slot briefly; the ladder must take it back.
   expect(findings.arcs.arcsHoldingActiveSlotWhileStagnant).toEqual([]);
+  // Arc state is replayable: the snapshot the run carried equals a fresh replay of the stream.
+  expect(findings.arcs.arcsWhereLiveAndReplayDisagree).toEqual([]);
 
   // ART-163 — the run must show a story ENGINE, not a schema. Measured over the fixed seed:
   // seven world days open six arcs, three of which reach `resolved` carrying an outcome and

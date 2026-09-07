@@ -263,6 +263,11 @@ export type ArcFindings = {
   consequenceSummarySubjects: string[];
   /** Arcs that held an active slot for longer than the stagnation threshold at any checkpoint. */
   arcsHoldingActiveSlotWhileStagnant: string[];
+  /**
+   * Arcs whose live portfolio snapshot disagrees with a fresh replay of their projection stream.
+   * The arc-state analogue of {@link ReplayFindings.equal}, which covers only canon.
+   */
+  arcsWhereLiveAndReplayDisagree: string[];
 };
 
 export type AppearanceFindings = {
@@ -1540,6 +1545,15 @@ export async function runLongRunSimulation(input: LongRunInput): Promise<LongRun
     consequenceSummarySubjects: [...new Set([...harness.consequenceSummaries.values()]
       .map((summary) => `${summary.scope}:${summary.subjectId}`))].sort(),
     arcsHoldingActiveSlotWhileStagnant: [...stagnantWhileActive].sort(),
+    // ART-163 live-vs-replay equality for ARC state, the analogue of `replay.equal` for canon:
+    // the portfolio entry each arc carried while the pipeline ran must equal a fresh replay of
+    // its projection stream against its lifecycle status.
+    arcsWhereLiveAndReplayDisagree: harness.portfolio.flatMap((entry) => {
+      const record = harness.arcs.get(entry.projection.arcId);
+      if (!record) return [entry.projection.arcId];
+      const replayedArc = replayArcProjection(record.projections, record.lifecycle.status);
+      return JSON.stringify(replayedArc) === JSON.stringify(entry.projection) ? [] : [entry.projection.arcId];
+    }).sort(),
   };
 
   // --- character appearance -------------------------------------------------
