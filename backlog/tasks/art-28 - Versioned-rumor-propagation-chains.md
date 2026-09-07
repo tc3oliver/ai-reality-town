@@ -1,10 +1,10 @@
 ---
 id: ART-28
 title: Versioned rumor propagation chains
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-08-02 15:32'
-updated_date: '2026-09-07 00:36'
+updated_date: '2026-09-07 00:37'
 labels:
   - prd-1.0
   - epic-g
@@ -204,3 +204,30 @@ check ALONE left every test green, because the reducer refuses the same hop with
 Two enforcement points is the right design, but neither was isolated, so either could have been
 deleted unnoticed. Two tests were added to pin them separately.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+FR-E005 delivered as Canon: four state changes (rumor_originated / rumor_propagated /
+rumor_belief_changed / rumor_corrected) folded by the deterministic reducer into a replayable
+chain carrying origin, propagation chain, versions, credibility, objective truth and known
+corrections.
+
+The two fields a provider must not author are DERIVED: objective truth by asking Canon about the
+claim, credibility by folding what holders currently make of it (sorted by character id, so a
+snapshot-resumed world cannot disagree with a replayed one). Per-character belief is the existing
+knowledge ledger with a rumorId/rumorVersionId/rumorStance link rather than a second store, so
+「角色知道什麼」 keeps one answer with its provenance and authorization attached.
+
+AC#1 is enforced structurally (no rumor path writes `facts`) and by refusal
+(RUMOR_CANNOT_BECOME_FACT, in either change order). The chain rule -- a character may only pass on
+a rumor that reached them -- is enforced in canon validation and again in the reducer. Rumor
+chains are internal; a character sees only what reached them, and no public read model carries a
+rumor field.
+
+Verified: npm run check exit 0 (221 suites / 3677 passed, 11 skipped, boundaries valid, build
+clean); npm run e2e 82 passed; 8/8 fault injections reddened a named test, none reporting
+Tests: 0 total. Injection 3 found a real test hole -- removing canon validation's holders check
+alone left everything green because the reducer refuses the same hop -- and two tests were added
+to pin the two enforcement points separately. PR #239, auto-merge enabled.
+<!-- SECTION:FINAL_SUMMARY:END -->
