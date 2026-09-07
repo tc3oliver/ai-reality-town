@@ -70,8 +70,9 @@ intent from self-describing names echoed back from the scene payload.
 That explains the ART-141 symptom exactly. `proposedEvents` is a Canon concept the model cannot
 infer from the scene payload, so it invented its own idea of an event -- observed shapes were
 `{ eventId, publicSummary, trigger }` and `{ eventId, publicSummary, probability }`. Fully
-specifying the request schema (including expanding `stateChanges` into its complete ten-variant
-`anyOf`) changed nothing on its own; the model returned the same invented shape.
+specifying the request schema (including expanding `stateChanges` into its complete
+per-variant `anyOf` -- ten variants at the time, fourteen since ART-28 added the four rumor
+verbs) changed nothing on its own; the model returned the same invented shape.
 
 The fix is therefore to carry the contract **in the prompt**. `wholeSceneSystemPrompt` serialises
 `WHOLE_SCENE_JSON_SCHEMA` into the system message, adds a worked `proposedEvents` example derived
@@ -82,7 +83,16 @@ cannot drift. `WHOLE_SCENE_JSON_SCHEMA` is still sent as `response_format` for p
 honour it, and every object node in it is strict-mode conformant -- `strictObject` derives
 `required` from `properties` so that invariant cannot regress. `metadata` and
 `correctsKnowledgeId` are deliberately absent from the request: an open-ended object is
-inexpressible under strict mode and both are optional in the Canon contract.
+inexpressible under strict mode and both are optional in the Canon contract. `sourceType` on
+`rumor_originated` is absent for the same reason and one more: a scene author has no better
+answer than the `inference` the normalizer already supplies.
+
+ART-28 sharpened the same disambiguation one step further, because the two things share a word.
+A `rumors` note is narrative colour and changes nothing; a rumor the world tracks exists only as
+`rumor_*` entries inside `stateChanges`, and only once Canon accepts them. The prompt now says
+so outright, along with the two rules a scene author is most likely to trip: a character may
+only pass on a rumor an earlier accepted change actually gave them, and an event carrying a
+`rumor_*` change must not also carry a `fact_created` for the same subject and predicate.
 
 Measured against the real provider after the fix: 6/6 consecutive runs produced
 `proposedEvents` items carrying all twelve contract fields and well-formed `stateChanges`,

@@ -20,6 +20,13 @@ ART-63 audit is re-classified in place and the counts above move with it; the da
 this header is left as the audit found it. The `P1 delivered early` rows (ART-35, ART-87) are the
 existing precedent for a non-P0 clause counting as delivered.
 
+- **2026-09-07 — FR-E005** moved `Deferred P1` → `P1 delivered` (ART-28,
+  `docs/rumor-propagation-chains.md`). The `rumor` event type had existed since the foundation
+  and was consumed by nothing; the scene author's `rumors[]` collection is narrative colour by
+  its own prompt and was never domain state. Neither is a partial implementation, and the
+  distinction is now stated in the prompt as well as in code. Rumor chains are internal: reads
+  are authorized under the knowledge ledger's own gate, a character sees only what reached them,
+  and no public read model carries a rumor field.
 - **2026-08-25 — FR-E004** moved `Deferred P1` → `P1 delivered` (ART-27, PR #201,
   `docs/long-term-memory-compression.md`).
 - **2026-08-25 — FR-B003** moved `Deferred P1` → `P1 delivered` (ART-11, `docs/persona-deviation.md`).
@@ -161,7 +168,7 @@ existing precedent for a non-P0 clause counting as delivered.
 | FR-E002 | Subjective memory (per-character interpretation, importance, emotional weight, confidence, visibility; separable from Canon Fact; may contain misunderstanding; never directly public) | P0 delivered | ART-25 (Done) | `convex/knowledge/subjectiveMemory.test.ts` |
 | FR-E003 | Bounded memory retrieval (semantic/importance/recency/emotion/arc relevance; bounded count; traceable; no full history in prompt; no unauthorized memory) | P0 delivered | ART-26 (Done) | `convex/knowledge/memoryRetrieval.test.ts` |
 | FR-E004 | Long-term memory compression (impressions, stable beliefs, relationship summaries, arc understanding, location experience; lossless; Canon-preserving) | P1 delivered | ART-27 (Done) | `convex/knowledge/memoryCompression.test.ts`, `memoryCompression.lossless.test.ts`, `memoryCompression.boundary.test.ts`; `docs/long-term-memory-compression.md`. "Lossless" is pinned to three machine-checked properties — exact partition, verbatim round trip, and recall preservation against the real FR-E003 retriever at every limit 1–12 — and the one dimension that *is* lossy (an old low-importance memory leaves the retrieval corpus) is asserted as such rather than only described |
-| FR-E005 | Versioned rumor propagation chains (source, chain, current version, credibility, objective truth, known corrections; never auto-promoted to Canon Fact) | Deferred P1 | ART-28 (To Do) | Does not block launch: rumors are a content enrichment; their absence does not violate any Canon/safety invariant. Arc engine and Episode pipeline do not depend on rumor presence |
+| FR-E005 | Versioned rumor propagation chains (source, chain, current version, credibility, objective truth, known corrections; never auto-promoted to Canon Fact) | P1 delivered | ART-28 (Done) | `convex/canon/rumorChain.test.ts`, `convex/knowledge/rumorLedger.test.ts`, `convex/publicRead/rumorPublicBoundary.test.ts`; `docs/rumor-propagation-chains.md`. Four state changes folded by the deterministic reducer, so the chain is replayable rather than a derived table. The two fields a provider must not author are DERIVED: objective truth by asking Canon about the claim, credibility from what holders currently make of it. Per-character belief is the knowledge ledger with a rumor link rather than a second store, so 「角色知道什麼」 keeps one answer. AC#1 is enforced structurally (no rumor path writes `facts`) and by refusal (`RUMOR_CANNOT_BECOME_FACT`) |
 
 ---
 
