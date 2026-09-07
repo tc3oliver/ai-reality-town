@@ -44,18 +44,40 @@ function initial(): WorldProjection {
 }
 
 describe('FR-D005 reducer purity and version contract', () => {
+  const FORBIDDEN_IN_A_PURE_FOLD = [
+    /convex\/_generated/, /\bctx\.db\b/, /\bfetch\s*\(/, /\bDate(?:\.now|\s*\()/,
+    /\bperformance\.now\s*\(/, /\bMath\.random\s*\(/, /\bprocess\.env\b/,
+    /\bcrypto\.getRandomValues\s*\(/,
+  ];
+
+  const executableSourceOf = (path: string): string =>
+    readFileSync(path, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+
   it('has only pure local imports and no database, API, clock, environment, or random access', () => {
-    const raw = readFileSync('convex/canon/reducer.ts', 'utf8');
-    const executable = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    const executable = executableSourceOf('convex/canon/reducer.ts');
     const imports = [...executable.matchAll(/from\s+['"]([^'"]+)['"]/g)].map((match) => match[1]);
     expect(imports).toEqual([
-      '../shared/constants', '../shared/errors', '../shared/ids', './model',
+      '../shared/constants', '../shared/errors', '../shared/ids', './model', './rumorChain',
     ]);
-    for (const forbidden of [
-      /convex\/_generated/, /\bctx\.db\b/, /\bfetch\s*\(/, /\bDate(?:\.now|\s*\()/,
-      /\bperformance\.now\s*\(/, /\bMath\.random\s*\(/, /\bprocess\.env\b/,
-      /\bcrypto\.getRandomValues\s*\(/,
-    ]) {
+    for (const forbidden of FORBIDDEN_IN_A_PURE_FOLD) {
+      expect(executable).not.toMatch(forbidden);
+    }
+  });
+
+  /**
+   * ART-28. The allowlist above grew, so the guarantee has to follow it.
+   *
+   * `rumorChain.ts` computes a rumor's objective truth and credibility, and the reducer calls it
+   * on every event that touches a rumor. Widening the reducer's import list without scanning what
+   * it now imports would have moved the impurity one file away rather than forbidding it — a
+   * `Date.now()` in the credibility fold would make two replays of the same log disagree just as
+   * surely as one in the reducer itself.
+   */
+  it('extends the same purity guarantee to the rumor derivations the reducer now calls', () => {
+    const executable = executableSourceOf('convex/canon/rumorChain.ts');
+    const imports = [...executable.matchAll(/from\s+['"]([^'"]+)['"]/g)].map((match) => match[1]);
+    expect(imports).toEqual(['./model']);
+    for (const forbidden of FORBIDDEN_IN_A_PURE_FOLD) {
       expect(executable).not.toMatch(forbidden);
     }
   });

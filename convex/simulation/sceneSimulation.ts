@@ -205,6 +205,8 @@ const stateChangeVariants = [
     fromValue: stateFieldValue, toValue: stateFieldValue, reason: text }),
   strictObject({ type: { const: 'location_state_changed' }, locationId: text, name: text, description: text,
     locationType: text, capacity: integer, connectedLocationIds: textArray, active: boolean, reason: text }),
+  strictObject({ type: { const: 'organization_state_changed' }, organizationId: text, name: text, description: text,
+    organizationType: text, headquartersLocationId: nullableText, active: boolean, reason: text }),
   // FR-E005. Present so a rumor can be PROPOSED at all: the `rumors` collection below is
   // narrative colour and touches no domain state, so without these variants the rumor chain
   // would be a projection nothing in production could ever write to.
@@ -222,8 +224,6 @@ const stateChangeVariants = [
     stance: enumOf(RUMOR_STANCES), confidence: number }),
   strictObject({ type: { const: 'rumor_corrected' }, rumorId: text, correctingCharacterId: nullableText,
     correctedContent: text, correctedValue: primitive, reason: text }),
-  strictObject({ type: { const: 'organization_state_changed' }, organizationId: text, name: text, description: text,
-    organizationType: text, headquartersLocationId: nullableText, active: boolean, reason: text }),
 ];
 
 const characterActionItem = strictObject({ characterId: text, action: text });
