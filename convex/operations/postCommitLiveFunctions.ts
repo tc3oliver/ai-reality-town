@@ -57,6 +57,7 @@ import type { applyArcResolutionConsequences as applyArcResolutionConsequencesEx
 import type { generateAcceptedEventEpisode as generateAcceptedEventEpisodeExport } from '../editorial/episodeFunctions';
 import type { generateEpisodeShareFormats as generateEpisodeShareFormatsExport } from '../editorial/shareFormatFunctions';
 import type { generateIncrementalRecap as generateIncrementalRecapExport } from '../recaps/functions';
+import type { generateEpisodeRecapFormats as generateEpisodeRecapFormatsExport } from '../recaps/recapFormatFunctions';
 import type {
   createEpisodePublication as createEpisodePublicationExport,
   advancePublication as advancePublicationExport,
@@ -176,6 +177,9 @@ const generateAcceptedEventEpisodeRef = internalFunctionRef<typeof generateAccep
 );
 const generateIncrementalRecapRef = internalFunctionRef<typeof generateIncrementalRecapExport>(
   'recaps/functions:generateIncrementalRecap',
+);
+const generateEpisodeRecapFormatsRef = internalFunctionRef<typeof generateEpisodeRecapFormatsExport>(
+  'recaps/recapFormatFunctions:generateEpisodeRecapFormats',
 );
 const generateEpisodeShareFormatsRef = internalFunctionRef<typeof generateEpisodeShareFormatsExport>(
   'editorial/shareFormatFunctions:generateEpisodeShareFormats',
@@ -567,6 +571,11 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
         toSequenceNumber: request.toSequenceNumber, generatedAt: now,
       });
       return invalidate({ snapshotId: snapshot.id, deduplicated });
+    },
+
+    async generateRecapFormats(worldId, worldDay) {
+      const outcome = await ctx.runMutation(generateEpisodeRecapFormatsRef, { worldId, worldDay, createdAt: now });
+      return invalidate(outcome);
     },
 
     async loadEpisodeStatus(worldId, worldDay) {

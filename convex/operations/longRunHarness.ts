@@ -78,6 +78,8 @@ import { deriveConsequenceSummaries, type ConsequenceSummary } from '../story/co
 import { applyArcPortfolioControl, MAX_MAJOR_ACTIVE_ARCS,
   MAX_MINOR_ACTIVE_ARCS, type ArcPortfolioEntry } from '../story/portfolio';
 import { replayArcProjection } from '../story/projection';
+import { composeRecaps, type RecapComposition } from '../recaps/recapComposition';
+import { buildDeepRecap, buildMachineSummary, validateRecapFormats, type RecapFormats } from '../recaps/recapFormats';
 import { detectArcStagnation, ARC_STAGNATION_WORLD_DAYS } from '../story/resolution';
 import { recommendArcEntry } from '../story/entryRecommendation';
 import type { ArcEventClassification, ArcLifecycleRecord, ArcProjectionEvent } from '../story/model';
@@ -681,6 +683,8 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
   const publications = new Map<string, PublicationRecord>();
   const shareFormats = new Map<number, { status: string; reasonCodes: string[] }>();
   const stagnationPrompts: Array<{ arcId: string; stagnantWorldDays: number; status: string }> = [];
+  const recapFormats = new Map<number, { status: 'ready' | 'failed'; episodeNumber: number; deduplicated: boolean; errorCode?: string }>();
+  const storedRecapFormats = new Map<number, { formats: RecapFormats; composition: RecapComposition }>();
   const resolutionDecisions: ArcResolutionDecision[] = [];
   const consequenceSummaries = new Map<string, ConsequenceSummary>();
   let now = 10_000;
@@ -931,6 +935,49 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
       return Promise.resolve({ snapshotId: snapshot.id, deduplicated: false });
     },
 
+    /**
+     * ART-164. The REAL composer and the REAL length validation, in memory.
+     *
+     * A double that returned `ready` without composing would let the 30-day gate report four
+     * recap formats per episode while the deployment refused every one of them on the Quick
+     * Recap's 80 中文字 floor.
+     */
+    generateRecapFormats(_worldId, worldDay) {
+      const prior = recapFormats.get(worldDay);
+      if (prior) return Promise.resolve({ ...prior, deduplicated: true });
+      const episodeRow = episodes.get(worldDay);
+      if (!episodeRow?.episode) {
+        const outcome = { status: 'failed' as const, episodeNumber: episodeRow?.episodeNumber ?? 0, deduplicated: false, errorCode: 'RECAP_EPISODE_NOT_PUBLISHABLE' };
+        recapFormats.set(worldDay, outcome);
+        return Promise.resolve(outcome);
+      }
+      const dayEvents = events().filter((event) => event.worldDay === worldDay);
+      try {
+        const composed = composeRecaps(episodeRow.episode, dayEvents);
+        const formats = validateRecapFormats({
+          schemaVersion: 1, quickRecap: composed.quickRecap, standardRecap: composed.standardRecap,
+          deepRecap: buildDeepRecap(dayEvents),
+          machineSummary: buildMachineSummary(dayEvents, {
+            newQuestions: [...episodeRow.episode.newQuestions],
+            resolvedQuestions: [...episodeRow.episode.resolvedQuestions],
+            storyArcProgress: episodeRow.episode.arcIds.map((arcId) => ({
+              arcId, progress: `第 ${episodeRow.episodeNumber} 集推進了這條故事線。`,
+            })),
+          }),
+          sourceEventIds: composed.sourceEventIds,
+        }, dayEvents);
+        storedRecapFormats.set(worldDay, { formats, composition: composed.composition });
+        const outcome = { status: 'ready' as const, episodeNumber: episodeRow.episodeNumber, deduplicated: false };
+        recapFormats.set(worldDay, outcome);
+        return Promise.resolve(outcome);
+      } catch (error) {
+        const errorCode = (error as { code?: string }).code ?? 'RECAP_FORMAT_GENERATION_FAILED';
+        const outcome = { status: 'failed' as const, episodeNumber: episodeRow.episodeNumber, deduplicated: false, errorCode };
+        recapFormats.set(worldDay, outcome);
+        return Promise.resolve(outcome);
+      }
+    },
+
     loadEpisodeStatus(_worldId, worldDay) {
       const row = episodes.get(worldDay);
       return Promise.resolve(row
@@ -1154,7 +1201,7 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
   };
 
   return {
-    port, arcs, portfolio, episodes, recaps, classifications, stagnationPrompts,
+    port, arcs, portfolio, episodes, recaps, classifications, stagnationPrompts, recapFormats, storedRecapFormats,
     resolutionDecisions, consequenceSummaries,
     activeArcsForDirector, activeMajorArcIds, activeMinorArcIds, unresolvedMajorArcIds, arcStatusCounts,
   };

@@ -230,6 +230,18 @@ export interface PostCommitLivePort {
   generateEpisode(worldId: string, worldDay: number, episodeNumber: number): Promise<EpisodeOutcome>;
   /** ART-34 incremental recap generation. */
   generateRecap(worldId: string, request: RecapRequest): Promise<{ snapshotId: string; deduplicated: boolean }>;
+  /**
+   * ART-66/ART-164 — the four FR-G003 recap formats for a completed day's Episode.
+   *
+   * Idempotent per world day. `failed` is a NORMAL outcome, not an exception: a world day with
+   * too little public content to reach the Quick Recap's 80 中文字 floor cannot be padded into
+   * one, so the refusal is recorded and the pipeline continues. Before ART-164 nothing called the
+   * format builders at all, so no episode in any running world had a Quick, Standard, Deep or
+   * Machine Summary.
+   */
+  generateRecapFormats(worldId: string, worldDay: number): Promise<{
+    status: 'ready' | 'failed'; episodeNumber: number; deduplicated: boolean; errorCode?: string;
+  }>;
   /** ART-33 episode row, carrying the safety classification decided at generation time. */
   loadEpisodeStatus(worldId: string, worldDay: number): Promise<{ status: string; safetyClassificationId: string | null; hasEpisode: boolean } | null>;
   /**
@@ -694,7 +706,15 @@ export type ArcArtifact = {
   /** ART-163: every resolution this run recorded, classified or stagnation-driven. */
   resolutions: ArcResolutionRecord[];
 };
-export type EpisodeArtifact = { episodes: Array<{ worldDay: number } & EpisodeOutcome> };
+export type RecapFormatRecord = {
+  worldDay: number; status: 'ready' | 'failed'; episodeNumber: number;
+  deduplicated: boolean; errorCode: string | null;
+};
+export type EpisodeArtifact = {
+  episodes: Array<{ worldDay: number } & EpisodeOutcome>;
+  /** ART-164: the FR-G003 formats produced for each episode assembled this run. */
+  recapFormats: RecapFormatRecord[];
+};
 export type RecapArtifact = { snapshots: Array<{ targetId: string; snapshotId: string; deduplicated: boolean }> };
 export type SafetyArtifact = {
   worldDay: number;
@@ -1010,12 +1030,24 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
       const state = await port.loadWorldState(sourceOf(context));
       const pending = state.completedWorldDays.filter((worldDay) => !state.episodeWorldDays.includes(worldDay));
       const episodes: EpisodeArtifact['episodes'] = [];
+      const recapFormats: RecapFormatRecord[] = [];
       for (const worldDay of [...pending].sort((left, right) => left - right)) {
         const episodeNumber = episodeNumberFor(state.completedWorldDays, worldDay);
         if (episodeNumber === null) continue;
         episodes.push({ worldDay, ...await port.generateEpisode(context.worldId, worldDay, episodeNumber) });
+        /**
+         * ART-164. Composed immediately after the Episode it recaps, in the same stage, because
+         * the two share one input: the day's accepted events plus the Episode derived from them.
+         * Splitting them across stages would let a resumed run publish an Episode whose recaps
+         * were composed from a different read of the same day.
+         */
+        const formats = await port.generateRecapFormats(context.worldId, worldDay);
+        recapFormats.push({
+          worldDay, status: formats.status, episodeNumber: formats.episodeNumber,
+          deduplicated: formats.deduplicated, errorCode: formats.errorCode ?? null,
+        });
       }
-      return { episodes };
+      return { episodes, recapFormats };
     },
 
     // Stage 17: advance the recap pyramid (day-level episode recap, world-level context recap).
