@@ -48,7 +48,7 @@ function ownerEventId(derivedId: string): string {
 }
 
 /** Project one Accepted Event into the view the coverage gate needs. */
-function toCoverageSource(event: AcceptedEvent, importance: number, turningPointArcIds: string[]): CoverageSourceEvent {
+export function toCoverageSource(event: AcceptedEvent, importance: number, turningPointArcIds: string[]): CoverageSourceEvent {
   return {
     eventId: event.eventId,
     worldDay: event.worldDay,
@@ -132,7 +132,7 @@ async function loadCoverageSources(
  * for its source event — the Episode builder emits exactly one entry per public
  * relationship movement of an event.
  */
-function episodeCandidate(worldId: string, contentRef: string, episode: DailyEpisode, sources: readonly CoverageSourceEvent[]): CoverageCandidate {
+export function episodeCandidate(worldId: string, contentRef: string, episode: DailyEpisode, sources: readonly CoverageSourceEvent[]): CoverageCandidate {
   const citedEventIds = unique([
     ...episode.sourceEventIds,
     ...episode.keyScenes.flatMap(({ sourceEventIds }) => sourceEventIds),
@@ -225,5 +225,77 @@ export const validateEpisodeCoverageGate = internalMutation({
     const next = transitionPublication(record, 'validate', args.actor as PublicationActor, args.reason, args.now);
     await ctx.db.patch(row._id, { status: next.status, audit: next.audit, updatedAt: args.now });
     return { publicationId: next.publicationId, status: next.status, version: next.version, report };
+  },
+});
+
+/**
+ * The FR-G004 gate as the LIVE pipeline runs it (ART-164).
+ *
+ * Two things distinguish it from {@link validateEpisodeCoverageGate}, and both are forced by where
+ * it runs.
+ *
+ * **It returns its verdict instead of throwing.** The post-commit publication stage is not
+ * failure-isolated: a throw inside it aborts everything after it, including `rebuildLiveProjection`
+ * and `rebuildOnboardingSummary` — so a coverage refusal would stop a SAFETY withhold from ever
+ * reaching the public surface. Refusing to publish must never be the reason unsafe content stays
+ * up.
+ *
+ * **It performs no publication transition.** `validateEpisodeCoverageGate` decides AND advances
+ * `generated` -> `validated`, which is convenient for an operator calling one function and wrong
+ * here: it would give the pipeline two owners of the publication lifecycle, one of which advances
+ * a record as a side effect of asking a question. This one only answers, and the publication stage
+ * — which already performs every other transition — performs `validate` itself when the answer is
+ * yes. A verdict function that mutated the lifecycle is exactly the coupling that made the first
+ * wiring of this gate strand every publication at `generated`.
+ *
+ * The report is persisted on BOTH outcomes. A gate that recorded only its refusals would make
+ * "this episode was checked and passed" indistinguishable from "the gate never ran".
+ */
+export const runEpisodeCoverageGate = internalMutation({
+  args: { worldId: v.string(), worldDay: v.number(), contentRef: v.string(), now: v.number() },
+  handler: async (ctx, args): Promise<{ releasable: boolean; findingCodes: string[]; errorCode?: string }> => {
+    let report: CoverageReport | null = null;
+    let errorCode: string | undefined;
+    try {
+      report = await buildEpisodeReport(ctx.db, args.worldId, args.worldDay, args.contentRef);
+    } catch (error) {
+      // The gate could not run at all — a malformed candidate, a missing episode. Recorded as a
+      // REFUSAL rather than silently treated as a pass: "we could not check" and "we checked and
+      // it was fine" must never look the same to whatever reads this next.
+      errorCode = error instanceof RecapCoverageError ? error.code : 'COVERAGE_GATE_FAILED';
+    }
+
+    const releasable = report?.releasable ?? false;
+    const findingCodes = unique((report?.findings ?? []).map(({ code }) => code));
+    // Keyed on the content ref, so a re-run of the same day's post-commit pipeline re-reaches the
+    // same verdict without appending a second report for one episode.
+    const prior = await ctx.db.query('episodeCoverageReports')
+      .withIndex('by_world_and_ref', (q) => q.eq('worldId', args.worldId).eq('contentRef', args.contentRef))
+      .unique();
+    if (!prior) {
+      await ctx.db.insert('episodeCoverageReports', {
+        schemaVersion: 1, worldId: args.worldId, worldDay: args.worldDay, contentRef: args.contentRef,
+        releasable, findingCodes, report: report ?? null,
+        ...(errorCode === undefined ? {} : { errorCode }), createdAt: args.now,
+      });
+    }
+    return { releasable, findingCodes, ...(errorCode === undefined ? {} : { errorCode }) };
+  },
+});
+
+/**
+ * Internal read of a day's persisted coverage verdict — the queryable evidence FR-G004 requires a
+ * refusal to leave behind.
+ */
+export const getPersistedCoverageReport = internalQuery({
+  args: { worldId: v.string(), worldDay: v.number() },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.query('episodeCoverageReports')
+      .withIndex('by_world_and_day', (q) => q.eq('worldId', args.worldId).eq('worldDay', args.worldDay)).first();
+    return row ? {
+      worldId: row.worldId, worldDay: row.worldDay, contentRef: row.contentRef,
+      releasable: row.releasable, findingCodes: [...row.findingCodes],
+      errorCode: row.errorCode ?? null,
+    } : null;
   },
 });

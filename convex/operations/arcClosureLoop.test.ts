@@ -118,8 +118,9 @@ function harness(input: { arcs: LiveArcState[]; event?: AcceptedEvent; latestWor
       completedWorldDays: [],
       episodeWorldDays: [],
       worldDayFirstSequenceNumber: source.sequenceNumber,
+      timeSlotFirstSequenceNumber: source.sequenceNumber,
+      seasonFirstSequenceNumber: source.sequenceNumber,
       latestWorldDay: input.latestWorldDay ?? source.worldDay,
-      recapCursors: {},
     }),
     recordArcClassification: () => {
       calls.push({ kind: 'classify' });

@@ -34,6 +34,7 @@ import {
   parseArcEventClassification,
 } from '../story/classification';
 import { ALLOWED_ARC_TRANSITIONS, isActiveArcStatus } from '../story/lifecycle';
+import type { RecapType } from '../recaps/model';
 import { VOTE_CONSEQUENCE_LOOKAHEAD_DAYS } from '../publicRead/voteConsequenceProjection';
 import {
   MAX_MAJOR_ACTIVE_ARCS,
@@ -157,18 +158,31 @@ export type PostCommitWorldState = {
   episodeWorldDays: number[];
   /** First accepted sequence number of the event's world day. */
   worldDayFirstSequenceNumber: number;
+  /** First accepted sequence number of the event's own time slot: the `scene` tier's origin. */
+  timeSlotFirstSequenceNumber: number;
+  /**
+   * Where the event's season begins (ART-164).
+   *
+   * The pipeline processes canon in order from the world's first event, so a season target is
+   * created on the first day of its season and its cursor carries the rest. A world that adopted
+   * this tier mid-season starts its first season snapshot part-way through — recorded, not
+   * silently: `sourceFromSequenceNumber` and `sourceScope` say where coverage actually began. The
+   * alternative, back-scanning to the season's true start on every event, is a read that grows
+   * with the season and buys nothing a replay from sequence zero does not already give.
+   */
+  seasonFirstSequenceNumber: number;
   /** Highest accepted world day in canon right now. */
   latestWorldDay: number;
-  /** Last accepted sequence number already covered, per `recapTargetKey`. */
-  recapCursors: Record<string, number>;
 };
 
 export type RecapRequest = {
   snapshotId: string;
-  recapType: 'episode' | 'viewer_context';
+  recapType: RecapType;
   targetId: string;
   fromSequenceNumber: number;
   toSequenceNumber: number;
+  /** Present on the `arc` tier only: selects that arc's progress out of the range. */
+  arcId?: string;
 };
 
 export type EpisodeOutcome = { status: string; episodeNumber: number; deduplicated: boolean };
@@ -229,7 +243,28 @@ export interface PostCommitLivePort {
   /** ART-33 daily episode assembly (idempotent per world day). */
   generateEpisode(worldId: string, worldDay: number, episodeNumber: number): Promise<EpisodeOutcome>;
   /** ART-34 incremental recap generation. */
-  generateRecap(worldId: string, request: RecapRequest): Promise<{ snapshotId: string; deduplicated: boolean }>;
+  generateRecap(worldId: string, request: RecapRequest): Promise<{ snapshotId: string | null; deduplicated: boolean }>;
+  /**
+   * Watermarks for exactly the pyramid targets this commit will touch (ART-164).
+   *
+   * Takes the targets rather than returning every cursor in the world: with per-slot and per-arc
+   * levels, "every cursor in the world" grows with the world's age, and reading it on a per-event
+   * path is the pattern ART-100 removed from this pipeline. A missing key means the target has no
+   * prior snapshot and starts at its own origin.
+   */
+  loadRecapCursors(worldId: string, targets: readonly RecapTarget[]): Promise<Record<string, number>>;
+  /**
+   * ART-66/ART-164 — the four FR-G003 recap formats for a completed day's Episode.
+   *
+   * Idempotent per world day. `failed` is a NORMAL outcome, not an exception: a world day with
+   * too little public content to reach the Quick Recap's 80 中文字 floor cannot be padded into
+   * one, so the refusal is recorded and the pipeline continues. Before ART-164 nothing called the
+   * format builders at all, so no episode in any running world had a Quick, Standard, Deep or
+   * Machine Summary.
+   */
+  generateRecapFormats(worldId: string, worldDay: number): Promise<{
+    status: 'ready' | 'failed'; episodeNumber: number; deduplicated: boolean; errorCode?: string;
+  }>;
   /** ART-33 episode row, carrying the safety classification decided at generation time. */
   loadEpisodeStatus(worldId: string, worldDay: number): Promise<{ status: string; safetyClassificationId: string | null; hasEpisode: boolean } | null>;
   /**
@@ -242,6 +277,21 @@ export interface PostCommitLivePort {
   /** ART-51 publication lifecycle. */
   createPublication(worldId: string, contentRef: string, summary: string | null): Promise<{ status: string }>;
   advancePublication(worldId: string, contentRef: string, action: 'validate' | 'begin_safety_review' | 'pass_safety_review' | 'withhold'): Promise<{ status: string }>;
+  /**
+   * FR-G004 — the coverage and spoiler verdict for one day's episode (ART-164).
+   *
+   * Answers only; it performs no publication transition. The publication stage owns every
+   * transition, and a verdict function that also advanced the lifecycle would give the pipeline
+   * two owners of it.
+   *
+   * Returns rather than throws, because this stage is not failure-isolated: a throw here aborts
+   * `rebuildLiveProjection` and `rebuildOnboardingSummary`, so a coverage refusal would stop a
+   * SAFETY withhold from reaching the public surface. Refusing to publish must never be the reason
+   * unsafe content stays up.
+   */
+  runCoverageGate(worldId: string, worldDay: number, contentRef: string): Promise<{
+    releasable: boolean; findingCodes: string[];
+  }>;
   /** ART-67 recommended entry reassessment for major active arcs. */
   reassessArcEntries(worldId: string): Promise<string[]>;
   /** ART-I003/I004 episode + timeline read-model rebuilds. */
@@ -273,6 +323,23 @@ export const derivedArcId = (worldId: string, sequenceNumber: number): string =>
 export const episodeContentRef = (worldId: string, worldDay: number): string =>
   `episode:${worldId}:${worldDay}`;
 export const recapTargetKey = (recapType: string, targetId: string): string => `${recapType}:${targetId}`;
+
+/**
+ * How far a recap target has been covered, given its newest snapshot (ART-164).
+ *
+ * For a SELECTIVE tier this is the scope end — the watermark that was examined — and not
+ * `sourceToSequenceNumber`, which is merely the last event that happened to match. The two
+ * coincide whenever the triggering event is itself the arc's newest progress, which is the common
+ * case; they diverge when a snapshot's newest match sits behind the range it scanned, and resuming
+ * from the match would then re-examine a stretch already known to hold nothing for this target.
+ *
+ * Extracted and exported so both the deployment adapter and the in-memory ports read the cursor
+ * the same way. It lived inline in each, where the two could drift apart silently and where the
+ * rule could not be tested without a full pipeline run.
+ */
+export const recapCursorOf = (
+  snapshot: { sourceToSequenceNumber: number; sourceScope: { toSequenceNumber: number } | null },
+): number => snapshot.sourceScope?.toSequenceNumber ?? snapshot.sourceToSequenceNumber;
 
 // --- derivations ------------------------------------------------------------
 
@@ -646,21 +713,86 @@ export function episodeNumberFor(completedWorldDays: readonly number[], worldDay
   return index < 0 ? null : index + 1;
 }
 
-/** Recap requests for this commit: the day-level episode recap and the world-level context recap. */
-export function deriveRecapRequests(state: PostCommitWorldState): RecapRequest[] {
+/**
+ * World days per season (ART-164). A season is a fixed window rather than a story judgement so the
+ * tier is replayable: which season an event belongs to must be derivable from the event alone, or
+ * a replay could file the same event under a different season than the live run did.
+ */
+export const SEASON_WORLD_DAYS = 10;
+
+export const seasonOf = (worldDay: number): number => Math.floor(worldDay / SEASON_WORLD_DAYS);
+
+/** One level of the FR-G002 pyramid, before its cursor is known. */
+export type RecapTarget = {
+  recapType: RecapType;
+  targetId: string;
+  /** Where this target begins when it has no prior snapshot. */
+  start: number;
+  /** Set on the `arc` tier: makes the source selection that arc's progress, not the whole range. */
+  arcId?: string;
+};
+
+/**
+ * Every pyramid level this commit advances (FR-G002).
+ *
+ * Before ART-164 this emitted `episode` and `viewer_context` only, so `scene`, `arc` and `season`
+ * summaries existed for no world — three of the five declared levels were unreachable.
+ *
+ * Which levels appear is a function of the event and the arcs it moved, so the set is bounded by a
+ * constant: one scene, one episode, one season, one viewer context, and at most the arcs a single
+ * event may advance. It never grows with world history.
+ *
+ * @param movedArcIds arcs this event actually advanced. Deliberately not "all active arcs": an arc
+ * that did not move has nothing new to summarise, and asking for one would append a version
+ * recording no progress and re-read a range that cannot have changed.
+ */
+export function deriveRecapTargets(
+  state: PostCommitWorldState,
+  movedArcIds: readonly string[],
+): RecapTarget[] {
   const { event } = state;
-  const to = event.sequenceNumber;
-  const targets: Array<{ recapType: RecapRequest['recapType']; targetId: string; start: number }> = [
+  return [
+    {
+      recapType: 'scene',
+      targetId: `slot:${event.worldDay}:${event.timeSlot}`,
+      start: state.timeSlotFirstSequenceNumber,
+    },
     { recapType: 'episode', targetId: `day:${event.worldDay}`, start: state.worldDayFirstSequenceNumber },
+    ...[...new Set(movedArcIds)].sort((left, right) => left.localeCompare(right)).map((arcId): RecapTarget => ({
+      recapType: 'arc', targetId: `arc:${arcId}`, start: 0, arcId,
+    })),
+    {
+      recapType: 'season',
+      targetId: `season:${seasonOf(event.worldDay)}`,
+      start: state.seasonFirstSequenceNumber,
+    },
     { recapType: 'viewer_context', targetId: event.worldId, start: 0 },
   ];
-  return targets.flatMap(({ recapType, targetId, start }) => {
-    const cursor = state.recapCursors[recapTargetKey(recapType, targetId)];
+}
+
+/**
+ * Turn targets plus their cursors into the requests to run, dropping any target already covered.
+ *
+ * Cursors arrive as an argument rather than being read off `PostCommitWorldState` because the
+ * pyramid now has per-slot and per-arc targets: sweeping every snapshot in the world to find them
+ * would grow with the world's age on a per-event path, which is the read pattern ART-100 removed
+ * from this pipeline. The caller reads exactly these targets' cursors, and there are a bounded
+ * number of them.
+ */
+export function deriveRecapRequests(
+  event: { worldId: string; sequenceNumber: number },
+  targets: readonly RecapTarget[],
+  cursors: Readonly<Record<string, number>>,
+): RecapRequest[] {
+  const to = event.sequenceNumber;
+  return targets.flatMap(({ recapType, targetId, start, arcId }) => {
+    const cursor = cursors[recapTargetKey(recapType, targetId)];
     const from = cursor === undefined ? start : cursor + 1;
     if (from > to) return [];
     return [{
       snapshotId: `recap:${event.worldId}:${recapType}:${targetId}:${to}`,
       recapType, targetId, fromSequenceNumber: from, toSequenceNumber: to,
+      ...(arcId === undefined ? {} : { arcId }),
     }];
   });
 }
@@ -694,8 +826,19 @@ export type ArcArtifact = {
   /** ART-163: every resolution this run recorded, classified or stagnation-driven. */
   resolutions: ArcResolutionRecord[];
 };
-export type EpisodeArtifact = { episodes: Array<{ worldDay: number } & EpisodeOutcome> };
-export type RecapArtifact = { snapshots: Array<{ targetId: string; snapshotId: string; deduplicated: boolean }> };
+export type RecapFormatRecord = {
+  worldDay: number; status: 'ready' | 'failed'; episodeNumber: number;
+  deduplicated: boolean; errorCode: string | null;
+};
+export type EpisodeArtifact = {
+  episodes: Array<{ worldDay: number } & EpisodeOutcome>;
+  /** ART-164: the FR-G003 formats produced for each episode assembled this run. */
+  recapFormats: RecapFormatRecord[];
+};
+export type RecapArtifact = {
+  /** `snapshotId` is null where a selective tier found no progress in its range and wrote nothing. */
+  snapshots: Array<{ recapType: RecapType; targetId: string; snapshotId: string | null; deduplicated: boolean }>;
+};
 export type SafetyArtifact = {
   worldDay: number;
   episodeStatus: string | null;
@@ -711,6 +854,9 @@ export type PublicationArtifact = {
    */
   shareFormatStatus: string | null;
   shareFormatReasonCodes: string[];
+  /** ART-164 FR-G004 verdict for this day's episode. */
+  coverageReleasable: boolean;
+  coverageFindingCodes: string[];
   reassessedArcIds: string[];
   modelRefs: string[];
 };
@@ -1010,21 +1156,42 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
       const state = await port.loadWorldState(sourceOf(context));
       const pending = state.completedWorldDays.filter((worldDay) => !state.episodeWorldDays.includes(worldDay));
       const episodes: EpisodeArtifact['episodes'] = [];
+      const recapFormats: RecapFormatRecord[] = [];
       for (const worldDay of [...pending].sort((left, right) => left - right)) {
         const episodeNumber = episodeNumberFor(state.completedWorldDays, worldDay);
         if (episodeNumber === null) continue;
         episodes.push({ worldDay, ...await port.generateEpisode(context.worldId, worldDay, episodeNumber) });
+        /**
+         * ART-164. Composed immediately after the Episode it recaps, in the same stage, because
+         * the two share one input: the day's accepted events plus the Episode derived from them.
+         * Splitting them across stages would let a resumed run publish an Episode whose recaps
+         * were composed from a different read of the same day.
+         */
+        const formats = await port.generateRecapFormats(context.worldId, worldDay);
+        recapFormats.push({
+          worldDay, status: formats.status, episodeNumber: formats.episodeNumber,
+          deduplicated: formats.deduplicated, errorCode: formats.errorCode ?? null,
+        });
       }
-      return { episodes };
+      return { episodes, recapFormats };
     },
 
-    // Stage 17: advance the recap pyramid (day-level episode recap, world-level context recap).
+    /**
+     * Stage 17: advance the FR-G002 recap pyramid — scene, episode, arc, season, viewer context.
+     *
+     * The arc level reads which arcs this event MOVED from the arc stage's own artifact rather
+     * than re-deriving them, so a resumed run advances exactly the arcs the completed arc stage
+     * advanced. Re-deriving here would let the two stages disagree about the same event.
+     */
     recap: async (context): Promise<RecapArtifact> => {
       const state = await port.loadWorldState(sourceOf(context));
+      const arcs = artifact<ArcArtifact>(context, 'arc');
+      const targets = deriveRecapTargets(state, arcs.classifiedArcIds);
+      const cursors = await port.loadRecapCursors(context.worldId, targets);
       const snapshots: RecapArtifact['snapshots'] = [];
-      for (const request of deriveRecapRequests(state)) {
+      for (const request of deriveRecapRequests(state.event, targets, cursors)) {
         const result = await port.generateRecap(context.worldId, request);
-        snapshots.push({ targetId: request.targetId, ...result });
+        snapshots.push({ recapType: request.recapType, targetId: request.targetId, ...result });
       }
       return { snapshots };
     },
@@ -1057,21 +1224,42 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
       let publicationStatus: string | null = null;
       let shareFormatStatus: string | null = null;
       let shareFormatReasonCodes: string[] = [];
+      let coverageReleasable = true;
+      let coverageFindingCodes: string[] = [];
       const hasEpisode = safety.episodeStatus !== null;
       if (hasEpisode) {
         contentRef = episodeContentRef(context.worldId, safety.worldDay);
         publicationStatus = (await port.createPublication(context.worldId, contentRef, null)).status;
-        const actions = safety.publishable
-          ? ['validate', 'begin_safety_review', 'pass_safety_review'] as const
-          : ['validate', 'withhold'] as const;
-        for (const action of actions) {
-          if (publicationStatus === 'ready' || publicationStatus === 'withheld' || publicationStatus === 'published') break;
-          publicationStatus = (await port.advancePublication(context.worldId, contentRef, action)).status;
+        /**
+         * ART-164: `validate` IS the coverage gate now. It used to be a bare lifecycle step, so a
+         * day that omitted a high-importance event with no exclusion, or leaked an unreleased
+         * secret into its public copy, walked to `ready` unchallenged — the gate existed and had
+         * no caller.
+         */
+        const gate = await port.runCoverageGate(context.worldId, safety.worldDay, contentRef);
+        coverageReleasable = gate.releasable;
+        coverageFindingCodes = gate.findingCodes;
+        if (gate.releasable) {
+          const actions = safety.publishable
+            ? ['validate', 'begin_safety_review', 'pass_safety_review'] as const
+            : ['validate', 'withhold'] as const;
+          for (const action of actions) {
+            if (publicationStatus === 'ready' || publicationStatus === 'withheld' || publicationStatus === 'published') break;
+            publicationStatus = (await port.advancePublication(context.worldId, contentRef, action)).status;
+          }
         }
+        // A refused candidate is never validated, so it stays at `generated` — whose only legal
+        // action is `validate`. It therefore cannot reach `published` by any route, and that falls
+        // out of the lifecycle rather than needing a rule of its own.
       }
       const reassessedArcIds = await port.reassessArcEntries(context.worldId);
       const modelRefs: string[] = [];
-      if (safety.publishable) modelRefs.push(await port.rebuildEpisodeProjection(context.worldId, safety.worldDay));
+      // Gated on the coverage verdict as well as on safety: publishing the episode read model for
+      // a day the gate refused would put the refused copy on the public surface, which is the
+      // whole thing the gate is for.
+      if (safety.publishable && coverageReleasable) {
+        modelRefs.push(await port.rebuildEpisodeProjection(context.worldId, safety.worldDay));
+      }
       modelRefs.push(await port.rebuildEpisodeIndexProjection(context.worldId));
       modelRefs.push(await port.rebuildTimelineProjection(context.worldId));
       // Only the arcs THIS event moved are rebuilt: an untouched arc's read model is
@@ -1095,14 +1283,22 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
        * hypothetical — outreach copy, the least critical artifact in the pipeline, could stop a
        * safety decision from propagating.
        *
-       * Still UNCONDITIONAL rather than gated on `safety.publishable`: the generator re-reads the
-       * Episode row and refuses a non-`ready` one itself, so running it on a withheld day records
-       * the REFUSAL — `blocked`, with its reason — where an operator can see it. Skipping the call
-       * would leave the day silently absent from the derived table, which reads identically to
-       * "not generated yet". It stays gated on an Episode existing at all, which is what
-       * `hasEpisode` preserves from the original placement.
+       * Still not gated on `safety.publishable`: the generator re-reads the Episode row and
+       * refuses a non-`ready` one itself, so running it on a withheld day records the REFUSAL —
+       * `blocked`, with its reason — where an operator can see it. Skipping the call would leave
+       * the day silently absent from the derived table, which reads identically to "not generated
+       * yet".
+       *
+       * It IS gated on the coverage verdict (ART-164), and the reason the safety argument above
+       * does not carry over is specific: a coverage refusal leaves the Episode row `ready`. The
+       * generator therefore cannot refuse for itself the way it can for a withhold — it would
+       * produce outreach copy for an episode the gate just refused to release, which is the leak
+       * the gate exists to prevent, by the one route that skips the read models. And the day is
+       * not silently absent either way: the refusal is on the publication artifact and in
+       * `episodeCoverageReports`, which is what made the original "record it, do not skip it"
+       * argument true in the first place.
        */
-      if (hasEpisode) {
+      if (hasEpisode && coverageReleasable) {
         const share = await port.generateShareFormats(context.worldId, safety.worldDay);
         shareFormatStatus = share.status;
         shareFormatReasonCodes = share.reasonCodes;
@@ -1157,7 +1353,10 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
        * would republish identical payloads and dedup them, which is work with no result.
        */
       modelRefs.push(await port.rebuildRelationshipGraphProjection(context.worldId, context.worldDay));
-      return { contentRef, publicationStatus, shareFormatStatus, shareFormatReasonCodes, reassessedArcIds, modelRefs };
+      return {
+        contentRef, publicationStatus, shareFormatStatus, shareFormatReasonCodes,
+        coverageReleasable, coverageFindingCodes, reassessedArcIds, modelRefs,
+      };
     },
 
     // Stage 20: the daily canon snapshot, taken once a world day is finished and is still

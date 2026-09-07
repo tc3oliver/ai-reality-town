@@ -34,6 +34,15 @@ import { classifyPostGeneration } from '../safety/postGeneration';
 import { buildRecapSnapshot, type RecapSnapshot } from '../recaps/model';
 import { createArcLifecycle, transitionArcLifecycle, isActiveArcStatus } from '../story/lifecycle';
 import { replayArcProjection } from '../story/projection';
+import { composeRecaps, type RecapComposition } from '../recaps/recapComposition';
+import { validateRecapCoverage } from '../recaps/coverageValidation';
+import { episodeCandidate, toCoverageSource } from '../recaps/coverageValidationFunctions';
+import {
+  buildDeepRecap, buildMachineSummary, validateRecapFormats,
+  QUICK_RECAP_MAX, QUICK_RECAP_MIN, STANDARD_RECAP_MAX, STANDARD_RECAP_MIN,
+  type RecapFormats,
+} from '../recaps/recapFormats';
+import { countChineseCharacters } from '../shared/publicText';
 import { applyArcPortfolioControl, type ArcPortfolioEntry } from '../story/portfolio';
 import { createArcResolutionDecision, detectArcStagnation, type ArcResolutionDecision } from '../story/resolution';
 import { deriveConsequenceSummaries, type ConsequenceSummary } from '../story/consequenceSummary';
@@ -87,12 +96,15 @@ import {
   createPostCommitStageHandlers,
   deriveArcClassification,
   deriveRecapRequests,
+  deriveRecapTargets,
+  seasonOf,
   episodeNumberFor,
   newArcPortfolioEntry,
   nextArcProjectionFields,
   overflowRemediation,
   postCommitRunId,
   publicRelationshipPairs,
+  recapCursorOf,
   recapTargetKey,
   type ArcArtifact,
   type EpisodeArtifact,
@@ -291,24 +303,69 @@ describe('episode numbering and recap windows', () => {
     expect(episodeNumberFor([0, 1], 5)).toBeNull();
   });
 
+  const recapState = (): PostCommitWorldState => ({
+    event: acceptedEventFixture({ sequenceNumber: 7, worldDay: 2 } as Partial<AcceptedEvent>),
+    worldDayFirstSequenceNumber: 5, timeSlotFirstSequenceNumber: 6, seasonFirstSequenceNumber: 5,
+  } as PostCommitWorldState);
+
+  /**
+   * FR-G002 declares five levels. Before ART-164 this derivation emitted two, so `scene`, `arc`
+   * and `season` summaries existed for no world. The literal list is written out rather than
+   * derived from `RECAP_TYPES` on purpose: deriving the expectation from the same constant the
+   * code reads would let both drift together and still agree.
+   */
+  it('drives all five pyramid levels, each from its own origin', () => {
+    const targets = deriveRecapTargets(recapState(), ['arc-b', 'arc-a']);
+    expect(targets.map(({ recapType }) => recapType)).toEqual(['scene', 'episode', 'arc', 'arc', 'season', 'viewer_context']);
+    expect(targets.map(({ targetId }) => targetId)).toEqual([
+      'slot:2:morning', 'day:2', 'arc:arc-a', 'arc:arc-b', 'season:0', WORLD_ID,
+    ]);
+    // Each level starts where that level starts, not where the day does.
+    expect(targets.map(({ start }) => start)).toEqual([6, 5, 0, 0, 5, 0]);
+    // Only the arc tier is selective, and it carries the arc it selects by.
+    expect(targets.map(({ arcId }) => arcId ?? null)).toEqual([null, null, 'arc-a', 'arc-b', null, null]);
+  });
+
+  it('asks only for the arcs the event moved, so a quiet arc appends no empty version', () => {
+    expect(deriveRecapTargets(recapState(), []).some(({ recapType }) => recapType === 'arc')).toBe(false);
+  });
+
+  it('files a world day into a fixed season window, so a replay cannot re-file it', () => {
+    expect([0, 9, 10, 29].map(seasonOf)).toEqual([0, 0, 1, 2]);
+  });
+
+  /**
+   * The cursor rule, pinned on its own. Every port reads it through `recapCursorOf`, and the two
+   * candidate answers COINCIDE for almost every live snapshot — a selective snapshot is normally
+   * written by the event that is itself the arc's newest progress. So a pipeline test cannot tell
+   * the rules apart, and a wrong one would survive a full run. Only the diverging case does.
+   */
+  it('resumes a selective tier from the range it examined, not from its newest match', () => {
+    expect(recapCursorOf({ sourceToSequenceNumber: 4, sourceScope: { toSequenceNumber: 9 } })).toBe(9);
+    // A contiguous tier has no scope, and there the last event IS the end of the range.
+    expect(recapCursorOf({ sourceToSequenceNumber: 4, sourceScope: null })).toBe(4);
+  });
+
   it('opens a day recap at the day boundary and a world recap at sequence zero', () => {
-    const state = {
-      event: acceptedEventFixture({ sequenceNumber: 7, worldDay: 2 } as Partial<AcceptedEvent>),
-      worldDayFirstSequenceNumber: 5, recapCursors: {},
-    } as PostCommitWorldState;
-    expect(deriveRecapRequests(state)).toEqual([
+    const state = recapState();
+    const requests = deriveRecapRequests(state.event, deriveRecapTargets(state, []), {});
+    expect(requests).toEqual([
+      { snapshotId: `recap:${WORLD_ID}:scene:slot:2:morning:7`, recapType: 'scene', targetId: 'slot:2:morning', fromSequenceNumber: 6, toSequenceNumber: 7 },
       { snapshotId: `recap:${WORLD_ID}:episode:day:2:7`, recapType: 'episode', targetId: 'day:2', fromSequenceNumber: 5, toSequenceNumber: 7 },
+      { snapshotId: `recap:${WORLD_ID}:season:season:0:7`, recapType: 'season', targetId: 'season:0', fromSequenceNumber: 5, toSequenceNumber: 7 },
       { snapshotId: `recap:${WORLD_ID}:viewer_context:${WORLD_ID}:7`, recapType: 'viewer_context', targetId: WORLD_ID, fromSequenceNumber: 0, toSequenceNumber: 7 },
     ]);
   });
 
   it('continues from the stored cursor and skips a target already covered', () => {
-    const state = {
-      event: acceptedEventFixture({ sequenceNumber: 7, worldDay: 2 } as Partial<AcceptedEvent>),
-      worldDayFirstSequenceNumber: 5,
-      recapCursors: { [recapTargetKey('episode', 'day:2')]: 6, [recapTargetKey('viewer_context', WORLD_ID)]: 7 },
-    } as PostCommitWorldState;
-    expect(deriveRecapRequests(state)).toEqual([
+    const state = recapState();
+    const requests = deriveRecapRequests(state.event, deriveRecapTargets(state, []), {
+      [recapTargetKey('scene', 'slot:2:morning')]: 7,
+      [recapTargetKey('episode', 'day:2')]: 6,
+      [recapTargetKey('season', 'season:0')]: 7,
+      [recapTargetKey('viewer_context', WORLD_ID)]: 7,
+    });
+    expect(requests).toEqual([
       { snapshotId: `recap:${WORLD_ID}:episode:day:2:7`, recapType: 'episode', targetId: 'day:2', fromSequenceNumber: 7, toSequenceNumber: 7 },
     ]);
   });
@@ -553,6 +610,9 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
   const arcs = new Map<string, ArcRecord>();
   const classifications = new Map<number, ArcEventClassification>();
   const portfolio: ArcPortfolioEntry[] = [];
+  const recapFormats = new Map<number, { status: 'ready' | 'failed'; episodeNumber: number; deduplicated: boolean; errorCode?: string }>();
+  const storedRecapFormats = new Map<number, { formats: RecapFormats; composition: RecapComposition }>();
+  const coverageReports = new Map<number, { releasable: boolean; findingCodes: string[] }>();
   const resolutionDecisions: ArcResolutionDecision[] = [];
   const consequenceSummaries = new Map<string, ConsequenceSummary>();
   const episodes = new Map<number, { status: string; episodeNumber: number; episode?: DailyEpisode; safetyClassificationId: string | null }>();
@@ -602,11 +662,6 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
       const latestWorldDay = days[days.length - 1];
       const completed = days.filter((day) => day < latestWorldDay
         || all.some((candidate) => candidate.worldDay === day && candidate.timeSlot === TIME_SLOTS[TIME_SLOTS.length - 1]));
-      const recapCursors: Record<string, number> = {};
-      for (const snapshot of recaps) {
-        const key = recapTargetKey(snapshot.recapType, snapshot.targetId);
-        recapCursors[key] = Math.max(recapCursors[key] ?? -1, snapshot.sourceToSequenceNumber);
-      }
       return Promise.resolve({
         event,
         arcs: [...arcs.values()].map((record): LiveArcState => ({
@@ -626,8 +681,12 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
         episodeWorldDays: [...episodes.keys()],
         worldDayFirstSequenceNumber: all.filter(({ worldDay }) => worldDay === event.worldDay)
           .reduce((lowest, candidate) => Math.min(lowest, candidate.sequenceNumber), event.sequenceNumber),
+        timeSlotFirstSequenceNumber: all
+          .filter(({ worldDay, timeSlot }) => worldDay === event.worldDay && timeSlot === event.timeSlot)
+          .reduce((lowest, candidate) => Math.min(lowest, candidate.sequenceNumber), event.sequenceNumber),
+        seasonFirstSequenceNumber: all.filter(({ worldDay }) => worldDay === event.worldDay)
+          .reduce((lowest, candidate) => Math.min(lowest, candidate.sequenceNumber), event.sequenceNumber),
         latestWorldDay,
-        recapCursors,
       });
     },
 
@@ -777,14 +836,86 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
       const existing = recaps.find(({ id }) => id === request.snapshotId);
       if (existing) return Promise.resolve({ snapshotId: existing.id, deduplicated: true });
       const prior = recaps.filter(({ recapType, targetId }) => recapType === request.recapType && targetId === request.targetId).at(-1) ?? null;
+      const inRange = ({ sequenceNumber }: { sequenceNumber: number }): boolean =>
+        sequenceNumber >= request.fromSequenceNumber && sequenceNumber <= request.toSequenceNumber;
+      // ART-164: the `arc` tier is SELECTIVE — the events that moved that arc's projection, read
+      // from the arc's own revision list, exactly as the deployment reads them.
+      if (request.arcId !== undefined) {
+        const moved = new Set((arcs.get(request.arcId)?.projections ?? [])
+          .map(({ sourceEventSequenceNumber }) => sourceEventSequenceNumber)
+          .filter((sequenceNumber) => inRange({ sequenceNumber })));
+        const acceptedEvents = events().filter(({ sequenceNumber }) => moved.has(sequenceNumber));
+        if (acceptedEvents.length === 0) return Promise.resolve({ snapshotId: null, deduplicated: false });
+        const arcSnapshot = buildRecapSnapshot({
+          id: request.snapshotId, worldId, recapType: request.recapType, targetId: request.targetId, prior,
+          acceptedEvents, mode: 'incremental', generatedAt: now,
+          sourceScope: { fromSequenceNumber: request.fromSequenceNumber, toSequenceNumber: request.toSequenceNumber },
+        });
+        recaps.push(arcSnapshot);
+        return Promise.resolve({ snapshotId: arcSnapshot.id, deduplicated: false });
+      }
       const snapshot = buildRecapSnapshot({
         id: request.snapshotId, worldId, recapType: request.recapType, targetId: request.targetId, prior,
-        acceptedEvents: events().filter(({ sequenceNumber }) =>
-          sequenceNumber >= request.fromSequenceNumber && sequenceNumber <= request.toSequenceNumber),
+        acceptedEvents: events().filter(inRange),
         mode: 'incremental', generatedAt: now,
       });
       recaps.push(snapshot);
       return Promise.resolve({ snapshotId: snapshot.id, deduplicated: false });
+    },
+
+    loadRecapCursors(_worldId, targets) {
+      const cursors: Record<string, number> = {};
+      for (const { recapType, targetId } of targets) {
+        const latest = recaps.filter((snapshot) =>
+          snapshot.recapType === recapType && snapshot.targetId === targetId).at(-1);
+        if (latest) {
+          cursors[recapTargetKey(recapType, targetId)] = recapCursorOf(latest);
+        }
+      }
+      return Promise.resolve(cursors);
+    },
+
+    /**
+     * ART-164. The REAL composer and the REAL length validation, in memory.
+     *
+     * A double that returned `ready` without composing would let the 30-day gate report four
+     * recap formats per episode while the deployment refused every one of them on the Quick
+     * Recap's 80 中文字 floor.
+     */
+    generateRecapFormats(_worldId, worldDay) {
+      const prior = recapFormats.get(worldDay);
+      if (prior) return Promise.resolve({ ...prior, deduplicated: true });
+      const episodeRow = episodes.get(worldDay);
+      if (!episodeRow?.episode) {
+        const outcome = { status: 'failed' as const, episodeNumber: episodeRow?.episodeNumber ?? 0, deduplicated: false, errorCode: 'RECAP_EPISODE_NOT_PUBLISHABLE' };
+        recapFormats.set(worldDay, outcome);
+        return Promise.resolve(outcome);
+      }
+      const dayEvents = events().filter((event) => event.worldDay === worldDay);
+      try {
+        const composed = composeRecaps(episodeRow.episode, dayEvents);
+        const formats = validateRecapFormats({
+          schemaVersion: 1, quickRecap: composed.quickRecap, standardRecap: composed.standardRecap,
+          deepRecap: buildDeepRecap(dayEvents),
+          machineSummary: buildMachineSummary(dayEvents, {
+            newQuestions: [...episodeRow.episode.newQuestions],
+            resolvedQuestions: [...episodeRow.episode.resolvedQuestions],
+            storyArcProgress: episodeRow.episode.arcIds.map((arcId) => ({
+              arcId, progress: `第 ${episodeRow.episodeNumber} 集推進了這條故事線。`,
+            })),
+          }),
+          sourceEventIds: composed.sourceEventIds,
+        }, dayEvents);
+        storedRecapFormats.set(worldDay, { formats, composition: composed.composition });
+        const outcome = { status: 'ready' as const, episodeNumber: episodeRow.episodeNumber, deduplicated: false };
+        recapFormats.set(worldDay, outcome);
+        return Promise.resolve(outcome);
+      } catch (error) {
+        const errorCode = (error as { code?: string }).code ?? 'RECAP_FORMAT_GENERATION_FAILED';
+        const outcome = { status: 'failed' as const, episodeNumber: episodeRow.episodeNumber, deduplicated: false, errorCode };
+        recapFormats.set(worldDay, outcome);
+        return Promise.resolve(outcome);
+      }
     },
 
     loadEpisodeStatus(_worldId, worldDay) {
@@ -836,6 +967,38 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
       const next = transitionPublication(record, action, ACTOR, 'test', now);
       publications.set(contentRef, next);
       return Promise.resolve({ status: next.status });
+    },
+
+    /**
+     * ART-164. The REAL FR-G004 gate over in-memory state.
+     *
+     * `validateRecapCoverage`, `episodeCandidate` and `toCoverageSource` are the same functions
+     * the deployment runs; a double that returned `releasable: true` would let the 30-day gate
+     * report zero spoiler violations for a pipeline that never checked for one.
+     */
+    runCoverageGate(_worldId, worldDay, contentRef) {
+      const episodeRow = episodes.get(worldDay);
+      if (!episodeRow?.episode) {
+        coverageReports.set(worldDay, { releasable: false, findingCodes: ['COVERAGE_INVALID_SHAPE'] });
+        return Promise.resolve({ releasable: false, findingCodes: ['COVERAGE_INVALID_SHAPE'] });
+      }
+      const memberships = membershipsBySequence();
+      const turningPoints = new Map<string, string[]>();
+      for (const entry of classifications.values()) {
+        turningPoints.set(entry.sourceEventId, entry.memberships
+          .filter(({ role }) => role === 'turning_point').map(({ arcId }) => arcId));
+      }
+      const sources = events().map((event) => toCoverageSource(
+        event,
+        (memberships.get(event.sequenceNumber) ?? []).reduce((max, m) => Math.max(max, m.importance), 0),
+        turningPoints.get(event.eventId) ?? [],
+      ));
+      const report = validateRecapCoverage(
+        episodeCandidate(WORLD_ID, contentRef, episodeRow.episode, sources), sources, [],
+      );
+      const findingCodes = [...new Set(report.findings.map(({ code }) => code))];
+      coverageReports.set(worldDay, { releasable: report.releasable, findingCodes });
+      return Promise.resolve({ releasable: report.releasable, findingCodes });
     },
 
     reassessArcEntries(worldId) {
@@ -998,7 +1161,7 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
 
   return {
     port, arcs, portfolio, episodes, recaps, publications, shareFormats, shareFormatCopy, rebuilt,
-    resolutionDecisions, consequenceSummaries,
+    resolutionDecisions, consequenceSummaries, coverageReports, recapFormats, storedRecapFormats,
   };
 }
 
@@ -1215,6 +1378,312 @@ describe('live post-commit pipeline over real world-day commits (AC#1/#2/#3/#4)'
     expect(snapshot.snapshotId).toBeNull();
     expect(snapshot.errorCode).toBe('POST_COMMIT_STAGE_FAILED');
     expect(snapshot.errorMessage).toContain('SNAPSHOT_CORRUPT');
+  });
+});
+
+/**
+ * ART-164 FR-G004. Before this task both coverage-gate functions had zero production callers, so
+ * an Episode that omitted a high-importance Accepted Event, or leaked an unreleased secret into
+ * its public copy, walked to `ready` unchallenged.
+ *
+ * These tests are about the GATE BEING WIRED, which is the thing that was missing —
+ * `coverageValidation.test.ts` already covers what counts as a violation.
+ */
+/**
+ * ART-164 FR-G002. `deriveRecapTargets` proves which levels are ASKED for; this proves the live
+ * pipeline actually produces them, and that the selective tier stays incremental as canon grows.
+ */
+/**
+ * ART-164 FR-G003. `buildDeepRecap`, `buildMachineSummary` and `validateRecapFormats` were built,
+ * tested and called by nothing, and no table stored their output — so Quick / Standard / Deep /
+ * Machine Summary existed for no episode any running world produced.
+ *
+ * These tests are therefore about the LIVE PATH producing them. `recapComposition.test.ts` and
+ * `recapFormats.test.ts` cover what the artifacts must contain.
+ */
+describe('the four FR-G003 recap formats from the live path', () => {
+  it('produces and persists all four formats for every episode a world day completes', async () => {
+    const canon = seededCanon();
+    const harness = createLivePostCommitPort(canon, new MemoryReadStore());
+    const runStore = new MemoryPostCommitStore();
+    await runWorldDays(canon, 3, () => []);
+    const runs = await runPostCommitForAll(canon, harness.port, runStore);
+    expect(runs.every(({ status }) => status === 'completed')).toBe(true);
+
+    const readyEpisodeDays = [...harness.episodes.entries()]
+      .filter(([, row]) => row.status === 'ready' && row.episode).map(([worldDay]) => worldDay);
+    expect(readyEpisodeDays.length).toBeGreaterThan(0);
+    // Every completed episode has formats. Not "at least one" — the acceptance criterion is that
+    // no episode ships without them.
+    // eslint-disable-next-line no-console
+    expect(readyEpisodeDays.every((worldDay) => harness.recapFormats.get(worldDay)?.status === 'ready')).toBe(true);
+
+    const acceptedIds = new Set(canon.committedEvents().map(({ eventId }) => eventId));
+    for (const worldDay of readyEpisodeDays) {
+      const stored = harness.storedRecapFormats.get(worldDay);
+      expect(stored).toBeDefined();
+      const { formats } = stored as { formats: RecapFormats };
+      expect(countChineseCharacters(formats.quickRecap)).toBeGreaterThanOrEqual(QUICK_RECAP_MIN);
+      expect(countChineseCharacters(formats.quickRecap)).toBeLessThanOrEqual(QUICK_RECAP_MAX);
+      expect(countChineseCharacters(formats.standardRecap)).toBeGreaterThanOrEqual(STANDARD_RECAP_MIN);
+      expect(countChineseCharacters(formats.standardRecap)).toBeLessThanOrEqual(STANDARD_RECAP_MAX);
+      expect(formats.deepRecap.length).toBeGreaterThan(0);
+      // All seven Machine Summary fields FR-G003 names, present on the live artifact.
+      expect(Object.keys(formats.machineSummary).sort()).toEqual([
+        'newQuestions', 'requiredPriorFacts', 'resolvedQuestions', 'schemaVersion',
+        'storyArcProgress', 'whatChanged', 'whoIsAffected', 'whyItHappened',
+      ]);
+      // Provenance resolves to canon, so no recap claims an event the world never accepted.
+      expect(formats.sourceEventIds.length).toBeGreaterThan(0);
+      expect(formats.sourceEventIds.every((eventId) => acceptedIds.has(eventId))).toBe(true);
+    }
+
+    // And the pipeline records the outcome on its own artifact, so a failure is queryable rather
+    // than only visible as a missing row.
+    const recorded = runStore.checkpoints
+      .filter((row) => row.stage === 'episode' && row.status === 'completed')
+      .flatMap((row) => (row.artifact as EpisodeArtifact).recapFormats);
+    expect(recorded.length).toBeGreaterThan(0);
+    expect(recorded.some(({ status }) => status === 'ready')).toBe(true);
+  });
+
+  it('never gives one episode two conflicting sets of formats', async () => {
+    const canon = seededCanon();
+    const harness = createLivePostCommitPort(canon, new MemoryReadStore());
+    await runWorldDays(canon, 2, () => []);
+    await runPostCommitForAll(canon, harness.port, new MemoryPostCommitStore());
+    const first = new Map([...harness.storedRecapFormats.entries()]
+      .map(([day, value]) => [day, JSON.stringify(value.formats)]));
+    expect(first.size).toBeGreaterThan(0);
+
+    // A full replay: the run store is fresh, so every stage re-executes rather than resuming.
+    await runPostCommitForAll(canon, harness.port, new MemoryPostCommitStore());
+    expect(harness.storedRecapFormats.size).toBe(first.size);
+    for (const [day, serialized] of first) {
+      expect(JSON.stringify(harness.storedRecapFormats.get(day)?.formats)).toBe(serialized);
+    }
+  });
+});
+
+describe('the recap pyramid over real world-day commits (FR-G002)', () => {
+  it('produces all five levels, and the arc level summarises only that arc', async () => {
+    const canon = seededCanon();
+    const harness = createLivePostCommitPort(canon, new MemoryReadStore());
+    await runWorldDays(canon, 3, () => []);
+    const runs = await runPostCommitForAll(canon, harness.port, new MemoryPostCommitStore());
+    expect(runs.every(({ status }) => status === 'completed')).toBe(true);
+
+    expect([...new Set(harness.recaps.map(({ recapType }) => recapType))].sort())
+      .toEqual(['arc', 'episode', 'scene', 'season', 'viewer_context']);
+
+    const arcSnapshots = harness.recaps.filter(({ recapType }) => recapType === 'arc');
+    expect(arcSnapshots.length).toBeGreaterThan(0);
+    for (const snapshot of arcSnapshots) {
+      const arcId = snapshot.targetId.replace(/^arc:/, '');
+      const moved = new Set((harness.arcs.get(arcId)?.projections ?? [])
+        .map(({ sourceEventSequenceNumber }) => sourceEventSequenceNumber));
+      const cited = snapshot.structuredPayload.newEventIds
+        .map((eventId) => canon.committedEvents().find((event) => event.eventId === eventId));
+      expect(cited.every((event) => event !== undefined)).toBe(true);
+      // Every event the arc summary claims moved this arc actually did. Without this an arc
+      // summary is a world summary wearing an arc's name — which is what summarising the whole
+      // contiguous range would have produced.
+      expect(cited.every((event) => moved.has((event as AcceptedEvent).sequenceNumber))).toBe(true);
+    }
+  });
+
+  it('keeps every tier incremental: scopes and ranges tile with no gap and no overlap', async () => {
+    const canon = seededCanon();
+    const harness = createLivePostCommitPort(canon, new MemoryReadStore());
+    await runWorldDays(canon, 3, () => []);
+    await runPostCommitForAll(canon, harness.port, new MemoryPostCommitStore());
+
+    const byTarget = new Map<string, RecapSnapshot[]>();
+    for (const snapshot of harness.recaps) {
+      const key = recapTargetKey(snapshot.recapType, snapshot.targetId);
+      byTarget.set(key, [...(byTarget.get(key) ?? []), snapshot]);
+    }
+    const withHistory = [...byTarget.values()].filter((versions) => versions.length > 1);
+    expect(withHistory.length).toBeGreaterThan(0);
+
+    for (const versions of withHistory) {
+      for (let index = 1; index < versions.length; index += 1) {
+        const previous = versions[index - 1];
+        const current = versions[index];
+        expect(current.version).toBe(previous.version + 1);
+        if (current.sourceScope === null) {
+          // A contiguous tier records its delta directly: the first new event must be exactly one
+          // past where the previous version stopped — nothing re-read, nothing skipped.
+          const firstNew = canon.committedEvents()
+            .find(({ eventId }) => eventId === current.structuredPayload.newEventIds[0]);
+          expect(firstNew?.sequenceNumber).toBe(recapCursorOf(previous) + 1);
+        } else {
+          /**
+           * A selective tier records CUMULATIVE coverage, so its per-version delta start is not
+           * recoverable from the snapshot — deliberately, because the useful claim is "this range
+           * has been examined end to end", not "this version looked at these five events".
+           *
+           * What is checkable here is that coverage only ever extends: the start never moves, and
+           * the watermark strictly advances. That a version may not begin with a gap is enforced
+           * at construction and proven in `recaps/model.test.ts`; asserting it again off a shape
+           * that does not carry it would be a test of my own arithmetic.
+           */
+          expect(current.sourceScope.fromSequenceNumber).toBe(previous.sourceScope?.fromSequenceNumber);
+          expect(current.sourceScope.toSequenceNumber).toBeGreaterThan(previous.sourceScope!.toSequenceNumber);
+        }
+      }
+    }
+  });
+});
+
+describe('coverage and spoiler gate as a publication precondition (FR-G004)', () => {
+  it('runs the real gate for every day that produced an episode, and records its verdict', async () => {
+    const canon = seededCanon();
+    const harness = createLivePostCommitPort(canon, new MemoryReadStore());
+    const runStore = new MemoryPostCommitStore();
+    await runWorldDays(canon, 2, () => []);
+    const runs = await runPostCommitForAll(canon, harness.port, runStore);
+    expect(runs.every(({ status }) => status === 'completed')).toBe(true);
+
+    /**
+     * The invariant is that NO publication is created without a verdict — deliberately not "every
+     * episode has a verdict". Stage 18 only ever acts on the latest episode of a run, so a run
+     * that completes two world days at once publishes only the later one. That is pre-existing
+     * behaviour this task did not change, and asserting the stronger claim here would make this
+     * test a report on that gap rather than evidence about the gate.
+     */
+    expect(harness.coverageReports.size).toBe(harness.publications.size);
+    expect(harness.coverageReports.size).toBeGreaterThan(0);
+
+    // And the pipeline carries it on its artifact, so "was this checked?" is answerable from the
+    // run record rather than only from the gate's own table.
+    const publicationArtifacts = runStore.checkpoints
+      .filter((row) => row.stage === 'publication' && row.status === 'completed')
+      .map((row) => row.artifact as PublicationArtifact)
+      .filter(({ contentRef }) => contentRef !== null);
+    expect(publicationArtifacts.length).toBeGreaterThan(0);
+    expect(publicationArtifacts.every(({ coverageReleasable }) => typeof coverageReleasable === 'boolean')).toBe(true);
+  });
+
+  it('refuses publication on a coverage finding: no validate, no read model, no canon write', async () => {
+    const canon = seededCanon();
+    const readStore = new MemoryReadStore();
+    const harness = createLivePostCommitPort(canon, readStore);
+    const runStore = new MemoryPostCommitStore();
+    await runWorldDays(canon, 1, () => []);
+    const canonBefore = JSON.stringify(canon.committedEvents());
+
+    const refusing: PostCommitLivePort = {
+      ...harness.port,
+      runCoverageGate: () => Promise.resolve({
+        releasable: false, findingCodes: ['COVERAGE_HIGH_IMPORTANCE_OMITTED'],
+      }),
+    };
+    const runs: PostCommitRun[] = [];
+    for (const event of canon.committedEvents()) {
+      runs.push(await executePostCommitPipeline({
+        runId: postCommitRunId(WORLD_ID, event.sequenceNumber), worldId: WORLD_ID,
+        sourceEventId: event.eventId, sourceEventSequenceNumber: event.sequenceNumber,
+        worldDay: event.worldDay,
+      }, runStore, createPostCommitStageHandlers(refusing), event.traceId));
+    }
+
+    // The refusal is not a pipeline failure: the stages after publication still have to run, or a
+    // coverage finding would stop a safety withhold from reaching the public surface.
+    expect(runs.every(({ status }) => status === 'completed')).toBe(true);
+
+    const artifacts = runStore.checkpoints
+      .filter((row) => row.stage === 'publication' && row.status === 'completed')
+      .map((row) => row.artifact as PublicationArtifact)
+      .filter(({ contentRef }) => contentRef !== null);
+    expect(artifacts.length).toBeGreaterThan(0);
+    // Never validated, so it is stranded at `generated` — whose only legal action is `validate`.
+    expect(artifacts.every(({ publicationStatus }) => publicationStatus === 'generated')).toBe(true);
+    expect(artifacts.every(({ coverageReleasable }) => coverageReleasable === false)).toBe(true);
+    // The reason is queryable rather than an unexplained absence of a publication.
+    expect(artifacts.every(({ coverageFindingCodes }) =>
+      coverageFindingCodes.includes('COVERAGE_HIGH_IMPORTANCE_OMITTED'))).toBe(true);
+
+    for (const record of harness.publications.values()) {
+      expect(record.status).toBe('generated');
+    }
+    /**
+     * The refused copy never reaches the public surface.
+     *
+     * Keyed on the model REF, not the kind: `EPISODE_MODEL_KIND` and `EPISODE_INDEX_MODEL_KIND`
+     * are both the string `'episode'`, and only the ref (`episode:<day>` vs `episodes:<world>`)
+     * tells the day's copy from the index that merely lists days. A kind-only assertion fails on
+     * the index and would have looked like proof.
+     */
+    const episodeCopyRows = readStore.rows.filter(({ modelKind, modelRef }) =>
+      modelKind === EPISODE_MODEL_KIND && /^episode:\d+$/.test(modelRef));
+    expect(episodeCopyRows).toHaveLength(0);
+    // And a gate is a read: it decides about derived content and touches no Accepted Event.
+    expect(JSON.stringify(canon.committedEvents())).toBe(canonBefore);
+  });
+
+  /**
+   * The two tests above prove the gate is CALLED and that a refusal is honoured. Neither would
+   * fail if the bound gate were an optimistic double that always answered `releasable: true` —
+   * which is exactly how a pipeline ends up reporting zero violations without ever having looked
+   * for one. This test induces a genuine violation in the live artifact and requires the REAL
+   * validator to find it.
+   *
+   * The violation is a broken provenance claim: an Episode citing an event that is not in the
+   * accepted source set. That is decided from PROVENANCE METADATA — the cited IDs against canon —
+   * not by scanning the final text for keywords, which is the distinction FR-G004 turns on.
+   */
+  it('refuses a real violation found by the real validator, not by an optimistic double', async () => {
+    const canon = seededCanon();
+    const readStore = new MemoryReadStore();
+    const harness = createLivePostCommitPort(canon, readStore);
+    const runStore = new MemoryPostCommitStore();
+    await runWorldDays(canon, 3, () => []);
+    const committed = canon.committedEvents();
+
+    const leaking: PostCommitLivePort = {
+      ...harness.port,
+      async generateEpisode(worldId, worldDay, episodeNumber) {
+        const result = await harness.port.generateEpisode(worldId, worldDay, episodeNumber);
+        const row = harness.episodes.get(worldDay);
+        if (row?.episode && !result.deduplicated) {
+          // A defective Episode builder: it claims an event canon never accepted. Injected AFTER
+          // generation, so the Episode's own secret gate has already run and passed — the point is
+          // that this later gate catches what the earlier one does not look for.
+          row.episode = {
+            ...row.episode,
+            sourceEventIds: [...row.episode.sourceEventIds, `${WORLD_ID}#event#never-accepted`],
+          };
+        }
+        return result;
+      },
+    };
+
+    const runs: PostCommitRun[] = [];
+    for (const event of committed) {
+      runs.push(await executePostCommitPipeline({
+        runId: postCommitRunId(WORLD_ID, event.sequenceNumber), worldId: WORLD_ID,
+        sourceEventId: event.eventId, sourceEventSequenceNumber: event.sequenceNumber,
+        worldDay: event.worldDay,
+      }, runStore, createPostCommitStageHandlers(leaking), event.traceId));
+    }
+    expect(runs.every(({ status }) => status === 'completed')).toBe(true);
+
+    const artifacts = runStore.checkpoints
+      .filter((row) => row.stage === 'publication' && row.status === 'completed')
+      .map((row) => row.artifact as PublicationArtifact)
+      .filter(({ contentRef }) => contentRef !== null);
+    expect(artifacts.length).toBeGreaterThan(0);
+    expect(artifacts.some(({ coverageFindingCodes }) =>
+      coverageFindingCodes.includes('COVERAGE_SOURCE_NOT_ACCEPTED'))).toBe(true);
+    // Every episode carries the false claim, so none of them may be released.
+    expect(artifacts.every(({ coverageReleasable }) => coverageReleasable === false)).toBe(true);
+    expect(artifacts.every(({ publicationStatus }) => publicationStatus === 'generated')).toBe(true);
+    const episodeCopyRows = readStore.rows.filter(({ modelKind, modelRef }) =>
+      modelKind === EPISODE_MODEL_KIND && /^episode:\d+$/.test(modelRef));
+    expect(episodeCopyRows).toHaveLength(0);
+    // Outreach copy is public copy: a refused episode must not get share formats either.
+    expect(harness.shareFormats.size).toBe(0);
   });
 });
 

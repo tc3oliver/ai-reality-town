@@ -37,10 +37,26 @@ const THIRTY_DAY_SLOTS = 30 * TIME_SLOTS.length;
 const FORMERLY_STARVED_CHARACTER_IDS = ['lin-yingxue', 'su-meizhen', 'luo-shan', 'tang-ruoxi', 'wu-zhen'];
 
 /**
- * Distinct scene texts the fake author can produce over this seed's cast and locations.
- * Measured, not chosen: both the 7-day and the 30-day run land on exactly this many.
+ * Distinct scene texts the fake author produces over this seed's cast and locations, per run
+ * length. Measured, not chosen.
+ *
+ * It was ONE number until ART-164, because the author's output space was small enough that both
+ * run lengths saturated it: 12 texts before ART-101 un-stranded the cast, 32 after. ART-164's
+ * zh-Hant narrator gives a scene a deterministic outcome, stake and per-participant stances as
+ * well as a place and a subject, and the space is no longer saturated at seven days — so the two
+ * lengths legitimately differ and a single constant would have to be wrong for one of them.
+ *
+ * The widening is a SIDE EFFECT of making the fixture carry a normal scene's worth of information,
+ * which FR-G003's 400 中文字 Standard Recap requires. It is not a fix for FINDING 2: the author is
+ * still a template, and the duplication below is still its ceiling.
+ *
+ * Writing the fixture also exposed a real defect in it. Spelling out every participant's stance
+ * pushed a large-cast summary past `MAX_PUBLIC_SUMMARY_LENGTH`, and the clamp cut the tail where
+ * the scene's outcome lived, so two different scenes at one location truncated to the same text.
+ * The measured distinct count FELL from 46 to 41. Ordering the sentence outcome-first and dropping
+ * the participant roll-call — which the stances already name — took it to 91.
  */
-const DISTINCT_SCENE_TEXTS = 32;
+const DISTINCT_SCENE_TEXTS: Record<number, number> = { 7: 91, 30: 171 };
 
 /** Asserts every NFR-007 property that the fixed seed satisfies cleanly. */
 function expectCleanRun(findings: LongRunFindings, worldDays: number): void {
@@ -105,7 +121,15 @@ function expectCleanRun(findings: LongRunFindings, worldDays: number): void {
   expect(findings.recapCoverage.emptyEpisodes).toEqual([]);
   // FR-G004 (ART-35) found no coverage gap and no spoiler in any released episode.
   expect(findings.recapCoverage.coverageFindings).toEqual([]);
-  expect(findings.recapCoverage.recapTypes).toEqual(['episode', 'viewer_context']);
+  /**
+   * FR-G002 (ART-34/ART-164) — all five declared pyramid levels ran, not two.
+   *
+   * This asserted `['episode', 'viewer_context']` until ART-164, which was an accurate record of a
+   * defect: `scene`, `arc` and `season` were declared in `RECAP_TYPES`, implemented in the model,
+   * and emitted by nothing, so they existed for no world. The old expectation is what a live run
+   * actually produced, so it passed for years while three levels of the pyramid were dead.
+   */
+  expect(findings.recapCoverage.recapTypes).toEqual(['arc', 'episode', 'scene', 'season', 'viewer_context']);
 
   // Token accounting: wired, internally sane, and honestly scoped to the fake provider.
   expect(findings.tokens.providers).toEqual(['fake']);
@@ -156,16 +180,19 @@ function expectKnownFindings(findings: LongRunFindings, worldDays: number): void
   expect(findings.arcs.activeMajorByWorldDay.filter((count) => count > 0).every((count) => count === MAX_MAJOR_ACTIVE_ARCS)).toBe(true);
 
   // FINDING 2 — content repetition. The fake author's template output space still collapses
-  // the run onto a small set of distinct scene texts. ART-101's un-stranded cast widened it
-  // from twelve to thirty-two (30-day duplicate rate 97.3% → 92.9%), which is an improvement
-  // but not a fix: the remaining duplication is the no-cost author, not the Director, and is
-  // deferred to the ART-72 provider.
-  expect(findings.repetition.distinctContentDigests).toBe(DISTINCT_SCENE_TEXTS);
-  expect(findings.repetition.duplicateScenes).toBe(findings.repetition.scenes - DISTINCT_SCENE_TEXTS);
+  // the run onto a small set of distinct scene texts. ART-101's un-stranded cast widened it from
+  // twelve to thirty-two, and ART-164's zh-Hant narrator from thirty-two to forty-six. Both are
+  // improvements and neither is a fix: the remaining duplication is the no-cost author, not the
+  // Director, and is deferred to the ART-72 provider. A template with more slots has a larger
+  // output space and is still a template.
+  const distinct = DISTINCT_SCENE_TEXTS[worldDays];
+  expect(distinct).toBeDefined();
+  expect(findings.repetition.distinctContentDigests).toBe(distinct);
+  expect(findings.repetition.duplicateScenes).toBe(findings.repetition.scenes - distinct);
   expect(findings.repetition.duplicateGroups.length).toBeGreaterThan(0);
   // Every duplicate group is a repeat of one of those texts; nothing is unaccounted for.
   expect(findings.repetition.duplicateGroups.reduce((total, { sceneIds }) => total + sceneIds.length, 0))
-    .toBe(findings.repetition.scenes - (DISTINCT_SCENE_TEXTS - findings.repetition.duplicateGroups.length));
+    .toBe(findings.repetition.scenes - (distinct - findings.repetition.duplicateGroups.length));
 }
 
 describe('NFR-007 fixed-seed 7-day simulation (AC#1/#3)', () => {

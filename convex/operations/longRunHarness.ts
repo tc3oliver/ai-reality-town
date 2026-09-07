@@ -78,6 +78,9 @@ import { deriveConsequenceSummaries, type ConsequenceSummary } from '../story/co
 import { applyArcPortfolioControl, MAX_MAJOR_ACTIVE_ARCS,
   MAX_MINOR_ACTIVE_ARCS, type ArcPortfolioEntry } from '../story/portfolio';
 import { replayArcProjection } from '../story/projection';
+import { composeRecaps, type RecapComposition } from '../recaps/recapComposition';
+import { episodeCandidate, toCoverageSource } from '../recaps/coverageValidationFunctions';
+import { buildDeepRecap, buildMachineSummary, validateRecapFormats, type RecapFormats } from '../recaps/recapFormats';
 import { detectArcStagnation, ARC_STAGNATION_WORLD_DAYS } from '../story/resolution';
 import { recommendArcEntry } from '../story/entryRecommendation';
 import type { ArcEventClassification, ArcLifecycleRecord, ArcProjectionEvent } from '../story/model';
@@ -123,6 +126,7 @@ import {
 import {
   createPostCommitStageHandlers,
   postCommitRunId,
+  recapCursorOf,
   recapTargetKey,
   type LiveArcState,
   type PostCommitLivePort,
@@ -681,6 +685,9 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
   const publications = new Map<string, PublicationRecord>();
   const shareFormats = new Map<number, { status: string; reasonCodes: string[] }>();
   const stagnationPrompts: Array<{ arcId: string; stagnantWorldDays: number; status: string }> = [];
+  const recapFormats = new Map<number, { status: 'ready' | 'failed'; episodeNumber: number; deduplicated: boolean; errorCode?: string }>();
+  const storedRecapFormats = new Map<number, { formats: RecapFormats; composition: RecapComposition }>();
+  const coverageReports = new Map<number, { releasable: boolean; findingCodes: string[] }>();
   const resolutionDecisions: ArcResolutionDecision[] = [];
   const consequenceSummaries = new Map<string, ConsequenceSummary>();
   let now = 10_000;
@@ -721,11 +728,6 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
       const latestWorldDay = days[days.length - 1];
       const completed = days.filter((day) => day < latestWorldDay
         || all.some((candidate) => candidate.worldDay === day && candidate.timeSlot === TIME_SLOTS[TIME_SLOTS.length - 1]));
-      const recapCursors: Record<string, number> = {};
-      for (const snapshot of recaps) {
-        const key = recapTargetKey(snapshot.recapType, snapshot.targetId);
-        recapCursors[key] = Math.max(recapCursors[key] ?? -1, snapshot.sourceToSequenceNumber);
-      }
       return Promise.resolve({
         event,
         arcs: [...arcs.values()].map((record): LiveArcState => ({
@@ -746,8 +748,12 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
         episodeWorldDays: [...episodes.keys()],
         worldDayFirstSequenceNumber: all.filter(({ worldDay }) => worldDay === event.worldDay)
           .reduce((lowest, candidate) => Math.min(lowest, candidate.sequenceNumber), event.sequenceNumber),
+        timeSlotFirstSequenceNumber: all
+          .filter(({ worldDay, timeSlot }) => worldDay === event.worldDay && timeSlot === event.timeSlot)
+          .reduce((lowest, candidate) => Math.min(lowest, candidate.sequenceNumber), event.sequenceNumber),
+        seasonFirstSequenceNumber: all.filter(({ worldDay }) => worldDay === event.worldDay)
+          .reduce((lowest, candidate) => Math.min(lowest, candidate.sequenceNumber), event.sequenceNumber),
         latestWorldDay,
-        recapCursors,
       });
     },
 
@@ -921,14 +927,93 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
       if (existing) return Promise.resolve({ snapshotId: existing.id, deduplicated: true });
       const prior = recaps.filter(({ recapType, targetId }) =>
         recapType === request.recapType && targetId === request.targetId).at(-1) ?? null;
+      const inRange = ({ sequenceNumber }: { sequenceNumber: number }): boolean =>
+        sequenceNumber >= request.fromSequenceNumber && sequenceNumber <= request.toSequenceNumber;
+      /**
+       * ART-164. The `arc` tier is SELECTIVE: its sources are the events that moved that arc's
+       * projection, taken from the arc's own revision list exactly as the deployment reads them
+       * from `storyArcProjectionEvents`. Summarising the whole range instead would make an arc
+       * summary a world summary wearing an arc's name.
+       */
+      if (request.arcId !== undefined) {
+        const moved = new Set((arcs.get(request.arcId)?.projections ?? [])
+          .map(({ sourceEventSequenceNumber }) => sourceEventSequenceNumber)
+          .filter((sequenceNumber) => inRange({ sequenceNumber })));
+        const acceptedEvents = events().filter(({ sequenceNumber }) => moved.has(sequenceNumber));
+        // Membership without progress is ordinary; nothing is written and the cursor stays put.
+        if (acceptedEvents.length === 0) return Promise.resolve({ snapshotId: null, deduplicated: false });
+        const snapshot = buildRecapSnapshot({
+          id: request.snapshotId, worldId, recapType: request.recapType, targetId: request.targetId, prior,
+          acceptedEvents, mode: 'incremental', generatedAt: now,
+          sourceScope: {
+            fromSequenceNumber: request.fromSequenceNumber, toSequenceNumber: request.toSequenceNumber,
+          },
+        });
+        recaps.push(snapshot);
+        return Promise.resolve({ snapshotId: snapshot.id, deduplicated: false });
+      }
       const snapshot = buildRecapSnapshot({
         id: request.snapshotId, worldId, recapType: request.recapType, targetId: request.targetId, prior,
-        acceptedEvents: events().filter(({ sequenceNumber }) =>
-          sequenceNumber >= request.fromSequenceNumber && sequenceNumber <= request.toSequenceNumber),
+        acceptedEvents: events().filter(inRange),
         mode: 'incremental', generatedAt: now,
       });
       recaps.push(snapshot);
       return Promise.resolve({ snapshotId: snapshot.id, deduplicated: false });
+    },
+
+    loadRecapCursors(_worldId, targets) {
+      const cursors: Record<string, number> = {};
+      for (const { recapType, targetId } of targets) {
+        const latest = recaps.filter((snapshot) =>
+          snapshot.recapType === recapType && snapshot.targetId === targetId).at(-1);
+        if (latest) {
+          cursors[recapTargetKey(recapType, targetId)] = recapCursorOf(latest);
+        }
+      }
+      return Promise.resolve(cursors);
+    },
+
+    /**
+     * ART-164. The REAL composer and the REAL length validation, in memory.
+     *
+     * A double that returned `ready` without composing would let the 30-day gate report four
+     * recap formats per episode while the deployment refused every one of them on the Quick
+     * Recap's 80 中文字 floor.
+     */
+    generateRecapFormats(_worldId, worldDay) {
+      const prior = recapFormats.get(worldDay);
+      if (prior) return Promise.resolve({ ...prior, deduplicated: true });
+      const episodeRow = episodes.get(worldDay);
+      if (!episodeRow?.episode) {
+        const outcome = { status: 'failed' as const, episodeNumber: episodeRow?.episodeNumber ?? 0, deduplicated: false, errorCode: 'RECAP_EPISODE_NOT_PUBLISHABLE' };
+        recapFormats.set(worldDay, outcome);
+        return Promise.resolve(outcome);
+      }
+      const dayEvents = events().filter((event) => event.worldDay === worldDay);
+      try {
+        const composed = composeRecaps(episodeRow.episode, dayEvents);
+        const formats = validateRecapFormats({
+          schemaVersion: 1, quickRecap: composed.quickRecap, standardRecap: composed.standardRecap,
+          deepRecap: buildDeepRecap(dayEvents),
+          machineSummary: buildMachineSummary(dayEvents, {
+            newQuestions: [...episodeRow.episode.newQuestions],
+            resolvedQuestions: [...episodeRow.episode.resolvedQuestions],
+            storyArcProgress: episodeRow.episode.arcIds.map((arcId) => ({
+              arcId, progress: `第 ${episodeRow.episodeNumber} 集推進了這條故事線。`,
+            })),
+          }),
+          sourceEventIds: composed.sourceEventIds,
+        }, dayEvents);
+        storedRecapFormats.set(worldDay, { formats, composition: composed.composition });
+        const outcome = { status: 'ready' as const, episodeNumber: episodeRow.episodeNumber, deduplicated: false };
+        recapFormats.set(worldDay, outcome);
+        return Promise.resolve(outcome);
+      } catch (error) {
+        const errorCode = (error as { code?: string }).code ?? 'RECAP_FORMAT_GENERATION_FAILED';
+        const outcome = { status: 'failed' as const, episodeNumber: episodeRow.episodeNumber, deduplicated: false, errorCode };
+        recapFormats.set(worldDay, outcome);
+        return Promise.resolve(outcome);
+      }
     },
 
     loadEpisodeStatus(_worldId, worldDay) {
@@ -955,6 +1040,38 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
       const next = transitionPublication(record, action, ACTOR, 'long-run harness', now);
       publications.set(contentRef, next);
       return Promise.resolve({ status: next.status });
+    },
+
+    /**
+     * ART-164. The REAL FR-G004 gate over in-memory state.
+     *
+     * `validateRecapCoverage`, `episodeCandidate` and `toCoverageSource` are the same functions
+     * the deployment runs; a double that returned `releasable: true` would let the 30-day gate
+     * report zero spoiler violations for a pipeline that never checked for one.
+     */
+    runCoverageGate(_worldId, worldDay, contentRef) {
+      const episodeRow = episodes.get(worldDay);
+      if (!episodeRow?.episode) {
+        coverageReports.set(worldDay, { releasable: false, findingCodes: ['COVERAGE_INVALID_SHAPE'] });
+        return Promise.resolve({ releasable: false, findingCodes: ['COVERAGE_INVALID_SHAPE'] });
+      }
+      const memberships = membershipsBySequence();
+      const turningPoints = new Map<string, string[]>();
+      for (const entry of classifications.values()) {
+        turningPoints.set(entry.sourceEventId, entry.memberships
+          .filter(({ role }) => role === 'turning_point').map(({ arcId }) => arcId));
+      }
+      const sources = events().map((event) => toCoverageSource(
+        event,
+        (memberships.get(event.sequenceNumber) ?? []).reduce((max, m) => Math.max(max, m.importance), 0),
+        turningPoints.get(event.eventId) ?? [],
+      ));
+      const report = validateRecapCoverage(
+        episodeCandidate(LONG_RUN_WORLD_ID, contentRef, episodeRow.episode, sources), sources, [],
+      );
+      const findingCodes = [...new Set(report.findings.map(({ code }) => code))];
+      coverageReports.set(worldDay, { releasable: report.releasable, findingCodes });
+      return Promise.resolve({ releasable: report.releasable, findingCodes });
     },
 
     reassessArcEntries(worldId) {
@@ -1154,7 +1271,7 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
   };
 
   return {
-    port, arcs, portfolio, episodes, recaps, classifications, stagnationPrompts,
+    port, arcs, portfolio, episodes, recaps, classifications, stagnationPrompts, recapFormats, storedRecapFormats,
     resolutionDecisions, consequenceSummaries,
     activeArcsForDirector, activeMajorArcIds, activeMinorArcIds, unresolvedMajorArcIds, arcStatusCounts,
   };
