@@ -324,6 +324,23 @@ export const episodeContentRef = (worldId: string, worldDay: number): string =>
   `episode:${worldId}:${worldDay}`;
 export const recapTargetKey = (recapType: string, targetId: string): string => `${recapType}:${targetId}`;
 
+/**
+ * How far a recap target has been covered, given its newest snapshot (ART-164).
+ *
+ * For a SELECTIVE tier this is the scope end — the watermark that was examined — and not
+ * `sourceToSequenceNumber`, which is merely the last event that happened to match. The two
+ * coincide whenever the triggering event is itself the arc's newest progress, which is the common
+ * case; they diverge when a snapshot's newest match sits behind the range it scanned, and resuming
+ * from the match would then re-examine a stretch already known to hold nothing for this target.
+ *
+ * Extracted and exported so both the deployment adapter and the in-memory ports read the cursor
+ * the same way. It lived inline in each, where the two could drift apart silently and where the
+ * rule could not be tested without a full pipeline run.
+ */
+export const recapCursorOf = (
+  snapshot: { sourceToSequenceNumber: number; sourceScope: { toSequenceNumber: number } | null },
+): number => snapshot.sourceScope?.toSequenceNumber ?? snapshot.sourceToSequenceNumber;
+
 // --- derivations ------------------------------------------------------------
 
 /**

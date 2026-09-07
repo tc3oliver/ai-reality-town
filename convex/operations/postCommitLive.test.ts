@@ -99,6 +99,7 @@ import {
   overflowRemediation,
   postCommitRunId,
   publicRelationshipPairs,
+  recapCursorOf,
   recapTargetKey,
   type ArcArtifact,
   type EpisodeArtifact,
@@ -326,6 +327,18 @@ describe('episode numbering and recap windows', () => {
 
   it('files a world day into a fixed season window, so a replay cannot re-file it', () => {
     expect([0, 9, 10, 29].map(seasonOf)).toEqual([0, 0, 1, 2]);
+  });
+
+  /**
+   * The cursor rule, pinned on its own. Every port reads it through `recapCursorOf`, and the two
+   * candidate answers COINCIDE for almost every live snapshot — a selective snapshot is normally
+   * written by the event that is itself the arc's newest progress. So a pipeline test cannot tell
+   * the rules apart, and a wrong one would survive a full run. Only the diverging case does.
+   */
+  it('resumes a selective tier from the range it examined, not from its newest match', () => {
+    expect(recapCursorOf({ sourceToSequenceNumber: 4, sourceScope: { toSequenceNumber: 9 } })).toBe(9);
+    // A contiguous tier has no scope, and there the last event IS the end of the range.
+    expect(recapCursorOf({ sourceToSequenceNumber: 4, sourceScope: null })).toBe(4);
   });
 
   it('opens a day recap at the day boundary and a world recap at sequence zero', () => {
@@ -851,8 +864,7 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
         const latest = recaps.filter((snapshot) =>
           snapshot.recapType === recapType && snapshot.targetId === targetId).at(-1);
         if (latest) {
-          cursors[recapTargetKey(recapType, targetId)] =
-            latest.sourceScope?.toSequenceNumber ?? latest.sourceToSequenceNumber;
+          cursors[recapTargetKey(recapType, targetId)] = recapCursorOf(latest);
         }
       }
       return Promise.resolve(cursors);
@@ -1372,6 +1384,81 @@ describe('live post-commit pipeline over real world-day commits (AC#1/#2/#3/#4)'
  * These tests are about the GATE BEING WIRED, which is the thing that was missing —
  * `coverageValidation.test.ts` already covers what counts as a violation.
  */
+/**
+ * ART-164 FR-G002. `deriveRecapTargets` proves which levels are ASKED for; this proves the live
+ * pipeline actually produces them, and that the selective tier stays incremental as canon grows.
+ */
+describe('the recap pyramid over real world-day commits (FR-G002)', () => {
+  it('produces all five levels, and the arc level summarises only that arc', async () => {
+    const canon = seededCanon();
+    const harness = createLivePostCommitPort(canon, new MemoryReadStore());
+    await runWorldDays(canon, 3, () => []);
+    const runs = await runPostCommitForAll(canon, harness.port, new MemoryPostCommitStore());
+    expect(runs.every(({ status }) => status === 'completed')).toBe(true);
+
+    expect([...new Set(harness.recaps.map(({ recapType }) => recapType))].sort())
+      .toEqual(['arc', 'episode', 'scene', 'season', 'viewer_context']);
+
+    const arcSnapshots = harness.recaps.filter(({ recapType }) => recapType === 'arc');
+    expect(arcSnapshots.length).toBeGreaterThan(0);
+    for (const snapshot of arcSnapshots) {
+      const arcId = snapshot.targetId.replace(/^arc:/, '');
+      const moved = new Set((harness.arcs.get(arcId)?.projections ?? [])
+        .map(({ sourceEventSequenceNumber }) => sourceEventSequenceNumber));
+      const cited = snapshot.structuredPayload.newEventIds
+        .map((eventId) => canon.committedEvents().find((event) => event.eventId === eventId));
+      expect(cited.every((event) => event !== undefined)).toBe(true);
+      // Every event the arc summary claims moved this arc actually did. Without this an arc
+      // summary is a world summary wearing an arc's name — which is what summarising the whole
+      // contiguous range would have produced.
+      expect(cited.every((event) => moved.has((event as AcceptedEvent).sequenceNumber))).toBe(true);
+    }
+  });
+
+  it('keeps every tier incremental: scopes and ranges tile with no gap and no overlap', async () => {
+    const canon = seededCanon();
+    const harness = createLivePostCommitPort(canon, new MemoryReadStore());
+    await runWorldDays(canon, 3, () => []);
+    await runPostCommitForAll(canon, harness.port, new MemoryPostCommitStore());
+
+    const byTarget = new Map<string, RecapSnapshot[]>();
+    for (const snapshot of harness.recaps) {
+      const key = recapTargetKey(snapshot.recapType, snapshot.targetId);
+      byTarget.set(key, [...(byTarget.get(key) ?? []), snapshot]);
+    }
+    const withHistory = [...byTarget.values()].filter((versions) => versions.length > 1);
+    expect(withHistory.length).toBeGreaterThan(0);
+
+    for (const versions of withHistory) {
+      for (let index = 1; index < versions.length; index += 1) {
+        const previous = versions[index - 1];
+        const current = versions[index];
+        expect(current.version).toBe(previous.version + 1);
+        if (current.sourceScope === null) {
+          // A contiguous tier records its delta directly: the first new event must be exactly one
+          // past where the previous version stopped — nothing re-read, nothing skipped.
+          const firstNew = canon.committedEvents()
+            .find(({ eventId }) => eventId === current.structuredPayload.newEventIds[0]);
+          expect(firstNew?.sequenceNumber).toBe(recapCursorOf(previous) + 1);
+        } else {
+          /**
+           * A selective tier records CUMULATIVE coverage, so its per-version delta start is not
+           * recoverable from the snapshot — deliberately, because the useful claim is "this range
+           * has been examined end to end", not "this version looked at these five events".
+           *
+           * What is checkable here is that coverage only ever extends: the start never moves, and
+           * the watermark strictly advances. That a version may not begin with a gap is enforced
+           * at construction and proven in `recaps/model.test.ts`; asserting it again off a shape
+           * that does not carry it would be a test of my own arithmetic.
+           */
+          expect(current.sourceScope.fromSequenceNumber).toBe(previous.sourceScope?.fromSequenceNumber);
+          expect(current.sourceScope.toSequenceNumber).toBeGreaterThan(previous.sourceScope!.toSequenceNumber);
+        }
+      }
+    }
+  });
+});
+
 describe('coverage and spoiler gate as a publication precondition (FR-G004)', () => {
   it('runs the real gate for every day that produced an episode, and records its verdict', async () => {
     const canon = seededCanon();

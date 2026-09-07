@@ -126,6 +126,7 @@ import {
 import {
   createPostCommitStageHandlers,
   postCommitRunId,
+  recapCursorOf,
   recapTargetKey,
   type LiveArcState,
   type PostCommitLivePort,
@@ -966,8 +967,7 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
         const latest = recaps.filter((snapshot) =>
           snapshot.recapType === recapType && snapshot.targetId === targetId).at(-1);
         if (latest) {
-          cursors[recapTargetKey(recapType, targetId)] =
-            latest.sourceScope?.toSequenceNumber ?? latest.sourceToSequenceNumber;
+          cursors[recapTargetKey(recapType, targetId)] = recapCursorOf(latest);
         }
       }
       return Promise.resolve(cursors);

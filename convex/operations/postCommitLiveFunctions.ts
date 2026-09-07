@@ -98,6 +98,7 @@ import { createConvexPostCommitRunStore } from './postCommitOrchestrationFunctio
 import {
   createPostCommitStageHandlers,
   postCommitRunId,
+  recapCursorOf,
   type LiveArcState,
   type PostCommitLivePort,
   type PostCommitSource,
@@ -513,7 +514,9 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
           (q) => q.eq('worldId', worldId).eq('recapType', recapType).eq('targetId', targetId))
           .order('desc').first();
         return row === null ? null
-          : { key: `${recapType}:${targetId}`, cursor: row.sourceScope?.toSequenceNumber ?? row.sourceToSequenceNumber };
+          : { key: `${recapType}:${targetId}`, cursor: recapCursorOf({
+            sourceToSequenceNumber: row.sourceToSequenceNumber, sourceScope: row.sourceScope ?? null,
+          }) };
       }));
       // No `invalidate`: this reads and writes nothing, so the cached world state is still current.
       return Object.fromEntries(entries
