@@ -1,10 +1,10 @@
 ---
 id: ART-163
 title: Close the live story-arc progression and resolution loop
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-09-07 10:26'
-updated_date: '2026-09-07 11:19'
+updated_date: '2026-09-07 11:48'
 labels:
   - prd-1.0
   - epic-f
@@ -299,3 +299,30 @@ Three injections found real holes rather than confirming coverage:
 `grep` treat the entire 1636-line file as binary and silently return nothing for every search. It
 is now the escaped form instead -- same character, same digests, greppable file.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed the gap between a Story Arc data model and a story engine. Four capabilities were
+implemented, unit-tested, registered and called by nothing: recordArcResolutionDecision,
+applyArcResolutionConsequences, any action on a stagnation prompt, and validateMajorArcMemberships.
+So the live pipeline walked arcs to `resolved` through a boundary that only checks legality --
+closing them with no outcome, no consequences and no summary refresh -- while a stalled arc held
+its major slot for the life of the world and `archived` was unreachable entirely.
+
+Resolution is now a decision: decide -> transition -> apply consequences, so a terminal status is
+unreachable without an outcome because the constructor throws before the lifecycle is touched.
+Outcome and consequences are derived from the accepted event, never authored. A deterministic
+ladder keyed on world-day gaps downgrades a stalled major arc at 14 days, winds it down through
+the ordinary resolution path at 28, and archives a resolved arc 14 days later; nothing is deleted.
+
+Verified: npm run check exit 0 (222 suites / 3704 passed, boundaries valid, build clean); npm run
+e2e 82 passed; ART60_LONG_RUN=1 npm run test:longrun 30 world days 16/16; 10/10 fault injections
+reddened a named test with no Tests: 0 total.
+
+Three injections found real holes rather than confirming coverage: the stage's active-arc limit
+guard had no isolating test, lifecycle.test.ts derived its expectation from the table it was
+testing (adding resolved -> active kept it green), and the new 30-day live-vs-replay arc equality
+check caught a defect this change introduced -- the stagnation ladder resolved arcs whose portfolio
+entry was never re-synced, so a freed slot still read as occupied. PR #240, auto-merge enabled.
+<!-- SECTION:FINAL_SUMMARY:END -->
