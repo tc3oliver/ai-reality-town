@@ -41,10 +41,10 @@ them; it does not reimplement them.
 | `memory` | authorized subjective-memory read (ART-26) |
 | `relationship` | `publicRead` relationship rebuild for every pair the event moved (ART-I006) |
 | `arc` | classification, portfolio count control, lifecycle transitions, arc projection, stagnation prompts (ART-29/30/31) |
-| `episode` | daily episode assembly for every finished world day (ART-33) |
-| `recap` | incremental recap pyramid, day and world level (ART-34) |
+| `episode` | daily episode assembly for every finished world day (ART-33), plus the four FR-G003 recap formats for each (ART-164) |
+| `recap` | incremental recap pyramid, all five FR-G002 levels (ART-34/ART-164) |
 | `safety` | the ART-52 verdict episode generation already recorded |
-| `publication` | ART-51 publication lifecycle plus every affected public read-model rebuild |
+| `publication` | the FR-G004 coverage and spoiler gate (ART-164), the ART-51 publication lifecycle, and every affected public read-model rebuild |
 | `snapshot` | ART-22 daily canon snapshot |
 | `metrics` | durable metrics hook linked to the world-day trace (ART-57) |
 
@@ -71,9 +71,13 @@ derives a Director Plan candidate and hands it to `parseAndValidateDirectorPlan`
   (pacing), and only into the active family when the tier is under its FR-F003 limit —
   otherwise the transition is deferred and recorded, never forced.
 - **Episode numbers** are the 1-based position of a finished world day in world history.
-- **Recap windows** advance a per-target cursor: a day-level `episode` recap and a
-  world-level `viewer_context` recap. Arc and season levels need a non-contiguous source
-  window, which ART-34's incremental range contract does not provide.
+- **Recap windows** advance a per-target cursor across all five FR-G002 levels: a slot-level
+  `scene` recap, a day-level `episode` recap, one `arc` recap per arc the event moved, a
+  `season` recap per fixed ten-day window, and a world-level `viewer_context` recap. The arc
+  level is *selective* — its sources are the events that moved that arc's projection, carried
+  with a `sourceScope` recording the range examined. ART-164 added that contract; until then arc
+  and season needed a non-contiguous window ART-34's range rules did not provide, and neither
+  level ran for any world. See `docs/incremental-recap-pyramid.md`.
 
 ## Idempotency and failure isolation
 
@@ -125,6 +129,32 @@ takes `rebuildFromScratch`). Losing one costs a catch-up, not a fact.
 list of every episode, so it cannot read fewer rows than it publishes without paginating
 the public contract. The second is not, and bounding it to the days it actually timelines
 is the next thing to do here. Neither grows with events per day.
+
+## The coverage and spoiler gate
+
+`validate` is not a bare lifecycle step. Stage 19 first runs the FR-G004 gate
+(`runEpisodeCoverageGate`), and only a releasable verdict advances the record. Until ART-164 both
+coverage-gate functions had zero production callers, so nothing checked at publication time that a
+high-importance Accepted Event was covered or explicitly excluded, that a major public relationship
+change or an arc turning point was mentioned, or that an unreleased secret had reached public copy.
+
+The gate **returns** its verdict rather than throwing. This stage is not failure-isolated: a throw
+aborts `rebuildLiveProjection` and `rebuildOnboardingSummary`, so a coverage refusal would stop a
+*safety* withhold from reaching the public surface. Refusing to publish must never be the reason
+unsafe content stays up. `validateEpisodeCoverageGate` — which throws, and which also performs the
+transition — remains the right shape for an operator calling it directly.
+
+The gate performs **no** publication transition. The publication stage owns every transition, and a
+verdict function that advanced a record as a side effect of being asked a question would give the
+pipeline two owners of the lifecycle.
+
+A refusal is not a run failure. The candidate is simply never validated, so it stays at
+`generated`, whose only legal action is `validate` — it therefore cannot reach `published` by any
+route, which falls out of the lifecycle rather than needing a rule of its own. The episode read
+model and the FR-G005 share formats are gated on the verdict too: share formats are public copy,
+and a coverage refusal leaves the Episode row `ready`, so the share generator cannot refuse for
+itself the way it can for a withhold. The report is persisted on both outcomes, because a gate that
+recorded only refusals would leave "checked and passed" indistinguishable from "never ran".
 
 ## Editorial authority
 
