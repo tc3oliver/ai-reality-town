@@ -254,6 +254,21 @@ export interface PostCommitLivePort {
   /** ART-51 publication lifecycle. */
   createPublication(worldId: string, contentRef: string, summary: string | null): Promise<{ status: string }>;
   advancePublication(worldId: string, contentRef: string, action: 'validate' | 'begin_safety_review' | 'pass_safety_review' | 'withhold'): Promise<{ status: string }>;
+  /**
+   * FR-G004 — the coverage and spoiler verdict for one day's episode (ART-164).
+   *
+   * Answers only; it performs no publication transition. The publication stage owns every
+   * transition, and a verdict function that also advanced the lifecycle would give the pipeline
+   * two owners of it.
+   *
+   * Returns rather than throws, because this stage is not failure-isolated: a throw here aborts
+   * `rebuildLiveProjection` and `rebuildOnboardingSummary`, so a coverage refusal would stop a
+   * SAFETY withhold from reaching the public surface. Refusing to publish must never be the reason
+   * unsafe content stays up.
+   */
+  runCoverageGate(worldId: string, worldDay: number, contentRef: string): Promise<{
+    releasable: boolean; findingCodes: string[];
+  }>;
   /** ART-67 recommended entry reassessment for major active arcs. */
   reassessArcEntries(worldId: string): Promise<string[]>;
   /** ART-I003/I004 episode + timeline read-model rebuilds. */
@@ -731,6 +746,9 @@ export type PublicationArtifact = {
    */
   shareFormatStatus: string | null;
   shareFormatReasonCodes: string[];
+  /** ART-164 FR-G004 verdict for this day's episode. */
+  coverageReleasable: boolean;
+  coverageFindingCodes: string[];
   reassessedArcIds: string[];
   modelRefs: string[];
 };
@@ -1089,21 +1107,42 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
       let publicationStatus: string | null = null;
       let shareFormatStatus: string | null = null;
       let shareFormatReasonCodes: string[] = [];
+      let coverageReleasable = true;
+      let coverageFindingCodes: string[] = [];
       const hasEpisode = safety.episodeStatus !== null;
       if (hasEpisode) {
         contentRef = episodeContentRef(context.worldId, safety.worldDay);
         publicationStatus = (await port.createPublication(context.worldId, contentRef, null)).status;
-        const actions = safety.publishable
-          ? ['validate', 'begin_safety_review', 'pass_safety_review'] as const
-          : ['validate', 'withhold'] as const;
-        for (const action of actions) {
-          if (publicationStatus === 'ready' || publicationStatus === 'withheld' || publicationStatus === 'published') break;
-          publicationStatus = (await port.advancePublication(context.worldId, contentRef, action)).status;
+        /**
+         * ART-164: `validate` IS the coverage gate now. It used to be a bare lifecycle step, so a
+         * day that omitted a high-importance event with no exclusion, or leaked an unreleased
+         * secret into its public copy, walked to `ready` unchallenged — the gate existed and had
+         * no caller.
+         */
+        const gate = await port.runCoverageGate(context.worldId, safety.worldDay, contentRef);
+        coverageReleasable = gate.releasable;
+        coverageFindingCodes = gate.findingCodes;
+        if (gate.releasable) {
+          const actions = safety.publishable
+            ? ['validate', 'begin_safety_review', 'pass_safety_review'] as const
+            : ['validate', 'withhold'] as const;
+          for (const action of actions) {
+            if (publicationStatus === 'ready' || publicationStatus === 'withheld' || publicationStatus === 'published') break;
+            publicationStatus = (await port.advancePublication(context.worldId, contentRef, action)).status;
+          }
         }
+        // A refused candidate is never validated, so it stays at `generated` — whose only legal
+        // action is `validate`. It therefore cannot reach `published` by any route, and that falls
+        // out of the lifecycle rather than needing a rule of its own.
       }
       const reassessedArcIds = await port.reassessArcEntries(context.worldId);
       const modelRefs: string[] = [];
-      if (safety.publishable) modelRefs.push(await port.rebuildEpisodeProjection(context.worldId, safety.worldDay));
+      // Gated on the coverage verdict as well as on safety: publishing the episode read model for
+      // a day the gate refused would put the refused copy on the public surface, which is the
+      // whole thing the gate is for.
+      if (safety.publishable && coverageReleasable) {
+        modelRefs.push(await port.rebuildEpisodeProjection(context.worldId, safety.worldDay));
+      }
       modelRefs.push(await port.rebuildEpisodeIndexProjection(context.worldId));
       modelRefs.push(await port.rebuildTimelineProjection(context.worldId));
       // Only the arcs THIS event moved are rebuilt: an untouched arc's read model is
@@ -1189,7 +1228,10 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
        * would republish identical payloads and dedup them, which is work with no result.
        */
       modelRefs.push(await port.rebuildRelationshipGraphProjection(context.worldId, context.worldDay));
-      return { contentRef, publicationStatus, shareFormatStatus, shareFormatReasonCodes, reassessedArcIds, modelRefs };
+      return {
+        contentRef, publicationStatus, shareFormatStatus, shareFormatReasonCodes,
+        coverageReleasable, coverageFindingCodes, reassessedArcIds, modelRefs,
+      };
     },
 
     // Stage 20: the daily canon snapshot, taken once a world day is finished and is still

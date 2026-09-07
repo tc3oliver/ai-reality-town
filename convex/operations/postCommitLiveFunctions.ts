@@ -58,6 +58,7 @@ import type { generateAcceptedEventEpisode as generateAcceptedEventEpisodeExport
 import type { generateEpisodeShareFormats as generateEpisodeShareFormatsExport } from '../editorial/shareFormatFunctions';
 import type { generateIncrementalRecap as generateIncrementalRecapExport } from '../recaps/functions';
 import type { generateEpisodeRecapFormats as generateEpisodeRecapFormatsExport } from '../recaps/recapFormatFunctions';
+import type { runEpisodeCoverageGate as runEpisodeCoverageGateExport } from '../recaps/coverageValidationFunctions';
 import type {
   createEpisodePublication as createEpisodePublicationExport,
   advancePublication as advancePublicationExport,
@@ -180,6 +181,9 @@ const generateIncrementalRecapRef = internalFunctionRef<typeof generateIncrement
 );
 const generateEpisodeRecapFormatsRef = internalFunctionRef<typeof generateEpisodeRecapFormatsExport>(
   'recaps/recapFormatFunctions:generateEpisodeRecapFormats',
+);
+const runEpisodeCoverageGateRef = internalFunctionRef<typeof runEpisodeCoverageGateExport>(
+  'recaps/coverageValidationFunctions:runEpisodeCoverageGate',
 );
 const generateEpisodeShareFormatsRef = internalFunctionRef<typeof generateEpisodeShareFormatsExport>(
   'editorial/shareFormatFunctions:generateEpisodeShareFormats',
@@ -602,6 +606,11 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
       const { status } = await ctx.runMutation(advancePublicationRef,
         { worldId, contentRef, action, actor: SYSTEM_ACTOR, reason: 'post-commit editorial pipeline', now });
       return { status };
+    },
+
+    async runCoverageGate(worldId, worldDay, contentRef) {
+      const verdict = await ctx.runMutation(runEpisodeCoverageGateRef, { worldId, worldDay, contentRef, now });
+      return invalidate({ releasable: verdict.releasable, findingCodes: [...verdict.findingCodes] });
     },
 
     async reassessArcEntries(worldId) {

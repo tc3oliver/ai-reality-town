@@ -79,6 +79,7 @@ import { applyArcPortfolioControl, MAX_MAJOR_ACTIVE_ARCS,
   MAX_MINOR_ACTIVE_ARCS, type ArcPortfolioEntry } from '../story/portfolio';
 import { replayArcProjection } from '../story/projection';
 import { composeRecaps, type RecapComposition } from '../recaps/recapComposition';
+import { episodeCandidate, toCoverageSource } from '../recaps/coverageValidationFunctions';
 import { buildDeepRecap, buildMachineSummary, validateRecapFormats, type RecapFormats } from '../recaps/recapFormats';
 import { detectArcStagnation, ARC_STAGNATION_WORLD_DAYS } from '../story/resolution';
 import { recommendArcEntry } from '../story/entryRecommendation';
@@ -685,6 +686,7 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
   const stagnationPrompts: Array<{ arcId: string; stagnantWorldDays: number; status: string }> = [];
   const recapFormats = new Map<number, { status: 'ready' | 'failed'; episodeNumber: number; deduplicated: boolean; errorCode?: string }>();
   const storedRecapFormats = new Map<number, { formats: RecapFormats; composition: RecapComposition }>();
+  const coverageReports = new Map<number, { releasable: boolean; findingCodes: string[] }>();
   const resolutionDecisions: ArcResolutionDecision[] = [];
   const consequenceSummaries = new Map<string, ConsequenceSummary>();
   let now = 10_000;
@@ -1002,6 +1004,38 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
       const next = transitionPublication(record, action, ACTOR, 'long-run harness', now);
       publications.set(contentRef, next);
       return Promise.resolve({ status: next.status });
+    },
+
+    /**
+     * ART-164. The REAL FR-G004 gate over in-memory state.
+     *
+     * `validateRecapCoverage`, `episodeCandidate` and `toCoverageSource` are the same functions
+     * the deployment runs; a double that returned `releasable: true` would let the 30-day gate
+     * report zero spoiler violations for a pipeline that never checked for one.
+     */
+    runCoverageGate(_worldId, worldDay, contentRef) {
+      const episodeRow = episodes.get(worldDay);
+      if (!episodeRow?.episode) {
+        coverageReports.set(worldDay, { releasable: false, findingCodes: ['COVERAGE_INVALID_SHAPE'] });
+        return Promise.resolve({ releasable: false, findingCodes: ['COVERAGE_INVALID_SHAPE'] });
+      }
+      const memberships = membershipsBySequence();
+      const turningPoints = new Map<string, string[]>();
+      for (const entry of classifications.values()) {
+        turningPoints.set(entry.sourceEventId, entry.memberships
+          .filter(({ role }) => role === 'turning_point').map(({ arcId }) => arcId));
+      }
+      const sources = events().map((event) => toCoverageSource(
+        event,
+        (memberships.get(event.sequenceNumber) ?? []).reduce((max, m) => Math.max(max, m.importance), 0),
+        turningPoints.get(event.eventId) ?? [],
+      ));
+      const report = validateRecapCoverage(
+        episodeCandidate(LONG_RUN_WORLD_ID, contentRef, episodeRow.episode, sources), sources, [],
+      );
+      const findingCodes = [...new Set(report.findings.map(({ code }) => code))];
+      coverageReports.set(worldDay, { releasable: report.releasable, findingCodes });
+      return Promise.resolve({ releasable: report.releasable, findingCodes });
     },
 
     reassessArcEntries(worldId) {

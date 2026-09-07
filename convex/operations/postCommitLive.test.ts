@@ -35,6 +35,8 @@ import { buildRecapSnapshot, type RecapSnapshot } from '../recaps/model';
 import { createArcLifecycle, transitionArcLifecycle, isActiveArcStatus } from '../story/lifecycle';
 import { replayArcProjection } from '../story/projection';
 import { composeRecaps, type RecapComposition } from '../recaps/recapComposition';
+import { validateRecapCoverage } from '../recaps/coverageValidation';
+import { episodeCandidate, toCoverageSource } from '../recaps/coverageValidationFunctions';
 import { buildDeepRecap, buildMachineSummary, validateRecapFormats, type RecapFormats } from '../recaps/recapFormats';
 import { applyArcPortfolioControl, type ArcPortfolioEntry } from '../story/portfolio';
 import { createArcResolutionDecision, detectArcStagnation, type ArcResolutionDecision } from '../story/resolution';
@@ -557,6 +559,7 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
   const portfolio: ArcPortfolioEntry[] = [];
   const recapFormats = new Map<number, { status: 'ready' | 'failed'; episodeNumber: number; deduplicated: boolean; errorCode?: string }>();
   const storedRecapFormats = new Map<number, { formats: RecapFormats; composition: RecapComposition }>();
+  const coverageReports = new Map<number, { releasable: boolean; findingCodes: string[] }>();
   const resolutionDecisions: ArcResolutionDecision[] = [];
   const consequenceSummaries = new Map<string, ConsequenceSummary>();
   const episodes = new Map<number, { status: string; episodeNumber: number; episode?: DailyEpisode; safetyClassificationId: string | null }>();
@@ -885,6 +888,38 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
       return Promise.resolve({ status: next.status });
     },
 
+    /**
+     * ART-164. The REAL FR-G004 gate over in-memory state.
+     *
+     * `validateRecapCoverage`, `episodeCandidate` and `toCoverageSource` are the same functions
+     * the deployment runs; a double that returned `releasable: true` would let the 30-day gate
+     * report zero spoiler violations for a pipeline that never checked for one.
+     */
+    runCoverageGate(_worldId, worldDay, contentRef) {
+      const episodeRow = episodes.get(worldDay);
+      if (!episodeRow?.episode) {
+        coverageReports.set(worldDay, { releasable: false, findingCodes: ['COVERAGE_INVALID_SHAPE'] });
+        return Promise.resolve({ releasable: false, findingCodes: ['COVERAGE_INVALID_SHAPE'] });
+      }
+      const memberships = membershipsBySequence();
+      const turningPoints = new Map<string, string[]>();
+      for (const entry of classifications.values()) {
+        turningPoints.set(entry.sourceEventId, entry.memberships
+          .filter(({ role }) => role === 'turning_point').map(({ arcId }) => arcId));
+      }
+      const sources = events().map((event) => toCoverageSource(
+        event,
+        (memberships.get(event.sequenceNumber) ?? []).reduce((max, m) => Math.max(max, m.importance), 0),
+        turningPoints.get(event.eventId) ?? [],
+      ));
+      const report = validateRecapCoverage(
+        episodeCandidate(WORLD_ID, contentRef, episodeRow.episode, sources), sources, [],
+      );
+      const findingCodes = [...new Set(report.findings.map(({ code }) => code))];
+      coverageReports.set(worldDay, { releasable: report.releasable, findingCodes });
+      return Promise.resolve({ releasable: report.releasable, findingCodes });
+    },
+
     reassessArcEntries(worldId) {
       const reassessed: string[] = [];
       const worldEpisodes = episodeRefs();
@@ -1045,7 +1080,7 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
 
   return {
     port, arcs, portfolio, episodes, recaps, publications, shareFormats, shareFormatCopy, rebuilt,
-    resolutionDecisions, consequenceSummaries,
+    resolutionDecisions, consequenceSummaries, coverageReports,
   };
 }
 
@@ -1262,6 +1297,101 @@ describe('live post-commit pipeline over real world-day commits (AC#1/#2/#3/#4)'
     expect(snapshot.snapshotId).toBeNull();
     expect(snapshot.errorCode).toBe('POST_COMMIT_STAGE_FAILED');
     expect(snapshot.errorMessage).toContain('SNAPSHOT_CORRUPT');
+  });
+});
+
+/**
+ * ART-164 FR-G004. Before this task both coverage-gate functions had zero production callers, so
+ * an Episode that omitted a high-importance Accepted Event, or leaked an unreleased secret into
+ * its public copy, walked to `ready` unchallenged.
+ *
+ * These tests are about the GATE BEING WIRED, which is the thing that was missing —
+ * `coverageValidation.test.ts` already covers what counts as a violation.
+ */
+describe('coverage and spoiler gate as a publication precondition (FR-G004)', () => {
+  it('runs the real gate for every day that produced an episode, and records its verdict', async () => {
+    const canon = seededCanon();
+    const harness = createLivePostCommitPort(canon, new MemoryReadStore());
+    const runStore = new MemoryPostCommitStore();
+    await runWorldDays(canon, 2, () => []);
+    const runs = await runPostCommitForAll(canon, harness.port, runStore);
+    expect(runs.every(({ status }) => status === 'completed')).toBe(true);
+
+    /**
+     * The invariant is that NO publication is created without a verdict — deliberately not "every
+     * episode has a verdict". Stage 18 only ever acts on the latest episode of a run, so a run
+     * that completes two world days at once publishes only the later one. That is pre-existing
+     * behaviour this task did not change, and asserting the stronger claim here would make this
+     * test a report on that gap rather than evidence about the gate.
+     */
+    expect(harness.coverageReports.size).toBe(harness.publications.size);
+    expect(harness.coverageReports.size).toBeGreaterThan(0);
+
+    // And the pipeline carries it on its artifact, so "was this checked?" is answerable from the
+    // run record rather than only from the gate's own table.
+    const publicationArtifacts = runStore.checkpoints
+      .filter((row) => row.stage === 'publication' && row.status === 'completed')
+      .map((row) => row.artifact as PublicationArtifact)
+      .filter(({ contentRef }) => contentRef !== null);
+    expect(publicationArtifacts.length).toBeGreaterThan(0);
+    expect(publicationArtifacts.every(({ coverageReleasable }) => typeof coverageReleasable === 'boolean')).toBe(true);
+  });
+
+  it('refuses publication on a coverage finding: no validate, no read model, no canon write', async () => {
+    const canon = seededCanon();
+    const readStore = new MemoryReadStore();
+    const harness = createLivePostCommitPort(canon, readStore);
+    const runStore = new MemoryPostCommitStore();
+    await runWorldDays(canon, 1, () => []);
+    const canonBefore = JSON.stringify(canon.committedEvents());
+
+    const refusing: PostCommitLivePort = {
+      ...harness.port,
+      runCoverageGate: () => Promise.resolve({
+        releasable: false, findingCodes: ['COVERAGE_MISSING_HIGH_IMPORTANCE_EVENT'],
+      }),
+    };
+    const runs: PostCommitRun[] = [];
+    for (const event of canon.committedEvents()) {
+      runs.push(await executePostCommitPipeline({
+        runId: postCommitRunId(WORLD_ID, event.sequenceNumber), worldId: WORLD_ID,
+        sourceEventId: event.eventId, sourceEventSequenceNumber: event.sequenceNumber,
+        worldDay: event.worldDay,
+      }, runStore, createPostCommitStageHandlers(refusing), event.traceId));
+    }
+
+    // The refusal is not a pipeline failure: the stages after publication still have to run, or a
+    // coverage finding would stop a safety withhold from reaching the public surface.
+    expect(runs.every(({ status }) => status === 'completed')).toBe(true);
+
+    const artifacts = runStore.checkpoints
+      .filter((row) => row.stage === 'publication' && row.status === 'completed')
+      .map((row) => row.artifact as PublicationArtifact)
+      .filter(({ contentRef }) => contentRef !== null);
+    expect(artifacts.length).toBeGreaterThan(0);
+    // Never validated, so it is stranded at `generated` — whose only legal action is `validate`.
+    expect(artifacts.every(({ publicationStatus }) => publicationStatus === 'generated')).toBe(true);
+    expect(artifacts.every(({ coverageReleasable }) => coverageReleasable === false)).toBe(true);
+    // The reason is queryable rather than an unexplained absence of a publication.
+    expect(artifacts.every(({ coverageFindingCodes }) =>
+      coverageFindingCodes.includes('COVERAGE_MISSING_HIGH_IMPORTANCE_EVENT'))).toBe(true);
+
+    for (const record of harness.publications.values()) {
+      expect(record.status).toBe('generated');
+    }
+    /**
+     * The refused copy never reaches the public surface.
+     *
+     * Keyed on the model REF, not the kind: `EPISODE_MODEL_KIND` and `EPISODE_INDEX_MODEL_KIND`
+     * are both the string `'episode'`, and only the ref (`episode:<day>` vs `episodes:<world>`)
+     * tells the day's copy from the index that merely lists days. A kind-only assertion fails on
+     * the index and would have looked like proof.
+     */
+    const episodeCopyRows = readStore.rows.filter(({ modelKind, modelRef }) =>
+      modelKind === EPISODE_MODEL_KIND && /^episode:\d+$/.test(modelRef));
+    expect(episodeCopyRows).toHaveLength(0);
+    // And a gate is a read: it decides about derived content and touches no Accepted Event.
+    expect(JSON.stringify(canon.committedEvents())).toBe(canonBefore);
   });
 });
 

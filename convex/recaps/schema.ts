@@ -50,4 +50,31 @@ export const recapTables = {
     .index('by_world_and_day', ['worldId', 'worldDay'])
     .index('by_world_and_episode', ['worldId', 'episodeNumber'])
     .index('by_world_and_status', ['worldId', 'status']),
+
+  /**
+   * The FR-G004 coverage and spoiler verdict for one release candidate (ART-164).
+   *
+   * Persisted on BOTH outcomes, not just refusals. A gate that only recorded its failures would
+   * make "this episode was checked and passed" indistinguishable from "the gate never ran on this
+   * episode" — which is exactly the state ART-164 found the whole gate in.
+   *
+   * `findings` is the structured verdict, so a reviewer sees which high-importance event was
+   * omitted or which secret leaked rather than a boolean. Refusal evidence has to outlive the
+   * decision, or an operator asked why a day never published has nothing to read.
+   */
+  episodeCoverageReports: defineTable({
+    schemaVersion: v.literal(1),
+    worldId: v.string(),
+    worldDay: v.number(),
+    contentRef: v.string(),
+    releasable: v.boolean(),
+    findingCodes: v.array(v.string()),
+    report: v.any(),
+    /** Set when the gate itself could not run, as opposed to running and refusing. */
+    errorCode: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index('by_world_and_day', ['worldId', 'worldDay'])
+    .index('by_world_and_ref', ['worldId', 'contentRef'])
+    .index('by_world_and_releasable', ['worldId', 'releasable']),
 };
