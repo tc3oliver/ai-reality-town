@@ -890,9 +890,34 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
         }
       };
 
+      /**
+       * Re-derive the portfolio snapshot for every arc this run touched.
+       *
+       * Classified arcs AND resolved ones. The stagnation ladder changes an arc's status without
+       * that arc appearing in any classification — a stalled arc is precisely one no event is
+       * classifying into — so syncing only `classifiedArcIds` leaves the portfolio entry carrying
+       * a stale `active` status for an arc the lifecycle has already resolved. FR-F003 count
+       * control reads the ENTRY, so the freed slot would still read as occupied, which is the very
+       * "a stagnant arc holds its slot forever" failure this task exists to close.
+       *
+       * Found by the 30-day gate's live-vs-replay arc equality check, which is what that finding
+       * was added for; the 7-day run does not surface it because there the arcs that resolve are
+       * also classified in the same event.
+       */
+      const syncTouchedArcs = async (artifact: ArcArtifact): Promise<void> => {
+        const touched = [...new Set([
+          ...artifact.classifiedArcIds,
+          ...artifact.resolutions.map(({ arcId }) => arcId),
+        ])].sort();
+        for (const arcId of touched) {
+          await port.syncArcPortfolioEntry(context.worldId, arcId, context.sourceEventId);
+        }
+      };
+
       const classification = deriveArcClassification(state.event, state.arcs);
       if (!classification) {
         await remediateStagnation(state.arcs, new Set(), empty.resolutions);
+        await syncTouchedArcs(empty);
         empty.stagnationPromptCount = await port.refreshStagnationPrompts(context.worldId, state.latestWorldDay);
         return empty;
       }
@@ -920,6 +945,7 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
         // A freshly created arc already carries its revision-0 projection and `emerging`
         // lifecycle from the classification boundary; nothing further to advance here.
         await remediateStagnation(state.arcs, new Set(), result.resolutions);
+        await syncTouchedArcs(result);
         result.stagnationPromptCount = await port.refreshStagnationPrompts(context.worldId, state.latestWorldDay);
         return result;
       }
@@ -974,9 +1000,7 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
         new Set(result.resolutions.map(({ arcId }) => arcId)),
         result.resolutions,
       );
-      for (const arcId of result.classifiedArcIds) {
-        await port.syncArcPortfolioEntry(context.worldId, arcId, context.sourceEventId);
-      }
+      await syncTouchedArcs(result);
       result.stagnationPromptCount = await port.refreshStagnationPrompts(context.worldId, state.latestWorldDay);
       return result;
     },

@@ -4,7 +4,7 @@ title: Close the live story-arc progression and resolution loop
 status: In Progress
 assignee: []
 created_date: '2026-09-07 10:26'
-updated_date: '2026-09-07 10:27'
+updated_date: '2026-09-07 11:19'
 labels:
   - prd-1.0
   - epic-f
@@ -107,32 +107,32 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every live transition into resolving, resolved or archived is produced by a recorded ArcResolutionDecision; a terminal status is unreachable without a non-empty outcome and at least one consequence.
-- [ ] #2 Closing an arc applies consequence summaries for every affected character and for the world, so the summary input a later scene reads reflects the resolution.
-- [ ] #3 A major arc with no progress for 14 world days deterministically releases its major slot (downgrade), and one stagnant for 28 days is wound down through the ordinary resolution path with an explicit outcome. No arc is ever deleted, and an archived arc stays queryable.
-- [ ] #4 One accepted event may directly advance at most 2 major arcs on the live path, enforced rather than only unit-tested.
-- [ ] #5 A resolved or archived arc never re-enters the active arc context or the classification candidate set.
-- [ ] #6 Every lifecycle status, turning point, lastProgressTime, resolution decision and consequence summary is identical under full replay and under snapshot-resume.
-- [ ] #7 The deterministic 30-day fixture asserts: active major arcs always <= 3, active minor arcs always <= 6, at least one arc records a turning point, at least one arc reaches resolving or resolved, and a stagnated arc does not hold an active slot permanently.
-- [ ] #8 Ten named fault injections each compile, execute, and redden a named test; no injection run reports Tests: 0 total.
-- [ ] #9 PRD traceability links FR-F002/F003/F004/F005 to doc-1 and the merged implementation evidence.
+- [x] #1 Every live transition into resolving, resolved or archived is produced by a recorded ArcResolutionDecision; a terminal status is unreachable without a non-empty outcome and at least one consequence.
+- [x] #2 Closing an arc applies consequence summaries for every affected character and for the world, so the summary input a later scene reads reflects the resolution.
+- [x] #3 A major arc with no progress for 14 world days deterministically releases its major slot (downgrade), and one stagnant for 28 days is wound down through the ordinary resolution path with an explicit outcome. No arc is ever deleted, and an archived arc stays queryable.
+- [x] #4 One accepted event may directly advance at most 2 major arcs on the live path, enforced rather than only unit-tested.
+- [x] #5 A resolved or archived arc never re-enters the active arc context or the classification candidate set.
+- [x] #6 Every lifecycle status, turning point, lastProgressTime, resolution decision and consequence summary is identical under full replay and under snapshot-resume.
+- [x] #7 The deterministic 30-day fixture asserts: active major arcs always <= 3, active minor arcs always <= 6, at least one arc records a turning point, at least one arc reaches resolving or resolved, and a stagnated arc does not hold an active slot permanently.
+- [x] #8 Ten named fault injections each compile, execute, and redden a named test; no injection run reports Tests: 0 total.
+- [x] #9 PRD traceability links FR-F002/F003/F004/F005 to doc-1 and the merged implementation evidence.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -186,3 +186,116 @@ keeps its slot for the life of the world.
 4. Extend the harness findings and the 7-day/30-day assertions.
 5. Fault injection at each step; commit before injecting.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## Root cause
+
+An audit of the Story Arc engine against a running world found four capabilities that were
+implemented, unit-tested, registered as Convex functions and called by **nothing**. Verified by
+grepping every caller outside each defining module and its own test:
+
+- `story/resolutionFunctions:recordArcResolutionDecision`
+- `story/consequenceSummaryFunctions:applyArcResolutionConsequences`
+- `story/resolutionFunctions:listArcStagnationPrompts` (and any action on a prompt)
+- `story/portfolio:validateMajorArcMemberships`
+
+The live post-commit arc stage walked an arc `emerging -> ... -> resolving -> resolved` one step
+per world day through `transitionArcLifecycle`, which asks only whether a transition is legal. So
+`createArcResolutionDecision`'s rule -- a terminal status requires a non-empty outcome and at least
+one consequence -- was enforced nowhere on the path the world takes. Arcs closed carrying nothing,
+no character or world summary was refreshed, a stagnation prompt was recorded and acted on by
+nothing, and the FR-F003 "at most 2 major arcs advanced per event" clause was live nowhere.
+
+`Archived` was additionally unreachable: `candidateArcs` only considers emerging and active-family
+arcs, so no accepted event ever classifies into a `resolved` arc and the classification-driven path
+stops one step short.
+
+## Lifecycle state machine
+
+Unchanged and now pinned independently (see injection 4). Transitions are decided by the domain
+from the FR-F002 table plus the arc's own state; a provider proposes classification and evidence
+and can never name a final status. What changed is WHO may take the last three steps: `resolving`,
+`resolved` and `archived` are reachable only through a recorded `ArcResolutionDecision`.
+
+Order is the guarantee: **decide -> transition -> apply consequences**. Deciding first means a
+terminal status is unreachable without an outcome, because the constructor throws before the
+lifecycle is touched. Transitioning first would leave an arc `resolved` behind a failed decision,
+which is corrupt rather than refused.
+
+## Count control
+
+- <=3 major and <=6 minor active arcs, enforced at BOTH admission (`applyArcPortfolioControl`) and
+  transition (the stage's `entersActiveFamily` guard). Injection proved these are independent.
+- <=2 major arcs directly advanced per event, now enforced in the live classification.
+- Over-limit never drops silently: the blocked transition is recorded as a deferred transition with
+  reason `ARC_ACTIVE_LIMIT_REACHED` and taken as soon as a slot frees.
+
+## Stagnation / resolution
+
+Deterministic ladder keyed only on world-day gaps, run on every commit including one that
+classifies into no arc (a stalled arc is by definition one no event is classifying into):
+
+| Gap | Arc | Action |
+| --- | --- | --- |
+| 14 days without progress | major, active family | `downgrade` -- major slot freed, arc survives |
+| 28 days without progress | any active family | `enter_resolving`, then `resolve` next run |
+| 14 days after resolution | `resolved` | `archive` |
+
+Outcome and consequences are derived from the accepted resolution event, never authored: outcome
+is the event's public summary (falling back to arc title + world day so it can never be empty),
+consequences are one per core character plus one for the world. `recordArcResolutionDecision` now
+also applies the decision's `resultingTier` to the portfolio entry -- FR-F003 count control reads
+the entry, not the decision, so a recorded downgrade that was not applied would leave the arc
+holding a major slot it had formally lost.
+
+## Verification
+
+- `npm run check`: exit 0. Boundaries valid (20 modules), typecheck/lint/build clean
+  (4 pre-existing warnings in `liveStateFunctions.ts`, 0 errors).
+  **222 suites / 3704 passed, 12 skipped, 3716 total.**
+- `npm run e2e`: **82 passed**.
+- `ART60_LONG_RUN=1 npm run test:longrun`: 30 world days, 16/16.
+- Focused: `convex/operations/arcClosureLoop.test.ts` 24.
+
+## Multi-day simulation evidence (fixed seed, deterministic fake author)
+
+7 days: 6 arcs open, 3 reach `resolved` carrying an outcome and 3-4 consequences each; consequence
+summaries land for 7 characters plus the world; all 3 resolved arcs recorded a turning point.
+30 days: active major always <=3 and active minor always <=6 at every checkpoint; at least one arc
+records a turning point; at least one reaches resolution; every terminal resolution carries its
+evidence; no arc holds an active slot past the stagnation threshold; live arc state equals a fresh
+replay of its projection stream.
+
+## Fault injection (10 of 10 reddened a named test; no run reported `Tests: 0 total`)
+
+1. `isActiveArcStatus` includes `resolved` -> 2 tests, incl. "never classifies an event into a resolved or archived arc"
+2. major active limit -> `MAX_SAFE_INTEGER` -> "defers an emerging MAJOR arc rather than becoming a fourth active one"
+3. minor active limit -> `MAX_SAFE_INTEGER` -> "defers an emerging MINOR arc rather than becoming a seventh active one"
+4. `resolved -> active` added to the transition table -> "matches the PRD lifecycle exactly" + "never returns a closed arc to the active family"
+5. `detectArcStagnation` always returns null -> "emits one stable operator prompt at exactly 14 world days, not before"
+6. consequences never applied -> 4 tests incl. the order test and the 7-day harness
+7. `lastProgressTime` frozen / `latestTurningPointEventId` dropped -> 3 and 4 tests respectively
+8. `syncArcPortfolioEntry` skipped -> `arcsWhereLiveAndReplayDisagree` non-empty in the harness
+9. `validateMajorArcMemberships` call removed -> "refuses an event that would directly advance three major arcs"
+10. over-limit transition dropped with no deferred record -> both deferral tests
+
+Three injections found real holes rather than confirming coverage:
+
+- **#2/#3** initially survived. The stage's active-limit guard had no isolating test: the fixed
+  seed never presents a fourth major candidate, and portfolio admission caps it independently.
+  Three tests were added to isolate the transition guard from the admission guard.
+- **#4** initially survived. `lifecycle.test.ts` loops over `ALLOWED_ARC_TRANSITIONS` and asserts
+  the code agrees with it -- a validator handed its own input. The FR-F002 table is now written out
+  literally and independently, plus two structural properties.
+- While writing the replay gate I found my own prefix assertion compared a second full replay to
+  the first and could not have failed; it now asserts per prefix that the fold reproduces exactly
+  the state at that revision.
+
+## Incidental
+
+`convex/operations/longRunHarness.ts` contained a literal NUL byte in a hash separator, which made
+`grep` treat the entire 1636-line file as binary and silently return nothing for every search. It
+is now the escaped form instead -- same character, same digests, greppable file.
+<!-- SECTION:NOTES:END -->
