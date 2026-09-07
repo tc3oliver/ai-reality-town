@@ -12,8 +12,10 @@
 
 import { commitProposedEvent } from './commit';
 import { InMemoryCanonStore } from './inMemoryStore';
-import { emptyProjection, type ProposedEvent, type StateChange, type WorldProjection } from './model';
+import { emptyProjection, type AcceptedEvent, type ProposedEvent, type StateChange, type WorldProjection } from './model';
+import { reduceWorldEvent } from './reducer';
 import { replayWorldEvents } from './replay';
+import { validateCanon } from './validators';
 import { buildSnapshot, replayFromSnapshot } from './snapshots';
 import { deriveCredibility, holdsRumor, rumorHolders } from './rumorChain';
 import { isCanonError } from '../shared/errors';
@@ -164,6 +166,42 @@ describe('AC#3 — a character may only pass on a rumor that reached them', () =
     expect(await refusal(store, propose({
       key: 'k:forged', participants: ['mei', 'lin'], changes: [propagate('mei', 'lin')],
     }))).toBe('RUMOR_SOURCE_NOT_HELD');
+  });
+
+  /**
+   * Found by fault injection: removing the VALIDATOR's holders check alone left every test above
+   * green, because the reducer refuses the same hop with the same code. Two enforcement points is
+   * the right design — a projection built by replay must not depend on validation having run —
+   * but it also meant a single suite could not tell which of them was doing the work, and either
+   * could have been deleted unnoticed. These two pin them separately.
+   */
+  it('is refused by canon validation on its own, before any reduction', async () => {
+    const { store } = await threeHopWorld();
+    const projection = replayWorldEvents(emptyProjection(WORLD), await store.loadAcceptedEvents(WORLD));
+
+    expect(validateCanon(
+      propose({ key: 'k:forged', participants: ['mei', 'lin'], changes: [propagate('mei', 'lin')] }),
+      projection,
+      { worldId: WORLD, rules: [], characterIds: [...CHARACTERS] },
+    )?.code).toBe('RUMOR_SOURCE_NOT_HELD');
+  });
+
+  it('is refused by the reducer on its own, so replay cannot manufacture a holder', async () => {
+    const { store } = await threeHopWorld();
+    const events = await store.loadAcceptedEvents(WORLD);
+    const projection = replayWorldEvents(emptyProjection(WORLD), events);
+    // Bypasses validation entirely, which is what a replay of a log written by an older, laxer
+    // ruleset would do.
+    const forged: AcceptedEvent = {
+      ...events[events.length - 1],
+      eventId: `${WORLD}#forged`,
+      idempotencyKey: 'k:forged',
+      sequenceNumber: events.length,
+      participantIds: ['mei', 'lin'],
+      stateChanges: [propagate('mei', 'lin')],
+    };
+
+    expect(() => reduceWorldEvent(projection, forged)).toThrow(/RUMOR_SOURCE_NOT_HELD/u);
   });
 
   it('refuses a belief change from someone who holds no version', async () => {
