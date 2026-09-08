@@ -396,7 +396,12 @@ describe('FR-M002 story: an exclusion is only an exclusion when it carries a rea
     // Every declared code, and the fixture that produces it from evidence a writer can store.
     // `EXCLUSION_WITHOUT_REASON` had no such fixture and could not have had one, which is why it
     // is gone. Adding a code without adding its producer fails here.
-    const producible: Record<keyof typeof STORY_QUALITY_FINDING_CODES, StoryQualityEvidence> = {
+    // Typed loosely on purpose. A `Record<keyof typeof STORY_QUALITY_FINDING_CODES, …>` would
+    // catch a newly declared code too, but as a COMPILE error — which jest reports as
+    // `Tests: 0 total`, indistinguishable from a clean pass in a filtered summary (CLAUDE.md §9).
+    // The `satisfies` keeps a typo'd key a type error; exhaustiveness is asserted at runtime, so
+    // the failure is a named red test.
+    const producible = {
       HIGH_IMPORTANCE_EVENT_UNCOVERED: evidence({ events: tenEvents() }),
       WORLD_DAY_UNPUBLISHED: evidence({ events: tenEvents() }),
       SPOILER_VIOLATION: evidence({
@@ -411,7 +416,7 @@ describe('FR-M002 story: an exclusion is only an exclusion when it carries a rea
       ARC_RESOLVED_WITHOUT_EVIDENCE: evidence({
         arcs: [arc({ arcId: 'arc-1', status: 'resolved', active: false, reachedTerminal: true })],
       }),
-    };
+    } satisfies Partial<Record<keyof typeof STORY_QUALITY_FINDING_CODES, StoryQualityEvidence>>;
 
     expect(Object.keys(producible).sort()).toEqual(Object.keys(STORY_QUALITY_FINDING_CODES).sort());
     for (const [code, fixture] of Object.entries(producible)) {

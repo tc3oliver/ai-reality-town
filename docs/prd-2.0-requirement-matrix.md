@@ -310,6 +310,35 @@ ART-90 補上 `canonValidationOutcomes` 資料表，以及 `recordProposalValida
 FR-M002「不得洩漏機密」條款所指的東西，而確保不洩漏的最可靠做法，就是讓 evaluator 從一開始就收
 不到它們。細節見 `docs/world-quality-metrics.md` §6 與 `docs/llm-tracing.md`。
 
+**ART-166 修正了三個「已交付，但讀出來的數字來源不對」的缺陷。**
+（一）`getStoryQualityMetrics` 從未傳入 `pendingWorldDays`。`toWorldDay` 預設為世界最新的已接受
+世界日，而 `completedWorldDaysOf` 只在世界已經走過某一天之後才承認它完成——所以視窗結尾那一天
+必然還沒有 Episode。主控台因此把那一天的高重要度事件全部算成未覆蓋，逐一發出嚴重的
+`HIGH_IMPORTANCE_EVENT_UNCOVERED` 與一個 `WORLD_DAY_UNPUBLISHED`，並在同一條規則下報出比
+九十天長跑閘門更低的 §16.2 覆蓋率。而 `completedWorldDaysOf` 的 docblock 早就聲稱查詢已經這麼
+做了；該聲稱在 ART-166 之前是錯的，現在才成立。待決日以**世界**最新的已接受事件為準而非以請求的
+視窗為準：操作者若指定較早的 `toWorldDay`，那一天是「已到期」的，必須完整計入。
+（二）`recordAuthoringAttempt` 收下 `errorCode` 後丟棄它。`llmTraces` 沒有這個欄位、讀取端寫死
+`errorCode: null`，於是兩個已發布的理由維度各自只剩一個被替換上去的常數（`SCENE_OUTPUT_INVALID`
+與 `SCENE_ATTEMPT_FAILED`）。被抹掉的正是 FR-M004 要據以行動的區別：`LLM_HTTP_RETRYABLE`、
+`LLM_FREE_ROUTES_EXHAUSTED` 與 `LLM_CONFIG_MISSING` 對應三種不同的操作者反應。`llmTraces` 因此
+新增選用的 `errorCode`，並以刻意比 id 規則更窄的「大寫代碼」樣式正規化——會放行小寫或標點的樣式
+就會放行供應商的錯誤訊息，而這份記錄的全部契約就是不承載模型文字。
+（三）同一個寫入者為 token 數與延遲寫下字面上的 0。速率指標不讀這三個欄位，但 FR-K002 的
+Model Trace 面板會顯示它們：ART-90 之前這張表沒有任何寫入者、面板顯示 null，之後面板開始把一次
+真的發生過的呼叫顯示為 0 tokens、0 ms。0 是一個量測值，而錯誤的量測值比誠實的缺席更糟。這三個
+欄位改為選用並**省略**，且任何一層都不得補上預設值。ART-166 另外讓這個寫入者改走
+`normalizeLlmTraceDraft`——白名單正規化器這件事，自 ART-90 起就寫在文件裡，卻對本部署唯一實際
+執行的寫入者不成立。
+
+**同時，`EXCLUSION_WITHOUT_REASON` 已從 Story-quality 的發布代碼中撤下。** `coverageExclusions`
+的唯一寫入者 `buildCoverageExclusion` 會拒絕任何 trim 後短於 `MIN_EXCLUSION_REASON_LENGTH` 的
+理由，這個門檻嚴格強於「非空白」，所以沒有任何已儲存的列能觸發該分支：evaluator 等於對外宣告一項
+它永遠無法執行的偵測，並因此遮蔽了保證真正生效的位置（寫入邊界）。行為本身保留——理由未達同一
+門檻的排除不予採納，事件留在分母裡，若無人引用則以 `HIGH_IMPORTANCE_EVENT_UNCOVERED` 回報並點名
+宣告者。直接刪掉分支才是危險的改法：只判斷「有排除列存在」會讓空白理由悄悄縮小分母，把壞掉的
+寫入者變成更好看的覆蓋率。
+
 **§16.2 JSON 結構成功率 ≥ 98% 現已可量測，且在 7 天固定種子上為 104/104（100%）——但這個讀數
 帶有一個必須一併陳述的但書。** 固定種子的 100% 是**由建構方式決定的** 1.0：決定性作者不可能產出
 無效輸出，因此該比率不可能下降，它證明的是**接線**而不是模型。比率**確實會下降**這件事，由
