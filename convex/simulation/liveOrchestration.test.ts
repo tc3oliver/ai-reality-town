@@ -22,6 +22,7 @@
  * are what layer 1 covers, against the real handler.
  */
 
+import { policyFor } from './degradation';
 import { TIME_SLOTS, type TimeSlot } from '../canon/eventTypes';
 import { InMemoryCanonStore } from '../canon/inMemoryStore';
 import { mistwoodCharacterSeed, mistwoodWorldConfiguration, MISTWOOD_PUBLIC_WORLD_ID } from '../canon/mistwoodSeed';
@@ -299,6 +300,8 @@ function livePort(store: InMemoryCanonStore, maxConcurrentCalls: number | null =
     budget: unmeteredWorldDayBudgetPort(),
     loadConcurrencyLimit: () => Promise.resolve(maxConcurrentCalls),
     loadModuleConfig: (_worldId, module) => Promise.resolve(resolveEffectiveModuleConfig(module, null)),
+    /** ART-165: this fixture's world is not degraded, so every slot authors at full budget. */
+    loadAuthoringPolicy: () => Promise.resolve(policyFor('normal')),
     async loadWorldSnapshot(slot) {
       const acceptedEvents = await store.loadAcceptedEvents(slot.worldId);
       return buildLiveWorldSnapshot({

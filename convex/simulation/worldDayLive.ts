@@ -40,6 +40,7 @@ import {
 import { proposalSceneId, type ProposalValidationDraft } from './validationOutcome';
 import { commitProposedEvent, type CanonCommitStore, type CommitResult } from '../canon/commit';
 import { TIME_SLOTS, type TimeSlot } from '../canon/eventTypes';
+import { degradedPlan, policyFor, type LevelPolicy } from './degradation';
 import { replayWorldEvents } from '../canon/replay';
 import { cloneProjection } from '../canon/snapshots';
 import { resolveWorldBaseline } from '../canon/snapshotManager';
@@ -199,6 +200,13 @@ export type LiveWorldSnapshot = {
  */
 export interface WorldDayLivePort {
   loadWorldSnapshot(slot: WorldDaySlotIdentity): Promise<LiveWorldSnapshot>;
+  /**
+   * The FR-M004 rung this slot authors under (ART-165), read once at stage 1 and checkpointed.
+   *
+   * A port that does not model degradation returns {@link policyFor}`('normal')`, which is what an
+   * undegraded world is on and what every fixture written before ART-165 assumed.
+   */
+  loadAuthoringPolicy(worldId: string): Promise<LevelPolicy>;
   /** Environment events already scheduled for this slot (viewer injection, FR-J001). */
   loadScheduledEnvironmentEvents(slot: WorldDaySlotIdentity): Promise<ProposedEvent[]>;
   /**
@@ -823,7 +831,20 @@ export function withSceneProvenance(result: SceneSimulationResult): SceneSimulat
 
 // --- stage artifacts --------------------------------------------------------
 
-export type WorldStateArtifact = { snapshot: LiveWorldSnapshot };
+/**
+ * Stage 1's artifact, and — since ART-165 — the slot's FR-M004 authoring policy.
+ *
+ * The policy is pinned here rather than re-read per pass because the live path runs a slot in two
+ * mutations with a provider call between them, and the ladder can move the world between the two.
+ * When it did, the finishing pass rebuilt an unreduced plan and demanded scenes the reduced pass had
+ * never authored, so the slot deferred instead of completing and `fewer_scenes` never actually
+ * delivered a reduced-scene slot — it cost a wasted tick and undid itself. A checkpoint is read
+ * identically by both passes, so the reduction is a property of the SLOT.
+ *
+ * Optional because runs checkpointed before ART-165 have no policy stored; those read as `normal`,
+ * which is what they were authored under.
+ */
+export type WorldStateArtifact = { snapshot: LiveWorldSnapshot; authoringPolicy?: LevelPolicy };
 export type EnvironmentArtifact = { appliedEventIds: string[]; environmentFactIds: string[] };
 export type ActiveArcsArtifact = { activeArcs: LiveArc[] };
 export type DirectorPlanArtifact = { context: DirectorPlanContext; plan: DirectorPlan };
@@ -1188,9 +1209,14 @@ export function createWorldDayStageHandlers(
   provider: LanguageModelProvider | null,
 ): WorldDayStageHandlers {
   return {
-    load_world_state: async (context): Promise<WorldStateArtifact> => ({
-      snapshot: await port.loadWorldSnapshot(slotOf(context)),
-    }),
+    load_world_state: async (context): Promise<WorldStateArtifact> => {
+      const slot = slotOf(context);
+      return {
+        snapshot: await port.loadWorldSnapshot(slot),
+        // ART-165: pinned here so the authoring pass and the finishing pass reduce the same plan.
+        authoringPolicy: await port.loadAuthoringPolicy(slot.worldId),
+      };
+    },
 
     // Viewer-injected environment events (FR-J001) are proposals like any other: they are
     // committed through the same Canon pipeline, with the same structural and Canon
@@ -1291,8 +1317,14 @@ export function createWorldDayStageHandlers(
     simulate_scenes: async (context): Promise<SimulationArtifact> => {
       const slot = slotOf(context);
       const grouping = artifact<GroupingArtifact>(context, 'group_intents_into_scenes');
-      const { snapshot } = artifact<WorldStateArtifact>(context, 'load_world_state');
-      const plan = await buildSceneAuthoringPlan(port, slot, grouping, snapshot);
+      const world = artifact<WorldStateArtifact>(context, 'load_world_state');
+      // FR-M004 rungs 2 and 3, from the slot's own checkpoint (ART-165). The authoring pass reduced
+      // the plan the same way from the same artifact, so this pass asks for exactly the scenes that
+      // pass authored — which is what stops a reduced slot from deferring forever.
+      const plan = degradedPlan(
+        await buildSceneAuthoringPlan(port, slot, grouping, world.snapshot),
+        world.authoringPolicy ?? policyFor('normal'),
+      );
       const authored = await authorSlotScenes(provider, port, plan);
       const results: SceneSimulationResult[] = [];
       const withheldSceneIds: string[] = [];
@@ -1304,7 +1336,7 @@ export function createWorldDayStageHandlers(
         if (result.reviewStatus === 'required') withheldSceneIds.push(result.scene.sceneId);
         // FR-P004 AC#1: every event committed from here carries the Scene whose safety
         // classification governs whether its text may be shown.
-        else results.push(withSceneProvenance(withArrivalStateChanges(result, snapshot)));
+        else results.push(withSceneProvenance(withArrivalStateChanges(result, world.snapshot)));
       }
       return { results, withheldSceneIds };
     },

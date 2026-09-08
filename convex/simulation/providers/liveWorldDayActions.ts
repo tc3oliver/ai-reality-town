@@ -89,6 +89,7 @@ import { createLiveSceneAuthor, resolveLiveSceneAuthoringModel } from './liveSce
 import { createProviderCallRecorder } from './providerCallRecorder';
 import type { recordProviderCall as recordProviderCallExport } from '../providerRateFunctions';
 import type { recordSlotOutcome as recordSlotOutcomeExport } from '../degradationFunctions';
+import type { DegradationLevel } from '../degradation';
 
 const prepareQueuedWorldDaySlotRef = internalFunctionRef<typeof prepareQueuedWorldDaySlotExport>(
   'simulation/worldDayLiveFunctions:prepareQueuedWorldDaySlot',
@@ -181,6 +182,15 @@ export type LiveSlotOutcome = {
    * the distinction the route chain exists to make.
    */
   authoringErrorCode?: string;
+  /**
+   * FR-M004 (ART-165): the rung this slot ran at, and whether it was the periodic provider probe.
+   *
+   * `prepareQueuedWorldDaySlot` has returned the level since ART-91 and nothing read it, so the
+   * cron's own return value — the thing that makes a run readable without opening the database —
+   * never said which rung a slot authored at. A degraded run and a healthy one looked identical.
+   */
+  degradationLevel: DegradationLevel;
+  probe: boolean;
 };
 
 /** The stable code an error carries, or a marker saying it carried none. */
@@ -227,6 +237,8 @@ export async function authorAndSettle(
     worldDay: prepared.plan.slot.worldDay,
     timeSlot: prepared.plan.slot.timeSlot,
     authored: authoringErrorCode === undefined,
+    // This branch exists because the slot needed a provider, so it called one (ART-165).
+    usedProvider: true,
     errorCode: authoringErrorCode ?? null,
     now,
   });
@@ -237,6 +249,8 @@ export async function authorAndSettle(
   return {
     outcome: settled.slots[0],
     authoredScenes,
+    degradationLevel: prepared.degradationLevel,
+    probe: prepared.probe,
     ...(authoringErrorCode === undefined ? {} : { authoringErrorCode }),
   };
 }
@@ -271,18 +285,27 @@ async function driveOneWorld(ctx: ActionCtx, input: {
       break;
     }
     if (prepared.kind === 'settled') {
-      // Nothing to author: every scene was already stored, the Director planned none, a stage
-      // before authoring decided the slot, or the world is on a rules-only rung. A COMPLETED slot
-      // at a degraded level is what recovers a rung (ART-91), so it feeds the ladder too — but
-      // only when it completed: a slot that failed for a Canon or safety reason says nothing about
-      // whether the provider is working.
-      if (prepared.outcome.status === 'completed') {
-        await ctx.runMutation(recordSlotOutcomeRef, {
-          worldId: input.worldId, worldDay: prepared.outcome.worldDay, timeSlot: prepared.outcome.timeSlot,
-          authored: true, errorCode: null, now: input.now,
-        });
-      }
-      slots.push({ outcome: prepared.outcome, authoredScenes: 0 });
+      /**
+       * Nothing to author: every scene was already stored, the Director planned none, a stage
+       * before authoring decided the slot, or the world is on a rules-only rung. Not one of those
+       * called a model, so the ladder is told exactly that (ART-165).
+       *
+       * It used to be told `authored: true`, which credited a rules-only slot with an authoring it
+       * had not performed and climbed the world straight back out of `rules_only` — making
+       * `deferred_summaries` and `paused` unreachable by any outage. The slot still feeds the
+       * ladder, because that is how a no-provider world counts its way to the next probe.
+       */
+      await ctx.runMutation(recordSlotOutcomeRef, {
+        worldId: input.worldId, worldDay: prepared.outcome.worldDay, timeSlot: prepared.outcome.timeSlot,
+        authored: prepared.outcome.status === 'completed', usedProvider: false,
+        errorCode: null, now: input.now,
+      });
+      slots.push({
+        outcome: prepared.outcome, authoredScenes: 0,
+        // A settled slot ran at the world's rung and was never a probe: a probe needs a provider,
+        // and this branch is every way a slot finishes without one.
+        degradationLevel: prepared.degradationLevel, probe: false,
+      });
     } else {
       slots.push(await authorAndSettle(ctx, input.provider, prepared, input.worldId, input.now));
     }

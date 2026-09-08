@@ -66,6 +66,19 @@ import { FAKE_SCENE_MODEL, FakeWholeSceneProvider } from '../simulation/fakeScen
 import type { LanguageModelProvider } from '../simulation/provider';
 import type { SceneSimulationResult } from '../simulation/sceneSimulation';
 import {
+  advanceDegradation,
+  effectivePolicy,
+  initialDegradationState,
+  policyFor,
+  resumeFromPause,
+  shouldProbeProvider,
+  type DegradationState,
+  type DegradationTransition,
+  type LevelPolicy,
+} from '../simulation/degradation';
+import { deriveRulesOnlyEvents } from '../simulation/rulesOnlyAuthor';
+import { commitProposedEvent } from '../canon/commit';
+import {
   buildLiveWorldSnapshot,
   createWorldDayStageHandlers,
   worldDayRunId,
@@ -740,11 +753,15 @@ export type Observations = {
  * input, which is what makes the safety, repetition, token and appearance checks
  * observations of the live run rather than a re-derivation.
  */
+/** A mutable rung, so one bound port can author a world that moves down the ladder mid-run. */
+export type AuthoringPolicyBox = { current: LevelPolicy };
+
 export function createWorldDayPort(
   store: InMemoryCanonStore,
   observations: Observations,
   activeArcsOf: () => LiveArc[],
   budget: WorldDayBudgetPort,
+  authoringPolicy: AuthoringPolicyBox = { current: policyFor('normal') },
 ): WorldDayLivePort {
   return {
     canonStore: store,
@@ -759,6 +776,12 @@ export function createWorldDayPort(
     loadConcurrencyLimit: () => Promise.resolve(null),
     loadModuleConfig: (_worldId: string, module: ConfigurableModule) =>
       Promise.resolve(resolveEffectiveModuleConfig(module, null)),
+    /**
+     * FR-M004 (ART-165). `normal` unless a caller sets one: `runLongRunSimulation` measures an
+     * undegraded world, and `runDegradationLadderDays` sets the rung's policy before each slot so
+     * rungs 2 and 3 are exercised by the same code the deployment runs rather than described.
+     */
+    loadAuthoringPolicy: () => Promise.resolve(authoringPolicy.current),
     async loadWorldSnapshot(slot: WorldDaySlotIdentity) {
       const acceptedEvents = await store.loadAcceptedEvents(slot.worldId);
       // From the seeded baseline, as the deployment's `loadWorldSnapshot` does — not from empty.
@@ -1619,6 +1642,16 @@ export type LongRunFixture = {
   budget: InMemoryBudgetAccountant;
   /** ART-58. The daily snapshots the run persisted, as replay evidence. */
   snapshots: CanonBackedSnapshotStore;
+  /**
+   * ART-165. The stage-1 port, so a caller driving the FR-M004 ladder can read the same world
+   * snapshot the Director plans against — which is what a rules-only slot derives its events from.
+   */
+  worldDayPort: WorldDayLivePort;
+  /**
+   * ART-165. The rung the bound port authors under. `runDegradationLadderDays` writes it before each
+   * slot, so a degraded slot is reduced by the deployment's own `degradedPlan` rather than described.
+   */
+  authoringPolicy: AuthoringPolicyBox;
 };
 
 export function createLongRunFixture(
@@ -1653,15 +1686,204 @@ export function createLongRunFixture(
   const worldDayRunStore = new MemoryWorldDayRunStore();
   const postCommitRunStore = new MemoryPostCommitRunStore();
   const budget = new InMemoryBudgetAccountant(FAKE_SCENE_MODEL, policy, moduleDailyTokenBudget);
-  const worldDayHandlers = createWorldDayStageHandlers(
-    createWorldDayPort(canon, observations, harness.activeArcsForDirector, budget),
-    provider,
-  );
+  const authoringPolicy: AuthoringPolicyBox = { current: policyFor('normal') };
+  const worldDayPort = createWorldDayPort(
+    canon, observations, harness.activeArcsForDirector, budget, authoringPolicy);
+  const worldDayHandlers = createWorldDayStageHandlers(worldDayPort, provider);
   const postCommitHandlers = createPostCommitStageHandlers(harness.port);
   return {
     canon, readStore, harness, observations, worldDayRunStore, postCommitRunStore,
-    worldDayHandlers, postCommitHandlers, budget, snapshots,
+    worldDayHandlers, postCommitHandlers, budget, snapshots, worldDayPort, authoringPolicy,
   };
+}
+
+// --- the FR-M004 ladder, driven against the real pipeline (ART-165) ----------
+
+/**
+ * One slot as the ladder saw it.
+ *
+ * `usedProvider` is separate from `status` on purpose: a rules-only slot completes without ever
+ * calling a model, and conflating "the slot finished" with "the model works" is the defect ART-165
+ * exists to fix.
+ */
+export type LadderSlotOutcome = {
+  worldDay: number;
+  timeSlot: TimeSlot;
+  /** The rung the world was on when the slot was admitted. */
+  level: DegradationState['level'];
+  /** Whether this slot was a provider probe taken at a rung that does not normally call one. */
+  probe: boolean;
+  usedProvider: boolean;
+  /** `refused` means the ladder did not admit the slot at all — rung 6. */
+  status: 'completed' | 'failed' | 'refused';
+  errorCode: string | null;
+  committedEventIds: string[];
+};
+
+export type LadderRunResult = {
+  outcomes: LadderSlotOutcome[];
+  transitions: DegradationTransition[];
+  state: DegradationState;
+};
+
+export type LadderRunInput = {
+  worldDays: number;
+  startWorldDay?: number;
+  /** Carry a world's rung across calls, so an outage and its recovery can be driven separately. */
+  state?: DegradationState;
+  /**
+   * Called when the ladder refuses to admit a slot. Returning true performs the operator resume
+   * that rung 6 documents as its only way out; returning false leaves the world paused.
+   */
+  onPaused?: (state: DegradationState) => boolean;
+};
+
+/**
+ * Drive `worldDays` world days the way the LIVE driver does, with the ladder in the loop.
+ *
+ * `runLongRunSimulation` runs every slot at `normal` and reports quality. This runs the same
+ * fixture — the same Canon store, the same stage handlers, the same post-commit pipeline — with
+ * the FR-M004 decision consulted before each slot and fed the outcome afterwards, which is the
+ * shape of `driveOneWorld` in `convex/simulation/providers/liveWorldDayActions.ts`.
+ *
+ * ## What it models, and what it does not
+ *
+ * It models the two things the ladder actually decides: whether a slot is ADMITTED, and what the
+ * slot's outcome tells the ladder. It does not model rung 3's plan truncation, because the harness
+ * builds its authoring plan inside `executeWorldDay` where there is nothing to intercept;
+ * `degradedPlan` is a pure function over a plan and is covered directly in `degradation.test.ts`.
+ * Saying so here is better than a driver that silently measures less than it appears to.
+ *
+ * The rules-only rung goes through `deriveRulesOnlyEvents` → `validateEventStructure` →
+ * `commitProposedEvent`, exactly as `runRulesOnlySlot` does, so a rung built as a bypass would
+ * fail here rather than pass.
+ */
+export async function runDegradationLadderDays(
+  fixture: LongRunFixture,
+  input: LadderRunInput,
+): Promise<LadderRunResult> {
+  const startWorldDay = input.startWorldDay ?? 0;
+  let state = input.state ?? initialDegradationState(LONG_RUN_WORLD_ID);
+  const outcomes: LadderSlotOutcome[] = [];
+  const transitions: DegradationTransition[] = [];
+  let processed = fixture.canon.committedEvents().length;
+  let clock = 1;
+
+  for (let offset = 0; offset < input.worldDays; offset += 1) {
+    const worldDay = startWorldDay + offset;
+    for (const timeSlot of TIME_SLOTS) {
+      clock += 1;
+      const slot: WorldDaySlotIdentity = { worldId: LONG_RUN_WORLD_ID, worldDay, timeSlot };
+
+      // Rung 6, checked BEFORE anything is claimed, exactly as `prepareQueuedWorldDaySlot` does.
+      if (!policyFor(state.level).admitsSimulation) {
+        if (input.onPaused?.(state) === true) {
+          const resumed = resumeFromPause(state, clock, 'operator:long-run');
+          state = resumed.state;
+          if (resumed.transition) transitions.push(resumed.transition);
+        } else {
+          outcomes.push({
+            worldDay, timeSlot, level: state.level, probe: false, usedProvider: false,
+            status: 'refused', errorCode: 'WORLD_DEGRADATION_PAUSED', committedEventIds: [],
+          });
+          continue;
+        }
+      }
+
+      // `effectivePolicy`, not `policyFor`: one slot in every SLOTS_BETWEEN_PROVIDER_PROBES is the
+      // probe that lets a no-provider world find out the outage ended (ART-165).
+      const probe = shouldProbeProvider(state);
+      const policy = effectivePolicy(state);
+      const level = state.level;
+      // The port authors under this rung, so `fewer_scenes` really does truncate the plan and
+      // `compatible_model` really does swap the model — in the harness as in the deployment.
+      fixture.authoringPolicy.current = policy;
+      let status: 'completed' | 'failed';
+      let errorCode: string | null = null;
+      let committedEventIds: string[] = [];
+
+      if (policy.rulesOnly) {
+        const settled = await commitRulesOnlySlot(fixture, slot);
+        status = settled.errorCode === null ? 'completed' : 'failed';
+        errorCode = settled.errorCode;
+        committedEventIds = settled.committedEventIds;
+      } else {
+        const run = await executeWorldDay(
+          { runId: worldDayRunId(slot), ...slot }, fixture.worldDayRunStore, fixture.worldDayHandlers,
+        );
+        status = run.status === 'completed' ? 'completed' : 'failed';
+        errorCode = run.errorCode ?? null;
+        committedEventIds = run.committedEventIds ?? [];
+      }
+
+      // Stages 11–21 for everything this slot accepted, so the world the next slot plans against
+      // is the one the pipeline actually produced.
+      const accepted = fixture.canon.committedEvents();
+      for (const event of accepted.slice(processed)) {
+        await executePostCommitPipeline({
+          runId: postCommitRunId(LONG_RUN_WORLD_ID, event.sequenceNumber), worldId: LONG_RUN_WORLD_ID,
+          sourceEventId: event.eventId, sourceEventSequenceNumber: event.sequenceNumber,
+          worldDay: event.worldDay,
+        }, fixture.postCommitRunStore, fixture.postCommitHandlers, event.traceId);
+      }
+      processed = accepted.length;
+
+      outcomes.push({
+        worldDay, timeSlot, level, probe, usedProvider: policy.usesProvider,
+        status, errorCode, committedEventIds,
+      });
+
+      const decision = advanceDegradation(state, {
+        worldId: LONG_RUN_WORLD_ID, worldDay, timeSlot,
+        authored: status === 'completed', usedProvider: policy.usesProvider, errorCode, at: clock,
+      });
+      state = decision.state;
+      if (decision.transition) transitions.push(decision.transition);
+    }
+  }
+
+  return { outcomes, transitions, state };
+}
+
+/**
+ * Rung 4/5's slot: deterministic proposals, through the same structural gate and the same commit.
+ *
+ * Mirrors `runRulesOnlySlot`. Placements come from the world SNAPSHOT rather than from
+ * `projection.characterLocations`, because Canon records a location CHANGE — where the seed put a
+ * character lives in the snapshot, and a rules-only author fed from the projection would propose
+ * nothing on a world where nobody had moved yet.
+ */
+async function commitRulesOnlySlot(
+  fixture: LongRunFixture,
+  slot: WorldDaySlotIdentity,
+): Promise<{ errorCode: string | null; committedEventIds: string[] }> {
+  const snapshot = await fixture.worldDayPort.loadWorldSnapshot(slot);
+  const proposals = deriveRulesOnlyEvents({
+    worldId: slot.worldId,
+    worldDay: slot.worldDay,
+    timeSlot: slot.timeSlot,
+    directorRunId: `director:${worldDayRunId(slot)}`,
+    placements: snapshot.characters.map(({ characterId, currentLocationId }) =>
+      ({ characterId, locationId: currentLocationId })),
+  });
+
+  const committedEventIds: string[] = [];
+  for (const proposed of proposals) {
+    const structural = validateEventStructure(proposed);
+    if (structural) return { errorCode: structural.code, committedEventIds };
+    try {
+      const result = await commitProposedEvent(fixture.canon, { proposed, traceId: worldDayRunId(slot) });
+      committedEventIds.push(result.eventId);
+    } catch (error) {
+      return {
+        errorCode: error instanceof Error && 'error' in error
+          ? String((error as { error: { code?: string } }).error.code ?? 'RULES_ONLY_COMMIT_FAILED')
+          : 'RULES_ONLY_COMMIT_FAILED',
+        committedEventIds,
+      };
+    }
+  }
+  return { errorCode: null, committedEventIds };
 }
 
 // --- the run -----------------------------------------------------------------

@@ -24,13 +24,17 @@ import {
   DEGRADATION_TRIGGER_CODES,
   FAILURES_BEFORE_ESCALATION,
   REDUCED_SCENES_PER_SLOT,
+  SLOTS_BETWEEN_PROVIDER_PROBES,
   advanceDegradation,
+  degradedPlan,
+  effectivePolicy,
   initialDegradationState,
   isDegradationTrigger,
   nextLevel,
   policyFor,
   previousLevel,
   resumeFromPause,
+  shouldProbeProvider,
   type DegradationLevel,
   type DegradationState,
   type SlotOutcomeSignal,
@@ -48,7 +52,13 @@ const stateAt = (level: DegradationLevel, overrides: Partial<DegradationState> =
   ...overrides,
 });
 
-/** One slot outcome. `at` is passed in so no case depends on the wall clock. */
+/**
+ * One slot outcome that CALLED a model. `at` is passed in so no case depends on the wall clock.
+ *
+ * `usedProvider` defaults to true because every case in this file is about what the ladder does with
+ * evidence about the provider. The cases where a slot called no model say so explicitly, and that
+ * asymmetry is the point of ART-165: a slot that called nothing is not evidence either way.
+ */
 const failure = (
   errorCode: string | null,
   overrides: Partial<SlotOutcomeSignal> = {},
@@ -57,6 +67,7 @@ const failure = (
   worldDay: 3,
   timeSlot: 'morning',
   authored: false,
+  usedProvider: true,
   errorCode,
   at: 1_700_000_000_000,
   ...overrides,
@@ -64,6 +75,10 @@ const failure = (
 
 const authored = (overrides: Partial<SlotOutcomeSignal> = {}): SlotOutcomeSignal =>
   failure(null, { authored: true, ...overrides });
+
+/** A completed rules-only slot: it finished, and it called nothing. */
+const rulesOnlySlot = (overrides: Partial<SlotOutcomeSignal> = {}): SlotOutcomeSignal =>
+  failure(null, { authored: true, usedProvider: false, ...overrides });
 
 /**
  * The ladder written out by hand, from `normal` to the rung below it.
@@ -278,6 +293,225 @@ describe('an authored slot recovers exactly one rung', () => {
       levels.push(state.level);
     }
     expect(levels).toEqual(['deferred_summaries', 'rules_only', 'fewer_scenes', 'compatible_model', 'normal']);
+  });
+});
+
+// --- ART-165: only a slot that called a model says anything about the model ---
+
+describe('a slot that called no model is not evidence about the model', () => {
+  /**
+   * The defect ART-165 fixes, pinned as its inverse.
+   *
+   * `driveOneWorld` reported every completed slot as `authored: true`, including a rules-only one —
+   * which completes precisely because it calls nothing. A world at `rules_only` therefore climbed
+   * straight back to `fewer_scenes` on its own deterministic output, and the two rungs below it
+   * could never be reached by any outage.
+   */
+  it.each(['rules_only', 'deferred_summaries'] as const)(
+    'does not recover %s when a rules-only slot completes',
+    (level) => {
+      const decision = advanceDegradation(stateAt(level), rulesOnlySlot());
+      expect(decision.transition).toBeNull();
+      expect(decision.state.level).toBe(level);
+      // It counts towards the next probe instead, which is how the world does eventually find out.
+      expect(decision.state.slotsSinceProviderProbe).toBe(1);
+    },
+  );
+
+  it('does not count a rules-only slot towards the probe while the rung is already calling a model', () => {
+    // `normal` and `compatible_model` author every slot. A slot that reached neither the provider
+    // nor a failure — nothing planned, everything already persisted — must not start a probe
+    // countdown for a provider the world is using anyway.
+    for (const level of ['normal', 'compatible_model', 'fewer_scenes'] as const) {
+      const decision = advanceDegradation(stateAt(level), rulesOnlySlot());
+      expect(decision.state.slotsSinceProviderProbe).toBe(0);
+      expect(decision.transition).toBeNull();
+    }
+  });
+
+  it('does not escalate when a rules-only slot fails: that is the derivation, not the model', () => {
+    const decision = advanceDegradation(
+      stateAt('rules_only', { consecutiveFailures: 1 }),
+      failure('RULES_ONLY_COMMIT_FAILED', { usedProvider: false }),
+    );
+    expect(decision.transition).toBeNull();
+    expect(decision.state.level).toBe('rules_only');
+    expect(decision.state.consecutiveFailures).toBe(1);
+  });
+});
+
+describe('the provider probe is what makes the lowest rungs reachable (ART-165)', () => {
+  it('probes after a world day of slots that called nothing, and not before', () => {
+    expect(SLOTS_BETWEEN_PROVIDER_PROBES).toBe(5);
+    let state = stateAt('rules_only');
+    const probes: boolean[] = [];
+    for (let slot = 0; slot < SLOTS_BETWEEN_PROVIDER_PROBES + 1; slot += 1) {
+      probes.push(shouldProbeProvider(state));
+      state = advanceDegradation(state, rulesOnlySlot({ worldDay: slot })).state;
+    }
+    // False for the first five, true on the sixth: one probe per world day.
+    expect(probes).toEqual([false, false, false, false, false, true]);
+  });
+
+  it('never probes from paused, because that is the whole content of paused', () => {
+    const state = stateAt('paused', { slotsSinceProviderProbe: 99 });
+    expect(shouldProbeProvider(state)).toBe(false);
+    expect(effectivePolicy(state)).toEqual(policyFor('paused'));
+    expect(effectivePolicy(state).admitsSimulation).toBe(false);
+  });
+
+  it('never probes from a rung that is already calling the provider', () => {
+    for (const level of ['normal', 'compatible_model', 'fewer_scenes'] as const) {
+      expect(shouldProbeProvider(stateAt(level, { slotsSinceProviderProbe: 99 }))).toBe(false);
+      expect(effectivePolicy(stateAt(level, { slotsSinceProviderProbe: 99 }))).toEqual(policyFor(level));
+    }
+  });
+
+  it('runs the probe at the cheapest real authoring, and un-defers nothing else', () => {
+    const due = stateAt('deferred_summaries', { slotsSinceProviderProbe: SLOTS_BETWEEN_PROVIDER_PROBES });
+    const policy = effectivePolicy(due);
+    expect(policy.usesProvider).toBe(true);
+    expect(policy.rulesOnly).toBe(false);
+    expect(policy.usesFallbackModel).toBe(true);
+    expect(policy.maxMajorScenes).toBe(REDUCED_SCENES_PER_SLOT);
+    // A probe is a question about the model, not a return to service: the rung's other reductions
+    // stay, and the rung itself has not moved.
+    expect(policy.defersSummaries).toBe(true);
+    expect(due.level).toBe('deferred_summaries');
+  });
+
+  it('reaches paused on a sustained outage, one rung at a time, and could not before', () => {
+    // The runtime loop, written out: consult the rung, run the slot it allows, feed back what that
+    // slot actually did. The provider is down throughout, so every slot that calls it fails.
+    let state = initialDegradationState(WORLD_ID);
+    const transitions: Array<[string, string]> = [];
+    for (let slot = 0; slot < 40 && state.level !== 'paused'; slot += 1) {
+      const policy = effectivePolicy(state);
+      const usedProvider = policy.usesProvider;
+      const decision = advanceDegradation(state, {
+        worldId: WORLD_ID, worldDay: Math.floor(slot / 5), timeSlot: `slot-${slot % 5}`,
+        authored: !usedProvider, usedProvider, errorCode: usedProvider ? OUTAGE : null,
+        at: slot,
+      });
+      state = decision.state;
+      if (decision.transition) transitions.push([decision.transition.fromLevel, decision.transition.toLevel]);
+    }
+    expect(state.level).toBe('paused');
+    expect(transitions).toEqual([
+      ['normal', 'compatible_model'],
+      ['compatible_model', 'fewer_scenes'],
+      ['fewer_scenes', 'rules_only'],
+      ['rules_only', 'deferred_summaries'],
+      ['deferred_summaries', 'paused'],
+    ]);
+  });
+
+  it('climbs back out when a probe finally authors', () => {
+    let state = stateAt('rules_only', { slotsSinceProviderProbe: SLOTS_BETWEEN_PROVIDER_PROBES });
+    expect(shouldProbeProvider(state)).toBe(true);
+    const decision = advanceDegradation(state, authored({ worldDay: 9 }));
+    expect(decision.state.level).toBe('fewer_scenes');
+    expect(decision.state.slotsSinceProviderProbe).toBe(0);
+    state = decision.state;
+    // From `fewer_scenes` the world authors every slot again, so it climbs without probing.
+    for (const worldDay of [10, 11]) state = advanceDegradation(state, authored({ worldDay })).state;
+    expect(state.level).toBe('normal');
+  });
+
+  it('resets the probe countdown when an operator resumes, so a resumed world does not ask at once', () => {
+    const resumed = resumeFromPause(stateAt('paused', { slotsSinceProviderProbe: 99 }), 5_000, OPERATOR);
+    expect(resumed.state.level).toBe('rules_only');
+    expect(resumed.state.slotsSinceProviderProbe).toBe(0);
+    expect(shouldProbeProvider(resumed.state)).toBe(false);
+  });
+});
+
+describe('one slot moves the world once, however often its outcome arrives (ART-165)', () => {
+  /**
+   * `applyDecision` deduplicates the transition ROW on its derived id, and the schema note used to
+   * claim that meant a replayed slot could not walk the ladder. It did not: the state row is patched
+   * either way, so two deliveries of one failure counted two failures and escalated a world that had
+   * failed once.
+   */
+  it('ignores a repeated failure from the same slot', () => {
+    const signal = failure(OUTAGE, { worldDay: 4, timeSlot: 'evening' });
+    const once = advanceDegradation(initialDegradationState(WORLD_ID), signal);
+    expect(once.state.consecutiveFailures).toBe(1);
+    const twice = advanceDegradation(once.state, signal);
+    expect(twice.state).toEqual(once.state);
+    expect(twice.transition).toBeNull();
+    expect(twice.state.level).toBe('normal');
+  });
+
+  it('ignores a repeated recovery from the same slot', () => {
+    const signal = authored({ worldDay: 4, timeSlot: 'evening' });
+    const once = advanceDegradation(stateAt('rules_only'), signal);
+    expect(once.state.level).toBe('fewer_scenes');
+    const twice = advanceDegradation(once.state, signal);
+    expect(twice.state.level).toBe('fewer_scenes');
+    expect(twice.transition).toBeNull();
+  });
+
+  it('still moves on the NEXT slot, so the guard is exactly-once and not once-ever', () => {
+    const first = advanceDegradation(initialDegradationState(WORLD_ID), failure(OUTAGE, { timeSlot: 'morning' }));
+    const repeat = advanceDegradation(first.state, failure(OUTAGE, { timeSlot: 'morning' }));
+    const second = advanceDegradation(repeat.state, failure(OUTAGE, { timeSlot: 'noon' }));
+    expect(second.state.level).toBe('compatible_model');
+  });
+});
+
+// --- rungs 2 and 3, whose entire effect is one function ----------------------
+
+describe('degradedPlan is what rungs 2 and 3 actually do (ART-165)', () => {
+  const plan = {
+    scenes: ['scene-a', 'scene-b', 'scene-c'] as const,
+    // The options the request is actually built from. `requestedModel` is only the reservation key,
+    // and ART-91 swapped that one alone — which is how the rung changed no call.
+    options: { model: 'primary-model', temperature: 0.7 },
+    requestedModel: 'primary-model',
+    fallbackModel: 'compatible-model',
+  };
+
+  it('changes nothing at normal', () => {
+    expect(degradedPlan(plan, policyFor('normal'))).toEqual(plan);
+  });
+
+  it('swaps the fallback into BOTH the reservation key and the request', () => {
+    const degraded = degradedPlan(plan, policyFor('compatible_model'));
+    expect(degraded.requestedModel).toBe('compatible-model');
+    // The one that reaches the wire. Asserting only `requestedModel` is what let the rung meter a
+    // bucket nothing spent from while the primary model served every call.
+    expect(degraded.options.model).toBe('compatible-model');
+    expect(degraded.options.temperature).toBe(0.7);
+    expect(degraded.scenes).toHaveLength(3);
+  });
+
+  it('truncates to REDUCED_SCENES_PER_SLOT at fewer_scenes, keeping the Director’s own order', () => {
+    const degraded = degradedPlan(plan, policyFor('fewer_scenes'));
+    expect(degraded.scenes).toEqual(['scene-a']);
+    expect(degraded.requestedModel).toBe('compatible-model');
+    expect(degraded.options.model).toBe('compatible-model');
+  });
+
+  it('stays on the requested model when no fallback is configured, and still applies the rung', () => {
+    // An absent fallback is not a reason to skip a rung: the scene reduction still binds.
+    const degraded = degradedPlan({ ...plan, fallbackModel: null }, policyFor('fewer_scenes'));
+    expect(degraded.requestedModel).toBe('primary-model');
+    expect(degraded.options.model).toBe('primary-model');
+    expect(degraded.scenes).toEqual(['scene-a']);
+  });
+
+  it('keeps the reservation key and the request naming the same model at every rung', () => {
+    // The invariant the two defects broke in opposite directions. A rung that changes one without
+    // the other either meters a model it does not call or calls a model it did not reserve.
+    for (const level of DEGRADATION_LEVELS) {
+      const degraded = degradedPlan(plan, policyFor(level));
+      expect(degraded.options.model).toBe(degraded.requestedModel);
+    }
+  });
+
+  it('plans nothing at paused', () => {
+    expect(degradedPlan(plan, policyFor('paused')).scenes).toEqual([]);
   });
 });
 

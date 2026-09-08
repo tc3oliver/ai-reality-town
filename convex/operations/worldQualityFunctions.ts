@@ -73,7 +73,7 @@ import { TIME_SLOTS } from '../canon/eventTypes';
 import type { SceneSimulationResult } from '../simulation/sceneSimulation';
 import { credentialArgs, operatorNow, recordAudit, requireOperator } from './opsConsoleFunctions';
 import { isActiveArcStatus } from '../story/lifecycle';
-import { loadDegradationState } from '../simulation/degradationFunctions';
+import { applyDecision, loadDegradationState } from '../simulation/degradationFunctions';
 import { policyFor, resumeFromPause } from '../simulation/degradation';
 import { ARC_STAGNATION_WORLD_DAYS } from '../story/resolution';
 import { HIGH_IMPORTANCE_THRESHOLD } from '../editorial/episode';
@@ -865,22 +865,12 @@ export const resumeDegradation = mutation({
     const at = operatorNow(args.now);
     const state = await loadDegradationState(ctx.db, args.worldId);
     const decision = resumeFromPause(state, at, principal.operatorId);
-    if (decision.transition) {
-      const prior = await ctx.db.query('worldDegradationTransitions')
-        .withIndex('by_transition_id', (q) => q.eq('transitionId', decision.transition!.transitionId)).unique();
-      if (!prior) await ctx.db.insert('worldDegradationTransitions', { ...decision.transition });
-      const row = await ctx.db.query('worldDegradationStates')
-        .withIndex('by_world_id', (q) => q.eq('worldId', args.worldId)).unique();
-      const next = {
-        schemaVersion: 1 as const, worldId: args.worldId, level: decision.state.level,
-        consecutiveFailures: decision.state.consecutiveFailures,
-        lastTriggerCode: decision.state.lastTriggerCode,
-        lastTransitionWorldDay: decision.state.lastTransitionWorldDay,
-        lastTransitionAt: decision.state.lastTransitionAt, updatedAt: at,
-      };
-      if (row) await ctx.db.patch(row._id, next);
-      else await ctx.db.insert('worldDegradationStates', next);
-    }
+    // The same write `recordSlotOutcome` performs, not a second copy of it (ART-165). The copy that
+    // used to live here predated `slotsSinceProviderProbe` by minutes and would have silently
+    // dropped it — which is the failure mode of every second implementation of one write.
+    const deduplicated = decision.transition === null
+      ? false
+      : await applyDecision(ctx.db, args.worldId, decision, at);
     await recordAudit(ctx, {
       principal, worldId: args.worldId, capability: 'world.resume', target: args.worldId,
       reason: args.reason,
@@ -888,6 +878,8 @@ export const resumeDegradation = mutation({
       resultCode: decision.transition === null ? 'DEGRADATION_NOT_PAUSED' : 'DEGRADATION_RESUMED',
       at,
     });
-    return { level: decision.state.level, transitioned: decision.transition !== null };
+    // A replayed resume wrote nothing, so it did not transition. The copy this replaced discarded
+    // `applyDecision`'s answer and reported `transitioned: true` for a resume that changed nothing.
+    return { level: decision.state.level, transitioned: decision.transition !== null && !deduplicated };
   },
 });

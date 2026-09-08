@@ -75,7 +75,10 @@ import { createConvexBudgetPort, resolveTokenBudgetPolicy } from './tokenBudgetG
 import { FakeWholeSceneProvider, FAKE_SCENE_MODEL } from './fakeSceneNarrator';
 import { assertWorldAdmitsSimulation, isWorldEmergencyStopped } from './emergencyStopOperations';
 import { loadDegradationState } from './degradationFunctions';
-import { policyFor, type DegradationLevel, type LevelPolicy } from './degradation';
+import {
+  degradedPlan, effectivePolicy, policyFor, shouldProbeProvider,
+  type DegradationLevel,
+} from './degradation';
 import { deriveRulesOnlyEvents } from './rulesOnlyAuthor';
 import { liveClaimHolder, type SlotClaim } from './schedulerOperations';
 import { executeWorldDay, WorldDayOrchestrationError, type WorldDayRun, type WorldDayStage } from './worldDayOrchestration';
@@ -350,6 +353,9 @@ function createConvexWorldDayLivePort(
   return {
     canonStore: createConvexCanonStore(ctx.db),
     loadWorldSnapshot: (slot) => loadWorldSnapshot(ctx.db, slot),
+    // FR-M004 (ART-165). `effectivePolicy`, so a probe slot authors for real; checkpointed at
+    // stage 1 so the finishing pass reduces the plan the authoring pass actually authored.
+    loadAuthoringPolicy: async (worldId) => effectivePolicy(await loadDegradationState(ctx.db, worldId)),
     // FR-K005 / ART-52: the authorized, versioned per-module model configuration. Reading it
     // here keeps `worldDayLive.ts` free of any database handle, exactly like every other port
     // method.
@@ -490,6 +496,8 @@ async function runRulesOnlySlot(
   ctx: MutationCtx,
   row: Doc<'scheduledSlots'>,
   now: number,
+  /** The rung the slot ran at — `rules_only` or `deferred_summaries`, both of which author no scene. */
+  degradationLevel: 'rules_only' | 'deferred_summaries',
 ): Promise<WorldDaySlotOutcome> {
   if (row.status === 'queued') await ctx.runMutation(startScheduledSlotRef, { slotId: row._id, now });
   const slot: WorldDaySlotIdentity = { worldId: row.worldId, worldDay: row.worldDay, timeSlot: row.timeSlot };
@@ -501,6 +509,7 @@ async function runRulesOnlySlot(
     directorRunId: directorRunId(slot),
     placements: snapshot.characters.map(({ characterId, currentLocationId }) =>
       ({ characterId, locationId: currentLocationId })),
+    degradationLevel,
   });
 
   const store = createConvexCanonStore(ctx.db);
@@ -559,12 +568,23 @@ export type PreparedSlot =
     plan: SceneAuthoringPlan;
     /** FR-M004 (ART-91): the rung this slot is being authored at, so the action can trace it. */
     degradationLevel: DegradationLevel;
+    /**
+     * FR-M004 (ART-165): whether this slot is the periodic probe that a no-provider rung takes to
+     * find out the outage has ended. The rung is still `degradationLevel`; only this slot differs.
+     */
+    probe: boolean;
   }
   /**
    * The slot reached a terminal state without needing to author anything — every scene was
    * already persisted, the Director planned no scenes at all, or a stage before authoring failed.
    */
-  | { kind: 'settled'; slotId: Id<'scheduledSlots'>; outcome: WorldDaySlotOutcome };
+  | {
+    kind: 'settled';
+    slotId: Id<'scheduledSlots'>;
+    outcome: WorldDaySlotOutcome;
+    /** FR-M004 (ART-165): the rung this slot ran at, so a settled slot is as traceable as an authored one. */
+    degradationLevel: DegradationLevel;
+  };
 
 /**
  * Rebuild the authoring plan from the run's own checkpoints.
@@ -592,8 +612,14 @@ async function authoringPlanFromCheckpoints(
   const world = latest('load_world_state') as WorldStateArtifact | undefined;
   const grouping = latest('group_intents_into_scenes') as GroupingArtifact | undefined;
   if (!world || !grouping) return null;
-  return buildSceneAuthoringPlan(
-    createConvexWorldDayLivePort(ctx, now, author), slot, grouping, world.snapshot);
+  // The SAME reduction `simulate_scenes` applies, from the SAME checkpoint (ART-165). Reading the
+  // world's current rung here instead would let the ladder move between the two passes and leave the
+  // finishing pass demanding scenes this one was never asked to author.
+  return degradedPlan(
+    await buildSceneAuthoringPlan(
+      createConvexWorldDayLivePort(ctx, now, author), slot, grouping, world.snapshot),
+    world.authoringPolicy ?? policyFor('normal'),
+  );
 }
 
 /**
@@ -643,8 +669,14 @@ export const prepareQueuedWorldDaySlot = internalMutation({
      * once and each is released by its own action.
      */
     const degradation = await loadDegradationState(ctx.db, args.worldId);
-    const policy = policyFor(degradation.level);
-    if (!policy.admitsSimulation) {
+    /**
+     * `effectivePolicy`, not `policyFor` (ART-165): one slot in every
+     * `SLOTS_BETWEEN_PROVIDER_PROBES` is a probe, which is how a world on a no-provider rung finds
+     * out the outage has ended. Admission is decided by the RUNG — a probe must not resurrect a
+     * paused world, and `effectivePolicy` never returns one that would.
+     */
+    const policy = effectivePolicy(degradation);
+    if (!policyFor(degradation.level).admitsSimulation) {
       throw new WorldDayOrchestrationError('WORLD_DEGRADATION_PAUSED',
         `world is paused at degradation level ${degradation.level}`);
     }
@@ -674,13 +706,17 @@ export const prepareQueuedWorldDaySlot = internalMutation({
      * skipping any of them, and rung 4 is the rung most likely to be built as a bypass.
      */
     if (policy.rulesOnly) {
-      const settled = await runRulesOnlySlot(ctx, row, now);
-      return { kind: 'settled', slotId: row._id, outcome: settled };
+      // `policy.rulesOnly` is true for exactly these two rungs, and the narrowing says so.
+      const settled = await runRulesOnlySlot(
+        ctx, row, now,
+        degradation.level === 'deferred_summaries' ? 'deferred_summaries' : 'rules_only',
+      );
+      return { kind: 'settled', slotId: row._id, outcome: settled, degradationLevel: degradation.level };
     }
 
     const outcome = await executeSlot(ctx, row, now, author);
     if (outcome.errorCode !== SCENE_AUTHORING_DEFERRED) {
-      return { kind: 'settled', slotId: row._id, outcome };
+      return { kind: 'settled', slotId: row._id, outcome, degradationLevel: degradation.level };
     }
 
     const slot: WorldDaySlotIdentity = { worldId: row.worldId, worldDay: row.worldDay, timeSlot: row.timeSlot };
@@ -700,7 +736,8 @@ export const prepareQueuedWorldDaySlot = internalMutation({
      */
     return {
       kind: 'awaiting_authoring', slotId: row._id,
-      plan: degradedPlan(plan, policy), degradationLevel: degradation.level,
+      // Already reduced, by `authoringPlanFromCheckpoints`, from the policy stage 1 pinned.
+      plan, degradationLevel: degradation.level, probe: shouldProbeProvider(degradation),
     };
   },
 });
@@ -715,26 +752,6 @@ export const prepareQueuedWorldDaySlot = internalMutation({
  * timeSlot), so a completed run short-circuits and a resumed run dedups at commit
  * instead of appending a second event (FR-C001 AC#1/#3/#4).
  */
-/**
- * Apply one degradation level's reductions to an authoring plan (FR-M004 rungs 2 and 3).
- *
- * `fewer_scenes` truncates the scene list rather than asking the Director to re-plan: the plan was
- * already validated against FR-C002, and a re-plan would be a second planner whose output nothing
- * had checked. Truncation keeps the scenes planned first, which is the Director's own priority
- * order.
- *
- * `compatible_model` swaps the requested model for the module's configured `fallbackModel` — the
- * value ART-52 has stored since it shipped and which, until ART-91, no code ever switched to. A
- * world with no fallback configured stays on its requested model and the level still applies its
- * other reductions: an absent fallback is not a reason to skip a rung.
- */
-function degradedPlan(plan: SceneAuthoringPlan, policy: LevelPolicy): SceneAuthoringPlan {
-  const scenes = policy.maxMajorScenes === null ? plan.scenes : plan.scenes.slice(0, policy.maxMajorScenes);
-  const requestedModel = policy.usesFallbackModel && plan.fallbackModel !== null
-    ? plan.fallbackModel : plan.requestedModel;
-  return { ...plan, scenes, requestedModel };
-}
-
 export const runQueuedWorldDaySlot = internalMutation({
   args: {
     worldId: v.string(),

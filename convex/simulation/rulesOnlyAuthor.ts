@@ -47,6 +47,12 @@ export type RulesOnlyContext = {
   directorRunId: string;
   /** Characters and where the projection says they are, ascending by character id. */
   placements: ReadonlyArray<{ characterId: string; locationId: string }>;
+  /**
+   * The rung that produced this slot (ART-165). Two rungs are rules-only — `rules_only` and
+   * `deferred_summaries` — and stamping the constant `'rules_only'` on both would make an event
+   * authored at the deeper rung indistinguishable from one authored at the shallower.
+   */
+  degradationLevel?: 'rules_only' | 'deferred_summaries';
 };
 
 /**
@@ -115,6 +121,6 @@ export function deriveRulesOnlyEvents(context: RulesOnlyContext): ProposedEvent[
     }],
     // Marked as what it is, so anything downstream can tell a rules-only event from an authored
     // one without guessing from its shape.
-    metadata: { authoring: 'rules_only', degradationLevel: 'rules_only' },
+    metadata: { authoring: 'rules_only', degradationLevel: context.degradationLevel ?? 'rules_only' },
   }));
 }

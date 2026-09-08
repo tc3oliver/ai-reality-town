@@ -1,3 +1,4 @@
+import { policyFor } from './degradation';
 import { readFileSync } from 'node:fs';
 import { commitProposedEvent } from '../canon/commit';
 import { TIME_SLOTS, type TimeSlot } from '../canon/eventTypes';
@@ -174,6 +175,8 @@ function createSeedPort(store: InMemoryCanonStore): WorldDayLivePort & { persist
     loadConcurrencyLimit: () => Promise.resolve(null),
     loadModuleConfig: (_worldId: string, module: ConfigurableModule) =>
       Promise.resolve(resolveEffectiveModuleConfig(module, null)),
+    /** ART-165: this fixture's world is not degraded, so every slot authors at full budget. */
+    loadAuthoringPolicy: () => Promise.resolve(policyFor('normal')),
     async loadWorldSnapshot(slot) {
       const acceptedEvents = await store.loadAcceptedEvents(slot.worldId);
       snapshot = buildLiveWorldSnapshot({
