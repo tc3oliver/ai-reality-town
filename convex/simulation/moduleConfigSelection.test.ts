@@ -18,6 +18,7 @@
  * last block pins the omission so a future change cannot start passing them silently.
  */
 
+import { policyFor } from './degradation';
 import type { ProposedEvent } from '../canon/model';
 import { InMemoryCanonStore } from '../canon/inMemoryStore';
 import {
@@ -105,6 +106,8 @@ function portWith(config: EffectiveModuleConfig): WorldDayLivePort & { requested
     // ART-90 evidence recorders; this fixture measures nothing, so they are inert.
     recordProposalValidations: () => Promise.resolve(),
     recordAuthoringAttempt: () => Promise.resolve(),
+    /** ART-165: this fixture's world is not degraded, so every slot authors at full budget. */
+    loadAuthoringPolicy: () => Promise.resolve(policyFor('normal')),
     loadWorldSnapshot: () => Promise.resolve(snapshot()),
     loadScheduledEnvironmentEvents: () => Promise.resolve([]),
     markScheduledEnvironmentEventApplied: () => Promise.resolve(),

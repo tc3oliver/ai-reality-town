@@ -6,8 +6,11 @@
  * there, because they are properties of the store:
  *
  *  - **A transition is appended once.** Insert-if-absent on the derived `transitionId`, so a
- *    retried slot that re-reaches the same decision records one move (AC#2). Replaying a slot
- *    therefore cannot walk the ladder.
+ *    retried slot that re-reaches the same decision records one move (AC#2). That alone did NOT
+ *    stop a replayed slot from walking the ladder — the state row below is patched whether or not
+ *    the transition row was new — so exactly-once now lives in the pure decision, keyed on the slot
+ *    that fed it (ART-165). This dedup remains, because the two guard different things: one the
+ *    history, one the state.
  *  - **The state row is the world's, not the run's.** One row per world, patched in place, because
  *    "which rung is this world on" has exactly one answer at a time. Its history lives in the
  *    append-only transition table, for the reason `safetyStatusOverrides` is separate from the
@@ -15,16 +18,20 @@
  *
  * Nothing here bypasses anything. It writes two rows about the world's own operating mode and
  * touches no Canon table, no publication and no read model.
+ *
+ * ART-165 removed `getDegradationState` and `resumeDegradedWorld` from this file. Both were
+ * registered Convex functions with no caller anywhere: every reader calls `loadDegradationState`
+ * directly, and the operator's resume path is the gated public `resumeDegradation`, which now shares
+ * `applyDecision` with `recordSlotOutcome` instead of carrying its own copy of the same two writes.
  */
 
 import { v } from 'convex/values';
 import type { GenericMutationCtx, GenericQueryCtx } from 'convex/server';
-import { internalMutation, internalQuery } from '../_generated/server';
+import { internalMutation } from '../_generated/server';
 import type { DataModel } from '../_generated/dataModel';
 import {
   advanceDegradation,
   initialDegradationState,
-  resumeFromPause,
   type DegradationDecision,
   type DegradationLevel,
   type DegradationState,
@@ -32,14 +39,6 @@ import {
 
 type ReadDb = GenericQueryCtx<DataModel>['db'];
 type WriteDb = GenericMutationCtx<DataModel>['db'];
-
-const stateValidator = v.object({
-  level: v.string(),
-  consecutiveFailures: v.number(),
-  lastTriggerCode: v.union(v.string(), v.null()),
-  lastTransitionWorldDay: v.number(),
-  lastTransitionAt: v.number(),
-});
 
 /** The world's rung, or the top of the ladder for a world that has never degraded. */
 export async function loadDegradationState(db: ReadDb, worldId: string): Promise<DegradationState> {
@@ -54,10 +53,15 @@ export async function loadDegradationState(db: ReadDb, worldId: string): Promise
     lastTriggerCode: row.lastTriggerCode,
     lastTransitionWorldDay: row.lastTransitionWorldDay,
     lastTransitionAt: row.lastTransitionAt,
+    // ART-165. Absent on rows written before it: a world mid-outage at deploy time starts its probe
+    // count again and has no recorded signal, which costs one deterministic world day and cannot
+    // move it the wrong way.
+    slotsSinceProviderProbe: row.slotsSinceProviderProbe ?? 0,
+    lastSignalKey: row.lastSignalKey ?? null,
   };
 }
 
-async function applyDecision(
+export async function applyDecision(
   db: WriteDb,
   worldId: string,
   decision: DegradationDecision,
@@ -81,28 +85,14 @@ async function applyDecision(
     lastTriggerCode: decision.state.lastTriggerCode,
     lastTransitionWorldDay: decision.state.lastTransitionWorldDay,
     lastTransitionAt: decision.state.lastTransitionAt,
+    slotsSinceProviderProbe: decision.state.slotsSinceProviderProbe,
+    lastSignalKey: decision.state.lastSignalKey,
     updatedAt: now,
   };
   if (row) await db.patch(row._id, next);
   else await db.insert('worldDegradationStates', next);
   return deduplicated;
 }
-
-/** The world's current rung. Read before a slot is claimed, so the slot runs at the right level. */
-export const getDegradationState = internalQuery({
-  args: { worldId: v.string() },
-  returns: stateValidator,
-  handler: async (ctx, args) => {
-    const state = await loadDegradationState(ctx.db, args.worldId);
-    return {
-      level: state.level,
-      consecutiveFailures: state.consecutiveFailures,
-      lastTriggerCode: state.lastTriggerCode,
-      lastTransitionWorldDay: state.lastTransitionWorldDay,
-      lastTransitionAt: state.lastTransitionAt,
-    };
-  },
-});
 
 /** Fold one slot outcome into the world's rung, appending a transition when it moved. */
 export const recordSlotOutcome = internalMutation({
@@ -111,6 +101,12 @@ export const recordSlotOutcome = internalMutation({
     worldDay: v.number(),
     timeSlot: v.string(),
     authored: v.boolean(),
+    /**
+     * ART-165. Whether the slot called a model at all. Required rather than defaulted: a caller
+     * that does not know is a caller that should not be feeding this ladder, and defaulting it to
+     * true is exactly the bug that made the two lowest rungs unreachable.
+     */
+    usedProvider: v.boolean(),
     errorCode: v.union(v.string(), v.null()),
     now: v.number(),
   },
@@ -119,7 +115,8 @@ export const recordSlotOutcome = internalMutation({
     const state = await loadDegradationState(ctx.db, args.worldId);
     const decision = advanceDegradation(state, {
       worldId: args.worldId, worldDay: args.worldDay, timeSlot: args.timeSlot,
-      authored: args.authored, errorCode: args.errorCode, at: args.now,
+      authored: args.authored, usedProvider: args.usedProvider, errorCode: args.errorCode,
+      at: args.now,
     });
     const deduplicated = await applyDecision(ctx.db, args.worldId, decision, args.now);
     return {
@@ -127,20 +124,5 @@ export const recordSlotOutcome = internalMutation({
       transitioned: decision.transition !== null && !deduplicated,
       deduplicated,
     };
-  },
-});
-
-/**
- * An operator resuming a paused world. Returns to `rules_only`, never straight to `normal` — see
- * `resumeFromPause` for why a world that just failed six ways does not get its budget back at once.
- */
-export const resumeDegradedWorld = internalMutation({
-  args: { worldId: v.string(), operatorId: v.string(), now: v.number() },
-  returns: v.object({ level: v.string(), transitioned: v.boolean() }),
-  handler: async (ctx, args) => {
-    const state = await loadDegradationState(ctx.db, args.worldId);
-    const decision = resumeFromPause(state, args.now, args.operatorId);
-    const deduplicated = await applyDecision(ctx.db, args.worldId, decision, args.now);
-    return { level: decision.state.level, transitioned: decision.transition !== null && !deduplicated };
   },
 });

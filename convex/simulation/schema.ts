@@ -65,6 +65,12 @@ export const simulationTables = {
    *
    * A transition id is derived from `(worldId, worldDay, timeSlot, kind)`, so a retried slot
    * re-derives it and the log records one move rather than one per attempt (AC#2).
+   *
+   * That note used to go on to say a replayed slot therefore could not walk the ladder. It could:
+   * the transition ROW deduplicates, but the state row is patched either way, so two deliveries of
+   * one failure counted two failures. Exactly-once is now a property of the pure decision —
+   * `advanceDegradation` ignores a signal whose `(worldDay, timeSlot)` already moved the world —
+   * and `lastSignalKey` below is what persists it (ART-165).
    */
   worldDegradationStates: defineTable({
     schemaVersion: v.literal(1),
@@ -74,6 +80,16 @@ export const simulationTables = {
     lastTriggerCode: v.union(v.string(), v.null()),
     lastTransitionWorldDay: v.number(),
     lastTransitionAt: v.number(),
+    /**
+     * ART-165. Slots run on a no-provider rung since the provider was last actually tried, and the
+     * slot whose outcome last moved this world.
+     *
+     * Optional so rows written before ART-165 read back: a world mid-outage at deploy time resumes
+     * with a zeroed probe counter and no recorded signal, which costs it one extra deterministic
+     * world day and cannot move it in the wrong direction.
+     */
+    slotsSinceProviderProbe: v.optional(v.number()),
+    lastSignalKey: v.optional(v.union(v.string(), v.null())),
     updatedAt: v.number(),
   }).index('by_world_id', ['worldId']),
 

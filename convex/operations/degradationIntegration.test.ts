@@ -18,6 +18,7 @@ import { validateCanon, validateEventStructure } from '../canon/validators';
 import { replayWorldEvents } from '../canon/replay';
 import { cloneProjection } from '../canon/snapshots';
 import {
+  REDUCED_SCENES_PER_SLOT,
   advanceDegradation,
   initialDegradationState,
   policyFor,
@@ -38,7 +39,7 @@ import { LIVE_MODEL_KIND } from '../publicRead/liveState';
 import { executePostCommitPipeline } from './postCommitOrchestration';
 import { postCommitRunId } from './postCommitLive';
 import {
-  createLongRunFixture, LONG_RUN_WORLD_ID, seededBaseline,
+  createLongRunFixture, runDegradationLadderDays, LONG_RUN_WORLD_ID, seededBaseline,
 } from './longRunHarness';
 
 /** A provider that is simply down. Every call fails the way a real outage does. */
@@ -130,7 +131,7 @@ describe('FR-M004 the ladder against the real pipeline (ART-91)', () => {
     for (const outcome of outcomes) {
       const decision = advanceDegradation(state, {
         worldId: LONG_RUN_WORLD_ID, worldDay: outcome.worldDay, timeSlot: outcome.timeSlot,
-        authored: outcome.status === 'completed', errorCode: outcome.errorCode, at: 1_000,
+        authored: outcome.status === 'completed', usedProvider: true, errorCode: outcome.errorCode, at: 1_000,
       });
       state = decision.state;
       if (decision.transition) levels.push(`${decision.transition.fromLevel}->${decision.transition.toLevel}`);
@@ -224,7 +225,7 @@ describe('FR-M004 the ladder against the real pipeline (ART-91)', () => {
     for (const outcome of failed) {
       state = advanceDegradation(state, {
         worldId: LONG_RUN_WORLD_ID, worldDay: outcome.worldDay, timeSlot: outcome.timeSlot,
-        authored: false, errorCode: outcome.errorCode, at: 1_000,
+        authored: false, usedProvider: true, errorCode: outcome.errorCode, at: 1_000,
       }).state;
     }
     expect(state.level).toBe('fewer_scenes');
@@ -237,7 +238,7 @@ describe('FR-M004 the ladder against the real pipeline (ART-91)', () => {
     for (const outcome of recovered) {
       const decision = advanceDegradation(state, {
         worldId: LONG_RUN_WORLD_ID, worldDay: outcome.worldDay, timeSlot: outcome.timeSlot,
-        authored: true, errorCode: null, at: 2_000,
+        authored: true, usedProvider: true, errorCode: null, at: 2_000,
       });
       state = decision.state;
       if (decision.transition) climbed.push(decision.transition.toLevel);
@@ -246,6 +247,159 @@ describe('FR-M004 the ladder against the real pipeline (ART-91)', () => {
     expect(climbed).toEqual(['compatible_model', 'normal']);
     expect(state.level).toBe('normal');
   }, 300_000);
+
+  /**
+   * ART-165 — the whole ladder, driven by the ladder itself.
+   *
+   * Every test above feeds `advanceDegradation` the outcomes of slots that all ran at `normal`,
+   * because that is what `runDays` does: it never consults the rung it is measuring. Under a total
+   * outage that produces one failure per slot and walks the ladder to the bottom, which is why the
+   * lower rungs looked reachable.
+   *
+   * The live driver does consult the rung, and a rules-only slot COMPLETES — no provider is called,
+   * so nothing can fail. `runDegradationLadderDays` reproduces that loop, and it is the only place
+   * the two lowest rungs can be observed at all.
+   */
+  it('escalates through every rung to paused while the provider stays down', async () => {
+    const fixture = createLongRunFixture(new DownProvider());
+    const result = await runDegradationLadderDays(fixture, { worldDays: 12 });
+
+    // No rung skipped, and each move is one step down the declared order.
+    expect(result.transitions.map(({ fromLevel, toLevel }) => `${fromLevel}->${toLevel}`)).toEqual([
+      'normal->compatible_model',
+      'compatible_model->fewer_scenes',
+      'fewer_scenes->rules_only',
+      'rules_only->deferred_summaries',
+      'deferred_summaries->paused',
+    ]);
+    expect(result.state.level).toBe('paused');
+
+    // The world kept advancing on deterministic events while it descended, and then stopped being
+    // admitted at all — both are the point of the ladder.
+    expect(result.outcomes.some(({ level, status }) => level === 'rules_only' && status === 'completed')).toBe(true);
+    expect(result.outcomes.some(({ status }) => status === 'refused')).toBe(true);
+    // And a rules-only slot is never counted as evidence the provider works.
+    expect(result.outcomes.filter(({ level }) => level === 'rules_only' || level === 'deferred_summaries')
+      .every(({ usedProvider, probe }) => usedProvider === probe)).toBe(true);
+  }, 600_000);
+
+  /**
+   * ART-165 — rung 3 actually reduces the slot, and rung 2 actually changes the model.
+   *
+   * Both rungs' entire observable effect is `degradedPlan`, and until ART-165 it was applied in one
+   * place only: the Convex mutation that hands a plan to the authoring action. The stage chain that
+   * AUTHORS never saw it, so a slot at `fewer_scenes` authored every scene the Director planned —
+   * and on the live path the finishing pass then demanded scenes the reduced pass had not authored,
+   * deferred, and let the world climb back out of the rung on a tick that completed nothing.
+   *
+   * Driving the fixture at each rung is what makes this checkable: the counts come from Canon.
+   */
+  it('authors fewer scenes at fewer_scenes than at normal, through the same pipeline', async () => {
+    // ONE slot at each rung. Not a whole day: a world at `fewer_scenes` whose slots succeed climbs
+    // back out of the rung, which is the ladder working, and would make a day-long comparison
+    // measure the recovery rather than the reduction.
+    const runOneSlot = async (level: 'normal' | 'fewer_scenes'): Promise<number> => {
+      const fixture = createLongRunFixture();
+      fixture.authoringPolicy.current = policyFor(level);
+      const slot = { worldId: LONG_RUN_WORLD_ID, worldDay: 0, timeSlot: 'morning' as const };
+      const run = await executeWorldDay(
+        { runId: worldDayRunId(slot), ...slot }, fixture.worldDayRunStore, fixture.worldDayHandlers,
+      );
+      // The rung reduces the work; it does not fail the slot.
+      expect(run.status).toBe('completed');
+      expect((run.committedEventIds ?? []).length).toBeGreaterThan(0);
+      return fixture.observations.simulations.length;
+    };
+
+    // Counted in SCENES, which is what 「減少主要場景」 reduces and what a provider call costs.
+    const normalScenes = await runOneSlot('normal');
+    const reducedScenes = await runOneSlot('fewer_scenes');
+    expect(normalScenes).toBeGreaterThan(REDUCED_SCENES_PER_SLOT);
+    expect(reducedScenes).toBe(REDUCED_SCENES_PER_SLOT);
+  }, 600_000);
+
+  /**
+   * ART-165 — the reduction is a property of the SLOT, not of whichever pass read the rung.
+   *
+   * The live path runs a slot in two mutations with a provider call between them, and the ladder can
+   * move the world between the two. Both passes rebuild the plan from `load_world_state`, so the
+   * policy is pinned there; a policy re-read per pass is what let the finishing pass ask for three
+   * scenes after the authoring pass had been told to write one.
+   */
+  it('checkpoints the rung with the slot, so both passes reduce the same plan', async () => {
+    const fixture = createLongRunFixture();
+    fixture.authoringPolicy.current = policyFor('fewer_scenes');
+    const slot = { worldId: LONG_RUN_WORLD_ID, worldDay: 0, timeSlot: 'morning' as const };
+    await executeWorldDay(
+      { runId: worldDayRunId(slot), ...slot }, fixture.worldDayRunStore, fixture.worldDayHandlers,
+    );
+
+    const checkpoints = await fixture.worldDayRunStore.listCheckpoints(worldDayRunId(slot));
+    const worldState = checkpoints.find(
+      ({ stage, status }) => stage === 'load_world_state' && status === 'completed');
+    expect(worldState).toBeDefined();
+    const artifact = worldState!.artifact as { authoringPolicy?: { maxMajorScenes: number | null } };
+    expect(artifact.authoringPolicy).toBeDefined();
+    expect(artifact.authoringPolicy!.maxMajorScenes).toBe(REDUCED_SCENES_PER_SLOT);
+
+    // The world moving on does not retroactively change what this slot was asked to author.
+    fixture.authoringPolicy.current = policyFor('normal');
+    const after = await fixture.worldDayRunStore.listCheckpoints(worldDayRunId(slot));
+    const replayed = after.find(({ stage, status }) => stage === 'load_world_state' && status === 'completed');
+    expect((replayed!.artifact as { authoringPolicy?: { maxMajorScenes: number | null } })
+      .authoringPolicy!.maxMajorScenes).toBe(REDUCED_SCENES_PER_SLOT);
+  }, 600_000);
+
+  /**
+   * ART-165 — a paused world is resumed, the provider comes back, and the world climbs.
+   *
+   * The recovery has to be earned rung by rung on evidence that the model authored something, so
+   * the assertion is on the ORDER of the climb, not merely on the final level.
+   */
+  it('resumes a paused world and climbs back once the provider returns', async () => {
+    const down = createLongRunFixture(new DownProvider());
+    const outage = await runDegradationLadderDays(down, { worldDays: 12 });
+    expect(outage.state.level).toBe('paused');
+
+    const healthy = createLongRunFixture(new FakeWholeSceneProvider());
+    let resumes = 0;
+    const recovery = await runDegradationLadderDays(healthy, {
+      worldDays: 6,
+      state: outage.state,
+      onPaused: () => {
+        resumes += 1;
+        return true;
+      },
+    });
+    expect(resumes).toBe(1);
+    expect(recovery.transitions.map(({ fromLevel, toLevel }) => `${fromLevel}->${toLevel}`)).toEqual([
+      'paused->rules_only',
+      'rules_only->fewer_scenes',
+      'fewer_scenes->compatible_model',
+      'compatible_model->normal',
+    ]);
+    expect(recovery.state.level).toBe('normal');
+  }, 600_000);
+
+  /**
+   * ART-165 — one slot moves the world once, however many times its outcome is delivered.
+   *
+   * `applyDecision` deduplicates the TRANSITION row on its derived id, and the schema docblock said
+   * that meant a replayed slot could not walk the ladder. It did not: the state row is patched
+   * regardless, so two deliveries of one failure counted two failures and escalated a world that
+   * had failed once.
+   */
+  it('does not move the world twice when one slot outcome is delivered twice', () => {
+    const signal = {
+      worldId: LONG_RUN_WORLD_ID, worldDay: 3, timeSlot: 'morning',
+      authored: false, usedProvider: true, errorCode: 'LLM_NETWORK_ERROR', at: 10,
+    };
+    const once = advanceDegradation(initialDegradationState(LONG_RUN_WORLD_ID), signal);
+    const twice = advanceDegradation(once.state, signal);
+    expect(twice.state).toEqual(once.state);
+    expect(twice.transition).toBeNull();
+    expect(twice.state.level).toBe('normal');
+  });
 
   /**
    * Rung 6, and the operator's way out of it. A paused world admits nothing; resuming returns it
@@ -257,7 +411,7 @@ describe('FR-M004 the ladder against the real pipeline (ART-91)', () => {
     for (let failure = 0; failure < 10; failure += 1) {
       state = advanceDegradation(state, {
         worldId: LONG_RUN_WORLD_ID, worldDay: 0, timeSlot: TIME_SLOTS[failure % TIME_SLOTS.length],
-        authored: false, errorCode: 'LLM_NETWORK_ERROR', at: failure,
+        authored: false, usedProvider: true, errorCode: 'LLM_NETWORK_ERROR', at: failure,
       }).state;
     }
     expect(state.level).toBe('paused');

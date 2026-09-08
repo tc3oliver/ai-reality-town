@@ -14,6 +14,7 @@
  * second time. Every stage is therefore checked, including the commit stage itself.
  */
 
+import { policyFor } from './degradation';
 import { TIME_SLOTS, type TimeSlot } from '../canon/eventTypes';
 import { FakeWholeSceneProvider } from './fakeSceneNarrator';
 import { InMemoryCanonStore } from '../canon/inMemoryStore';
@@ -201,6 +202,8 @@ function createSeedPort(store: InMemoryCanonStore): WorldDayLivePort {
     loadConcurrencyLimit: () => Promise.resolve(null),
     loadModuleConfig: (_worldId: string, module: ConfigurableModule) =>
       Promise.resolve(resolveEffectiveModuleConfig(module, null)),
+    /** ART-165: this fixture's world is not degraded, so every slot authors at full budget. */
+    loadAuthoringPolicy: () => Promise.resolve(policyFor('normal')),
     async loadWorldSnapshot(slot): Promise<LiveWorldSnapshot> {
       const acceptedEvents = await store.loadAcceptedEvents(slot.worldId);
       return buildLiveWorldSnapshot({
