@@ -17,6 +17,7 @@ import { FAKE_SCENE_MODEL } from '../simulation/fakeSceneNarrator';
 import { CONTINUITY_EVALUATOR_ID, CONTINUITY_EVALUATOR_VERSION } from '../quality/continuity';
 import { NARRATIVE_EVALUATOR_ID, NARRATIVE_EVALUATOR_VERSION } from '../quality/narrative';
 import { STORY_QUALITY_EVALUATOR_ID, STORY_QUALITY_EVALUATOR_VERSION } from '../quality/storyQuality';
+import { OPERATIONAL_QUALITY_EVALUATOR_ID, OPERATIONAL_QUALITY_EVALUATOR_VERSION } from '../quality/operationalQuality';
 import { mistwoodWorldConfiguration } from '../canon/mistwoodSeed';
 import {
   contentDigest,
@@ -188,6 +189,51 @@ function expectCleanRun(findings: LongRunFindings, worldDays: number): void {
   expect(storyMetric('arc_resolution_evidence')).toMatchObject({ meetsTarget: true });
   expect(story.findings).toEqual([]);
   expect(story.score).toMatchObject({ value: 1, status: 'measured' });
+
+  /**
+   * FR-M002 operational quality (ART-90) — PRD §16.2 JSON 結構成功率 ≥ 98%.
+   *
+   * Honest about what this run can and cannot say. The deterministic author returns a valid
+   * whole-scene output every time, so its structured-output rate is 1.0 BY CONSTRUCTION and the
+   * assertion below is about the wiring, not about a model. That the metric can FALL is proven on
+   * fixtures in `convex/quality/operationalQuality.test.ts` and against the live path in
+   * `convex/simulation/authoringAttemptEvidence.test.ts`; that this deployment's gateway holds the
+   * contract is measured, when someone runs it, by `npm run test:live-structure`.
+   *
+   * What this run does prove is that the evidence exists at all: before ART-90 a scene that
+   * exhausted its attempts wrote no row anywhere, so a rate over the deployment's own tables had
+   * successes and nothing to divide by.
+   */
+  const operational = findings.operationalQuality;
+  expect(operational.evaluatorId).toBe(OPERATIONAL_QUALITY_EVALUATOR_ID);
+  expect(operational.evaluatorVersion).toBe(OPERATIONAL_QUALITY_EVALUATOR_VERSION);
+  const operationalMetric = (key: string) => {
+    const found = operational.metrics.find((candidate) => candidate.key === key);
+    if (!found) throw new Error(`operational metric ${key} missing`);
+    return found;
+  };
+  // Two validation stages judged every proposal, so the denominator is twice the accepted events.
+  expect(operationalMetric('canon_rejection_rate')).toMatchObject({
+    numerator: 0, denominator: 2 * findings.acceptedEvents, rate: 0, status: 'measured',
+  });
+  expect(operationalMetric('safety_withhold_rate')).toMatchObject({
+    numerator: 0, denominator: findings.repetition.scenes, status: 'measured', excluded: 0,
+  });
+  const structured = operationalMetric('structured_output_success_rate');
+  expect(structured.denominator).toBe(findings.repetition.scenes);
+  expect(structured).toMatchObject({ numerator: findings.repetition.scenes, rate: 1, target: 0.98, meetsTarget: true, excluded: 0 });
+  expect(operationalMetric('scene_classification_coverage')).toMatchObject({
+    numerator: findings.repetition.scenes, denominator: findings.repetition.scenes, meetsTarget: true,
+  });
+  expect(operational.findings).toEqual([]);
+  expect(operational.score).toMatchObject({ value: 1, status: 'measured', weightMeasured: 1 });
+  // The reason dimensions are empty because nothing was refused, and the model dimension is not:
+  // an all-empty breakdown would also be what a recorder that never ran produces.
+  expect(findings.operationalBreakdown.rejectionReasons).toEqual([]);
+  expect(findings.operationalBreakdown.withholdReasons).toEqual([]);
+  expect(findings.operationalBreakdown.structuredOutputReasons).toEqual([]);
+  expect(findings.operationalBreakdown.providerFailureReasons).toEqual([]);
+  expect(findings.operationalBreakdown.models).toEqual([{ code: FAKE_SCENE_MODEL, count: findings.repetition.scenes }]);
 
   // Arc limits, progress and resolution (FR-F003/FR-F004, ART-31).
   expect(findings.arcs.maxActiveMajorArcs).toBeLessThanOrEqual(MAX_MAJOR_ACTIVE_ARCS);
@@ -366,6 +412,8 @@ describe('NFR-007 fixed-seed 7-day simulation (AC#1/#3)', () => {
       'digest',
       // FR-M002 (ART-88): the narrative evaluator's report over the run's accepted scenes.
       'narrative',
+      // FR-M002 (ART-90): rejection, withhold and structured-output rates, and their reasons.
+      'operationalBreakdown', 'operationalQuality',
       'recapCoverage', 'repetition', 'replay',
       // FR-M003 §16.3 (ART-59): the resource report the run's own budget accountant produced.
       'resources',

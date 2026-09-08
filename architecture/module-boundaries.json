@@ -653,6 +653,12 @@
         "name": "declareRecapExclusion",
         "kind": "mutation",
         "gate": "operator"
+      },
+      {
+        "path": "convex/operations/worldQualityFunctions.ts",
+        "name": "getOperationalQualityMetrics",
+        "kind": "query",
+        "gate": "operator"
       }
     ]
   },

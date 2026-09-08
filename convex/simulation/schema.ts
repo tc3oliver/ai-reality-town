@@ -19,6 +19,33 @@ export const simulationTables = {
     .index('by_run_id', ['runId'])
     .index('by_world_day_slot', ['worldId', 'worldDay', 'timeSlot']),
 
+  /**
+   * What Canon validation decided about each Proposed Event (ART-90).
+   *
+   * See `convex/simulation/validationOutcome.ts` for why the three existing run tables cannot
+   * answer a rejection rate: one is patched per attempt, one is cleared on retry, and the third
+   * records one code for a stage that validated many proposals. Keyed on
+   * `(worldId, idempotencyKey, stage)` and written insert-if-absent, so a retried slot re-derives
+   * the same keys and the rate counts logical proposals rather than attempts.
+   *
+   * Carries no payload: the key, the stage, the verdict and a stable code. A rejected proposal's
+   * content is exactly what FR-M002's "without exposing secrets" clause is about.
+   */
+  canonValidationOutcomes: defineTable({
+    schemaVersion: v.literal(1),
+    worldId: v.string(),
+    worldDay: v.number(),
+    timeSlot: v.string(),
+    idempotencyKey: v.string(),
+    sceneId: v.union(v.string(), v.null()),
+    stage: v.union(v.literal('structural'), v.literal('canon')),
+    outcome: v.union(v.literal('accepted'), v.literal('rejected')),
+    errorCode: v.union(v.string(), v.null()),
+    createdAt: v.number(),
+  })
+    .index('by_world_and_day', ['worldId', 'worldDay'])
+    .index('by_world_key_and_stage', ['worldId', 'idempotencyKey', 'stage']),
+
   worldDayCheckpoints: defineTable({
     runId: v.string(), stage: v.string(), attempt: v.number(),
     status: v.union(v.literal('running'), v.literal('failed'), v.literal('completed')),

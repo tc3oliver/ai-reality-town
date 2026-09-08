@@ -191,6 +191,9 @@ function createSeedPort(store: InMemoryCanonStore): WorldDayLivePort {
     // identical to before ART-59 while leaving the choice visible rather than absent.
     budget: unmeteredWorldDayBudgetPort(),
     canonStore: store,
+    // ART-90 evidence recorders; this fixture measures nothing, so they are inert.
+    recordProposalValidations: () => Promise.resolve(),
+    recordAuthoringAttempt: () => Promise.resolve(),
     // FR-K005 / ART-52: this spec runs an UNCONFIGURED world, so the port returns the documented
     // defaults -- which are the pre-ART-52 hardcoded values.
     // ART-161: no configured limit, so authoring stays sequential — the behaviour these

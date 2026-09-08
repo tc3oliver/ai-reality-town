@@ -173,6 +173,8 @@ const FUNCTION_PATHS = {
   reserve: 'simulation/tokenBudgetGateFunctions:reserveSceneBudget',
   settle: 'simulation/tokenBudgetGateFunctions:settleSceneBudget',
   release: 'simulation/tokenBudgetGateFunctions:releaseSceneBudget',
+  /** FR-M002 / ART-90: one trace per authoring attempt, written from the action that makes it. */
+  recordAttempt: 'simulation/qualityEvidenceFunctions:recordAuthoringAttempt',
 } as const;
 
 /**

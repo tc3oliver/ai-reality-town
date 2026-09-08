@@ -37,13 +37,14 @@ import {
   type StateChange,
   type WorldProjection,
 } from '../canon/model';
+import { proposalSceneId, type ProposalValidationDraft } from './validationOutcome';
 import { commitProposedEvent, type CanonCommitStore, type CommitResult } from '../canon/commit';
 import { TIME_SLOTS, type TimeSlot } from '../canon/eventTypes';
 import { replayWorldEvents } from '../canon/replay';
 import { cloneProjection } from '../canon/snapshots';
 import { resolveWorldBaseline } from '../canon/snapshotManager';
 import { validateCanon, validateEventStructure } from '../canon/validators';
-import { CanonError } from '../shared/errors';
+import { CanonError, type CanonErrorCode } from '../shared/errors';
 import { CANON_SCHEMA_VERSION } from '../shared/constants';
 import {
   findEnvironmentVoteCandidate,
@@ -241,6 +242,26 @@ export interface WorldDayLivePort {
    * row resolves to the pre-ART-52 defaults, so an unconfigured world is unaffected.
    */
   loadModuleConfig(worldId: string, module: ConfigurableModule): Promise<EffectiveModuleConfig>;
+  /**
+   * FR-M002 (ART-90). Record what each validation stage decided about each Proposed Event.
+   *
+   * Called once per stage with every proposal's verdict, INCLUDING the accepted ones — a rejection
+   * rate needs its denominator, and a table of refusals alone gives it a numerator and nothing to
+   * divide by. The stages still throw on the first rejection, so the commit path is unchanged;
+   * only the verdicts survive it. Rows are insert-if-absent on
+   * `(worldId, idempotencyKey, stage)`, so a retried slot re-records rather than re-counts.
+   */
+  recordProposalValidations(outcomes: readonly ProposalValidationDraft[]): Promise<void>;
+  /**
+   * FR-M002 (ART-90). Record one whole-scene authoring ATTEMPT: which model, how many transport
+   * retries, whether its structured output parsed, and how the attempt ended.
+   *
+   * The §16.2 structured-output success rate needs a per-attempt denominator, and before ART-90
+   * the deployment had none: a scene that eventually parsed was persisted with its `attemptCount`,
+   * and a scene that exhausted its attempts threw and wrote nothing at all — so any rate computed
+   * from `sceneSimulationRuns` read 100% by construction.
+   */
+  recordAuthoringAttempt(attempt: AuthoringAttemptDraft): Promise<void>;
   /**
    * FR-M003 / ART-59 budget accountant for this world (AC#1, AC#2).
    *
@@ -907,8 +928,62 @@ export type SceneAuthoringStore = {
     worldId: string, groupingRunId: string, simulationRunId: string,
   ): Promise<SceneSimulationResult | null>;
   persistSceneSimulation(groupingRunId: string, result: SceneSimulationResult): Promise<void>;
+  /** ART-90: one row per provider attempt; see {@link WorldDayLivePort.recordAuthoringAttempt}. */
+  recordAuthoringAttempt(attempt: AuthoringAttemptDraft): Promise<void>;
   budget: SceneBudgetGate;
 };
+
+/**
+ * One whole-scene authoring attempt, as the §16.2 structured-output rate counts it (ART-90).
+ *
+ * `outcome` is the distinction the rate is about:
+ *  - `parsed` — the provider answered and `parseWholeSceneOutput` accepted the answer;
+ *  - `output_rejected` — the provider answered and the runtime schema validation refused it. This
+ *    is the numerator's complement, and the only outcome §16.2's 「JSON 結構成功率」 is about;
+ *  - `provider_failed` — no answer to validate. A timeout, a refused credential, an exhausted route
+ *    chain or a budget refusal is not a structured-output failure, and counting it as one would
+ *    report a network outage as a model that cannot follow a schema.
+ */
+export const AUTHORING_ATTEMPT_OUTCOMES = ['parsed', 'output_rejected', 'provider_failed'] as const;
+export type AuthoringAttemptOutcome = (typeof AUTHORING_ATTEMPT_OUTCOMES)[number];
+
+export type AuthoringAttemptDraft = {
+  worldId: string;
+  worldDay: number;
+  timeSlot: string;
+  sceneId: string;
+  simulationRunId: string;
+  /** 1-based semantic attempt; `${simulationRunId}:attempt:${attempt}` is its durable identity. */
+  attempt: number;
+  outcome: AuthoringAttemptOutcome;
+  /** The stable code the failure carried, or null on success. */
+  errorCode: string | null;
+  /** The model the reservation was taken under, which may be a routing alias. */
+  requestedModel: string;
+  /** What the gateway said served the call, when it said. */
+  resolvedModel: string | null;
+  /** Transport-level retries inside this semantic attempt. */
+  transportRetries: number;
+};
+
+/** One proposal's verdict, in the shape the port records (ART-90). */
+function validationDraft(
+  slot: WorldDaySlotIdentity,
+  proposed: ProposedEvent,
+  stage: 'structural' | 'canon',
+  error: { code: CanonErrorCode } | null,
+): ProposalValidationDraft {
+  return {
+    worldId: slot.worldId,
+    worldDay: slot.worldDay,
+    timeSlot: slot.timeSlot,
+    idempotencyKey: proposed.idempotencyKey,
+    sceneId: proposalSceneId(proposed),
+    stage,
+    outcome: error === null ? 'accepted' : 'rejected',
+    errorCode: error?.code ?? null,
+  };
+}
 
 /** The Simulation Run ID a scene's result is stored under. One rule, so both passes agree. */
 export const sceneSimulationRunId = (sceneId: string): string => `${sceneId}:simulation`;
@@ -983,6 +1058,19 @@ export async function authorSlotScenes(
     }
     const result = await simulateWholeScene(provider, simulationRunId, scene, {
       ...plan.options,
+      /**
+       * ART-90. One row per semantic attempt, so §16.2's structured-output rate has a denominator.
+       *
+       * Recording is fire-and-forget and its failures are swallowed: a measurement that could fail
+       * an authoring attempt would cost scenes to count them. The write is idempotent on
+       * `${simulationRunId}:attempt:${n}`, so a retried slot re-records rather than re-counts.
+       */
+      onAttempt: (attempt) => {
+        void store.recordAuthoringAttempt({
+          worldId: plan.slot.worldId, worldDay: plan.slot.worldDay, timeSlot: plan.slot.timeSlot,
+          sceneId: scene.sceneId, simulationRunId, ...attempt,
+        }).catch(() => undefined);
+      },
       // ART-157. Derived per scene from the SAME stage-1 snapshot the Director planned
       // against, so the author is told exactly what Canon will accept. Before this the
       // prompt named no location at all and every movement it proposed was refused.
@@ -1207,27 +1295,46 @@ export function createWorldDayStageHandlers(
       return { results, withheldSceneIds };
     },
 
-    validate_structured_output: (context): Promise<StructuralArtifact> => {
+    /**
+     * ART-90: every proposal is validated and its verdict RECORDED before the first rejection is
+     * thrown. The throw is unchanged — no proposal is committed that would not have been — but the
+     * rejection rate now has a proposal-shaped denominator instead of one code per failed stage.
+     */
+    validate_structured_output: async (context): Promise<StructuralArtifact> => {
+      const slot = slotOf(context);
       const { results } = artifact<SimulationArtifact>(context, 'simulate_scenes');
       const proposedEvents = results.flatMap(({ output }) => output.proposedEvents);
-      for (const proposed of proposedEvents) {
-        const structural = validateEventStructure(proposed);
-        if (structural) throw new CanonError(structural);
-      }
+      const verdicts = proposedEvents.map((proposed) => ({
+        proposed, error: validateEventStructure(proposed),
+      }));
+      await port.recordProposalValidations(verdicts.map(({ proposed, error }) =>
+        validationDraft(slot, proposed, 'structural', error)));
+      const rejected = verdicts.find(({ error }) => error !== null);
+      if (rejected?.error) throw new CanonError(rejected.error);
       const keys = proposedEvents.map(({ idempotencyKey }) => idempotencyKey);
       if (new Set(keys).size !== keys.length) {
         throw new WorldDayOrchestrationError('PROPOSAL_KEY_CONFLICT', 'slot proposals must have unique idempotency keys');
       }
-      return Promise.resolve({ proposedEvents });
+      return { proposedEvents };
     },
 
     validate_canon: async (context): Promise<CanonArtifact> => {
+      const slot = slotOf(context);
       const { proposedEvents } = artifact<StructuralArtifact>(context, 'validate_structured_output');
       const { projection, ruleContext } = await canonRuleContext(port.canonStore, context.worldId);
-      for (const proposed of proposedEvents) {
-        const error = validateCanon(proposed, projection, ruleContext);
-        if (error) throw new CanonError(error);
-      }
+      /**
+       * Each proposal is validated against the projection as it stood BEFORE the slot, which is
+       * what `validateCanon` was already given here — the commit stage re-validates against the
+       * moving projection inside `commitProposedEvent`. Recording these verdicts therefore records
+       * this stage's decision, not the commit's, and the metric's own definition says so.
+       */
+      const verdicts = proposedEvents.map((proposed) => ({
+        proposed, error: validateCanon(proposed, projection, ruleContext),
+      }));
+      await port.recordProposalValidations(verdicts.map(({ proposed, error }) =>
+        validationDraft(slot, proposed, 'canon', error)));
+      const rejected = verdicts.find(({ error }) => error !== null);
+      if (rejected?.error) throw new CanonError(rejected.error);
       return { validatedIdempotencyKeys: proposedEvents.map(({ idempotencyKey }) => idempotencyKey) };
     },
 

@@ -218,6 +218,8 @@ async function authorWithMetering(options: {
 
   const provider = createLiveSceneAuthor(ENV, { fetch: recorder.fetch, now: () => T0, delay: () => Promise.resolve() });
   const store: SceneAuthoringStore = {
+    // ART-90: this fixture measures nothing, so the attempt recorder is inert.
+    recordAuthoringAttempt: () => Promise.resolve(),
     loadPersistedSceneSimulation: (worldId, groupingRunId, simulationRunId) =>
       call(FUNCTION_PATHS.findReusable, { worldId, groupingRunId, simulationRunId }),
     persistSceneSimulation: async (groupingRunId, result) => {

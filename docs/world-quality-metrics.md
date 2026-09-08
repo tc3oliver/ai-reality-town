@@ -1,6 +1,6 @@
 # World quality metrics and evaluators (FR-M002)
 
-FR-M002 is owned by four tasks, not one. Three have delivered:
+FR-M002 is owned by four tasks, not one. All four have delivered:
 
 - **ART-58** delivers the **evaluator pattern** every FR-M002 evaluator is built from
   (`convex/quality/evaluator.ts`), and the **Continuity evaluator v1**
@@ -14,10 +14,14 @@ FR-M002 is owned by four tasks, not one. Three have delivered:
   and the exclusion store it reads (`convex/recaps/coverageExclusions.ts`), which measure
   §16.2's 高重要度摘要覆蓋率 plus FR-M002's Arc Progress, Arc Stagnation, Arc Resolution and
   Spoiler Violation.
+- **ART-90** delivers the **Operational-quality evaluator v1**
+  (`convex/quality/operationalQuality.ts`) and the two evidence tables it reads
+  (`canonValidationOutcomes`, and `llmTraces` given a production writer at last), which
+  measure FR-M002's Canon Rejection Rate and Safety Withhold Rate plus §16.2's
+  JSON 結構成功率.
 
-ART-90 (Canon rejection rate, safety withhold rate) is still pending and builds on the same
-shapes, so an operator reads four evaluators through one vocabulary and the long-run harness
-reports them through one report type.
+An operator reads four evaluators through one vocabulary, and the long-run harness reports
+them through one report type.
 
 ## 1. What an evaluator is here
 
@@ -570,9 +574,250 @@ A component whose metric had no observations contributes nothing and reports
 `no_observations`, and `weightMeasured` against `weightTotal` says how much of the definition
 the score was built from, exactly as with the Continuity Score.
 
-## 6. The operator queries
+## 6. The Operational-quality evaluator v1
 
-All three live in `convex/operations/worldQualityFunctions.ts`, declared in
+`evaluatorId: 'operational_quality'`, `version: 1`. Pure, like the other three: no Convex, no
+clock, no randomness, no I/O. One entry point, `evaluateOperationalQuality`, takes one window
+of validation, authoring and safety evidence and returns `{ report, breakdown }`. The
+operator query, the long-run harness and the live gateway probe all call that one function,
+so a number an operator reads, a number the 7-day gate asserts and a number measured against
+the real gateway are one computation over different evidence.
+
+### 6.1 Nothing here was answerable before ART-90
+
+This section exists because the gap was not a missing rate over existing rows. The rows did
+not exist.
+
+**Rejections were never persisted per proposal.** `commitProposedEvent` throws and writes
+nothing, which is correct — Canon is the accepted log, and a rejected proposal has no place
+in it. The evidence therefore lived only in the run tables, and each of the three loses it a
+different way:
+
+| Table | What it holds | Why a rejection rate over it is wrong |
+| --- | --- | --- |
+| `worldDayRuns` | The run's latest error code | **Patched** per attempt, so a retry overwrites the previous code |
+| `scheduledSlots.errorCode` | The slot's error code | **Cleared** on retry, so a rate built on it undercounts by construction |
+| `worldDayCheckpoints` | One row per `(runId, stage, attempt)` | Durable, but holds **one** code for a stage that may have judged a dozen proposals, because both validation stages throw on the first failure |
+
+A rate over those tables would have a slot-shaped denominator and a first-failure-shaped
+numerator. `canonValidationOutcomes` gives it a proposal-shaped one.
+
+**Structured-output failures were worse than unrecorded.** A scene that exhausted its
+attempts threw and wrote **no row at all** — not to `sceneSimulationRuns`, not anywhere. A
+success rate computed over `sceneSimulationRuns` therefore had successes and nothing to
+divide by, and would have read 100% by construction: exactly the tautology CLAUDE.md §9
+warns about, in the metric §16.2 puts a number on.
+
+**And the table built for this had no writer.** `recordTrace` in
+`convex/observability/traces.ts` was a registered `internalMutation` with **zero production
+callers**. The `llmTraces` table, its whitelist normaliser, its redaction and its public
+projection were all built, tested and unreachable, so `validationResult` and `finalStatus`
+were structurally absent from every world, and two consumers — the trace count in
+`convex/operations/dynamicViewMetricsFunctions.ts` and the FR-K002 proposal review's Model
+Trace in `convex/operations/proposalReviewStore.ts` — read an always-empty table. ART-90 is
+that writer. See [`llm-tracing.md`](./llm-tracing.md).
+
+### 6.2 Four metrics, and three denominators that are not the same population
+
+Every denominator is stated before its target, because a rate over an empty population is
+not a passing rate.
+
+| Metric key | PRD name | Numerator | Denominator | Target |
+| --- | --- | --- | --- | --- |
+| `canon_rejection_rate` | Canon Rejection Rate (FR-M002) | Distinct proposals a validation stage **rejected**, by `(idempotencyKey, stage)` | Distinct proposals a validation stage **judged**, by `(idempotencyKey, stage)` | none, `atMost` |
+| `safety_withhold_rate` | Safety Withhold Rate (FR-M002) | Distinct scenes whose post-generation label was `withhold` or `human_review_required` | Distinct scenes carrying a post-generation classification | none, `atMost` |
+| `structured_output_success_rate` | JSON 結構成功率 (§16.2) | Authoring attempts whose structured output passed runtime schema validation | Authoring attempts that **received a model response to validate** | `0.98`, `atLeast` |
+| `scene_classification_coverage` | Safety 分類覆蓋率 | Scenes carrying a post-generation classification | Scenes authored in the window | `1`, `atLeast` |
+
+Only 結構成功率 carries a number, because §16.2 is the only place the PRD states one.
+FR-M002 names a Canon Rejection Rate and a Safety Withhold Rate and sets no threshold, so
+the report publishes each rate with its denominator and refuses to invent one — a rejection
+rate is not a defect rate, and a world whose validators never refuse anything is not
+self-evidently healthier than one whose validators work.
+
+`scene_classification_coverage` is not a PRD metric. It is what makes the withhold rate
+readable: the withhold denominator is *classified* scenes, so a world whose classifier
+stopped running would report a clean withhold rate over a shrinking population. Coverage is
+the number that falls in that case, and the unclassified scenes are also published as the
+withhold metric's `excluded` count with a reason.
+
+### 6.3 The third denominator, and why it excludes what it excludes
+
+The structured-output denominator is the one that is easy to get wrong, and it is the
+load-bearing decision in this evaluator.
+
+An authoring attempt ends in exactly one of three states:
+
+- **`parsed`** — the provider answered and `parseWholeSceneOutput` accepted the answer.
+- **`output_rejected`** — the provider answered and runtime schema validation refused it.
+  This is the numerator's complement, and the only outcome §16.2's 「JSON 結構成功率」 is
+  about.
+- **`provider_failed`** — there was no answer to validate. A timeout, a refused credential,
+  an exhausted route chain, a budget refusal.
+
+Only the first two are in the denominator. An attempt that never received a model response is
+not evidence about whether a model can follow a schema, and counting it as a failure would
+**report a network outage as a model that cannot follow a schema** — a metric that falls
+when the gateway is down and recovers when it comes back, telling an operator nothing about
+the thing §16.2 asks about.
+
+Excluded attempts are not discarded. They are counted into `MetricObservation.excluded` and
+published with the reason 「attempts that never received a model response, so they are not
+evidence about schema compliance」, and each one is reported as a `PROVIDER_ATTEMPT_FAILED`
+finding with its stable code. A run where every call failed to connect therefore reads as a
+denominator of zero and `no_observations`, not as 98% and not as 0%.
+
+### 6.4 Both validation stages now judge every proposal
+
+`validate_structured_output` and `validate_canon` in `convex/simulation/worldDayLive.ts`
+each build a verdict for **every** proposal, record all of them through
+`recordProposalValidations`, and then throw on the first rejection exactly as before.
+
+This is not a behaviour change to the commit path. No proposal is committed that would not
+have been committed, no slot survives that would not have survived, and the stage still
+fails on its first refusal. What changes is that the verdicts survive the throw. Before
+this, a stage that judged twelve proposals and refused the fourth left one error code
+behind and no record that eleven others were judged at all.
+
+`validate_canon` records **its own** decision, not the commit's. It validates each proposal
+against the projection as it stood before the slot, which is what `validateCanon` was
+already given here; `commitProposedEvent` re-validates against the moving projection inside
+the commit. The metric definition says which of the two it is measuring, because the two can
+legitimately disagree.
+
+### 6.5 Exactly-once, and the keys that make it hold
+
+Every unit is counted by an identity a retried slot **re-derives**, and every write boundary
+is insert-if-absent on that identity. A slot run three times contributes one row per logical
+unit.
+
+| Unit | Key | Where it comes from |
+| --- | --- | --- |
+| A proposal's verdict | `(worldId, idempotencyKey, stage)` | The proposal's key is derived from its scene, which is derived from `(worldId, worldDay, timeSlot)` |
+| An authoring attempt | `${simulationRunId}:attempt:${n}`, stored as `llmTraces.traceId` | `sceneSimulationRunId(sceneId)`, and the scene id from the same slot triple |
+| A scene's classification | `sceneId` | The grouping run, derived from the same slot triple |
+
+The evaluator additionally deduplicates on those same keys before it counts, so it is
+correct even against evidence gathered by a caller that did not deduplicate — which is what
+lets the harness and the live probe feed it hand-assembled evidence.
+
+A retry that reaches a **different** verdict for one proposal key is not silently
+overwritten. `reconcileValidationOutcome` throws `VALIDATION_OUTCOME_CONFLICT`, because
+validation is a pure function of the proposal and the projection: one key reaching two
+verdicts means the projection moved under it, which is precisely the thing an operator needs
+to see rather than the thing a recorder should smooth over.
+
+### 6.6 Finding codes
+
+| Code | Severity | Meaning |
+| --- | --- | --- |
+| `STRUCTURED_OUTPUT_REJECTED` | severe | The provider answered and runtime schema validation refused the answer |
+| `SCENE_UNCLASSIFIED` | severe | A scene reached Canon carrying no post-generation classification at all |
+| `PROPOSAL_REJECTED` | minor | A validation stage refused a proposal, named by its idempotency key and its Canon code |
+| `SCENE_WITHHELD` | minor | The post-generation classifier withheld a scene or sent it to human review |
+| `PROVIDER_ATTEMPT_FAILED` | minor | An attempt that never received an answer. Excluded from the structure rate, reported here |
+
+The severities split on whether something is **broken** or merely **refused**. A schema the
+model could not satisfy and a scene that reached Canon unclassified are both defects: the
+first is the failure §16.2 puts a number on, the second means the safety gate did not run on
+content that is now in the accepted log. A rejected proposal, a withheld scene and a failed
+provider call are each a gate or a network doing its job, so they are `minor` and are
+reported as context for the rates rather than as failures of them.
+
+### 6.7 The Operational Health composite
+
+`composeScore` builds one weighted composite, `operational_health`.
+
+| Component | Metric | Weight | Transform |
+| --- | --- | --- | --- |
+| `structured_output` | `structured_output_success_rate` | 0.50 | `rate` |
+| `canon_acceptance` | `canon_rejection_rate` | 0.30 | `complement` |
+| `classification_coverage` | `scene_classification_coverage` | 0.20 | `rate` |
+
+Structured output carries half the weight because it is the only one of the three with a PRD
+number and the only one whose failure means the pipeline could not produce content at all.
+Canon acceptance is the complement of the rejection rate, which reads a validator refusing
+proposals as a cost rather than as a virtue — the honest reading for a health score, and the
+reason the rejection rate itself publishes no target.
+
+`safety_withhold_rate` is reported and **not** in the composite. A withheld scene is the
+safety gate working, and a score that fell when the classifier withheld something would
+reward a world whose classifier stayed quiet. `scene_classification_coverage` is the
+component that carries the safety half, because the failure worth scoring is a scene reaching
+Canon **unclassified**, not a scene classified and stopped.
+
+A component whose metric had no observations contributes nothing and reports
+`no_observations`, and `weightMeasured` against `weightTotal` says how much of the definition
+the score was built from, exactly as with the other three composites.
+
+### 6.8 A reason dimension is a stable code and nothing else
+
+The breakdown returned beside the report is five tallies of `{ code, count }`, sorted by
+count and then by code:
+
+| Dimension | Tallies |
+| --- | --- |
+| `rejectionReasons` | The Canon error code of each rejected proposal |
+| `withholdReasons` | The classifier's own category codes on each withheld scene |
+| `structuredOutputReasons` | The schema error code of each rejected output |
+| `providerFailureReasons` | The stable code carried by each unanswered attempt |
+| `models` | The model each attempt was served by |
+
+A code is `TELEPORTATION_NOT_ALLOWED`, `SCENE_OUTPUT_INVALID`, `EXPLICIT_SEXUAL_CONTENT`.
+Never a message, never a path, never a payload. A rejected proposal's content and a withheld
+scene's text are exactly what FR-M002's 「without exposing secrets」 clause is about, and the
+surest way not to expose them is for the evaluator never to receive them — `canonValidationOutcomes`
+stores a key, a stage, a verdict and a code, and none of the three write boundaries takes a
+proposal, a prompt or a model response as an argument.
+
+`models` is in the breakdown for a reason that is not symmetry: it is the dimension that
+distinguishes a clean report from a recorder that never ran. An all-empty breakdown is what
+both look like, and a non-empty model tally is what says attempts were observed at all.
+
+### 6.9 Honest limits, and where the live evidence comes from
+
+**The fixed-seed structured-output rate is 1.0 by construction.** The deterministic author
+the harness runs returns a valid `whole_scene_output` every time, so it cannot fail, and a
+rate that cannot fall is a statement about a fixture rather than about a model. The 7-day
+assertion is evidence about the **wiring** — that attempts are recorded at all, that the
+denominator is the scene count rather than zero, that the model dimension is populated — and
+it is labelled as such in `longRunHarness.test.ts` rather than quoted as a §16.2 pass.
+
+Three separate things carry the rest of the claim, and it is worth being clear about which
+proves what:
+
+1. **That the metric can fall.** `convex/quality/operationalQuality.test.ts` drives every
+   finding code and every exclusion path over hand-built evidence, including a window where
+   every attempt is `provider_failed` and the rate reports `no_observations` rather than a
+   number.
+2. **That the live path records what it should, and that the rate can fall on what it
+   records.** `convex/simulation/authoringAttemptEvidence.test.ts` drives the real
+   `onAttempt` wiring through `simulateWholeScene`, asserts each of the three outcomes is
+   observed once per attempt, and then feeds those observations to the evaluator and watches
+   the rate drop below 0.98.
+3. **That this deployment's gateway holds the contract.** Nothing above can say anything
+   about the gateway the deployment is actually configured against, and §16.2's 98% is a
+   claim about that.
+
+The third is `convex/simulation/providers/liveStructuredOutputEvidence.test.ts`, run by
+`npm run test:live-structure` and gated on `ART90_LIVE_STRUCTURE=1`. It makes 8 real
+structured calls through the same provider the live world-day path builds, with a schema
+deliberately harder than the trivial `{"ok":true}` probe in `liveGatewaySmoke.test.ts` — a
+nested object, a required array of objects, `additionalProperties: false` throughout — so
+that a gateway which ignores `response_format` and free-writes prose gets it wrong. It
+scores the answers with the same `evaluateOperationalQuality`, prints the numerator, the
+denominator, the exclusions and the reason dimensions, and **fails** when the measured rate
+misses 98%.
+
+Two things about it are deliberate. The sample is small because every attempt spends a real
+per-key allowance unit and a refused call costs one too; 8 is enough to catch a gateway that
+cannot honour `response_format` at all, and nowhere near enough to estimate a 98% rate to
+two significant figures, which the file says rather than implies. And without the flag it is
+`describe.skip`: **a skipped run reports zero tests, not a pass, and is not evidence.**
+
+## 7. The operator queries
+
+All four live in `convex/operations/worldQualityFunctions.ts`, declared in
 `publicFunctionSurface` with gate `operator`, which is what makes adding any of them an
 architectural change rather than a line edit.
 
@@ -581,8 +826,9 @@ architectural change rather than a line edit.
 | `getContinuityQualityMetrics` | `convex/quality/continuity.ts` | ART-58 |
 | `getNarrativeQualityMetrics` | `convex/quality/narrative.ts` | ART-88 |
 | `getStoryQualityMetrics` | `convex/quality/storyQuality.ts` | ART-89 |
+| `getOperationalQualityMetrics` | `convex/quality/operationalQuality.ts` | ART-90 |
 
-One **mutation** shares the file, `declareRecapExclusion` (ART-89, §6.5). It is the only
+One **mutation** shares the file, `declareRecapExclusion` (ART-89, §7.6). It is the only
 write in the FR-M002 surface, and it writes nothing an evaluator computes — it writes the
 operator's words.
 
@@ -593,7 +839,7 @@ module in `canonWriteBoundary.forbiddenModules` — it must not be able to reach
 console's authorization any more than it can reach a Canon write. The evaluator computes,
 this file reads evidence rows and applies the gate, and neither knows the other's tables.
 
-**Capability: `world.inspect`, for all three queries.** Reused rather than minted, for the reason ART-47
+**Capability: `world.inspect`, for all four queries.** Reused rather than minted, for the reason ART-47
 and ART-133 reused `schedule.inspect`: a capability is a decision about the operator role
 model, and this file reports numbers. It is `world.inspect` because that is what the
 FR-K002 proposal review already uses for the same class of evidence, accepted history and
@@ -604,9 +850,9 @@ The narrative query needs the gate for a second reason: it reads a world's scene
 compute its numbers, and however little of that prose reaches the payload, the read itself
 belongs behind the console.
 
-### 6.1 Arguments and window bounds
+### 7.1 Arguments and window bounds
 
-All three queries take the same four arguments and derive the window the same way.
+All four queries take the same four arguments and derive the window the same way.
 
 | Argument | Meaning |
 | --- | --- |
@@ -617,7 +863,7 @@ All three queries take the same four arguments and derive the window the same wa
 
 `fromWorldDay` is `max(0, toWorldDay - windowDays + 1)`.
 
-### 6.2 What `getContinuityQualityMetrics` reads, and from which index
+### 7.2 What `getContinuityQualityMetrics` reads, and from which index
 
 Everything is index-scoped to the world and to the window.
 
@@ -639,7 +885,7 @@ scenes is well under this for the longest window. Reaching it means the world is
 than the report's bound, and the report says so through `coverage.scanLimitReached` rather
 than measuring a prefix and calling it the window. Truncation is never silent.
 
-### 6.3 What `getNarrativeQualityMetrics` reads, and from which index
+### 7.3 What `getNarrativeQualityMetrics` reads, and from which index
 
 Scene prose lives only in `sceneSimulationRuns.result`, a `v.any()` LLM-blob table. CLAUDE.md
 §9 forbids `.collect()`ing a whole world on that kind of table, so the read is index-scoped
@@ -660,7 +906,7 @@ reads, never a world-wide sweep, and it is bounded by the same window as the eve
 `coverage.scanLimitReached` is set when either the event scan or the scene scan hits
 `SCAN_LIMIT`. Truncation is never silent on either read.
 
-### 6.4 What `getStoryQualityMetrics` reads, and from which index
+### 7.4 What `getStoryQualityMetrics` reads, and from which index
 
 Every read is index-scoped to the world and to the window, and every one is bounded by the
 same `SCAN_LIMIT`.
@@ -676,7 +922,7 @@ same `SCAN_LIMIT`.
   `episodeCoverageReports.by_world_and_day` — the **persisted** FR-G004 verdicts, not a
   re-run of the gate. A spoiler is counted from the verdict's finding codes whose category
   is `spoiler`.
-- Exclusions come from `coverageExclusions.by_world_and_day` (§6.5).
+- Exclusions come from `coverageExclusions.by_world_and_day` (§7.6).
 - Arcs come from `storyArcLifecycles`, `storyArcProjectionEvents` and
   `storyArcResolutionDecisions`, each by world index. They are arc-sized, not event-sized.
 
@@ -687,7 +933,32 @@ The query returns `thresholds` — `{ highImportance, stagnationWorldDays }` —
 report, so an operator reading a rate can see the two constants it was measured under
 without opening the source.
 
-### 6.5 `declareRecapExclusion`, and why it reuses `safety.override`
+### 7.5 What `getOperationalQualityMetrics` reads, and from which index
+
+Each of the three rates reads the table that is the record of its own population, and the
+docblock on the query names what it is deliberately **not** reading.
+
+- **Rejections** come from `canonValidationOutcomes.by_world_and_day`, bounded by
+  `SCAN_LIMIT`. Not `worldDayRuns`, not `scheduledSlots.errorCode`, not
+  `worldDayCheckpoints` — §6.1 says why none of the three can answer this.
+- **Attempts** come from `llmTraces.by_world_and_day`, one row per authoring attempt. The
+  trace's `validationResult` is what says which of the three outcomes an attempt had:
+  `passed` is `parsed`, `rejected` is `output_rejected`, and `not_run` is the attempt that
+  never got an answer and is excluded from the rate. Not `sceneSimulationRuns`, where an
+  exhausted scene writes nothing.
+- **Safety labels** come from the classification stored with each scene result, which is the
+  verdict the commit path itself acted on rather than a re-run of the classifier. Scene rows
+  are read per `(worldDay, timeSlot)` on `sceneSimulationRuns.by_grouping_run` — the same
+  bound `getNarrativeQualityMetrics` uses, because that is a `v.any()` LLM-blob table and
+  CLAUDE.md §9 forbids sweeping one.
+
+`coverage.scanLimitReached` is set when **any** of the three reads hits the limit.
+Truncation is never silent.
+
+The query returns `{ definition, report, breakdown }`, where the breakdown is the five
+reason tallies of §6.8.
+
+### 7.6 `declareRecapExclusion`, and why it reuses `safety.override`
 
 §16.2 lets a high-importance event be either covered **or** carry an explicit, reviewable
 exclusion reason. `declareRecapExclusion` is the writer for the second half; the storage is
@@ -720,7 +991,7 @@ Two properties are worth stating because they are what keep the metric honest:
   outcomes — a fresh declaration and a deduplicated re-declaration — are written to the
   operator audit log with a distinct result code.
 
-### 6.6 The payloads, and what they never contain
+### 7.7 The payloads, and what they never contain
 
 `getContinuityQualityMetrics` returns `{ definition, report, origin }`. The origin says
 which kind of origin was chosen, its ref, and how many pre-window events were folded.
@@ -736,16 +1007,23 @@ cannot be audited is a number an operator has to take on faith.
 selected by, and `arc_stagnation_rate`'s numerator means nothing without the day gap it was
 measured against.
 
-In all three, the definition is the evaluator's metric and score definitions plus its finding
+`getOperationalQualityMetrics` returns `{ definition, report, breakdown }`, again for the
+same reason: a rejection rate of 4% means nothing without the codes it was rejected under,
+and a structured-output rate means nothing without the models that produced it. The
+breakdown is the five tallies of §6.8.
+
+In all four, the definition is the evaluator's metric and score definitions plus its finding
 codes with their severities, and the report is metric observations, the composite score,
 findings, coverage and the digest.
 
 No episode prose, no scene text, no dialogue line, no recap text, no secret content, no
-private fact value, no prompt and no memory content appears anywhere in any of them — only
-ids, stable codes, counts and rates. `narrative.test.ts` drives a finding of every code and
-asserts that not one word of the prose it was computed from appears in the report.
+private fact value, no prompt, no model response and no memory content appears anywhere in
+any of them — only ids, stable codes, counts and rates. `narrative.test.ts` drives a finding
+of every code and asserts that not one word of the prose it was computed from appears in the
+report; the operational evaluator never receives the prose in the first place, because none
+of its three write boundaries takes a payload as an argument.
 
-### 6.7 Nothing is persisted
+### 7.8 Nothing is persisted
 
 No query writes a run row. There is therefore no run to deduplicate and no
 evaluator-version migration to manage: the evidence is the durable record, and the report
@@ -756,12 +1034,20 @@ pure modules count by those ids.
 a reason for an omission — and no report and no rate. The next call to
 `getStoryQualityMetrics` derives its numbers from that row like any other evidence.
 
-## 7. The same evaluators inside the long-run harness
+ART-90's two `internalMutation`s are not an exception either, and the distinction is worth
+stating because they are the first writes FR-M002 required. `recordProposalValidations` and
+`recordAuthoringAttempt` are called by the world-day pipeline, never by a client, and are
+not on the public function surface. They persist **evidence** — a verdict, an attempt — and
+no report and no rate, in a shape no evaluator has to migrate when a metric definition
+changes.
 
-`runLongRunSimulation` calls `evaluateContinuityWindow`, `evaluateNarrative` and
-`evaluateStoryQuality` over the run's own evidence and returns them as
-`LongRunFindings.continuity`, `LongRunFindings.narrative` and
-`LongRunFindings.storyQuality`. The continuity origin is the seeded `initial_snapshot`, the
+## 8. The same evaluators inside the long-run harness
+
+`runLongRunSimulation` calls `evaluateContinuityWindow`, `evaluateNarrative`,
+`evaluateStoryQuality` and `evaluateOperationalQuality` over the run's own evidence and
+returns them as `LongRunFindings.continuity`, `LongRunFindings.narrative`,
+`LongRunFindings.storyQuality`, `LongRunFindings.operationalQuality` and
+`LongRunFindings.operationalBreakdown`. The continuity origin is the seeded `initial_snapshot`, the
 snapshots are the ones the real daily-snapshot stage persisted, and the publications are the
 episodes and recap formats the editorial stages produced. The narrative evidence is the
 run's own authored scenes, joined to the accepted log by the same `metadata.sceneId` join
@@ -779,13 +1065,20 @@ deliberately and are worth naming:
   exactly one day whose Episode is not due yet (§5.4). Its events are excluded with a reason
   rather than counted as uncovered.
 
-This is **not** a restatement of the harness's own `canonConflicts`, `replay`, `repetition`,
-`arcs` and `recapCoverage` fields. Those are the harness's independent checks; agreement
-between two independent computations is the evidence, and disagreement is a finding. The
-7-day test asserts that the count of severe continuity findings equals the count of harness
-Canon conflicts.
+The operational evidence is the run's own recorded verdicts and attempts, not a re-derivation
+of them: the harness observes what `recordProposalValidations` and `recordAuthoringAttempt`
+were called with and folds those observations by the same keys the tables use, so the numbers
+the 7-day gate asserts are the numbers the deployment's own recorders would have written.
+`operationalBreakdown` carries the five reason tallies beside the report.
 
-Over the fixed 7-day seed all three reports are clean, and every denominator is non-empty:
+This is **not** a restatement of the harness's own `canonConflicts`, `replay`, `repetition`,
+`arcs`, `safety` and `recapCoverage` fields. Those are the harness's independent checks;
+agreement between two independent computations is the evidence, and disagreement is a
+finding. The 7-day test asserts that the count of severe continuity findings equals the count
+of harness Canon conflicts, and that the rejection denominator is exactly twice the accepted
+events, because two stages judged every proposal.
+
+Over the fixed 7-day seed all four reports are clean, and every denominator is non-empty:
 
 | Quantity | Value |
 | --- | --- |
@@ -809,6 +1102,14 @@ Over the fixed 7-day seed all three reports are clean, and every denominator is 
 | Active arcs past the 14-day stagnation threshold | 0 of 3 |
 | Terminal arcs carrying an outcome and a consequence | 3 of 3 |
 | Story Health | 1.0 |
+| Proposals judged by a validation stage (Canon Rejection Rate denominator) | 208 |
+| Proposals rejected | 0 of 208 |
+| Scenes classified (Safety Withhold Rate denominator) | 104 |
+| Scenes withheld or sent to review | 0 of 104 |
+| Authoring attempts that received a response (§16.2 結構成功率 denominator) | 104 |
+| Attempts whose output parsed | 104 of 104 (100%) |
+| Attempts excluded as unanswered | 0 |
+| Operational Health | 1.0 |
 
 Coverage is 81 of 81 rather than 81 of 96 because the seventh day's 15 high-importance
 events are on the newest day, whose Episode is due on the next day's first commit. Before
@@ -822,6 +1123,18 @@ contrast is the point: a daily snapshot is taken for every day including the new
 `latestWorldDayFinalSlotStarted` is its condition and it may only fire while the day is
 current (§5.4).
 
+The rejection denominator is 208 rather than 104 because **both** stages judge every
+proposal: `validate_structured_output` and `validate_canon` each record a verdict per
+proposal, and each verdict is a distinct `(idempotencyKey, stage)` row. 104 accepted events
+therefore produce 208 judgements, and the harness test asserts that identity rather than the
+literal, so a stage that stopped recording would fail it.
+
+**The structured-output row in that table is 100% by construction and is not §16.2
+evidence.** The deterministic author cannot return an invalid output, so the rate cannot
+fall. What the row does evidence is that 104 attempts were recorded at all, which before
+ART-90 was zero — see §6.9 for what carries the rest of the claim, and for the env-gated
+live measurement that can fail.
+
 Over the 30-day seed the repeated-scene ratio is **0 of 449**, against the §16.2 ceiling of
 15%; exact duplicates and template reuse are zero; event novelty is 309 of 448 (69%); and
 no world day's recap formats were refused. Dialogue repetition stays under 15% and voice
@@ -830,7 +1143,7 @@ figure quoted here.
 
 See [`long-run-simulation-harness.md`](./long-run-simulation-harness.md).
 
-## 8. How ART-90 plugs in
+## 9. How a fifth evaluator would plug in
 
 A new evaluator is a new file under `convex/quality/` and four decisions, none of which
 require touching the pattern:
@@ -850,13 +1163,17 @@ require touching the pattern:
 
 Then add one read surface and one harness field: a query in `convex/operations/` gated on
 an existing capability and declared in `publicFunctionSurface`, and a field on
-`LongRunFindings` beside `continuity`, `narrative` and `storyQuality`. `EvidenceKind`
-already carries the kinds ART-90 needs — `safety_classification`, `world_day_run` — so its
-findings reference evidence in the same vocabulary. ART-88 and ART-89 are what show the
-pattern holds beyond its first use: each added an evaluator, a query and a harness field,
-and neither changed a line of `evaluator.ts`.
+`LongRunFindings` beside `continuity`, `narrative`, `storyQuality` and `operationalQuality`.
+`EvidenceKind` already carries `validation`, `scene`, `safety_classification` and
+`world_day_run`, so a new evaluator's findings reference evidence in the same vocabulary.
 
-## 9. Verification
+ART-88, ART-89 and ART-90 are what show the pattern holds beyond its first use: each added
+an evaluator, a query and a harness field, and **none of the three changed a line of
+`evaluator.ts`**. ART-90 is the strongest of the three as evidence, because it is the only
+one whose evidence did not already exist — it added two write boundaries and a table and
+still needed nothing new from the contract.
+
+## 10. Verification
 
 - `convex/quality/evaluator.test.ts` pins the shared contract (zero denominator ⇒
   `no_observations`, never `0%`; score renormalisation; finding dedupe; digest stability).
@@ -903,15 +1220,47 @@ and neither changed a line of `evaluator.ts`.
   describes: the latest day is never finished however far into it the world has got, it
   becomes finished exactly when a later day accepts an event, and `finalSlotStarted` still
   answers the snapshot's separate question over the same events.
-- `convex/operations/longRunHarness.test.ts` asserts all three whole reports over the fixed
+- `convex/quality/operationalQuality.test.ts` drives every finding code and, more
+  importantly, every way the three denominators can be got wrong: an unanswered attempt
+  excluded from the structure rate rather than counted as a failure; a total outage leaving
+  the rate **unmeasured** rather than reporting 0% or a schema failure; a repeated
+  `(key, stage)` counted once while the same key at the *other* stage counts separately;
+  an unclassified scene leaving the withhold denominator and being charged to coverage
+  instead; the §16.2 floor met at exactly 0.98 because it is inclusive; the composite
+  renormalising when a component measured nothing and reading `null` when none did; and a
+  report that never echoes an undeclared field, with details naming only ids and codes.
+- `convex/simulation/validationOutcome.test.ts` pins the recording rules: which scene a
+  verdict is attributed to when the proposal stamps one and when only the key prefix names
+  one, a retry that re-derives the stored verdict deduplicating, a retry reaching a
+  different outcome **or** the same outcome for a different reason being refused, and the
+  conflict carrying no proposal content.
+- `convex/simulation/authoringAttemptEvidence.test.ts` drives the real `onAttempt` wiring
+  through `simulateWholeScene`: one `parsed` observation for a clean call, one
+  `output_rejected` **per attempt** so an exhausted scene reports two, a failed attempt and
+  the retry that succeeded recorded under different outcomes, and a permanent provider
+  failure recorded while the call still throws. Its last case is the one that matters —
+  §16.2's gate falls below 0.98 on evidence a real authoring run produced, so the metric is
+  demonstrably capable of failing outside a fixture.
+- `convex/simulation/providers/liveStructuredOutputEvidence.test.ts` measures §16.2's rate
+  against the **real** gateway, env-gated on `ART90_LIVE_STRUCTURE=1` and run through
+  `npm run test:live-structure`. It prints the numerator, the denominator, the exclusions and
+  the reason dimensions, asserts the denominator is non-zero before it asserts the rate, and
+  fails when the measured rate misses 98%. Without the flag it is `describe.skip`: a skipped
+  run reports zero tests and is not evidence (§6.9).
+- `convex/operations/longRunHarness.test.ts` asserts all four whole reports over the fixed
   7-day and 30-day seeds: evaluator id and version, window, coverage, every metric's
   numerator *and* denominator, the score, agreement with the harness's independent checks,
   and `recapCoverage.recapFormatFailures` empty. The coverage denominator is asserted
   non-empty *before* the rate, and `excluded` is asserted greater than zero with a reason
   mentioning the not-yet-due day, so a run that excluded everything could not read as a pass.
+  The operational rejection denominator is asserted as `2 × acceptedEvents` rather than as a
+  literal, and the model dimension is asserted non-empty, so an all-clean report cannot be
+  produced by a recorder that never ran.
 - `convex/publicRead/publicReadOnlyGuarantee.test.ts` pins `getContinuityQualityMetrics`,
-  `getNarrativeQualityMetrics`, `getStoryQualityMetrics` and `declareRecapExclusion` in
-  `publicFunctionSurface`; declared must equal found, exhaustively.
+  `getNarrativeQualityMetrics`, `getStoryQualityMetrics`, `getOperationalQualityMetrics` and
+  `declareRecapExclusion` in `publicFunctionSurface`; declared must equal found,
+  exhaustively. ART-90's two recorders are `internalMutation`s and are deliberately not on
+  that surface.
 - `npm run check:architecture` fails the build if `convex/quality` names a Canon write
   symbol, or if any module reaches `quality` without declaring it.
 
@@ -920,7 +1269,10 @@ npm run check
 npm test -- --runTestsByPath convex/quality/evaluator.test.ts convex/quality/continuity.test.ts
 npm test -- --runTestsByPath convex/quality/textSimilarity.test.ts convex/quality/narrative.test.ts
 npm test -- --runTestsByPath convex/quality/storyQuality.test.ts convex/recaps/coverageExclusions.test.ts
+npm test -- --runTestsByPath convex/quality/operationalQuality.test.ts
+npm test -- --runTestsByPath convex/simulation/validationOutcome.test.ts convex/simulation/authoringAttemptEvidence.test.ts
 npm test -- --runTestsByPath convex/operations/postCommitWorldState.test.ts
 npm test -- --runTestsByPath convex/operations/longRunHarness.test.ts
-npm run test:longrun   # the 30-day gate, ART60_LONG_RUN=1
+npm run test:longrun          # the 30-day gate, ART60_LONG_RUN=1
+npm run test:live-structure   # §16.2 against the real gateway, ART90_LIVE_STRUCTURE=1
 ```

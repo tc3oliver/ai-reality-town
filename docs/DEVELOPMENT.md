@@ -23,6 +23,8 @@ npm ci
 | `npm run test:architecture` | Run positive and negative boundary-policy tests. |
 | `npm run test:foundation` | Only the canon + simulation domain tests. |
 | `npm test` | The full Jest suite (upstream utilities + foundation). |
+| `npm run test:live-gateway` | One real call against the configured OpenAI-compatible gateway (`ART159_LIVE_SMOKE=1`). Not in `check`; needs a live deployment and spends allowance. |
+| `npm run test:live-structure` | §16.2's JSON 結構成功率 against that same gateway (`ART90_LIVE_STRUCTURE=1`): 8 real structured calls, scored by the operational-quality evaluator, failing under 98%. Not in `check`; a skipped run is not evidence. |
 | `npm run check:offline` | typecheck + lint + foundation tests (no Convex/key/network). |
 | `npm run check` | typecheck + lint + full tests + build. |
 | `npm run build` | `tsc && vite build` (offline-safe). |

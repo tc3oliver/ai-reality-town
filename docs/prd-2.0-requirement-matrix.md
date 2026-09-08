@@ -209,10 +209,10 @@ Requirement Matrix 不應只放未附證據的診斷結論。ART-139 的既有�
 
 | Closure Matrix 條目 | 覆蓋的 Task |
 |---|---|
-| **FR-M002 世界品質指標** | ART-58、ART-88、ART-89（**Done**）、ART-90（To Do） |
+| **FR-M002 世界品質指標** | ART-58、ART-88、ART-89、ART-90（**全部 Done**） |
 
-**ART-58 已交付 FR-M002 的連續性半邊，ART-88 已交付敘事半邊，ART-89 已交付劇情線／recap／劇透半邊，
-只剩 ART-90 未完成。**
+**FR-M002 四個半邊皆已交付：** ART-58 連續性、ART-88 敘事、ART-89 劇情線／recap／劇透、
+ART-90 營運（Canon 拒絕率、安全攔截率、§16.2 JSON 結構成功率）。
 ART-58 的交付內容：共用的 evaluator
 契約（`convex/quality/evaluator.ts`）與 Continuity evaluator v1（`convex/quality/continuity.ts`）
 —— Continuity Score 加上 §16.2 五項 Canon 目標（嚴重 Canon 衝突、Event Replay 一致率、
@@ -271,9 +271,59 @@ Episode 改在下一天的第一次 commit 產生，正式環境由下一次 cro
 種子上劇透違規為 6 個已發布日中的 0 個。細節見 `docs/world-quality-metrics.md` §5 與
 `docs/recap-coverage-validation.md`。
 
-**仍未交付：** Canon 拒絕率與安全攔截率（ART-90）。它同樣建構在 ART-58 的
-`EvaluatorDefinition`、`observeMetric`、`composeScore` 與 `finishReport` 之上，如同 ART-88 與
-ART-89 未更動它們一樣。
+**ART-90 已交付 FR-M002 的營運半邊。** Operational-quality evaluator v1
+（`convex/quality/operationalQuality.ts`）同樣建構在那份 evaluator 契約之上，未更動
+`evaluator.ts` 一行。它量測三個**分母各不相同**的比率，外加一個伴隨指標：**Canon 拒絕率**
+（分子為被拒絕的提案、分母為被判定的提案，皆以 `(idempotencyKey, stage)` 為鍵）、
+**安全攔截率**（分子為標記 `withhold` 或 `human_review_required` 的場景、分母為**已分類**的
+場景）、§16.2 的 **JSON 結構成功率**（分子為結構驗證通過的作者嘗試、分母為**收到模型回應可供
+驗證**的嘗試），以及 `scene_classification_coverage`；並組成 `operational_health` 複合分數
+（結構輸出 0.5、Canon 接受 0.3、分類覆蓋 0.2）。讀取面是同一個 `world.inspect` 閘門下的
+`getOperationalQualityMetrics`，長跑則以同一個函式產出 `LongRunFindings.operationalQuality`
+與 `operationalBreakdown`。
+
+**第三個分母的排除規則是關鍵。** 逾時、憑證被拒、路由鏈耗盡或被預算擋下的嘗試**從來沒有拿到
+答案**可供驗證，把它算進分母等於把一次網路中斷回報成「模型無法遵守 schema」。這些嘗試被排除、
+被計數，並連同理由一起公布。
+
+**這三個比率在 ART-90 之前沒有任何一個答得出來，因為證據根本不存在。** `commitProposedEvent`
+丟出例外且不寫入任何東西，所以拒絕從未以「每個提案」為單位持久化；`worldDayRuns` 每次嘗試都是
+**patch**，重試會覆蓋前一個錯誤碼；`scheduledSlots.errorCode` 在重試時被**清除**；
+`worldDayCheckpoints` 雖然是唯一逐次嘗試的持久記錄，卻只為一個階段保存**一個**錯誤碼，而該階段
+可能判定了十幾個提案——因為兩個驗證階段都在第一個失敗處就拋出。在這些表上算出來的比率，分母是
+「時段形狀」的、分子是「首個失敗形狀」的。結構輸出的情況更糟：耗盡重試次數的場景會拋出例外且
+**完全不寫入任何一列**，因此在 `sceneSimulationRuns` 上計算的成功率必然是 100%。而
+`recordTrace`（`convex/observability/traces.ts`）是一個**沒有任何正式呼叫端**的
+`internalMutation`——`llmTraces` 資料表、它的白名單正規化器、遮蔽邏輯與公開投影全都已建置、已測試
+卻無法觸及，所以 `validationResult` 與 `finalStatus` 在每個世界都在結構上缺席，而兩個消費端
+（`dynamicViewMetricsFunctions` 的 trace 計數、FR-K002 提案審查的 Model Trace）讀到的永遠是空表。
+
+ART-90 補上 `canonValidationOutcomes` 資料表，以及 `recordProposalValidations` 與
+`recordAuthoringAttempt` 兩個 `internalMutation`（皆不在公開函式面上）。兩者都以「重試會重新推導
+出的鍵」做 insert-if-absent：提案為 `(worldId, idempotencyKey, stage)`、嘗試為
+`${simulationRunId}:attempt:${n}`、場景為 `sceneId`，全部源自 `(worldId, worldDay, timeSlot)`，
+因此同一個時段跑三次也只會為每個邏輯單位貢獻一列。兩個驗證階段現在會驗證**每一個**提案並記錄
+每一個判定，然後才在第一個拒絕處拋出：commit 路徑完全沒有改變，改變的只是判定得以留存。
+
+**理由維度只放穩定代碼。** `TELEPORTATION_NOT_ALLOWED`、`SCENE_OUTPUT_INVALID`、
+`EXPLICIT_SEXUAL_CONTENT`——絕不放訊息、路徑或 payload。被拒絕的提案內容與被攔下的場景文字正是
+FR-M002「不得洩漏機密」條款所指的東西，而確保不洩漏的最可靠做法，就是讓 evaluator 從一開始就收
+不到它們。細節見 `docs/world-quality-metrics.md` §6 與 `docs/llm-tracing.md`。
+
+**§16.2 JSON 結構成功率 ≥ 98% 現已可量測，且在 7 天固定種子上為 104/104（100%）——但這個讀數
+帶有一個必須一併陳述的但書。** 固定種子的 100% 是**由建構方式決定的** 1.0：決定性作者不可能產出
+無效輸出，因此該比率不可能下降，它證明的是**接線**而不是模型。比率**確實會下降**這件事，由
+fixture（`convex/quality/operationalQuality.test.ts`）與實際記錄路徑
+（`convex/simulation/authoringAttemptEvidence.test.ts`）證明；**本部署的 gateway 是否守得住這份
+合約**，則由環境變數把關的 `npm run test:live-structure`（`ART90_LIVE_STRUCTURE=1`，
+`convex/simulation/providers/liveStructuredOutputEvidence.test.ts`）量測：它對真實 gateway 發出
+8 次結構化呼叫、以同一個 evaluator 評分、印出分母與排除數，未達 98% 即**失敗**。沒有帶旗標時它是
+`describe.skip`，而**跳過的執行不是證據**。同一份種子上 Canon 拒絕率為 208 個被判定提案中的 0 個、
+安全攔截率為 104 個已分類場景中的 0 個，`operational_health` 為 1.0。
+
+**Epic M 仍未交付的只剩一項：** FR-M004 降級模式（ART-91）。ART-90 正好供應了降級階梯必須據以
+行動的訊號——結構成功率、`PROVIDER_ATTEMPT_FAILED` 的理由維度，以及逐模型的嘗試計數，說明的是
+「該對哪一種失敗降級」。
 
 ### 5.3 有 Task 但不對應任何延後需求
 

@@ -43,6 +43,18 @@ export type SceneSimulationResult = {
   trace: ProviderTraceMetadata;
 };
 
+/** See `AUTHORING_ATTEMPT_OUTCOMES`; restated here so this module stays free of `worldDayLive`. */
+export type AttemptOutcome = 'parsed' | 'output_rejected' | 'provider_failed';
+
+/** The stable code an error carries, or a marker saying it carried none. */
+function stableAttemptCode(error: unknown): string {
+  if (error !== null && typeof error === 'object' && 'code' in error
+      && typeof (error as { code: unknown }).code === 'string') {
+    return (error as { code: string }).code;
+  }
+  return 'SCENE_ATTEMPT_FAILED';
+}
+
 export class SceneSimulationError extends Error {
   constructor(readonly code: string, message: string, readonly path?: string) {
     super(`[${code}] ${message}`);
@@ -414,6 +426,22 @@ export type WholeSceneSimulationOptions = {
   /** FR-K005 "Prompt Version", already resolved to its builder. Default: the v1 prompt below. */
   buildSystemPrompt?: (scene: GroupedScene, context: WholeScenePromptContext) => string;
   /**
+   * ART-90 / FR-M002. Called once per semantic attempt with what it asked for and how it ended.
+   *
+   * Optional, and absent means unrecorded — which is how every pure scene-parsing test calls this
+   * function. The LIVE path always supplies it: without a per-attempt record a structured-output
+   * success rate has successes and no failures to divide by, because an exhausted scene throws and
+   * persists nothing.
+   */
+  onAttempt?: (attempt: {
+    attempt: number;
+    outcome: AttemptOutcome;
+    errorCode: string | null;
+    requestedModel: string;
+    resolvedModel: string | null;
+    transportRetries: number;
+  }) => void;
+  /**
    * ART-157. The destinations Canon will accept for this scene, from the stage-1 snapshot.
    *
    * Optional, and absent means "no legal destination" rather than "unconstrained" — a caller that
@@ -467,6 +495,18 @@ export async function simulateWholeScene(provider: LanguageModelProvider, simula
 
   let lastError: unknown;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    /**
+     * ART-90. What this attempt asked for and what came back, reported to the caller's recorder
+     * whatever happens. The recorder is optional and its failures are swallowed by the caller, not
+     * here: a metric that could fail an authoring attempt would be a metric that costs scenes.
+     */
+    let attemptTrace: ProviderTraceMetadata | null = null;
+    const report = (outcome: AttemptOutcome, errorCode: string | null) => options.onAttempt?.({
+      attempt, outcome, errorCode,
+      requestedModel: options.model ?? options.budget?.reservation.requestedModel ?? 'unknown',
+      resolvedModel: attemptTrace?.resolvedModel ?? null,
+      transportRetries: attemptTrace?.retryCount ?? 0,
+    });
     try {
       const budget = options.budget;
       let response;
@@ -498,11 +538,26 @@ export async function simulateWholeScene(provider: LanguageModelProvider, simula
       } else {
         response = await callProvider(options.model);
       }
-      const output = parseWholeSceneOutput(response.output, scene);
+      attemptTrace = response.trace;
+      let output;
+      try {
+        output = parseWholeSceneOutput(response.output, scene);
+      } catch (error) {
+        // The provider ANSWERED and the answer did not satisfy the schema. This, and only this,
+        // is what §16.2's 「JSON 結構成功率」 counts against.
+        report('output_rejected', error instanceof SceneSimulationError ? error.code : 'SCENE_OUTPUT_INVALID');
+        throw error;
+      }
+      report('parsed', null);
       return finalizeWholeSceneOutput(simulationRunId, scene, output, attempt,
         { ...response.trace, retryCount: response.trace.retryCount + attempt - 1 });
     } catch (error) {
       lastError = error;
+      // Anything that reaches here without an answer to validate: a timeout, a refused credential,
+      // an exhausted route chain, a budget refusal. Not a structured-output failure.
+      if (!(error instanceof SceneSimulationError && attemptTrace !== null)) {
+        report('provider_failed', stableAttemptCode(error));
+      }
       // A budget refusal is NOT retryable. Retrying it would spend the retry budget arguing with
       // the limit that just refused the call, and every further attempt would be refused for the
       // same reason with one more audit row to explain it.
