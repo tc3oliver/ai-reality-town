@@ -689,32 +689,63 @@ export class MemoryPostCommitRunStore implements PostCommitRunStore {
   }
 }
 
+/**
+ * The in-memory public read store.
+ *
+ * ## Why it is indexed rather than filtered (ART-73)
+ *
+ * Every read here used to filter the whole row array, so each read model rebuild cost
+ * O(all published versions in the world) — and the pipeline rebuilds seven read models per
+ * accepted event, so the harness's own cost grew quadratically with the run. That is a FIXTURE
+ * artifact and not a property of the deployment: production reads by
+ * `by_target_and_version`, which is scoped to `(worldId, modelKind, modelRef)`
+ * (`readModelFunctions.ts`), so it touches one target's versions and no others.
+ *
+ * The map below is that index, with identical semantics: same rows, same order, same answers.
+ * `rows` stays as the flat view the assertions read. Without it a 90-day run spends most of its
+ * time scanning arrays the deployment would never scan, which would make the run a measurement of
+ * this class rather than of the pipeline.
+ */
 export class MemoryReadStore implements PublicReadStore {
   /** ART-162: this fixture is not exercising the publication gate, so it publishes. */
   publicationEnabled(): Promise<boolean> { return Promise.resolve(true); }
 
   readonly rows: StoredReadModel[] = [];
+  private readonly byTarget = new Map<string, StoredReadModel[]>();
+  private readonly byId = new Map<string, StoredReadModel>();
   private counter = 0;
+
+  private static key(worldId: string, modelKind: ReadModelKind, modelRef: string): string {
+    return `${worldId}|${modelKind}|${modelRef}`;
+  }
+
+  private target(worldId: string, modelKind: ReadModelKind, modelRef: string): StoredReadModel[] {
+    return this.byTarget.get(MemoryReadStore.key(worldId, modelKind, modelRef)) ?? [];
+  }
+
   loadTargetVersions(worldId: string, modelKind: ReadModelKind, modelRef: string): Promise<readonly StoredReadModel[]> {
-    return Promise.resolve(this.rows.filter((row) =>
-      row.worldId === worldId && row.modelKind === modelKind && row.modelRef === modelRef));
+    return Promise.resolve(this.target(worldId, modelKind, modelRef));
   }
   findCurrent(worldId: string, modelKind: ReadModelKind, modelRef: string): Promise<StoredReadModel | null> {
-    return Promise.resolve(this.rows.find((row) =>
-      row.worldId === worldId && row.modelKind === modelKind && row.modelRef === modelRef && row.isCurrent) ?? null);
+    return Promise.resolve(this.target(worldId, modelKind, modelRef).find((row) => row.isCurrent) ?? null);
   }
   loadLastKnownGood(worldId: string, modelKind: ReadModelKind, modelRef: string): Promise<readonly StoredReadModel[]> {
-    return Promise.resolve(this.rows.filter((row) =>
-      row.worldId === worldId && row.modelKind === modelKind && row.modelRef === modelRef && row.isLastKnownGood));
+    return Promise.resolve(this.target(worldId, modelKind, modelRef).filter((row) => row.isLastKnownGood));
   }
   insertVersion(record: PublishedReadModel): Promise<string> {
     this.counter += 1;
     const id = `id-${this.counter}`;
-    this.rows.push({ ...record, id });
+    const row = { ...record, id };
+    this.rows.push(row);
+    this.byId.set(id, row);
+    const key = MemoryReadStore.key(record.worldId, record.modelKind, record.modelRef);
+    const target = this.byTarget.get(key);
+    if (target) target.push(row);
+    else this.byTarget.set(key, [row]);
     return Promise.resolve(id);
   }
   markCurrent(rowId: string, patch: Parameters<PublicReadStore['markCurrent']>[1]): Promise<void> {
-    const row = this.rows.find((candidate) => candidate.id === rowId);
+    const row = this.byId.get(rowId);
     if (!row) throw new Error('ROW_NOT_FOUND');
     row.isCurrent = patch.isCurrent;
     row.isLastKnownGood = patch.isLastKnownGood;
@@ -875,6 +906,28 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
   let now = 10_000;
 
   const events = (): AcceptedEvent[] => canon.committedEvents();
+  /**
+   * The world projection, memoised on the length of the accepted log (ART-73).
+   *
+   * `loadCharacterKnowledge` and `loadCharacterMemories` each replayed the WHOLE log, and the
+   * knowledge and memory stages call them once per character — so a twelve-character world paid
+   * twenty-four full replays per accepted event, and the run's cost grew with the cube of its
+   * length. Production pays none of that: it reads through `readProjectionViaSnapshot`, which
+   * resumes from the newest daily snapshot.
+   *
+   * Keying the cache on the log's LENGTH is exact rather than approximate: Canon is append-only,
+   * so two calls at the same length are two calls against the same log. This is a fixture cost
+   * fix and changes no answer — `longRunHarness.test.ts` asserts the same report digest before and
+   * after, which is what makes that claim checkable rather than asserted.
+   */
+  let projectionCache: { length: number; projection: WorldProjection } | null = null;
+  const worldProjection = (worldId: string): WorldProjection => {
+    const all = events();
+    if (projectionCache?.length === all.length) return projectionCache.projection;
+    const projection = replayWorldEvents(emptyProjection(worldId), all);
+    projectionCache = { length: all.length, projection };
+    return projection;
+  };
   const arcProjectionData = (arcId: string) => {
     const record = arcs.get(arcId);
     if (!record) throw new Error(`unknown arc ${arcId}`);
@@ -948,11 +1001,11 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
     rebuildCharacterProjection: (_worldId, characterId) => Promise.resolve(`character:${characterId}`),
 
     loadCharacterKnowledge(worldId, characterId) {
-      const projection = replayWorldEvents(emptyProjection(worldId), events());
+      const projection = worldProjection(worldId);
       return Promise.resolve(authorizeKnowledgeRead(projection.characterKnowledge, characterId, OPERATOR));
     },
     loadCharacterMemories(worldId, characterId) {
-      const projection = replayWorldEvents(emptyProjection(worldId), events());
+      const projection = worldProjection(worldId);
       return Promise.resolve(authorizeMemoryRead(projection.characterMemories, characterId, OPERATOR));
     },
     rebuildRelationshipProjection: (_worldId, source, target) =>
@@ -1351,7 +1404,7 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
      * single-commit harness can show.
      */
     rebuildRelationshipGraphProjection(worldId, targetWorldDay) {
-      const projection = replayWorldEvents(emptyProjection(worldId), events());
+      const projection = worldProjection(worldId);
       const payload = buildRelationshipGraphProjection({
         worldId,
         targetWorldDay,
