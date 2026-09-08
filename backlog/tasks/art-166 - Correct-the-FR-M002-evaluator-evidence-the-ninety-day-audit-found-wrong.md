@@ -1,11 +1,11 @@
 ---
 id: ART-166
 title: Correct the FR-M002 evaluator evidence the ninety-day audit found wrong
-status: In Progress
+status: In Review
 assignee:
   - '@claude'
 created_date: '2026-09-08 18:18'
-updated_date: '2026-09-08 18:48'
+updated_date: '2026-09-08 18:51'
 labels:
   - prd-1.0
   - epic-p
@@ -68,19 +68,19 @@ The docblocks that assert the opposite of their own functions must be corrected,
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
@@ -142,3 +142,20 @@ npm run typecheck; npm run check:architecture; npm test -- --runTestsByPath conv
 
 npm run check exit 0 - Tests: 14 skipped, 4172 passed, 4186 total; Test Suites: 2 skipped, 243 passed, 243 of 245 total.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+All four acceptance criteria are satisfied and verified.
+
+AC#1 - getStoryQualityMetrics now passes pendingWorldDays derived from the world's latest accepted event, so the not-yet-due day is excluded with a reason and the console agrees with the long-run harness on the same evidence. Proved by 'excludes the newest accepted day from the coverage denominator with a reason' and 'agrees with the long-run harness, which passed the exclusion all along' in convex/operations/worldQualityFunctions.test.ts, both RED before the fix.
+AC#2 - the code an attempt failed with reaches the reason dimensions through llmTraces.errorCode. Proved by 'keeps two different provider failure codes apart in the reason dimension', which drives the real recordAuthoringAttempt mutation and the real query over one db, and was RED before the fix.
+AC#3 - the FR-K002 Model Trace omits inputTokens, outputTokens and latencyMs rather than reporting 0. Proved at the writer ('books no token count and no latency it never observed'), at the normaliser ('keeps an unmeasured accounting field absent rather than defaulting it to zero') and at the reader ('omits the unmeasured accounting fields rather than reporting them as 0').
+AC#4 - EXCLUSION_WITHOUT_REASON is withdrawn, and 'declares no finding code the stored evidence cannot produce' pins every remaining code to a fixture that produces it. The fail-closed behaviour is kept: three cases prove an unusable exclusion cannot shrink the denominator.
+
+Seven fault injections, each naming the test that went red and each restored; see the implementation notes for the table.
+
+npm run check exit 0 - Tests: 14 skipped, 4172 passed, 4186 total.
+
+PR https://github.com/tc3oliver/ai-reality-town/pull/249, auto-merge enabled. Status moves to Done when it merges; DoD #14 is the only item outstanding.
+<!-- SECTION:FINAL_SUMMARY:END -->
