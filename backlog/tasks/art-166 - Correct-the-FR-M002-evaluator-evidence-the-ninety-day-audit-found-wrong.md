@@ -1,9 +1,11 @@
 ---
 id: ART-166
 title: Correct the FR-M002 evaluator evidence the ninety-day audit found wrong
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-09-08 18:18'
+updated_date: '2026-09-08 18:25'
 labels:
   - prd-1.0
   - epic-p
@@ -81,3 +83,17 @@ The docblocks that assert the opposite of their own functions must be corrected,
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Reproduce first, RED before any fix:
+   - a new handler-level suite (convex/operations/worldQualityFunctions.test.ts) drives getStoryQualityMetrics._handler with a fake db, following the ART-128 pattern dynamicViewMetricsFunctions.test.ts established. Seed two world days of accepted events, release only the earlier one, and assert the newest day is EXCLUDED with a reason. Today it is charged as uncovered.
+   - the same suite chains recordAuthoringAttempt._handler into getOperationalQualityMetrics._handler over one shared fake db, and asserts two different provider failure codes become two reason entries. Today they collapse to one invented SCENE_ATTEMPT_FAILED.
+2. Fix 1: the query derives the world's latest accepted day from the row it already reads and passes pendingWorldDays. completedWorldDaysOf's docblock already ASSERTS this; the assertion becomes true.
+3. Fix 2: llmTraceDraftValidator and LlmTraceDraft gain an optional errorCode, normalised as a stable machine CODE (bounded uppercase identifier) so the trace whitelist still cannot carry a message; recordAuthoringAttempt writes it; getOperationalQualityMetrics reads it instead of hardcoding null.
+4. Fix 3: inputTokens, outputTokens and latencyMs become optional in the same contract, and recordAuthoringAttempt omits them rather than asserting zero. Every reader of llmTraces is checked - traces.ts, proposalReviewStore.ts, dynamicViewMetricsFunctions.ts - and none defaults a missing field to 0.
+5. Fix 4: EXCLUSION_WITHOUT_REASON is dropped from the declared finding codes, because buildCoverageExclusion's floor is strictly stronger than any check the evaluator can make, so no stored row can produce it. The fail-closed BEHAVIOUR is kept: an exclusion the write boundary would refuse is not honoured, the event stays in the denominator, and if uncited it is reported under HIGH_IMPORTANCE_EVENT_UNCOVERED, which stored evidence can produce. The docblock says plainly that the old claim was wrong and names where the guard actually lives.
+6. Fault-inject each fix in turn, name the test that goes red, restore. Then typecheck, the focused suites, and the full check gate.
+7. Update docs/world-quality-metrics.md, docs/llm-tracing.md and docs/proposed-event-review.md.
+<!-- SECTION:PLAN:END -->

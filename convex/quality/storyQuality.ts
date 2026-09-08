@@ -22,10 +22,28 @@
  * A high-importance accepted event is covered when a RELEASABLE published content in the window
  * cites it. Releasable is the persisted FR-G004 verdict (`episodeCoverageReports.releasable`), so
  * an episode the coverage gate refused does not cover anything — it never reached an audience.
- * An event with a declared exclusion carrying a non-empty reason is EXCLUDED: it counts in neither
+ * An event with a declared exclusion carrying a reviewable reason is EXCLUDED: it counts in neither
  * numerator nor denominator, and the count and the reason travel with the report. §16.2 says
  * "covered OR carries an explicit reviewable exclusion reason", and a metric that folded
  * exclusions into the numerator would report a world that excluded everything as fully covered.
+ *
+ * ## Why there is no `EXCLUSION_WITHOUT_REASON` code (ART-166)
+ *
+ * There was one until ART-166, declared `severe` and reported when a stored exclusion's reason was
+ * blank. **It could not fire, and the claim it made was wrong.** `buildCoverageExclusion` is the
+ * only writer into `coverageExclusions`, and it refuses any reason shorter than
+ * `MIN_EXCLUSION_REASON_LENGTH` after trimming — a floor strictly stronger than "not blank". No
+ * stored row could reach the branch, so the evaluator advertised a detection it could never
+ * perform, and in doing so hid where the guarantee actually lives: at the write boundary, not here.
+ * The published `findingCodes` map is a promise about what a report can tell an operator, and a
+ * code the evidence cannot produce is a promise that is never kept.
+ *
+ * The BEHAVIOUR the code accompanied is kept, and is what matters: an exclusion whose reason does
+ * not clear that same floor is not honoured, so the event stays in the denominator and, if nothing
+ * cites it, is reported as `HIGH_IMPORTANCE_EVENT_UNCOVERED` naming the operator who declared the
+ * unusable exclusion. Dropping the branch outright would have been the dangerous edit: an
+ * `exclusion !== undefined` test alone would let a blank reason silently shrink the denominator,
+ * which turns a broken writer into a better-looking coverage rate.
  *
  * ## Which stagnation threshold
  *
@@ -41,6 +59,7 @@
  * text that produced them.
  */
 
+import { MIN_EXCLUSION_REASON_LENGTH } from '../recaps/coverageExclusions';
 import {
   composeScore,
   dedupeFindings,
@@ -61,8 +80,6 @@ export const STORY_QUALITY_EVALUATOR_VERSION = 1;
 export const STORY_QUALITY_FINDING_CODES = {
   /** A high-importance accepted event no releasable published content cites, and no exclusion covers. */
   HIGH_IMPORTANCE_EVENT_UNCOVERED: 'severe',
-  /** A declared exclusion whose reason is blank: an omission without a reviewable justification. */
-  EXCLUSION_WITHOUT_REASON: 'severe',
   /** A published content whose persisted coverage report carries a spoiler-category finding. */
   SPOILER_VIOLATION: 'severe',
   /** A world day that produced accepted events but no releasable published content at all. */
@@ -240,26 +257,27 @@ export function evaluateStoryQuality(evidence: StoryQualityEvidence): Evaluation
       pendingCount += 1;
       continue;
     }
+    // An exclusion is honoured only if its reason clears the SAME floor the write boundary
+    // applies. Below it the exclusion is not an exclusion: the event stays in the denominator and
+    // falls through to the uncovered branch, so an unusable reason can never quietly shrink what
+    // §16.2 is a rate of. See the module note for why this branch has no finding code of its own.
     const exclusion = excluded.get(event.eventId);
-    if (exclusion !== undefined) {
-      if (exclusion.reason.trim().length === 0) {
-        // An exclusion without a reason is not an exclusion. It stays in the denominator, and the
-        // omission is reported: §16.2 asks for a reviewable reason, and a blank one is not one.
-        push('EXCLUSION_WITHOUT_REASON', event.eventId, event.worldDay,
-          [eventRef(event.eventId, event.worldDay), { kind: 'publication', id: `exclusion:${event.eventId}`, code: exclusion.operatorId }],
-          `${exclusion.operatorId} excluded ${event.eventId} without a reason`);
-      } else {
-        excludedCount += 1;
-        continue;
-      }
+    const honoured = exclusion !== undefined && exclusion.reason.trim().length >= MIN_EXCLUSION_REASON_LENGTH;
+    if (honoured) {
+      excludedCount += 1;
+      continue;
     }
     if (covered.has(event.eventId)) {
       coveredCount += 1;
       continue;
     }
     push('HIGH_IMPORTANCE_EVENT_UNCOVERED', event.eventId, event.worldDay,
-      [eventRef(event.eventId, event.worldDay, String(event.importance))],
-      `high-importance event ${event.eventId} (importance ${event.importance}) is cited by no releasable published content and carries no exclusion reason`);
+      [eventRef(event.eventId, event.worldDay, String(event.importance)),
+        ...(exclusion === undefined ? []
+          : [{ kind: 'publication' as const, id: `exclusion:${event.eventId}`, code: exclusion.operatorId }])],
+      exclusion === undefined
+        ? `high-importance event ${event.eventId} (importance ${event.importance}) is cited by no releasable published content and carries no exclusion reason`
+        : `high-importance event ${event.eventId} (importance ${event.importance}) is cited by no releasable published content, and the exclusion ${exclusion.operatorId} declared for it carries no reviewable reason`);
   }
   const coverageDenominator = highImportance.length - excludedCount - pendingCount;
 

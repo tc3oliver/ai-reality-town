@@ -472,9 +472,28 @@ An event leaves the denominator in exactly three ways.
    question is not an observation that answered it badly. It is ART-47's rule for a
    retention cohort that has not aged far enough. A world that stops forever leaves its last
    day excluded permanently, and the excluded count says so.
-3. **Nothing else.** An exclusion whose reason is blank does **not** leave the denominator.
-   It stays in, and `EXCLUSION_WITHOUT_REASON` is reported against it, because §16.2 asks
-   for a reviewable reason and a blank one is not one.
+
+   **`getStoryQualityMetrics` did not pass this until ART-166, and the paragraph above was
+   therefore a description of the long-run harness only.** `toWorldDay` defaults to the
+   world's latest accepted day, which is by construction the day that has no Episode yet, so
+   every default operator read charged that day's high-importance events as uncovered, emitted
+   a severe `HIGH_IMPORTANCE_EVENT_UNCOVERED` per event and a `WORLD_DAY_UNPUBLISHED`, and
+   reported a §16.2 rate below the one the ninety-day gate reported off the same rule. The
+   pending day is keyed off the **world's** latest accepted day and not off the requested
+   window, so an operator asking for an earlier `toWorldDay` still measures that day in full —
+   it is due, and a window-keyed pending set would excuse a day that genuinely failed.
+3. **Nothing else.** An exclusion whose reason does not clear
+   `MIN_EXCLUSION_REASON_LENGTH` — the same floor `buildCoverageExclusion` applies — is not
+   honoured. The event stays in the denominator and, if nothing cites it, is reported as
+   `HIGH_IMPORTANCE_EVENT_UNCOVERED` naming the operator who declared the unusable exclusion.
+   §16.2 asks for a reviewable reason and an unusable one is not one.
+
+   There was an `EXCLUSION_WITHOUT_REASON` code here until ART-166. **It could not fire.**
+   `buildCoverageExclusion` is the only writer into `coverageExclusions` and refuses any
+   reason below that floor, so no stored row could reach the branch; the evaluator's published
+   code set advertised a detection it could never perform and hid the fact that the guarantee
+   is enforced at the write boundary. The behaviour is unchanged — the fail-open reading, where
+   a blank reason silently shrinks the denominator, is exactly what the branch still prevents.
 
 A day carrying accepted events and no releasable published content is named as
 `WORLD_DAY_UNPUBLISHED` rather than left to be inferred from a rate. That day is where
@@ -535,7 +554,6 @@ lifecycle alone: ART-163 records that arcs once reached `resolved` carrying noth
 | Code | Severity | Meaning |
 | --- | --- | --- |
 | `HIGH_IMPORTANCE_EVENT_UNCOVERED` | severe | A high-importance accepted event no releasable published content cites, and no exclusion covers |
-| `EXCLUSION_WITHOUT_REASON` | severe | A declared exclusion whose reason is blank: an omission without a reviewable justification |
 | `SPOILER_VIOLATION` | severe | A published content whose persisted FR-G004 verdict carries a spoiler-category finding |
 | `WORLD_DAY_UNPUBLISHED` | minor | A world day that produced accepted events but no releasable published content at all |
 | `ARC_STAGNANT` | severe | An active arc that has not advanced a projection revision for the stagnation threshold |
@@ -925,6 +943,9 @@ same `SCAN_LIMIT`.
 - Exclusions come from `coverageExclusions.by_world_and_day` (§7.6).
 - Arcs come from `storyArcLifecycles`, `storyArcProjectionEvents` and
   `storyArcResolutionDecisions`, each by world index. They are arc-sized, not event-sized.
+- The **pending day** is the latest accepted day from that same
+  `canonEvents.by_world_and_sequence` read, passed as `pendingWorldDays` (§5.3 rule 2). It
+  costs no extra read, and until ART-166 it was not passed at all.
 
 `coverage.scanLimitReached` is set when **any** of those seven reads hits the limit.
 Truncation is never silent.
@@ -944,8 +965,19 @@ docblock on the query names what it is deliberately **not** reading.
 - **Attempts** come from `llmTraces.by_world_and_day`, one row per authoring attempt. The
   trace's `validationResult` is what says which of the three outcomes an attempt had:
   `passed` is `parsed`, `rejected` is `output_rejected`, and `not_run` is the attempt that
-  never got an answer and is excluded from the rate. Not `sceneSimulationRuns`, where an
-  exhausted scene writes nothing.
+  never got an answer and is excluded from the rate. The **code** the attempt failed with is
+  `llmTraces.errorCode`, and that is what fills `structuredOutputReasons` and
+  `providerFailureReasons`. Not `sceneSimulationRuns`, where an exhausted scene writes
+  nothing.
+
+  **Until ART-166 the code did not survive the trip.** `recordAuthoringAttempt` accepted an
+  `errorCode` argument from ART-90 and had no column to write it to, and this read hardcoded
+  `errorCode: null`, so `evaluateOperationalQuality` fell through to its placeholder on every
+  row: every refused answer read `SCENE_OUTPUT_INVALID` and every provider failure read
+  `SCENE_ATTEMPT_FAILED`, whatever had happened. Two reason dimensions, one invented constant
+  each — and the distinction being lost is the one FR-M004 acts on, since
+  `LLM_HTTP_RETRYABLE`, `LLM_FREE_ROUTES_EXHAUSTED` and `LLM_CONFIG_MISSING` call for three
+  different operator responses.
 - **Safety labels** come from the classification stored with each scene result, which is the
   verdict the commit path itself acted on rather than a re-run of the classifier. Scene rows
   are read per `(worldDay, timeSlot)` on `sceneSimulationRuns.by_grouping_run` — the same
@@ -1063,7 +1095,10 @@ deliberately and are worth naming:
   fixture that could excuse its own gaps would measure nothing.
 - **`pendingWorldDays: [latestAcceptedWorldDay]`.** A run that stops mid-world leaves
   exactly one day whose Episode is not due yet (§5.4). Its events are excluded with a reason
-  rather than counted as uncovered.
+  rather than counted as uncovered. This was the **only** caller passing it until ART-166,
+  which is how the harness and the console came to report different §16.2 rates off the same
+  rule; `getStoryQualityMetrics` now derives the same day from the world's own latest accepted
+  event.
 
 The operational evidence is the run's own recorded verdicts and attempts, not a re-derivation
 of them: the harness observes what `recordProposalValidations` and `recordAuthoringAttempt`

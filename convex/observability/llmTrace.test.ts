@@ -86,6 +86,53 @@ describe('LLM trace contract', () => {
     expectTraceError(() => normalizeLlmTraceDraft(completeDraft({ inputTokens: Number.NaN })), 'INVALID_LLM_TRACE', 'inputTokens');
   });
 
+  /**
+   * ART-166. The three accounting fields became optional so the whole-scene attempt recorder can
+   * say "I did not measure this" instead of writing three zeros the FR-K002 Model Trace panel
+   * then rendered as a measurement. Optional must mean OMITTED at every layer: a default applied
+   * here would put the zero back one module down from where it was removed.
+   */
+  it('keeps an unmeasured accounting field absent rather than defaulting it to zero', () => {
+    const draft = { ...completeDraft() } as unknown as Record<string, unknown>;
+    delete draft.inputTokens;
+    delete draft.outputTokens;
+    delete draft.latencyMs;
+
+    const normalized = normalizeLlmTraceDraft(draft) as unknown as Record<string, unknown>;
+    for (const field of ['inputTokens', 'outputTokens', 'latencyMs']) {
+      expect(normalized[field]).toBeUndefined();
+      expect(Object.keys(normalized)).not.toContain(field);
+    }
+    // A measured zero is still a measurement, and still stored.
+    expect(normalizeLlmTraceDraft(completeDraft({ latencyMs: 0 })).latencyMs).toBe(0);
+  });
+
+  /**
+   * ART-166. `errorCode` is the code a call failed with, and the reason the field is safe to add
+   * to a record whose whole contract is "carries no model text" is that it admits a CODE and
+   * nothing else. A pattern that admitted prose would make this the hole every other rule closes.
+   */
+  it('admits a stable failure code and refuses anything that could be a message', () => {
+    expect(normalizeLlmTraceDraft(completeDraft({ errorCode: 'LLM_FREE_ROUTES_EXHAUSTED' })).errorCode)
+      .toBe('LLM_FREE_ROUTES_EXHAUSTED');
+    expect(normalizeLlmTraceDraft(completeDraft()).errorCode).toBeUndefined();
+
+    for (const rejected of [
+      'the model returned invalid JSON',
+      'LLM_TIMEOUT: upstream took 30s',
+      'llm_timeout',
+      'Bearer sk-live-0000',
+      '',
+      'A'.repeat(65),
+    ]) {
+      expectTraceError(
+        () => normalizeLlmTraceDraft(completeDraft({ errorCode: rejected })),
+        'INVALID_LLM_TRACE',
+        'errorCode',
+      );
+    }
+  });
+
   it('exposes full metadata only to operations/admin roles', async () => {
     const store = new InMemoryLlmTraceStore();
     await recordLlmTrace(store, completeDraft(), 100);

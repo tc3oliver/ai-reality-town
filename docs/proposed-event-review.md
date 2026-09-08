@@ -48,6 +48,21 @@ actually happened, not a fresh re-judgement of it.
 `commit` carries the accepted event's canonical `eventId`, `sequenceNumber`,
 `validationVersion`, `traceId`, and `acceptedAt` once the proposal reached Canon.
 
+### The Model Trace omits what nobody measured (ART-166)
+
+`modelTrace` is the `llmTraces` row as stored, so its `inputTokens`, `outputTokens` and
+`latencyMs` are **absent** on rows written by `recordAuthoringAttempt` — the writer sees the
+attempt, not the settled provider call that reports usage. Absence is the answer; the reader
+does not default it.
+
+It matters because this panel is the reason the alternative was not harmless. This table had
+no writer at all until ART-90, so the panel showed `null` for every proposal; ART-90 then
+wrote three literal zeros per row, and the panel began reporting a model call that really
+happened as **0 tokens and 0 ms**. That reads as a measurement, and it is the one failure
+mode worse than "we did not record this". Token and cost accounting of record is ART-59's
+budget ledger, not this row. `providerTrace` is a different source — the scene result's own
+provider accounting — and does carry settled usage when the scene recorded it.
+
 ## 3. Disposition
 
 Exactly one disposition applies to a proposal at any instant, and the precedence
