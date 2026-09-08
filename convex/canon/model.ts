@@ -263,6 +263,13 @@ export type CanonRuleContext = {
   locationConnections?: Record<string, string[]>;
   initialCharacterAlive?: Record<string, boolean>;
   initialItemOwners?: Record<string, string>;
+  /**
+   * Where the seed placed each character (ART-58). Canon itself never validates against it — a
+   * character with no `characterLocations` entry is "being placed" by their first movement — but
+   * the continuity evaluator needs it to say where a participant was BEFORE they ever moved, and
+   * carrying it here keeps the seed's initial state in one context rather than two.
+   */
+  initialCharacterLocations?: Record<string, string>;
   knownEventIds?: string[];
   /**
    * FR-B003 seeded persona anchors, keyed by character id. Optional and absent-means-inert, like

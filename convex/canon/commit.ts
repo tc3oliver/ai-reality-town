@@ -22,8 +22,8 @@ import { v } from 'convex/values';
 import { CANON_VALIDATION_VERSION } from '../shared/constants';
 import { CanonError } from '../shared/errors';
 import { deriveEventId } from '../shared/ids';
-import type { AcceptedEvent, CanonImmutableRule, CanonRuleContext, ProposedEvent, WorldProjection } from './model';
-import { personaAnchorFromSeed } from './personaDeviation';
+import type { AcceptedEvent, CanonRuleContext, ProposedEvent, WorldProjection } from './model';
+import { readCanonRuleContext } from './ruleContextReader';
 import { proposedEventArgs } from './proposedEvent';
 import { replayWorldEvents } from './replay';
 import { rowToAcceptedEvent } from './serialize';
@@ -195,40 +195,8 @@ export function createConvexCanonStore(
         createdAt: row.createdAt,
       };
     },
-    async loadCanonRuleContext(worldId) {
-      const [rules, characters, locations, items, organizations] = await Promise.all([
-        db.query('worldImmutableRules').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).collect(),
-        db.query('worldCharacters').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).collect(),
-        db.query('worldLocations').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).collect(),
-        db.query('worldAssets').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).collect(),
-        db.query('worldOrganizations').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).collect(),
-      ]);
-      if (rules.length === 0 && characters.length === 0 && locations.length === 0 && items.length === 0 && organizations.length === 0) return null;
-      const activeLocations = locations.filter((row) => (row.payload as { active?: unknown }).active === true);
-      return {
-        worldId,
-        rules: rules.map((row) => row.payload as CanonImmutableRule),
-        characterIds: characters.map((row) => row.characterId),
-        // FR-B003 anchors come from the seed rows this query already reads. A payload that cannot
-        // yield an anchor contributes nothing, so an older or partial seed leaves the gate inert
-        // for that character instead of failing every commit involving them.
-        characterPersonas: Object.fromEntries(characters.flatMap((row) => {
-          const anchor = personaAnchorFromSeed(row.characterId, row.payload);
-          return anchor ? [[row.characterId, anchor] as const] : [];
-        })),
-        locationIds: activeLocations.map((row) => row.locationId),
-        itemIds: items.map((row) => row.assetId),
-        organizationIds: organizations.map((row) => row.organizationId),
-        initialCharacterAlive: Object.fromEntries(characters.map((row) => [row.characterId, true])),
-        initialItemOwners: Object.fromEntries(items.map((row) => [row.assetId, row.ownerCharacterId])),
-        locationConnections: Object.fromEntries(activeLocations.map((row) => {
-          const connected = (row.payload as { connectedLocationIds?: unknown }).connectedLocationIds;
-          return [row.locationId, Array.isArray(connected)
-            ? connected.filter((id): id is string => typeof id === 'string')
-            : []];
-        })),
-      };
-    },
+    // One reader for the commit path and the read-only evaluators (ART-58); see the module note.
+    loadCanonRuleContext: (worldId) => readCanonRuleContext(db, worldId),
     async appendCommit(accepted) {
       // Split the envelope off the accepted event: the proposed event is stored as
       // `payload`, the envelope as top-level columns.

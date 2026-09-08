@@ -137,8 +137,20 @@ The policy also carries two enforcement surfaces that are easy to trip:
   convention.
 
 **LLM configuration lives in the Convex deployment environment** (`npx convex env list`), not
-in `.env.local`. A real OpenAI-compatible adapter exists but is currently reachable only from
-a probe action; the world-day path binds the deterministic `FakeWholeSceneProvider`.
+in `.env.local`. The live world-day path (`convex/simulation/providers/liveWorldDayActions.ts`,
+cron-driven since ART-159/ART-160) authors with the real OpenAI-compatible adapter through the
+free-route chain; only the provider call runs in an action, and Canon validation, safety,
+idempotency and commit stay in the finishing mutation. The deterministic `FakeWholeSceneProvider`
+is an explicit `sceneAuthor: 'deterministic_fake'` mode and the long-run harness's author — a
+provider outage cannot reach it, because no path defaults to it. An earlier version of this
+paragraph said the fake was the world-day author and the adapter was probe-only; that stopped
+being true at ART-159.
+
+**World-quality evaluators live in `convex/quality`** (FR-M002: continuity now, narrative /
+arc-recap / rejection-withhold to follow). The module is pure and listed in
+`canonWriteBoundary.forbiddenModules`; operator-gated reads live in `convex/operations/*Functions.ts`
+and the long-run harness runs the same evaluators over its own run. See
+`docs/world-quality-metrics.md`.
 
 ## 9. Conventions That Are Not Obvious From The Code
 

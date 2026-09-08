@@ -97,6 +97,21 @@
         "shared"
       ]
     },
+    "quality": {
+      "roots": [
+        "convex/quality"
+      ],
+      "mayDependOn": [
+        "canon",
+        "knowledge",
+        "story",
+        "editorial",
+        "safety",
+        "simulation",
+        "observability",
+        "shared"
+      ]
+    },
     "visual": {
       "roots": [
         "convex/visual"
@@ -130,7 +145,8 @@
         "safety",
         "observability",
         "shared",
-        "analytics"
+        "analytics",
+        "quality"
       ]
     },
     "safety": {
@@ -613,6 +629,12 @@
         "name": "getProductAnalyticsMetrics",
         "kind": "query",
         "gate": "operator"
+      },
+      {
+        "path": "convex/operations/worldQualityFunctions.ts",
+        "name": "getContinuityQualityMetrics",
+        "kind": "query",
+        "gate": "operator"
       }
     ]
   },
@@ -670,7 +692,8 @@
       "visualRuntime",
       "clientPublic",
       "clientWorldReadOnly",
-      "derivedContent"
+      "derivedContent",
+      "quality"
     ],
     "forbiddenSymbols": [
       "internalMutation",
