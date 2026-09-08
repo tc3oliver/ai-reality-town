@@ -14,9 +14,12 @@ import { TIME_SLOTS } from '../canon/eventTypes';
 import { MAX_MAJOR_ACTIVE_ARCS, MAX_MINOR_ACTIVE_ARCS } from '../story/portfolio';
 import { ARC_STAGNATION_WORLD_DAYS } from '../story/resolution';
 import { FAKE_SCENE_MODEL } from '../simulation/fakeSceneNarrator';
+import { CONTINUITY_EVALUATOR_ID, CONTINUITY_EVALUATOR_VERSION } from '../quality/continuity';
+import { mistwoodWorldConfiguration } from '../canon/mistwoodSeed';
 import {
   contentDigest,
   runLongRunSimulation,
+  seededCanonStore,
   LONG_RUN_FIXTURE_ID,
   LONG_RUN_WORLD_ID,
   MAX_SLOTS_WITHOUT_APPEARANCE,
@@ -72,11 +75,46 @@ function expectCleanRun(findings: LongRunFindings, worldDays: number): void {
   // validation error swallowed inside the pipeline would still surface here.
   expect(findings.canonConflicts).toEqual([]);
 
-  // Replay consistency (ART-17).
+  // Replay consistency (ART-17). `liveDigest` is the projection the run carried, folded slot by
+  // slot; `replayedDigest` is one full replay of the log. Until ART-58 both were full replays.
   expect(findings.replay.acceptedEvents).toBe(findings.acceptedEvents);
   expect(findings.replay.equal).toBe(true);
   expect(findings.replay.deterministic).toBe(true);
   expect(findings.replay.replayedDigest).toBe(findings.replay.liveDigest);
+
+  /**
+   * FR-M002 Continuity (ART-58) — the SAME evaluator the operator query runs, over this run.
+   *
+   * Every denominator is stated before its target, so none of these can pass on an empty world:
+   * the accepted-event count is the run's, the replay denominator is the number of REAL daily
+   * snapshots stage 20 persisted (one per world day now that the ART-99 stub is gone), and the
+   * publication denominator is the episodes plus recap formats the editorial stages produced.
+   */
+  const continuity = findings.continuity;
+  expect(continuity.evaluatorId).toBe(CONTINUITY_EVALUATOR_ID);
+  expect(continuity.evaluatorVersion).toBe(CONTINUITY_EVALUATOR_VERSION);
+  expect(continuity.window).toEqual({ fromWorldDay: 0, toWorldDay: worldDays - 1 });
+  expect(continuity.coverage.worldDaysEvaluated).toEqual(Array.from({ length: worldDays }, (_, index) => index));
+  expect(continuity.coverage.worldDaysWithoutEvidence).toEqual([]);
+  expect(continuity.coverage.scanLimitReached).toBe(false);
+  const metric = (key: string) => {
+    const found = continuity.metrics.find((candidate) => candidate.key === key);
+    if (!found) throw new Error(`continuity metric ${key} missing`);
+    return found;
+  };
+  expect(metric('severe_canon_conflicts').denominator).toBe(findings.acceptedEvents);
+  expect(metric('severe_canon_conflicts')).toMatchObject({ numerator: 0, rate: 0, status: 'measured', meetsTarget: true });
+  expect(metric('replay_consistency').denominator).toBe(worldDays);
+  expect(metric('replay_consistency')).toMatchObject({ numerator: worldDays, rate: 1, status: 'measured', meetsTarget: true, excluded: 0 });
+  // Episodes plus recap formats, one of each per world day.
+  expect(metric('unsourced_secret_leaks').denominator).toBe(2 * worldDays);
+  expect(metric('unsourced_secret_leaks')).toMatchObject({ numerator: 0, rate: 0, status: 'measured', meetsTarget: true });
+  expect(metric('deceased_character_appearances')).toMatchObject({ numerator: 0, denominator: findings.acceptedEvents, meetsTarget: true });
+  expect(metric('character_location_conflicts')).toMatchObject({ numerator: 0, denominator: findings.acceptedEvents, meetsTarget: true });
+  expect(continuity.findings).toEqual([]);
+  expect(continuity.score).toMatchObject({ value: 1, status: 'measured', weightMeasured: 1, weightTotal: 1 });
+  // The harness's own checks and the evaluator are two computations; they must agree.
+  expect(continuity.findings.filter(({ severity }) => severity === 'severe')).toHaveLength(findings.canonConflicts.length);
 
   // Arc limits, progress and resolution (FR-F003/FR-F004, ART-31).
   expect(findings.arcs.maxActiveMajorArcs).toBeLessThanOrEqual(MAX_MAJOR_ACTIVE_ARCS);
@@ -214,6 +252,24 @@ describe('NFR-007 fixed-seed 7-day simulation (AC#1/#3)', () => {
     expect(findings.tokens.providers).toEqual(['fake']);
   });
 
+  /**
+   * ART-58. The seeded Canon store carries the `initial` snapshot `importWorld` writes, so every
+   * commit in the run is validated against the seeded locations the way production validates it.
+   * Without this the run validated against `emptyProjection`, where the unknown-destination,
+   * inactive-destination and capacity rules skip themselves — the 30-day evidence measured a
+   * weaker Canon than the deployment enforces, and nothing here could tell.
+   */
+  it('validates the run against the seeded baseline, not an empty projection (ART-58)', async () => {
+    const initial = await seededCanonStore().loadInitialSnapshot(LONG_RUN_WORLD_ID);
+    expect(initial).not.toBeNull();
+    expect(Object.keys(initial!.projection.locations)).toHaveLength(mistwoodWorldConfiguration.locations.length);
+    expect(initial!.lastSequenceNumber).toBe(-1);
+    // And the evaluator folded from it: the origin is the seed, and the fold agreed with every
+    // daily snapshot the real snapshot stage persisted from that same seed.
+    expect(findings.continuity.coverage.worldDaysEvaluated).toHaveLength(7);
+    expect(findings.continuity.metrics.find(({ key }) => key === 'replay_consistency')?.denominator).toBe(7);
+  });
+
   it('completes reproducibly: the same seed yields a byte-identical report (AC#1)', async () => {
     const repeat = await runLongRunSimulation({ worldDays: 7 });
     expect(repeat.digest).toBe(findings.digest);
@@ -225,7 +281,10 @@ describe('NFR-007 fixed-seed 7-day simulation (AC#1/#3)', () => {
   it('emits machine-readable findings for every Section 19.3 question (AC#1)', () => {
     expect(findings.schemaVersion).toBe(1);
     expect(Object.keys(findings).sort()).toEqual([
-      'acceptedEvents', 'appearance', 'arcs', 'canonConflicts', 'completionRate', 'digest',
+      'acceptedEvents', 'appearance', 'arcs', 'canonConflicts', 'completionRate',
+      // FR-M002 (ART-58): the continuity evaluator's report over the run's own evidence.
+      'continuity',
+      'digest',
       'recapCoverage', 'repetition', 'replay',
       // FR-M003 §16.3 (ART-59): the resource report the run's own budget accountant produced.
       'resources',

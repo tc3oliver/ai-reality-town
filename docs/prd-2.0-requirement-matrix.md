@@ -209,7 +209,21 @@ Requirement Matrix 不應只放未附證據的診斷結論。ART-139 的既有�
 
 | Closure Matrix 條目 | 覆蓋的 Task |
 |---|---|
-| **FR-M002 世界品質指標** | ART-58、ART-88、ART-89、ART-90 |
+| **FR-M002 世界品質指標** | ART-58（**Done**）、ART-88、ART-89、ART-90（To Do） |
+
+**ART-58 已交付 FR-M002 的連續性半邊，其餘三個 Task 仍未完成。** 交付內容：共用的 evaluator
+契約（`convex/quality/evaluator.ts`）與 Continuity evaluator v1（`convex/quality/continuity.ts`）
+—— Continuity Score 加上 §16.2 五項 Canon 目標（嚴重 Canon 衝突、Event Replay 一致率、
+無來源秘密洩漏、死者不合理出場、角色位置衝突），每項都隨報告帶出自己的分子、分母、目標與方向；
+分母為 0 時回報 `no_observations`，不會謊報滿分。讀取面是 operator 閘門的
+`getContinuityQualityMetrics`（`convex/operations/worldQualityFunctions.ts`，capability
+`world.inspect`），30 天長跑則以**同一組函式**產出 `LongRunFindings.continuity`。
+`convex/quality` 已列入 `canonWriteBoundary.forbiddenModules`，量測世界因此無法寫入世界。
+細節見 `docs/world-quality-metrics.md`。
+
+**仍未交付：** 事件新穎度與對話重複（ART-88，也是修復固定種子假作者模板重複率的擁有者）、
+劇情線推進／recap 覆蓋／劇透違規（ART-89）、Canon 拒絕率與安全攔截率（ART-90）。三者都建構在
+ART-58 的 `EvaluatorDefinition`、`observeMetric`、`composeScore` 與 `finishReport` 之上。
 
 ### 5.3 有 Task 但不對應任何延後需求
 

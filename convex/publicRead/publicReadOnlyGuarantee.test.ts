@@ -77,6 +77,7 @@ import * as viewerProgressFunctions from '../viewer/viewerProgressFunctions';
 // function whose module it has not imported.
 import * as analyticsIngestFunctions from '../analytics/ingestFunctions';
 import * as productAnalyticsFunctions from '../operations/productAnalyticsFunctions';
+import * as worldQualityFunctions from '../operations/worldQualityFunctions';
 import { PUBLIC_DYNAMIC_FORBIDDEN_FIELDS } from './publicDynamicProjection';
 import { serveRuntimeSnapshot, type RuntimeSnapshotReadStore } from './runtimeSnapshot';
 
@@ -131,6 +132,7 @@ const MODULES: Readonly<Record<string, Record<string, unknown>>> = {
   'convex/viewer/viewerProgressFunctions.ts': viewerProgressFunctions,
   'convex/analytics/ingestFunctions.ts': analyticsIngestFunctions,
   'convex/operations/productAnalyticsFunctions.ts': productAnalyticsFunctions,
+  'convex/operations/worldQualityFunctions.ts': worldQualityFunctions,
 };
 
 /** A Convex-registered function, as it exists at runtime. */

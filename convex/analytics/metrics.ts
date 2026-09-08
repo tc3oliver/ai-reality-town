@@ -22,41 +22,19 @@
 
 import { MS_PER_DAY, type AnalyticsEventName } from '../shared/analyticsContract';
 
-/** Whether a target is a floor (most of §16.1) or a ceiling (§18.1's renderer error rate). */
-export type TargetDirection = 'atLeast' | 'atMost';
+/**
+ * The metric primitive itself lives in `convex/shared/metricObservation.ts` since ART-58, so the
+ * world-quality evaluators measure by the same rule. Re-exported so every existing importer of
+ * this module keeps working unchanged.
+ */
+import {
+  observeRate as observe,
+  type MetricCount,
+  type MetricObservation,
+  type TargetDirection,
+} from '../shared/metricObservation';
 
-export type MetricObservation = {
-  key: string;
-  /** The PRD's own name for the metric, so a report is readable beside the table it comes from. */
-  label: string;
-  numerator: number;
-  denominator: number;
-  /** `null` exactly when `denominator === 0`. Never `0` in that case. */
-  rate: number | null;
-  status: 'measured' | 'no_observations';
-  target: number | null;
-  direction: TargetDirection;
-  /** `null` when the metric was not measured. A missing measurement is not a missed target. */
-  meetsTarget: boolean | null;
-  /**
-   * Observations deliberately left out of the denominator, and why.
-   *
-   * Non-zero for the retention metrics, whose cohorts must have aged past the window before they
-   * can answer it, and for viewers whose recorded return offsets were truncated. Published rather
-   * than absorbed: a D7 computed over a third of the cohort is a different number from one
-   * computed over all of it, and there is no way to see that from the rate alone.
-   */
-  excluded: number;
-  excludedReason: string | null;
-};
-
-/** A count rather than a rate — 「有多少人在看」 has no denominator. */
-export type MetricCount = {
-  key: string;
-  label: string;
-  value: number;
-  status: 'measured' | 'no_observations';
-};
+export type { MetricCount, MetricObservation, TargetDirection };
 
 export type AnalyticsSessionRow = {
   worldId: string;
@@ -121,30 +99,6 @@ export const THREE_MINUTES_MS = 3 * 60 * 1000;
 /** §16.1's two return windows, as day offsets from a viewer's acquisition day. */
 export const NEXT_DAY_OFFSET = 1;
 export const SEVEN_DAY_OFFSET = 7;
-
-function observe(
-  key: string,
-  label: string,
-  numerator: number,
-  denominator: number,
-  target: number | null,
-  direction: TargetDirection = 'atLeast',
-  excluded = 0,
-  excludedReason: string | null = null,
-): MetricObservation {
-  // The one branch this whole module is organised around.
-  const measured = denominator > 0;
-  const rate = measured ? Math.round((numerator / denominator) * 10_000) / 10_000 : null;
-  return {
-    key, label, numerator, denominator, rate,
-    status: measured ? 'measured' : 'no_observations',
-    target, direction,
-    meetsTarget: rate === null || target === null
-      ? null
-      : (direction === 'atLeast' ? rate >= target : rate <= target),
-    excluded, excludedReason,
-  };
-}
 
 /** Session keys that carry at least one event satisfying `matches`. */
 function sessionsWith(

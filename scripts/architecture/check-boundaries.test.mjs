@@ -148,6 +148,44 @@ test('Canon write boundary rejects write symbols at the source level', () => {
   );
 });
 
+/**
+ * FR-M002 / ART-58. The world-quality evaluators live in `convex/quality`, a module that reads
+ * accepted history and must never be able to write it. Listing it in
+ * `canonWriteBoundary.forbiddenModules` turns "an evaluator cannot become Canon" into a build
+ * failure: naming a write symbol, or importing a Canon write path, is refused at the source.
+ */
+test('the quality evaluators are inside the Canon write boundary and cannot reach a write path', () => {
+  assert.ok(policy.canonWriteBoundary.forbiddenModules.includes('quality'));
+  assert.equal(moduleForPath('convex/quality/continuity.ts', policy), 'quality');
+  assert.match(
+    validateImport({ sourcePath: 'convex/quality/continuity.ts', specifier: '../canon/commit', policy }).join('\n'),
+    /quality may not import Canon write path convex\/canon\/commit\.ts/,
+  );
+  assert.match(
+    validateCanonWriteBoundarySource({
+      sourcePath: 'convex/quality/continuity.ts',
+      source: 'const result = await commitProposedEvent(store, { proposed });',
+      policy,
+    })[0],
+    /may not reference 'commitProposedEvent'/,
+  );
+  // Reading is the whole point: the replay fold and the validators are not write symbols.
+  assert.deepEqual(
+    validateCanonWriteBoundarySource({
+      sourcePath: 'convex/quality/continuity.ts',
+      source: 'const next = replayWorldEvents(projection, [event]); const error = validateCanon(proposed, next);',
+      policy,
+    }),
+    [],
+  );
+  // The gate lives in operations, which may depend on quality; nothing else may.
+  assert.deepEqual(validateImport({ sourcePath: 'convex/operations/worldQualityFunctions.ts', specifier: '../quality/continuity', policy }), []);
+  assert.match(
+    validateImport({ sourcePath: 'convex/publicRead/readModel.ts', specifier: '../quality/continuity', policy }).join('\n'),
+    /publicRead may not depend on quality/,
+  );
+});
+
 test('provider packages are isolated to adapter roots', () => {
   assert.match(
     validateImport({ sourcePath: 'convex/story/classifier.ts', specifier: 'openai', policy })[0],
