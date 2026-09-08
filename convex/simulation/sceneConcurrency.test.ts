@@ -105,7 +105,7 @@ function memoryStore(): SceneAuthoringStore & { persisted: SceneSimulationResult
     loadPersistedSceneSimulation: (_worldId, _groupingRunId, simulationRunId) =>
       Promise.resolve(persisted.find((entry) => entry.simulationRunId === simulationRunId) ?? null),
     persistSceneSimulation: (_groupingRunId, result) => { persisted.push(result); return Promise.resolve(); },
-    budget: unmeteredWorldDayBudgetPort('fake-whole-scene-v1'),
+    budget: unmeteredWorldDayBudgetPort('fake-whole-scene-v2'),
   };
 }
 

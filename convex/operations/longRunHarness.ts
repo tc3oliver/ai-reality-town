@@ -46,6 +46,7 @@ import {
 import { buildWorldImportPlan } from '../canon/worldConfig';
 import { evaluateContinuityWindow, type PublicationEvidence, type SnapshotEvidence } from '../quality/continuity';
 import type { EvaluationReport } from '../quality/evaluator';
+import { evaluateNarrative, type NarrativeSceneEvidence } from '../quality/narrative';
 import { validateCanon, validateEventStructure } from '../canon/validators';
 import { authorizeKnowledgeRead } from '../knowledge/authorization';
 import { authorizeMemoryRead } from '../knowledge/memoryAuthorization';
@@ -321,6 +322,13 @@ export type RecapCoverageFindings = {
   worldDaysWithoutAcceptedEvent: number[];
   recapSnapshots: number;
   recapTypes: string[];
+  /**
+   * World days whose FR-G003 recap formats the real composer REFUSED, with the code (ART-88).
+   *
+   * Invisible until ART-88: a refusal was recorded in the harness's own map and reported nowhere,
+   * so an author change that made six days in seven unrecappable left every assertion green.
+   */
+  recapFormatFailures: Array<{ worldDay: number; errorCode: string }>;
   /** FR-G004 (ART-35) coverage/spoiler findings per episode; empty means clean. */
   coverageFindings: Array<{ worldDay: number; findings: CoverageFinding[] }>;
 };
@@ -388,6 +396,13 @@ export type LongRunFindings = {
    * `convex/quality/continuity.ts` evaluator the operator query runs, over this run's evidence.
    */
   continuity: EvaluationReport;
+  /**
+   * FR-M002 narrative metrics (ART-88): the §16.2 repeated-scene ratio over ACCEPTED scenes, with
+   * its exact / near / template split, dialogue repetition, voice distinctiveness, persona
+   * deviation and event novelty — from `convex/quality/narrative.ts`, the evaluator the operator
+   * query runs.
+   */
+  narrative: EvaluationReport;
   /** Canonical digest of every field above except itself. Equal seeds ⇒ equal digest. */
   digest: string;
 };
@@ -1881,6 +1896,10 @@ export async function runLongRunSimulation(input: LongRunInput): Promise<LongRun
       .filter((day) => !daysWithEvents.has(day)),
     recapSnapshots: harness.recaps.length,
     recapTypes: [...new Set(harness.recaps.map(({ recapType }) => recapType))].sort(),
+    recapFormatFailures: [...harness.recapFormats.entries()]
+      .filter(([, outcome]) => outcome.status === 'failed')
+      .map(([worldDay, outcome]) => ({ worldDay, errorCode: outcome.errorCode ?? 'RECAP_FORMAT_GENERATION_FAILED' }))
+      .sort((left, right) => left.worldDay - right.worldDay),
     coverageFindings,
   };
 
@@ -1982,6 +2001,45 @@ export async function runLongRunSimulation(input: LongRunInput): Promise<LongRun
     eventsByDay, snapshotByDay, publicationsByDay, scanLimitReached: false,
   });
 
+  // --- FR-M002 narrative (ART-88) -------------------------------------------
+  //
+  // Scenes are joined to Canon through `metadata.sceneId` (FR-P004 stamps it on every real
+  // proposal) with the idempotency-key prefix as the fallback the safety check already uses. A
+  // scene with no accepted event is not in the denominator, and says so.
+  const acceptedSequenceByScene = new Map<string, number>();
+  for (const event of acceptedEvents) {
+    const sceneId = typeof event.metadata?.sceneId === 'string' ? event.metadata.sceneId : event.idempotencyKey.split(':event:')[0];
+    const prior = acceptedSequenceByScene.get(sceneId);
+    if (prior === undefined || event.sequenceNumber < prior) acceptedSequenceByScene.set(sceneId, event.sequenceNumber);
+  }
+  const narrativeScenes: NarrativeSceneEvidence[] = observations.simulations.map((result) => ({
+    sceneId: result.scene.sceneId,
+    worldDay: result.scene.worldDay,
+    timeSlot: result.scene.timeSlot,
+    acceptedSequenceNumber: acceptedSequenceByScene.get(result.scene.sceneId) ?? null,
+    locationId: result.scene.locationId,
+    participantIds: result.scene.participantIds,
+    arcIds: result.scene.arcIds,
+    sceneSummary: result.output.sceneSummary,
+    keyActions: result.output.keyActions,
+    dialogue: result.output.dialogueHighlights,
+    publicSummaries: result.output.proposedEvents.map(({ publicSummary }) => publicSummary ?? ''),
+    withheld: result.reviewStatus === 'required',
+  }));
+  const narrative = evaluateNarrative({
+    worldId: LONG_RUN_WORLD_ID, fromWorldDay: startWorldDay, toWorldDay: finalWorldDay,
+    scenes: narrativeScenes, events: acceptedEvents,
+    identifiers: [
+      LONG_RUN_WORLD_ID,
+      ...characterIds,
+      ...mistwoodWorldConfiguration.locations.map(({ id }) => id),
+      ...[...harness.arcs.keys()],
+    ],
+    personaAnchors: mistwoodRuleContext().characterPersonas ?? {},
+    originProjection: baseline.projection,
+    scanLimitReached: false,
+  });
+
   const slotsCompleted = slots.filter(({ status }) => status === 'completed').length;
   const seed: LongRunSeed = {
     worldId: LONG_RUN_WORLD_ID,
@@ -2009,6 +2067,7 @@ export async function runLongRunSimulation(input: LongRunInput): Promise<LongRun
     resources,
     safety,
     continuity,
+    narrative,
   };
   // ART-92 review seam: content only, after the fact, outside the digest.
   input.onContentSample?.({

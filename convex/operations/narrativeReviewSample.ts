@@ -35,7 +35,7 @@ import {
 } from './longRunHarness';
 
 /** Version of `docs/narrative-quality-rubric.md` this module renders. Bump both together. */
-export const RUBRIC_VERSION = '1.0';
+export const RUBRIC_VERSION = '1.1';
 
 /** Highest score on the rubric scale; the scale is 0–4 (see the rubric document). */
 export const RUBRIC_MAX_SCORE = 4;
@@ -75,7 +75,7 @@ export const RUBRIC_DIMENSIONS: readonly RubricDimension[] = [
       'Read every sampled line attributed to one character across the whole sample. Would you believe they are the same person — same voice, same concerns, same relationships — or is the name interchangeable with any other?',
     passThreshold: 3,
     hardGate: false,
-    complements: 'No automated check exists; the projection tracks state, not voice.',
+    complements: 'ART-88 `voice_distinctiveness` catches a cast that shares verbatim lines and `persona_deviation_rate` counts Canon-flagged reversals; a human judges whether a character sounds like the same person when the words differ.',
   },
   {
     id: 'D2',
@@ -129,7 +129,7 @@ export const RUBRIC_DIMENSIONS: readonly RubricDimension[] = [
     passThreshold: 3,
     hardGate: false,
     complements:
-      'ART-60 measures EXACT duplicate content digests; a human catches paraphrase and template reuse that a digest treats as distinct.',
+      'ART-88 `repeated_scene_ratio` measures exact and near-duplicate scenes (identifier-masked 3-gram Jaccard) and `template_reuse_ratio` the structural mould; a human catches paraphrase that stays under the similarity threshold.',
   },
   {
     id: 'D7',

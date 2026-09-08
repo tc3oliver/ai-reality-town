@@ -30,7 +30,7 @@ cost. The seed is therefore the whole of `LongRunSeed`:
 | --- | --- |
 | `worldId` | `mistwood` |
 | `fixtureId` | `mistwood-production-seed-v1` (`convex/canon/mistwoodSeed.ts`) |
-| `providerModel` | `fake-whole-scene-v1` |
+| `providerModel` | `fake-whole-scene-v2` |
 | `startWorldDay` | `0` |
 | `worldDays` | `7` or `30` |
 | `timeSlotsPerWorldDay` | `5` |

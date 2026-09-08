@@ -635,6 +635,12 @@
         "name": "getContinuityQualityMetrics",
         "kind": "query",
         "gate": "operator"
+      },
+      {
+        "path": "convex/operations/worldQualityFunctions.ts",
+        "name": "getNarrativeQualityMetrics",
+        "kind": "query",
+        "gate": "operator"
       }
     ]
   },
