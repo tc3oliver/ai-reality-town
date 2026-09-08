@@ -1,4 +1,6 @@
+import { useEffect } from 'react';
 import { useQuery } from 'convex/react';
+import { emitCharacterViewed } from '../../analytics/productEvents';
 import { getPublishedReadModelRef } from './publicReadModelRef';
 import { PublicPageFrame } from './PublicPageFrame';
 import {
@@ -35,6 +37,13 @@ type TimelinePayload = {
 export default function CharacterPage() {
   const route = typeof window === 'undefined' ? null : parseCharacterRoute(window.location.hash);
   const worldId = route?.worldId ?? null;
+  // §15's `character_viewed`, on the ROUTE rather than on the loaded projection: a viewer who
+  // opened an unpublished character page still opened one, and gating on content would make
+  // the count measure publication coverage instead of interest.
+  const routeCharacterId = route?.characterId ?? null;
+  useEffect(() => {
+    if (worldId !== null && routeCharacterId !== null) emitCharacterViewed(worldId, routeCharacterId);
+  }, [worldId, routeCharacterId]);
   const characterId = route?.characterId ?? null;
   const enabled = route !== null;
 

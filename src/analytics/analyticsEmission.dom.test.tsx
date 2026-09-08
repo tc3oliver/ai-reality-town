@@ -20,7 +20,7 @@ import { composeReadOnlyWorldViewModel, type PublicCharacterMotion } from '../co
 import { composeActiveScenePanel } from '../components/live/activeSceneModel';
 import { LiveMapView } from '../components/live/LiveMapView';
 import { resetAnalyticsSink, setAnalyticsSink } from './analyticsSink';
-import type { DynamicViewEvent } from './dynamicViewEvents';
+import type { AnalyticsEvent } from '../../convex/shared/analyticsContract';
 
 declare global {
   // eslint-disable-next-line no-var
@@ -56,7 +56,7 @@ const scenePanel = composeActiveScenePanel({
 
 let container: HTMLDivElement;
 let root: Root;
-let received: DynamicViewEvent[];
+let received: AnalyticsEvent[];
 
 beforeEach(() => {
   window.matchMedia = ((query: string) => ({

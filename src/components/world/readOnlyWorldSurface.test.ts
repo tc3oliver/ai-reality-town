@@ -66,11 +66,22 @@ const worldModule = surface.filter((file) => file.path.startsWith('src/component
  * "there is one write root"; it is that EVERY viewing surface is outside whatever roots the
  * policy declares, and that the policy declares few of them.
  */
-const WRITE_CLIENT_ROOTS: string[] = (
-  JSON.parse(readFileSync(join(ROOT, 'architecture/module-boundaries.json'), 'utf8')) as {
-    viewerWriteBoundary: { clientRoots?: string[] };
-  }
-).viewerWriteBoundary.clientRoots ?? [];
+const POLICY = JSON.parse(readFileSync(join(ROOT, 'architecture/module-boundaries.json'), 'utf8')) as {
+  viewerWriteBoundary: { clientRoots?: string[]; maxViewerMutations: number };
+  analyticsWriteBoundary?: { clientRoots?: string[] };
+};
+/** Roots that may write to the WORLD. ART-45's ballot and ART-39's progress record. */
+const VIEWER_WRITE_CLIENT_ROOTS: string[] = POLICY.viewerWriteBoundary.clientRoots ?? [];
+/**
+ * The telemetry root (§15 / ART-47), kept SEPARATE from the list above rather than appended.
+ *
+ * Merging them would have been one character of diff and would have destroyed the distinction
+ * the assertions below rest on: the world-mutation roots are capped at two and are the ones
+ * PRD 2.0 §22.16 is about, and telemetry is a different claim with a different bound. A single
+ * combined list would have let either grow inside the other's allowance.
+ */
+const TELEMETRY_CLIENT_ROOTS: string[] = POLICY.analyticsWriteBoundary?.clientRoots ?? [];
+const WRITE_CLIENT_ROOTS: string[] = [...VIEWER_WRITE_CLIENT_ROOTS, ...TELEMETRY_CLIENT_ROOTS];
 
 /**
  * The exemptions the POLICY grants, flattened to `path: symbol` and restricted to symbols that
@@ -190,7 +201,22 @@ describe('read-only public surface', () => {
     // name a write API, exemption or no exemption. The declared write roots are deliberate,
     // separate surfaces a viewer reaches only by choosing to act -- the ballot (ART-45) and the
     // return recap's progress record (ART-39).
-    expect(WRITE_CLIENT_ROOTS.length).toBeLessThanOrEqual(2);
+    //
+    // ART-47 added a THIRD root, and the two bounds are asserted separately because they are
+    // two different claims. The world-mutation roots stay at two: telemetry spent none of that
+    // allowance, which is what「架構上分離」has to mean if it means anything. The roots must
+    // also be disjoint, so no one file can hold both exemptions -- `check-boundaries.mjs`
+    // enforces that, and this is the product-side evidence for it.
+    expect(VIEWER_WRITE_CLIENT_ROOTS.length).toBeLessThanOrEqual(2);
+    expect(POLICY.viewerWriteBoundary.maxViewerMutations).toBe(2);
+    expect(TELEMETRY_CLIENT_ROOTS.length).toBeLessThanOrEqual(1);
+    for (const telemetryRoot of TELEMETRY_CLIENT_ROOTS) {
+      for (const viewerRoot of VIEWER_WRITE_CLIENT_ROOTS) {
+        expect(telemetryRoot.startsWith(`${viewerRoot}/`)).toBe(false);
+        expect(viewerRoot.startsWith(`${telemetryRoot}/`)).toBe(false);
+        expect(telemetryRoot).not.toBe(viewerRoot);
+      }
+    }
     const viewing = surface.filter((file) =>
       !WRITE_CLIENT_ROOTS.some((root) => file.path.startsWith(`${root}/`)));
     expect(viewing.length).toBeGreaterThan(20);
@@ -212,7 +238,12 @@ describe('read-only public surface', () => {
     // exemption cannot arrive by replacing one of these, and each is held to the same bound the
     // first one always was.
     const exempted = [...new Set(EXEMPTED_WRITE_REFERENCES.map((entry) => entry.split(': ')[0]))];
+    // ART-47 added the third. Still a LIST rather than a count, so a fourth cannot arrive by
+    // replacing one of these, and each is held to the same bound the first one always was --
+    // including the newest, which holds a three-line hook while the queue, the identity and the
+    // function reference all sit in sibling files that carry no exemption.
     expect(exempted).toEqual([
+      'src/components/analytics/useAnalyticsIngest.ts',
       'src/components/recap/useViewerProgress.ts',
       'src/components/vote/useEnvironmentVote.ts',
     ]);

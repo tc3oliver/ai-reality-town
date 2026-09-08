@@ -1,48 +1,52 @@
 import {
-  isDynamicViewEvent,
+  isAnalyticsEvent,
   sanitizeAnalyticsPayload,
-  type DynamicViewEvent,
-  type DynamicViewEventName,
-} from './dynamicViewEvents';
+  type AnalyticsEvent,
+  type AnalyticsEventName,
+} from '../../convex/shared/analyticsContract';
 
 /**
- * Where analytics events go (FR-Q007 / ART-140).
+ * Where analytics events go (FR-Q007 / ART-140, §15 / ART-47).
  *
- * ## The default does nothing, and that is the delivery
+ * ## The one choke point
  *
- * There is no compliant collection mechanism in this repo — ART-47 owns building one — and the
- * client structurally cannot invent one: `readOnlyClientBoundary` forbids every write primitive
- * and `publicReadOnlyGuarantee.test.ts` asserts the shipped bundle reaches exactly one Convex
- * function, a query. A reporting mutation would be a hole in FR-O009 rather than an extension
- * of it.
+ * Every event in the product — §15's sixteen and §17's seventeen — reaches a sink through
+ * {@link emitAnalyticsEvent} and through nothing else. That is what makes the privacy guarantee a
+ * STRUCTURE rather than a discipline: sanitisation happens here, before the sink is handed
+ * anything, so there is no path by which an unsanitised payload reaches a collector and no call
+ * site that could forget. A transport installed later inherits it without having to know it
+ * exists.
  *
- * So the default sink discards. Shipping this changes no network behaviour whatsoever, which is
- * asserted rather than asserted-about: `analyticsSurface.test.ts` reads every file in this
- * module for request and timer APIs, the same way `liveMapSurface.test.ts` does for the live
- * map.
+ * ## The default still discards, and that is still deliberate
  *
- * What that leaves is the part worth having early: the seventeen events fire from the right
- * places, with payloads proven clean. When ART-47 lands it installs a sink and the events are
- * already flowing correctly — as against writing the emission points at the same time as the
- * transport, when a payload mistake ships to a collector rather than to a no-op.
+ * ART-140 shipped with a discarding default because no sink existed. ART-47 builds one, and the
+ * default here is unchanged: the sink is installed by
+ * {@link ../components/analytics/AnalyticsTransport.tsx} at app boot, and a build that does not
+ * mount it — every unit test, every module that imports this for the contract alone — still emits
+ * into nothing.
  *
- * ## Why sanitisation happens HERE
+ * ## Failure isolation
  *
- * `emitDynamicViewEvent` sanitises before handing anything to the sink, so there is no path by
- * which an unsanitised payload reaches a collector. Leaving it to call sites would make the
- * privacy guarantee a discipline; doing it at the one choke point makes it a structure, and a
- * future sink installed by ART-47 inherits it without having to know it exists.
+ * Total and silent: an unknown name is dropped rather than thrown, and a sink that throws is
+ * swallowed. Analytics is the least important thing on the page, and a viewer losing the live map
+ * because a telemetry call failed would be a far worse defect than a missing event — the same
+ * reasoning `liveViewSession` fails open for a remembered camera. `analyticsSurface.test.ts`
+ * proves it with a throwing sink, and the browser gate proves it against the real transport in a
+ * build where the transport's call ALWAYS throws.
+ *
+ * Pure module: no React, no Convex, no DOM, no clock, no randomness. The transport is a separate
+ * module for exactly that reason.
  */
 
-export type AnalyticsSink = (event: DynamicViewEvent) => void;
+export type AnalyticsSink = (event: AnalyticsEvent) => void;
 
-/** Discards. The shipped default; see above. */
+/** Discards. The shipped default until a transport installs itself; see above. */
 export const noopAnalyticsSink: AnalyticsSink = () => undefined;
 
 let sink: AnalyticsSink = noopAnalyticsSink;
 
 /**
- * Install a sink. ART-47's entry point, and the test suites'.
+ * Install a sink. The transport's entry point, and the test suites'.
  *
  * Module-level rather than React context on purpose: events fire from pure handlers and from
  * effects in components that have no reason to know about a provider, and threading a context
@@ -57,19 +61,19 @@ export function resetAnalyticsSink(): void {
   sink = noopAnalyticsSink;
 }
 
-/**
- * Emit one event.
- *
- * Total and silent: an unknown name is dropped rather than thrown, and a sink that throws is
- * swallowed. Analytics is the least important thing on the page, and a viewer losing the live
- * map because a telemetry call failed would be a far worse defect than a missing event — the
- * same reasoning `liveViewSession` fails open for a remembered camera.
- */
-export function emitDynamicViewEvent(name: string, payload: unknown = {}): void {
-  if (!isDynamicViewEvent(name)) return;
+/** Emit one event, of either family. Unknown names are dropped. */
+export function emitAnalyticsEvent(name: string, payload: unknown = {}): void {
+  if (!isAnalyticsEvent(name)) return;
   try {
-    sink({ name: name as DynamicViewEventName, payload: sanitizeAnalyticsPayload(payload) });
+    sink({ name: name as AnalyticsEventName, payload: sanitizeAnalyticsPayload(payload) });
   } catch {
     // Deliberately empty. See above.
   }
 }
+
+/**
+ * ART-140's spelling, kept because forty call sites use it and renaming them would have made this
+ * task's diff mostly noise. Identical behaviour: the registry it checks against is the shared one,
+ * so a §15 name passed here is emitted rather than silently dropped.
+ */
+export const emitDynamicViewEvent = emitAnalyticsEvent;

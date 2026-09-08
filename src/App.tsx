@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 
+import AnalyticsTransport from './components/analytics/AnalyticsTransport.tsx';
 import { LiveMapErrorBoundary } from './components/live/LiveMapErrorBoundary.tsx';
 import LiveMapPage from './components/live/LiveMapPage.tsx';
 import { parseLiveMapPath, redirectForLegacyHash } from './components/live/liveMapRoute.ts';
@@ -37,6 +38,13 @@ const BASE = import.meta.env.BASE_URL;
 export default function Home() {
   return (
     <>
+      {/*
+        §15 / ART-47. Mounted at the shell rather than per page so every public surface reports
+        through one transport and one session — a per-page transport would mint a session per
+        navigation and turn §16.1's per-visit rates into per-page rates. It renders nothing and
+        schedules nothing until an event is emitted.
+      */}
+      <AnalyticsTransport />
       <OperatorEntry />
       <PublicRoute />
     </>

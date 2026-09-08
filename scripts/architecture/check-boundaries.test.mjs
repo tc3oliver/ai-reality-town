@@ -16,6 +16,8 @@ import {
   validateReadOnlyClientSource,
   validateViewerWritePolicy,
   validateViewerWriteSources,
+  validateAnalyticsWritePolicy,
+  validateAnalyticsWriteSources,
 } from './check-boundaries.mjs';
 
 const policy = loadPolicy();
@@ -242,10 +244,22 @@ test('the live policy declares exactly the repo\'s client-reachable surface', ()
   // spelled `viewer`, and it costs a second declaration plus a cap that has to be raised on
   // purpose. The list is exhaustive rather than counted, so a third write cannot arrive by
   // replacing one of these.
+  //
+  // ART-47 (§15) added `telemetry`, and the two lists below are asserted SEPARATELY on purpose.
+  // Telemetry mutates no world state, so it must not be able to spend the world-mutation
+  // allowance -- and the world writes must not be able to hide inside the telemetry one. A
+  // single combined list would have permitted both.
   const writes = policy.publicFunctionSurface.allowed.filter((entry) => entry.kind !== 'query');
   for (const entry of writes) {
-    assert.ok(['operator', 'viewer'].includes(entry.gate), `${entry.name} must be operator- or viewer-gated`);
+    assert.ok(
+      ['operator', 'viewer', 'telemetry'].includes(entry.gate),
+      `${entry.name} must be operator-, viewer- or telemetry-gated`,
+    );
   }
+  assert.deepEqual(
+    writes.filter((entry) => entry.gate === 'telemetry').map((entry) => `${entry.path}:${entry.name}`),
+    ['convex/analytics/ingestFunctions.ts:recordAnalyticsEvents'],
+  );
   assert.deepEqual(
     writes.filter((entry) => entry.gate === 'viewer').map((entry) => `${entry.path}:${entry.name}`),
     [
@@ -612,8 +626,129 @@ test('a write-API exemption may only be granted inside the declared vote client 
   });
   assert.match(
     validateViewerWritePolicy(broken).join('\n'),
-    /LiveMapPage\.tsx: 'useMutation' may only be exempted under a viewerWriteBoundary clientRoot/,
+    /LiveMapPage\.tsx: 'useMutation' may only be exempted under a viewerWriteBoundary or analyticsWriteBoundary clientRoot/,
   );
+});
+
+test('the telemetry client root does not widen the world-write exemption', () => {
+  // ART-47 admitted a second family of client roots, and the risk it introduced is that the
+  // check became an OR over a longer list -- which is exactly how a guard stops guarding. So:
+  // a file under the TELEMETRY root is accepted, and every surface that was refused before is
+  // still refused, and removing the telemetry boundary makes its own file fail too.
+  const withTelemetry = structuredClone(policy);
+  withTelemetry.readOnlyClientBoundary.exemptFiles = [{
+    path: 'src/components/analytics/useAnalyticsIngest.ts', symbols: ['useMutation'],
+  }];
+  assert.deepEqual(
+    validateViewerWritePolicy(withTelemetry).filter((error) => error.includes('useAnalyticsIngest')),
+    [],
+  );
+  // The discriminating half. Without the telemetry boundary the same file is refused, so the
+  // acceptance above is granted BY that boundary rather than by the check having gone slack.
+  const withoutTelemetry = structuredClone(withTelemetry);
+  delete withoutTelemetry.analyticsWriteBoundary;
+  assert.match(validateViewerWritePolicy(withoutTelemetry).join('\n'), /useAnalyticsIngest\.ts: 'useMutation'/);
+});
+
+test('telemetry and world mutation cannot share a client root', () => {
+  // 「viewer telemetry 與 world mutation 架構上分離」 is only true while no single file can hold
+  // both exemptions. A policy that pointed both boundaries at one directory would read as if
+  // the separation existed while granting one file the union of two arguments.
+  const overlapping = structuredClone(policy);
+  overlapping.analyticsWriteBoundary.clientRoots = ['src/components/vote'];
+  assert.match(
+    validateAnalyticsWritePolicy(overlapping).join('\n'),
+    /overlaps a viewerWriteBoundary clientRoot/,
+  );
+  // Nesting counts as overlap in both directions: a subdirectory of the vote root would be
+  // covered by the vote exemption too.
+  overlapping.analyticsWriteBoundary.clientRoots = ['src/components/vote/telemetry'];
+  assert.match(validateAnalyticsWritePolicy(overlapping).join('\n'), /overlaps/);
+  assert.deepEqual(validateAnalyticsWritePolicy(policy), []);
+});
+
+test('a second telemetry mutation is refused, and one outside the module is too', () => {
+  const twoWrites = structuredClone(policy);
+  twoWrites.publicFunctionSurface.allowed.push({
+    path: 'convex/analytics/ingestFunctions.ts', name: 'recordMoreAnalytics',
+    kind: 'mutation', gate: 'telemetry',
+  });
+  twoWrites.analyticsWriteBoundary.allowed.push({
+    path: 'convex/analytics/ingestFunctions.ts', name: 'recordMoreAnalytics',
+  });
+  assert.match(validateAnalyticsWritePolicy(twoWrites).join('\n'), /caps them at 1/);
+
+  // Outside `convex/analytics` the forbidden-symbol sweep would never see it, so declaring it
+  // there is refused rather than merely discouraged.
+  const elsewhere = structuredClone(policy);
+  elsewhere.publicFunctionSurface.allowed.push({
+    path: 'convex/viewer/viewerProgressFunctions.ts', name: 'recordTelemetry',
+    kind: 'mutation', gate: 'telemetry',
+  });
+  elsewhere.analyticsWriteBoundary.allowed.push({
+    path: 'convex/viewer/viewerProgressFunctions.ts', name: 'recordTelemetry',
+  });
+  assert.match(
+    validateAnalyticsWritePolicy(elsewhere).join('\n'),
+    /must live under an analyticsWriteBoundary root/,
+  );
+
+  // And naming the gate is not enough on its own: it must be declared in BOTH places, which is
+  // the same two-edits-in-two-places rule the viewer gate has.
+  const undeclared = structuredClone(policy);
+  undeclared.publicFunctionSurface.allowed.push({
+    path: 'convex/analytics/ingestFunctions.ts', name: 'recordSomethingElse',
+    kind: 'mutation', gate: 'telemetry',
+  });
+  assert.match(
+    validatePolicy(undeclared).join('\n'),
+    /is not declared in analyticsWriteBoundary\.allowed/,
+  );
+});
+
+test('the telemetry module fails on ABSENCE of the shared sanitiser', () => {
+  // The rule that cannot be expressed as a denylist. An ingest that never names the shared
+  // sanitiser is one that trusts the client, and「我們忘記過濾了」leaves no trace to forbid.
+  const root = mkdtempSync(join(tmpdir(), 'art47-'));
+  mkdirSync(join(root, 'convex/analytics'), { recursive: true });
+  writeFileSync(join(root, 'convex/analytics/ingestFunctions.ts'), 'export const record = () => 1;\n');
+  const errors = validateAnalyticsWriteSources(root, policy).join('\n');
+  assert.match(errors, /required symbol 'sanitizeAnalyticsPayload'/);
+  assert.match(errors, /required symbol 'analyticsDedupeKey'/);
+});
+
+test('the telemetry module may not name a Canon writer or a forbidden payload field', () => {
+  const root = mkdtempSync(join(tmpdir(), 'art47-'));
+  mkdirSync(join(root, 'convex/analytics'), { recursive: true });
+  writeFileSync(
+    join(root, 'convex/analytics/ingestFunctions.ts'),
+    'import { sanitizeAnalyticsPayload, analyticsDedupeKey } from \'../shared/analyticsContract\';\n'
+    + 'export const record = (db) => db.insert(\'canonEvents\', {\n'
+    + '  userAgent: navigator.userAgent,\n'
+    + '  publicSummary: \'what happened\',\n'
+    + '});\n',
+  );
+  const errors = validateAnalyticsWriteSources(root, policy).join('\n');
+  assert.match(errors, /may not reference 'canonEvents'/);
+  assert.match(errors, /'userAgent' may not appear as a telemetry field/);
+  // Free-form narrative text is refused for the same reason a user agent is: §15 forbids it,
+  // and the only durable way to keep it out is to make the field unwritable.
+  assert.match(errors, /'publicSummary' may not appear as a telemetry field/);
+});
+
+test('prose about a forbidden field is not a forbidden field', () => {
+  // The discriminating half of the sweep above. A docblock explaining why no user agent is
+  // ever collected must not fail the check that keeps it so -- otherwise the only way to pass
+  // is to stop writing down the reason, which is the opposite of what this repo wants.
+  const root = mkdtempSync(join(tmpdir(), 'art47-'));
+  mkdirSync(join(root, 'convex/analytics'), { recursive: true });
+  writeFileSync(
+    join(root, 'convex/analytics/ingestFunctions.ts'),
+    '/** No userAgent, no ip and no publicSummary is ever stored here. */\n'
+    + 'import { sanitizeAnalyticsPayload, analyticsDedupeKey } from \'../shared/analyticsContract\';\n'
+    + 'export const record = () => [sanitizeAnalyticsPayload, analyticsDedupeKey];\n',
+  );
+  assert.deepEqual(validateAnalyticsWriteSources(root, policy), []);
 });
 
 test('the provider exemption is unaffected: construction is not a write', () => {

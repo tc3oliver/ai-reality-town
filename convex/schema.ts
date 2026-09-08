@@ -13,6 +13,7 @@ import { editorialTables } from './editorial/schema';
 import { recapTables } from './recaps/schema';
 import { publicReadTables } from './publicRead/schema';
 import { viewerTables } from './viewer/schema';
+import { analyticsTables } from './analytics/schema';
 import { operationsTables } from './operations/schema';
 import { visualTables } from './visual/schema';
 import { sharedTables } from './shared/schema';
@@ -47,6 +48,10 @@ export default defineSchema({
   ...recapTables,
   ...publicReadTables,
   ...viewerTables,
+  // §15 / ART-47. Telemetry, kept in its own module and behind its own boundary so it is
+  // separable from `viewer` — which holds the two writes that change what the product SHOWS
+  // somebody, and whose justification must not be borrowed by an event counter.
+  ...analyticsTables,
   ...operationsTables,
   ...visualTables,
   // FR-K005 / ART-52. Lives in `shared` because `operations` writes it and `simulation` reads

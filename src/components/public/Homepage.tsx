@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { emitDynamicViewEvent } from '../../analytics/analyticsSink';
 import { useQuery } from 'convex/react';
@@ -15,6 +15,13 @@ import { browserVoteDeviceKey } from '../vote/voteDeviceKey';
 import type { EnvironmentVoteBallot, VoteInteractionState } from '../vote/environmentVoteModel';
 import type { VoteConsequencePayload } from '../vote/voteConsequenceModel';
 import { voteConsequenceModelRef } from '../../../convex/shared/environmentVoteCatalog';
+import {
+  emitCurrentSituationExpanded,
+  emitHomeViewed,
+  emitRecommendedEpisodeOpened,
+  emitVoteSubmitted,
+  emitVoteViewed,
+} from '../../analytics/productEvents';
 import { VOTE_CONSEQUENCE_MODEL_KIND } from '../../../convex/publicRead/voteConsequenceProjection';
 import { freshnessDescriptor, worldClockDescriptors } from './publicStatusBadge';
 import {
@@ -123,6 +130,27 @@ export default function Homepage() {
    * real markup — and a panel that bound the write itself would have ended that. The binding is
    * reached through `useEnvironmentVote`, the one module the read-only boundary exempts.
    */
+  /**
+   * §15 / ART-47. `home_viewed` is the DENOMINATOR of five of §16.1's eight rates, so it fires
+   * on the world being resolved rather than on any content arriving: a viewer who lands on a
+   * world whose read models are all unpublished still arrived, and excluding them would make
+   * every rate on this page rise whenever publication broke.
+   *
+   * `vote_viewed` fires only once a ballot is actually open, because it is the denominator a
+   * participation rate should have — counting viewers who were never offered a vote would
+   * measure publication rather than participation.
+   *
+   * Both dedupe to one measurement per session in `analyticsQueue`, so a re-render, a
+   * navigation back to the homepage or a settling query emits and counts once.
+   */
+  useEffect(() => {
+    if (worldId !== null) emitHomeViewed(worldId);
+  }, [worldId]);
+  const ballotWorldDay = ballot?.worldDay ?? null;
+  useEffect(() => {
+    if (worldId !== null && ballotWorldDay !== null) emitVoteViewed(worldId, ballotWorldDay);
+  }, [worldId, ballotWorldDay]);
+
   const submitVote = useEnvironmentVote();
   const [voteInteraction, setVoteInteraction] = useState<VoteInteractionState>({ kind: 'idle' });
 
@@ -137,6 +165,11 @@ export default function Homepage() {
     setVoteInteraction({ kind: 'submitting' });
     try {
       const result = await submitVote({ worldId, deviceKey, candidateId });
+      // §16.1's 投票參與率. Emitted on ACCEPTANCE and keyed on `(worldId, worldDay)` rather
+      // than on the candidate, so a viewer who changes their mind and votes again is one
+      // participant — and a retried submission that the server deduplicated does not become a
+      // second one here either.
+      if (result.accepted && ballotWorldDay !== null) emitVoteSubmitted(worldId, ballotWorldDay);
       setVoteInteraction(result.accepted
         ? { kind: 'accepted', candidateId }
         : { kind: 'refused', code: result.code });
@@ -315,7 +348,16 @@ export function HomepageView({
             to one destination is one destination twice for anyone navigating by link. */}
         {vm.recommendedEpisode !== null ? (
           <p className="mt-2 text-sm">
-            <a className="public-tap" href={vm.recommendedEpisode.href}>
+            <a
+              className="public-tap"
+              href={vm.recommendedEpisode.href}
+              // §16.1's 推薦入坑 Episode 點擊率. This is the page's ONLY recommendation link,
+              // which is what makes rank 0 correct rather than arbitrary; if a second one is
+              // ever added it must carry its own rank or the two become indistinguishable.
+              onClick={() => emitRecommendedEpisodeOpened(
+                worldId, vm.recommendedEpisode?.worldDay ?? 0, 0,
+              )}
+            >
               從第 {vm.recommendedEpisode.episodeNumber} 集開始認識這個世界
             </a>
           </p>
@@ -328,15 +370,32 @@ export function HomepageView({
         <h2 id="home-disclosure" className="text-xl font-semibold">
           認識這個世界
         </h2>
-        {/* The cast and the recommended Episode moved to the first screen with ART-129, where the
-            cast is drawn rather than listed; repeating either here would be the same four names,
-            and the same Episode link, twice on one page. */}
-        <h3 className="font-medium mt-2">必知事實</h3>
-        <ul className="public-rows">
-          {vm.facts.map((f) => (
-            <li key={f.factId}>{f.label}</li>
-          ))}
-        </ul>
+        {/* UX-003「深度資訊逐層揭露」, and §15's `current_situation_expanded` with it.
+
+            The disclosure is INSIDE the section rather than replacing it. The public card
+            treatment is applied structurally, by `.public-page main > section`, so a page that
+            swapped its region for a `<details>` would silently opt out of the design system
+            with nothing failing — which is precisely what `publicPages.a11y.test.tsx` guards,
+            and it caught this. The heading also has to stay outside: it labels the landmark.
+
+            A native `<details>` rather than a `useState` toggle: it is keyboard-operable and
+            screen-reader-announced without any of it being written here, and — the reason that
+            matters for this task — `onToggle` fires from the element's own state, so the event
+            reports what the viewer did rather than what a handler believed. §16.1 counts the
+            EXPANSION, so collapsing it again emits nothing. */}
+        <details
+          className="mt-2"
+          onToggle={(occurrence) => {
+            if (occurrence.currentTarget.open) emitCurrentSituationExpanded(worldId);
+          }}
+        >
+          <summary className="font-medium">必知事實</summary>
+          <ul className="public-rows">
+            {vm.facts.map((f) => (
+              <li key={f.factId}>{f.label}</li>
+            ))}
+          </ul>
+        </details>
       </section>
 
       {/* AC#5: live + voting render unavailable states without blocking. */}

@@ -1,5 +1,6 @@
 import { getFunctionName } from 'convex/server';
 
+import { fixtureCollectorRefuses } from './fixtureCollector';
 import { fixtureScenario } from './fixtureScenario';
 import {
   fixtureProjection,
@@ -43,9 +44,30 @@ type Watch<T> = {
 export type E2ERecorder = {
   /** Every query the app asked for, in order, as `path:name`. */
   queries: string[];
-  /** Any non-query call. MUST stay empty; a non-empty one fails the run. */
+  /**
+   * Any non-query call that is NOT the declared telemetry ingest. MUST stay empty.
+   *
+   * ART-47 split this in two rather than widening it. PRD 2.0 §22.16's claim is about世界
+   * mutation — 「公開觀看不執行任何成功 Mutation」 sits beside 「不送出 Heartbeat」 and
+   * 「不建立 Human Player」 — and folding telemetry into this bucket would have made the
+   * assertion that proves it unfalsifiable by turning it into a list nobody could keep empty.
+   * The world guarantee is unchanged and still asserted at zero.
+   */
   writes: string[];
+  /**
+   * Every attempted analytics ingest, with the arguments it carried (§15 / ART-47).
+   *
+   * The ARGUMENTS are the point. This is the only place in the whole suite where the real
+   * envelopes a real browser produced — from real clicks, through the real sanitiser — can be
+   * inspected, and the browser gate asserts them field by field. A recorder that stored only
+   * the function name would prove the transport fired and nothing about what it carried.
+   */
+  telemetry: Array<{ name: string; args: Record<string, unknown> }>;
 };
+
+/** The one telemetry function the fixture will record rather than treat as a world write. */
+const TELEMETRY_REFERENCE = 'analytics/ingestFunctions:recordAnalyticsEvents';
+
 
 const FIXTURE_QUERY_HANDLERS: Record<string, (args: Record<string, unknown>) => unknown> = {
   /**
@@ -116,8 +138,32 @@ function referenceName(query: unknown): string {
 
 export function createFixtureConvexClient(recorder: E2ERecorder) {
   function refuse(kind: string) {
-    return (query: unknown) => {
-      const name = `${kind}:${referenceName(query)}`;
+    return (query: unknown, args: Record<string, unknown> = {}) => {
+      const reference = referenceName(query);
+      const name = `${kind}:${reference}`;
+
+      /**
+       * ART-47. The ONE declared telemetry surface is recorded and ANSWERED; every world write is
+       * recorded and refused.
+       *
+       * The split is the point, and it is narrow by construction: `TELEMETRY_REFERENCE` is a
+       * single literal, matched exactly, and `publicReadOnlyGuarantee.test.ts` pins that the
+       * shipped bundle can name exactly one telemetry function. Anything else — a second
+       * analytics function, a world mutation, an action — still lands in `recorder.writes` and
+       * still throws, so PRD 2.0 §22.16's assertion stays at zero and keeps meaning something.
+       *
+       * Telemetry has to be ANSWERED rather than refused because of how the transport behaves
+       * under failure: a rejected batch stays in flight and every retry re-sends it, so a fixture
+       * that refused everything would make only the page-open events observable and no
+       * interaction would ever reach a batch a spec could read. The refusal case is still tested —
+       * `?art47=refuse` below turns it back on, which is what the failure-isolation spec uses.
+       */
+      if (reference === TELEMETRY_REFERENCE) {
+        recorder.telemetry.push({ name: reference, args });
+        if (fixtureCollectorRefuses()) throw new Error('[ART-47] the fixture collector refused the batch');
+        return Promise.resolve({ accepted: true, recorded: 0, duplicates: 0, code: null });
+      }
+
       recorder.writes.push(name);
       // Thrown, not swallowed. A guarantee that is only observed cannot be enforced; this makes
       // the run fail at the moment a write is attempted rather than at an assertion afterwards.
@@ -168,7 +214,7 @@ export function e2eFixtureEnabled(): boolean {
 
 /** Install the recorder on `window` so the spec can read it back. */
 export function installRecorder(): E2ERecorder {
-  const recorder: E2ERecorder = { queries: [], writes: [] };
+  const recorder: E2ERecorder = { queries: [], writes: [], telemetry: [] };
   (globalThis as unknown as { __ART137__?: E2ERecorder }).__ART137__ = recorder;
   return recorder;
 }

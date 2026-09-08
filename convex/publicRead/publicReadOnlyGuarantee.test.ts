@@ -72,6 +72,11 @@ import * as environmentVoteFunctions from '../viewer/environmentVoteFunctions';
 // same reason ART-134's six were: the enumeration below refuses to resolve a declared function
 // whose module it has not imported.
 import * as viewerProgressFunctions from '../viewer/viewerProgressFunctions';
+// §15 / ART-47. The telemetry ingest and its operator-gated report, named here for the reason
+// ART-134's six and ART-39's two were: the enumeration below refuses to resolve a declared
+// function whose module it has not imported.
+import * as analyticsIngestFunctions from '../analytics/ingestFunctions';
+import * as productAnalyticsFunctions from '../operations/productAnalyticsFunctions';
 import { PUBLIC_DYNAMIC_FORBIDDEN_FIELDS } from './publicDynamicProjection';
 import { serveRuntimeSnapshot, type RuntimeSnapshotReadStore } from './runtimeSnapshot';
 
@@ -88,7 +93,14 @@ type SurfaceEntry = {
    * policy still rejects an anonymous mutation outright -- and it carries its own stricter
    * rules in `viewerWriteBoundary`. See `docs/daily-environment-vote.md` §2.
    */
-  gate: 'anonymous' | 'operator' | 'viewer';
+  /**
+   * `telemetry` (§15 / ART-47) is the fourth. It is not `viewer`: the viewer gate's whole
+   * justification is that a ballot and a progress record are deliberate acts that change what
+   * the product shows somebody, and an event counter is neither. It carries its own rules in
+   * `analyticsWriteBoundary`, whose client roots the policy requires to be disjoint from the
+   * viewer gate's.
+   */
+  gate: 'anonymous' | 'operator' | 'viewer' | 'telemetry';
 };
 
 const policy = JSON.parse(readFileSync(join(ROOT, 'architecture/module-boundaries.json'), 'utf8')) as {
@@ -117,6 +129,8 @@ const MODULES: Readonly<Record<string, Record<string, unknown>>> = {
   'convex/publicRead/visualReplayFunctions.ts': visualReplayFunctions,
   'convex/viewer/environmentVoteFunctions.ts': environmentVoteFunctions,
   'convex/viewer/viewerProgressFunctions.ts': viewerProgressFunctions,
+  'convex/analytics/ingestFunctions.ts': analyticsIngestFunctions,
+  'convex/operations/productAnalyticsFunctions.ts': productAnalyticsFunctions,
 };
 
 /** A Convex-registered function, as it exists at runtime. */
@@ -149,6 +163,17 @@ const PUBLIC_QUERIES = ALLOWED.filter((entry) => entry.kind === 'query');
  */
 const OPERATOR_MUTATIONS = PUBLIC_MUTATIONS.filter((entry) => entry.gate === 'operator');
 const VIEWER_MUTATIONS = PUBLIC_MUTATIONS.filter((entry) => entry.gate === 'viewer');
+/**
+ * §15 / ART-47's telemetry ingest.
+ *
+ * A FOURTH gate rather than a third entry under `viewer`, and the distinction is the whole
+ * argument. The viewer gate's justification is that a ballot and a progress record are
+ * deliberate acts that change what the product SHOWS somebody — `docs/daily-environment-vote.md`
+ * §2 — and an event counter is neither. Sharing the gate would have let the world-mutation cap
+ * grow to cover something that mutates no world state, and would have let a future telemetry
+ * field inherit an argument made about a vote. Every rule below applies to it separately.
+ */
+const TELEMETRY_MUTATIONS = PUBLIC_MUTATIONS.filter((entry) => entry.gate === 'telemetry');
 
 // --- source scanning --------------------------------------------------------
 
@@ -341,7 +366,9 @@ describe('AC#1 — the client-reachable surface is exactly what policy declares'
     // only write a viewer can reach is the single ballot the policy names.
     expect(PUBLIC_MUTATIONS.length).toBeGreaterThan(0);
     expect(ALLOWED.filter((entry) => entry.gate === 'anonymous').every((entry) => entry.kind === 'query')).toBe(true);
-    expect(OPERATOR_MUTATIONS.length).toBe(PUBLIC_MUTATIONS.length - VIEWER_MUTATIONS.length);
+    expect(OPERATOR_MUTATIONS.length).toBe(
+      PUBLIC_MUTATIONS.length - VIEWER_MUTATIONS.length - TELEMETRY_MUTATIONS.length,
+    );
     // ART-39 (FR-H004) is the second entry, and the cap in `viewerWriteBoundary` moved 1 -> 2 to
     // admit it. Listed rather than counted: a count would have let a THIRD write replace this one
     // silently, and the point of an exhaustive pin is that each addition is argued for. §13.12
@@ -368,6 +395,10 @@ describe('AC#1 — the client-reachable surface is exactly what policy declares'
         (match) => ({ path, ref: match[1] })),
     );
     expect(refs.map((entry) => entry.ref).sort()).toEqual([
+      // §15 / ART-47. The telemetry ingest, and the only non-read the bundle carries that is
+      // NOT a viewer write. It sorts first alphabetically; the assertion below pins the single
+      // file that may name it.
+      'analytics/ingestFunctions:recordAnalyticsEvents',
       'publicRead/liveStateFunctions:getPublicDynamicProjection',
       'publicRead/readModelFunctions:getPublishedReadModel',
       'publicRead/runtimeSnapshotFunctions:getPublicRuntimeSnapshot',
@@ -384,6 +415,11 @@ describe('AC#1 — the client-reachable surface is exactly what policy declares'
       'viewer/viewerProgressFunctions:getViewerProgress',
       'viewer/viewerProgressFunctions:recordViewerProgress',
     ]);
+    // ART-47's ingest is the third and last write reference the bundle carries, and the ONE
+    // file that may name it. Asserted separately from the list above so the two arguments stay
+    // separate: that list is「觀看只讀」, this is「telemetry 是另一條線」.
+    expect(refs.filter((entry) => entry.ref.endsWith(':recordAnalyticsEvents')).map((entry) => entry.path))
+      .toEqual(['src/components/analytics/analyticsRefs.ts']);
     expect(refs.filter((entry) => entry.ref.endsWith(':submitEnvironmentVote')).map((entry) => entry.path))
       .toEqual(['src/components/vote/useEnvironmentVote.ts']);
     // The same file-granular pin for the second write. Two exemptions exist in the product and
@@ -406,7 +442,8 @@ describe('AC#1 — the client-reachable surface is exactly what policy declares'
       const [path, name] = ref.split(':');
       const entry = ALLOWED.find((allowed) => allowed.path === `convex/${path}.ts` && allowed.name === name);
       expect(entry).toBeDefined();
-      expect(entry!.kind === 'query' || entry!.gate === 'viewer').toBe(true);
+      expect(entry!.kind === 'query' || entry!.gate === 'viewer' || entry!.gate === 'telemetry')
+        .toBe(true);
       expect(entry!.gate).not.toBe('operator');
     }
   });

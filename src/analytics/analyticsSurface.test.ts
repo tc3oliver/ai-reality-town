@@ -28,7 +28,7 @@ import {
   setAnalyticsSink,
 } from './analyticsSink';
 import { characterTargetId, sceneTargetId, TOWN_TARGET_ID } from '../components/live/liveMapRoute';
-import type { DynamicViewEvent } from './dynamicViewEvents';
+import type { AnalyticsEvent } from '../../convex/shared/analyticsContract';
 
 const ROOT = process.cwd();
 
@@ -98,7 +98,7 @@ describe('the emitter', () => {
   });
 
   test('an installed sink receives the event, sanitised', () => {
-    const received: DynamicViewEvent[] = [];
+    const received: AnalyticsEvent[] = [];
     setAnalyticsSink((event) => received.push(event));
     emitDynamicViewEvent('live_character_selected', {
       worldId: 'mistwood',
@@ -114,14 +114,14 @@ describe('the emitter', () => {
     // The structural half of AC#2. If sanitising were the caller's job it would be a discipline;
     // here it is the only path to a sink, and a sink ART-47 installs inherits it without having
     // to know it exists.
-    const received: DynamicViewEvent[] = [];
+    const received: AnalyticsEvent[] = [];
     setAnalyticsSink((event) => received.push(event));
     emitDynamicViewEvent('live_view_opened', { secretContents: 'x', worldId: 'mistwood' });
     expect(received[0].payload).toEqual({ worldId: 'mistwood' });
   });
 
   test('an unknown event name is dropped rather than forwarded', () => {
-    const received: DynamicViewEvent[] = [];
+    const received: AnalyticsEvent[] = [];
     setAnalyticsSink((event) => received.push(event));
     emitDynamicViewEvent('not_an_event', { worldId: 'mistwood' });
     expect(received).toEqual([]);
@@ -135,6 +135,42 @@ describe('the emitter', () => {
       throw new Error('collector unreachable');
     });
     expect(() => emitDynamicViewEvent('live_view_opened', { worldId: 'mistwood' })).not.toThrow();
+  });
+});
+
+describe('the sink is not a no-op in the shipped product (ART-47)', () => {
+  /**
+   * ART-140 shipped a discarding default because no transport existed. The whole risk of that
+   * design — stated in its own docblock — is that the events keep firing into nothing and nobody
+   * notices, which is the defect class ART-159, ART-163 and ART-164 each turned out to be.
+   *
+   * So the wiring is asserted structurally: the app shell must MOUNT the transport. A behavioural
+   * test cannot settle this, because a build with no transport behaves identically to a build
+   * whose transport is never reached — both emit into a no-op and both pass every other test in
+   * this module.
+   */
+  test('the app shell mounts the transport, so events reach a collector', () => {
+    const shell = readFileSync(join(ROOT, 'src/App.tsx'), 'utf8');
+    expect(shell).toContain("from './components/analytics/AnalyticsTransport.tsx'");
+    expect(shell).toMatch(/<AnalyticsTransport\s*\/>/);
+  });
+
+  test('it is mounted at the shell, not per page', () => {
+    // A per-page transport would mint a session per navigation and turn every §16.1 per-visit
+    // rate into a per-page rate: plausible numbers, wrong denominator, nothing failing anywhere.
+    const pages = readdirSync(join(ROOT, 'src/components/public'))
+      .filter((name) => name.endsWith('.tsx'))
+      .map((name) => readFileSync(join(ROOT, 'src/components/public', name), 'utf8'));
+    expect(pages.length).toBeGreaterThan(5);
+    for (const source of pages) expect(source).not.toContain('AnalyticsTransport');
+  });
+
+  test('the transport is the only file under src/analytics allowed to reach a sink', () => {
+    // `src/analytics` stays pure — the transport lives under `src/components/analytics`, which is
+    // its own module with its own boundary. This keeps every assertion at the top of this file
+    // (no network, no timers, no storage, no Convex write) true of the CONTRACT after ART-47
+    // installed a real collector.
+    expect(surface.map((file) => file.path).some((path) => path.includes('Transport'))).toBe(false);
   });
 });
 

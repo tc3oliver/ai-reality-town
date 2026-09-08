@@ -1,4 +1,6 @@
+import { useEffect } from 'react';
 import { useQuery } from 'convex/react';
+import { emitStoryArcViewed } from '../../analytics/productEvents';
 import { getPublishedReadModelRef } from './publicReadModelRef';
 import { PublicPageFrame } from './PublicPageFrame';
 import { characterMapHref } from './liveMapLinks';
@@ -34,6 +36,10 @@ import {
 export default function ArcDetailPage() {
   const route = typeof window === 'undefined' ? null : parseArcRoute(window.location.hash);
   const worldId = route?.worldId ?? null;
+  const routeArcId = route?.arcId ?? null;
+  useEffect(() => {
+    if (worldId !== null && routeArcId !== null) emitStoryArcViewed(worldId, routeArcId);
+  }, [worldId, routeArcId]);
   const arcId = route?.arcId ?? null;
   const enabled = route !== null;
 

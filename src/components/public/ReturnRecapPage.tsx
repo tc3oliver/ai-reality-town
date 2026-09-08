@@ -1,5 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from 'convex/react';
+import {
+  emitCharacterFollowed,
+  emitReturnRecapViewed,
+  emitStoryArcFollowed,
+} from '../../analytics/productEvents';
 
 import { getPublishedReadModelRef } from './publicReadModelRef';
 import { PublicPageFrame } from './PublicPageFrame';
@@ -48,6 +53,9 @@ export default function ReturnRecapPage() {
   // page degrades to a read-only recap rather than minting a throwaway key on every render —
   // which would create a new server row per page load.
   const deviceKey = useMemo(() => browserViewerProgressKey(), []);
+  useEffect(() => {
+    if (worldId !== null) emitReturnRecapViewed(worldId);
+  }, [worldId]);
 
   const progress = useStoredViewerProgress(worldId, deviceKey);
   const episodes = useQuery(
@@ -170,10 +178,20 @@ export default function ReturnRecapPage() {
       <ReturnRecapView
         vm={vm}
         handlers={{
-          onToggleCharacter: (characterId) =>
-            submit({ ...base, followedCharacterIds: toggled(base.followedCharacterIds, characterId) }),
-          onToggleArc: (arcId) =>
-            submit({ ...base, followedArcIds: toggled(base.followedArcIds, arcId) }),
+          onToggleCharacter: (characterId) => {
+            const next = toggled(base.followedCharacterIds, characterId);
+            // §16.1's 追蹤角色或 Arc. `followed` is part of the subject, so following and then
+            // unfollowing in one session is two measurements — otherwise the second press would
+            // dedupe against the first and the record would keep claiming a follow that was
+            // taken back. The metric counts only `followed === true`.
+            emitCharacterFollowed(worldId, characterId, next.includes(characterId));
+            submit({ ...base, followedCharacterIds: next });
+          },
+          onToggleArc: (arcId) => {
+            const next = toggled(base.followedArcIds, arcId);
+            emitStoryArcFollowed(worldId, arcId, next.includes(arcId));
+            submit({ ...base, followedArcIds: next });
+          },
           onSpoilerModeChange: (mode: SpoilerMode) => submit({ ...base, spoilerMode: mode }),
           onMarkWatched: () => {
             if (vm.markableEpisodeId === null) return;
