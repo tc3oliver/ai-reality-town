@@ -13,6 +13,7 @@
 
 import { v } from 'convex/values';
 import { internalMutation } from '../_generated/server';
+import { normalizeLlmTraceDraft } from '../observability/llmTrace';
 import { reconcileValidationOutcome, ValidationOutcomeError } from './validationOutcome';
 
 /** Record one validation stage's verdict on every proposal it saw. */
@@ -80,6 +81,15 @@ export const recordProposalValidations = internalMutation({
  * `not_run` is the load-bearing one: an attempt that never got an answer did not fail validation,
  * and §16.2's structured-output rate must not count a timeout as a model that cannot follow a
  * schema. The rate's denominator is therefore `passed + rejected`, not every trace.
+ *
+ * ## The row goes through ART-57's normaliser (ART-166)
+ *
+ * The paragraph above has said "with a strict whitelist normaliser" since ART-90, while the row
+ * was inserted straight into the table beside it — so for the one writer this deployment actually
+ * runs, the normaliser guarded nothing. It does now: {@link normalizeLlmTraceDraft} is what makes
+ * `errorCode` a bounded upper-case CODE rather than whatever string a caller passed, which is the
+ * whole reason the field is safe to add. A draft it refuses throws, and the caller swallows the
+ * throw (`worldDayLive.ts` records fire-and-forget) — one measurement is lost, never a scene.
  */
 export const recordAuthoringAttempt = internalMutation({
   args: {
@@ -104,7 +114,7 @@ export const recordAuthoringAttempt = internalMutation({
     const existing = await ctx.db.query('llmTraces')
       .withIndex('by_trace_id', (q) => q.eq('traceId', traceId)).unique();
     if (existing) return { traceId, deduplicated: true };
-    await ctx.db.insert('llmTraces', {
+    const draft = normalizeLlmTraceDraft({
       schemaVersion: 1,
       traceId,
       worldId: args.worldId,
@@ -114,17 +124,26 @@ export const recordAuthoringAttempt = internalMutation({
       characterIds: [],
       model: args.resolvedModel ?? args.requestedModel,
       promptVersion: 'whole_scene_output',
+      // `inputTokens`, `outputTokens` and `latencyMs` are OMITTED, not zeroed (ART-166).
+      //
       // The fake and the live adapter both report usage on the SETTLED call, which this recorder
-      // does not see; ART-59's ledger is the accounting of record and this row does not restate it.
-      inputTokens: 0,
-      outputTokens: 0,
-      latencyMs: 0,
+      // does not see; ART-59's ledger is the accounting of record and this row does not restate
+      // it. From ART-90 until ART-166 that reasoning was written above three literal zeros, which
+      // is not what it argues for: the rate metrics ignore these fields, but the FR-K002 Model
+      // Trace panel renders them, and it showed a call that really happened as 0 tokens and 0 ms.
+      // Before ART-90 nothing wrote to this table at all and the panel showed null, so the zeros
+      // made the answer worse than no answer. The fields are optional; absent means unobserved.
       retryCount: args.transportRetries,
       validationResult: args.outcome === 'parsed' ? 'passed'
         : args.outcome === 'output_rejected' ? 'rejected' : 'not_run',
       finalStatus: args.outcome === 'parsed' ? 'succeeded' : 'failed',
-      recordedAt: args.now,
+      // The code the attempt actually failed with, kept rather than discarded (ART-166). ART-90
+      // declared this argument, dropped it on the floor, and let the reader substitute one
+      // constant per reason dimension — so every schema refusal read `SCENE_OUTPUT_INVALID` and
+      // every provider failure read `SCENE_ATTEMPT_FAILED`, whatever had actually happened.
+      ...(args.errorCode === null ? {} : { errorCode: args.errorCode }),
     });
+    await ctx.db.insert('llmTraces', { ...draft, recordedAt: args.now });
     return { traceId, deduplicated: false };
   },
 });

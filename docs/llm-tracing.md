@@ -2,10 +2,11 @@
 
 Every product model-call adapter must record one versioned LLM trace through the
 observability boundary. Version 1 requires world ID/day, run ID, trace ID, model and
-prompt **version**, input/output token counts, latency, retry count, validation result,
-and final status. `sceneId` and `arcId` are absent only when that context does not exist;
-`characterIds` is always present and uses an empty list for calls without character
-context.
+prompt **version**, retry count, validation result, and final status. `sceneId` and `arcId`
+are absent only when that context does not exist; `characterIds` is always present and uses
+an empty list for calls without character context. The input/output token counts, the
+latency and the failure `errorCode` are **optional**, and absent means the writer did not
+observe it — see "Why the token and latency fields are ABSENT on these rows" below.
 
 Trace records contain accounting and correlation metadata only. Raw or complete prompts,
 messages, model responses, API keys, authorization headers, secrets, and request/response
@@ -68,16 +69,41 @@ by way of the scene, so a retried slot re-derives the same ids. The write is
 insert-if-absent, and a slot run three times contributes one row per attempt rather than
 three.
 
-### Why the token and latency fields are zero on these rows
+### Why the token and latency fields are ABSENT on these rows
 
-`inputTokens`, `outputTokens` and `latencyMs` are written as `0` on every authoring-attempt
-row, and this is deliberate rather than a gap. Both the fake and the live adapter report
-usage on the **settled** call, which the attempt recorder does not observe: it is handed the
-attempt's outcome, not the provider's usage report. More importantly, ART-59's budget ledger
-is the accounting of record for tokens and cost, it books the provider's own reported usage
-per attempt, and a second per-attempt number written here would be a second place for the
-same fact to be wrong. This row does not restate it.
+`inputTokens`, `outputTokens` and `latencyMs` are **omitted** from every authoring-attempt
+row. Both the fake and the live adapter report usage on the **settled** call, which the
+attempt recorder does not observe: it is handed the attempt's outcome, not the provider's
+usage report. ART-59's budget ledger is the accounting of record for tokens and cost, it
+books the provider's own reported usage per attempt, and a second per-attempt number written
+here would be a second place for the same fact to be wrong. This row does not restate it.
 
-Read those fields as "not measured on this row" rather than as "this call used no tokens".
-A trace written by a future adapter that *does* observe settled usage should carry the real
-numbers; the zeros are a property of this writer, not of the table.
+**ART-90 wrote literal `0` in all three, and ART-166 removed them.** The section this
+replaces argued exactly the reasoning above and then asked the reader to read three zeros as
+"not measured" — which nothing downstream does. The rate metrics ignore these fields, but the
+FR-K002 **Model Trace** panel renders them, and it had shown `null` for every proposal before
+ART-90 gave the table a writer; afterwards it showed a call that really happened as 0 tokens
+and 0 ms. A zero is a measurement, and a wrong measurement is worse than an admitted absence.
+
+The three fields are therefore **optional** in `llmTraceDraftValidator` and in `LlmTraceDraft`.
+Absent means unobserved, at every layer: `normalizeLlmTraceDraft` does not default them, and
+no reader may either. A trace written by a future adapter that *does* observe settled usage
+carries the real numbers, and a measured `0` is still stored as a measurement.
+
+### The code a failed attempt failed with
+
+`errorCode` is optional and holds the stable code the attempt failed with —
+`SCENE_OUTPUT_PROVENANCE_MISMATCH`, `LLM_HTTP_RETRYABLE`, `LLM_FREE_ROUTES_EXHAUSTED`. It is
+what fills the `structuredOutputReasons` and `providerFailureReasons` dimensions of
+`getOperationalQualityMetrics`.
+
+**ART-90 declared the argument and discarded it**: the table had no column, so the read
+substituted one constant per dimension and every refusal looked alike. ART-166 added the
+column and the read. The field is normalised by `ERROR_CODE_PATTERN` — upper case, digits and
+underscores, at most 64 characters — deliberately narrower than the id pattern the other
+fields use, because a pattern admitting lower case or punctuation would admit a provider's
+error message, and this record's whole contract is that it carries no model text.
+
+`recordAuthoringAttempt` now builds its row through `normalizeLlmTraceDraft` rather than
+inserting it directly. The paragraph above about the normaliser had been true of `recordTrace`
+and false of the only writer this deployment runs, from ART-90 until ART-166.

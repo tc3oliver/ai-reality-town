@@ -201,6 +201,58 @@ describe('FR-K002 AC#1: a committed proposal reviews as accepted', () => {
   });
 });
 
+describe('FR-K002 Model Trace: what was not measured is absent, not zero (ART-166)', () => {
+  /**
+   * The row shape `recordAuthoringAttempt` writes, which is the only production writer into
+   * `llmTraces`. It records the attempt, not the settled provider call, so it observes no token
+   * counts and no latency — and from ART-90 until ART-166 it satisfied the then-required fields
+   * with literal zeros. This panel is the consumer that made that a lie rather than a harmless
+   * one: before ART-90 the table was empty and the panel showed null, and afterwards it showed a
+   * call that really happened as 0 tokens and 0 ms.
+   *
+   * `convex/operations/worldQualityFunctions.test.ts` pins the writer's half of this chain by
+   * driving the real mutation; this case pins the reader's.
+   */
+  async function seedAttemptTrace(db: FakeDb) {
+    await db.insert('llmTraces', {
+      schemaVersion: 1, traceId: 'scene-noon:simulation:attempt:1', worldId: WORLD, worldDay: 3,
+      runId: 'scene-noon:simulation', sceneId: 'scene-noon', characterIds: [],
+      model: 'fake-model', promptVersion: 'whole_scene_output', retryCount: 0,
+      validationResult: 'passed', finalStatus: 'succeeded', recordedAt: T0,
+    });
+  }
+
+  it('omits the unmeasured accounting fields rather than reporting them as 0', async () => {
+    const db = createFakeDb();
+    await seedScene(db, { sceneId: 'scene-noon', worldDay: 3, timeSlot: 'noon', status: 'validated', idempotencyKeys: ['k-1'] });
+    await seedCommit(db, 'k-1', 7, 3, 'noon');
+    await seedAttemptTrace(db);
+
+    const record = await readProposalReview(asDb(db), { worldId: WORLD, role: 'operator', idempotencyKey: 'k-1' });
+    const trace = record?.modelTrace as Record<string, unknown> | null;
+
+    expect(trace).toMatchObject({ traceId: 'scene-noon:simulation:attempt:1', model: 'fake-model' });
+    for (const field of ['inputTokens', 'outputTokens', 'latencyMs']) {
+      // Not 0, and not present at all: the reader must not put back the default the writer
+      // stopped asserting. An operator reading `0 ms` cannot tell it from a measurement.
+      expect(trace?.[field]).toBeUndefined();
+      expect(Object.keys(trace ?? {})).not.toContain(field);
+    }
+    // The fields the recorder DID observe still arrive.
+    expect(trace).toMatchObject({ retryCount: 0, validationResult: 'passed', finalStatus: 'succeeded' });
+  });
+
+  it('still reports the counts a trace that measured them carries', async () => {
+    const db = createFakeDb();
+    await seedScene(db, { sceneId: 'scene-noon', worldDay: 3, timeSlot: 'noon', status: 'validated', idempotencyKeys: ['k-1'] });
+    await seedCommit(db, 'k-1', 7, 3, 'noon');
+    await seedTrace(db, { sceneId: 'scene-noon' });
+
+    const record = await readProposalReview(asDb(db), { worldId: WORLD, role: 'operator', idempotencyKey: 'k-1' });
+    expect(record?.modelTrace).toMatchObject({ inputTokens: 120, outputTokens: 80, latencyMs: 42 });
+  });
+});
+
 describe('FR-K002 AC#3: a rejected proposal reviews with its stable reason code', () => {
   it('reports the recorded canon error code and stage, and never the free-text message', async () => {
     const db = createFakeDb();

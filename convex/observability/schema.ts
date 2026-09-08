@@ -12,12 +12,36 @@ export const llmTraceDraftValidator = v.object({
   characterIds: v.array(v.string()),
   model: v.string(),
   promptVersion: v.string(),
-  inputTokens: v.number(),
-  outputTokens: v.number(),
-  latencyMs: v.number(),
+  /**
+   * The three accounting fields are OPTIONAL, and absent means "this recorder did not observe
+   * it" (ART-166).
+   *
+   * They were required until ART-166, and `recordAuthoringAttempt` — the only production writer —
+   * satisfied that requirement with literal zeros, because the settled usage is reported on a call
+   * it never sees. The rate metrics never read them, but the FR-K002 Model Trace panel does, and
+   * it rendered a call that really happened as 0 tokens and 0 ms. A zero is a measurement; an
+   * absence is the truth. ART-59's budget ledger remains the accounting of record.
+   */
+  inputTokens: v.optional(v.number()),
+  outputTokens: v.optional(v.number()),
+  latencyMs: v.optional(v.number()),
   retryCount: v.number(),
   validationResult: v.union(v.literal('not_run'), v.literal('passed'), v.literal('rejected')),
   finalStatus: v.union(v.literal('succeeded'), v.literal('failed'), v.literal('withheld')),
+  /**
+   * The stable code this call failed with, when it failed with one (ART-166).
+   *
+   * `recordAuthoringAttempt` took an `errorCode` argument from ART-90 and had nowhere to put it,
+   * so `getOperationalQualityMetrics` read `null` and the reason dimensions it publishes each
+   * carried one substituted constant. The distinction being lost is the one the live driver
+   * argues is load-bearing: `LLM_HTTP_RETRYABLE`, `LLM_FREE_ROUTES_EXHAUSTED` and
+   * `LLM_CONFIG_MISSING` call for three different operator responses.
+   *
+   * A CODE, never a message — `normalizeLlmTraceDraft` refuses anything that is not a bounded
+   * upper-case identifier, so this field cannot become the hole through which a provider's error
+   * text reaches an operator surface.
+   */
+  errorCode: v.optional(v.string()),
 });
 
 /**

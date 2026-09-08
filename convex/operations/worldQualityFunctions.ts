@@ -494,6 +494,10 @@ export const getNarrativeQualityMetrics = query({
  *    verdict (`episodeCoverageReports.releasable`) is true. A refused episode covers nothing.
  *  - **Exclusions** — `coverageExclusions`, the operator's explicit reasons (ART-89).
  *  - **Arcs** — lifecycles, their projection revisions and their resolution decisions.
+ *  - **Pending days** — the world's latest accepted day, whose Episode is composed on the NEXT
+ *    day's first commit and so is not answerable yet. Excluded with a reason rather than counted
+ *    as uncovered (ART-166); see the call site for why it is keyed off the world and not the
+ *    requested window.
  *
  * Reads are index-scoped to the world and the window and bounded by `SCAN_LIMIT`, and a truncated
  * read is reported as `coverage.scanLimitReached` rather than quietly measured.
@@ -592,6 +596,18 @@ export const getStoryQualityMetrics = query({
       highImportanceThreshold: HIGH_IMPORTANCE_THRESHOLD,
       stagnationThresholdWorldDays: ARC_STAGNATION_WORLD_DAYS,
       events, publications, exclusions, arcs,
+      // The world's LATEST ACCEPTED day, not the requested window's end. `completedWorldDaysOf`
+      // admits a day only once the world has moved past it (`day < latestWorldDay`), so the newest
+      // accepted day never has an Episode while it is still the newest — and `toWorldDay` defaults
+      // to exactly that day. Omitting this charged every default operator read with a severe
+      // HIGH_IMPORTANCE_EVENT_UNCOVERED per event of that day plus a WORLD_DAY_UNPUBLISHED, and
+      // depressed the §16.2 rate the console exists to report; the long-run harness passed the
+      // exclusion and read a different number off the same rule (ART-166).
+      //
+      // Keyed off the world and not off the window on purpose: when an operator asks for an
+      // earlier `toWorldDay`, that day IS due, the pending day falls outside the window, and the
+      // full denominator is measured. A window-keyed pending set would excuse a day that failed.
+      pendingWorldDays: latest === null ? [] : [latest.worldDay],
       scanLimitReached: eventRows.length > SCAN_LIMIT || classificationRows.length > SCAN_LIMIT
         || reportRows.length > SCAN_LIMIT || exclusionRows.length > SCAN_LIMIT
         || lifecycles.length > SCAN_LIMIT || projections.length > SCAN_LIMIT || decisions.length > SCAN_LIMIT,
@@ -747,7 +763,12 @@ export const getOperationalQualityMetrics = query({
       // there was no response to validate, which is what the structure rate excludes.
       outcome: row.validationResult === 'passed' ? 'parsed'
         : row.validationResult === 'rejected' ? 'output_rejected' : 'provider_failed',
-      errorCode: null,
+      // The code the attempt failed with, as the recorder saw it (ART-166). This read was
+      // `errorCode: null` from ART-90, so `evaluateOperationalQuality` fell through to its
+      // placeholder on every row and both reason dimensions carried exactly one constant —
+      // `SCENE_OUTPUT_INVALID` for every refused answer, `SCENE_ATTEMPT_FAILED` for every outage.
+      // A dimension whose every entry is the same invented value is not a dimension.
+      errorCode: row.errorCode ?? null,
       model: row.model,
       transportRetries: row.retryCount,
     }));

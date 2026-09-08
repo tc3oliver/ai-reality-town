@@ -171,7 +171,6 @@ describe('the story-quality definition it publishes with every report', () => {
   it('fixes the severity of every finding code it can emit', () => {
     expect(STORY_QUALITY_FINDING_CODES).toEqual({
       HIGH_IMPORTANCE_EVENT_UNCOVERED: 'severe',
-      EXCLUSION_WITHOUT_REASON: 'severe',
       SPOILER_VIOLATION: 'severe',
       WORLD_DAY_UNPUBLISHED: 'minor',
       ARC_STAGNANT: 'severe',
@@ -339,7 +338,23 @@ describe('FR-M002 story: an exclusion is only an exclusion when it carries a rea
     expect(report.findings).toEqual([]);
   });
 
-  for (const [label, reason] of [['empty', ''], ['whitespace', '   \n\t  ']] as const) {
+  /**
+   * ART-166. These cases used to assert an `EXCLUSION_WITHOUT_REASON` finding as well. That code
+   * was removed because `buildCoverageExclusion` — the only writer into `coverageExclusions` —
+   * refuses any reason below `MIN_EXCLUSION_REASON_LENGTH`, so no stored row could ever produce
+   * it, and a report that advertises a detection it cannot perform is a false claim about the
+   * evidence. `coverageExclusions.test.ts` holds the guarantee at the boundary that enforces it.
+   *
+   * What these cases still pin is the part that matters and is NOT enforced at the writer: an
+   * unusable exclusion must not shrink the denominator. That is the fail-open a bare
+   * `exclusion !== undefined` test would introduce, and it would make a broken writer look like a
+   * better coverage rate.
+   */
+  for (const [label, reason] of [
+    ['empty', ''],
+    ['whitespace', '   \n\t  '],
+    ['below the write boundary’s floor', '太短'],
+  ] as const) {
     it(`refuses to honour an exclusion whose reason is ${label}, and keeps the event counted`, () => {
       const report = evaluateStoryQuality(evidence({
         events: tenEvents(),
@@ -347,34 +362,66 @@ describe('FR-M002 story: an exclusion is only an exclusion when it carries a rea
         exclusions: [exclusion({ eventId: 'high-4', reason })],
       }));
 
-      const blank = findingOf(report.findings, 'EXCLUSION_WITHOUT_REASON');
-      expect(blank.severity).toBe('severe');
-      expect(blank.subjectId).toBe('high-4');
-      expect(blank.evidence).toContainEqual({
-        kind: 'publication', id: 'exclusion:high-4', code: OPERATOR,
-      });
-      expect(blank.detail).toContain(OPERATOR);
-
-      // The event is STILL in the denominator — a blank reason must not quietly shrink it — and
-      // it is still charged as uncovered.
+      // The event is STILL in the denominator — an unusable reason must not quietly shrink it —
+      // and it is still charged as uncovered.
       expect(ratio(report, 'recap_coverage')).toEqual([3, 4]);
       expect(metricOf(report, 'recap_coverage').excluded).toBe(0);
       expect(metricOf(report, 'recap_coverage').meetsTarget).toBe(false);
-      expect(findingOf(report.findings, 'HIGH_IMPORTANCE_EVENT_UNCOVERED').subjectId).toBe('high-4');
+
+      const uncovered = findingOf(report.findings, 'HIGH_IMPORTANCE_EVENT_UNCOVERED');
+      expect(uncovered.subjectId).toBe('high-4');
+      // The operator who declared the unusable exclusion is named, so the report says which
+      // omission was attempted rather than reporting a bare uncovered event.
+      expect(uncovered.evidence).toContainEqual({
+        kind: 'publication', id: 'exclusion:high-4', code: OPERATOR,
+      });
+      expect(uncovered.detail).toContain(OPERATOR);
     });
   }
 
-  it('reports the blank exclusion without also excusing the event it names', () => {
-    // A blank exclusion on an event that IS cited: the omission is still reported, and the event
-    // still counts as covered rather than being dropped on its way through the blank branch.
+  it('does not report an unusable exclusion on an event that IS covered', () => {
+    // Nothing is missing from the public record here, so there is nothing for §16.2 to report.
+    // The event must not be dropped on its way through the un-honoured branch either.
     const report = evaluateStoryQuality(evidence({
       events: tenEvents(),
       publications: [episode([...HIGH_EVENT_IDS])],
       exclusions: [exclusion({ eventId: 'high-2', reason: ' ' })],
     }));
 
-    expect(codes(report.findings)).toEqual(['EXCLUSION_WITHOUT_REASON']);
+    expect(codes(report.findings)).toEqual([]);
     expect(ratio(report, 'recap_coverage')).toEqual([4, 4]);
+  });
+
+  it('declares no finding code the stored evidence cannot produce', () => {
+    // Every declared code, and the fixture that produces it from evidence a writer can store.
+    // `EXCLUSION_WITHOUT_REASON` had no such fixture and could not have had one, which is why it
+    // is gone. Adding a code without adding its producer fails here.
+    // Typed loosely on purpose. A `Record<keyof typeof STORY_QUALITY_FINDING_CODES, …>` would
+    // catch a newly declared code too, but as a COMPILE error — which jest reports as
+    // `Tests: 0 total`, indistinguishable from a clean pass in a filtered summary (CLAUDE.md §9).
+    // The `satisfies` keeps a typo'd key a type error; exhaustiveness is asserted at runtime, so
+    // the failure is a named red test.
+    const producible = {
+      HIGH_IMPORTANCE_EVENT_UNCOVERED: evidence({ events: tenEvents() }),
+      WORLD_DAY_UNPUBLISHED: evidence({ events: tenEvents() }),
+      SPOILER_VIOLATION: evidence({
+        events: tenEvents(),
+        publications: [publication({
+          contentRef: 'episode:day-1', citedEventIds: [...HIGH_EVENT_IDS],
+          findingCodes: ['SPOILER_FUTURE_EVENT'], spoilerFindingCodes: ['SPOILER_FUTURE_EVENT'],
+        })],
+      }),
+      ARC_WITHOUT_PROGRESS: evidence({ arcs: [arc({ arcId: 'arc-1', revisionsInWindow: 0 })] }),
+      ARC_STAGNANT: evidence({ arcs: [arc({ arcId: 'arc-1', lastProgressWorldDay: DAY - STAGNATION_THRESHOLD })] }),
+      ARC_RESOLVED_WITHOUT_EVIDENCE: evidence({
+        arcs: [arc({ arcId: 'arc-1', status: 'resolved', active: false, reachedTerminal: true })],
+      }),
+    } satisfies Partial<Record<keyof typeof STORY_QUALITY_FINDING_CODES, StoryQualityEvidence>>;
+
+    expect(Object.keys(producible).sort()).toEqual(Object.keys(STORY_QUALITY_FINDING_CODES).sort());
+    for (const [code, fixture] of Object.entries(producible)) {
+      expect(codes(evaluateStoryQuality(fixture).findings)).toContain(code);
+    }
   });
 });
 

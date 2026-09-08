@@ -21,12 +21,19 @@ export type LlmTraceDraft = {
   characterIds: string[];
   model: string;
   promptVersion: string;
-  inputTokens: number;
-  outputTokens: number;
-  latencyMs: number;
+  /**
+   * Absent means the recorder did not observe it — not zero (ART-166). The whole-scene attempt
+   * recorder sees the attempt, not the settled call that reports usage, and wrote zeros for these
+   * from ART-90 until ART-166. See `convex/observability/schema.ts`.
+   */
+  inputTokens?: number;
+  outputTokens?: number;
+  latencyMs?: number;
   retryCount: number;
   validationResult: TraceValidationResult;
   finalStatus: TraceFinalStatus;
+  /** The stable code this call failed with, when it failed with one. A code, never a message. */
+  errorCode?: string;
 };
 
 export type LlmTraceRecord = LlmTraceDraft & { recordedAt: number };
@@ -57,10 +64,19 @@ export class LlmTraceError extends Error {
 type PlainObject = Record<string, unknown>;
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:#|\-]{0,159}$/u;
 const MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/\-]{0,159}$/u;
+/**
+ * A stable machine code and nothing else (ART-166): upper case, digits and underscores, bounded.
+ *
+ * Deliberately narrower than {@link ID_PATTERN}. Every code this field carries is a repository
+ * constant — `SCENE_OUTPUT_INVALID`, `LLM_FREE_ROUTES_EXHAUSTED`, `PROVIDER_TIMEOUT` — and a
+ * pattern that admitted lower case, spaces or punctuation would admit a provider's error message
+ * with it. The trace record's whole contract is that it carries no model text.
+ */
+const ERROR_CODE_PATTERN = /^[A-Z][A-Z0-9_]{0,63}$/u;
 const ALLOWED_KEYS = [
   'schemaVersion', 'traceId', 'worldId', 'worldDay', 'runId', 'sceneId', 'arcId',
   'characterIds', 'model', 'promptVersion', 'inputTokens', 'outputTokens', 'latencyMs',
-  'retryCount', 'validationResult', 'finalStatus',
+  'retryCount', 'validationResult', 'finalStatus', 'errorCode',
 ] as const;
 
 function isPlainObject(value: unknown): value is PlainObject {
@@ -98,6 +114,13 @@ function nonNegativeInteger(value: unknown, path: string): number {
     throw new LlmTraceError('INVALID_LLM_TRACE', 'field must be a non-negative safe integer', path);
   }
   return value as number;
+}
+
+function errorCodeValue(value: unknown, path: string): string {
+  if (typeof value !== 'string' || !ERROR_CODE_PATTERN.test(value)) {
+    throw new LlmTraceError('INVALID_LLM_TRACE', 'field must be a bounded upper-case failure code', path);
+  }
+  return value;
 }
 
 function enumValue<T extends string>(value: unknown, values: readonly T[], path: string): T {
@@ -138,12 +161,16 @@ export function normalizeLlmTraceDraft(value: unknown): LlmTraceDraft {
     characterIds,
     model: value.model,
     promptVersion: requiredId(value.promptVersion, 'promptVersion'),
-    inputTokens: nonNegativeInteger(value.inputTokens, 'inputTokens'),
-    outputTokens: nonNegativeInteger(value.outputTokens, 'outputTokens'),
-    latencyMs: nonNegativeInteger(value.latencyMs, 'latencyMs'),
+    // Absent stays absent (ART-166). Defaulting a missing count to 0 here would put the zero back
+    // one layer down from where it was removed, and every reader would be told a call it has no
+    // measurement for used no tokens and took no time.
+    ...(value.inputTokens === undefined ? {} : { inputTokens: nonNegativeInteger(value.inputTokens, 'inputTokens') }),
+    ...(value.outputTokens === undefined ? {} : { outputTokens: nonNegativeInteger(value.outputTokens, 'outputTokens') }),
+    ...(value.latencyMs === undefined ? {} : { latencyMs: nonNegativeInteger(value.latencyMs, 'latencyMs') }),
     retryCount: nonNegativeInteger(value.retryCount, 'retryCount'),
     validationResult: enumValue(value.validationResult, TRACE_VALIDATION_RESULTS, 'validationResult'),
     finalStatus: enumValue(value.finalStatus, TRACE_FINAL_STATUSES, 'finalStatus'),
+    ...(value.errorCode === undefined ? {} : { errorCode: errorCodeValue(value.errorCode, 'errorCode') }),
   };
 }
 

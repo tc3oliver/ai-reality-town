@@ -8,6 +8,12 @@
  * proves a blank reason does not shrink the denominator there. This suite proves a blank reason
  * never reaches storage in the first place.
  *
+ * ART-166: this floor is also the reason the evaluator publishes no `EXCLUSION_WITHOUT_REASON`
+ * finding code. `buildCoverageExclusion` is the only writer into `coverageExclusions`, and it
+ * refuses anything below `MIN_EXCLUSION_REASON_LENGTH` after trimming — strictly stronger than
+ * "not blank" — so no stored row could ever produce that code. The guarantee lives here, and a
+ * report that claimed to detect it was claiming a check it could not perform.
+ *
  * The assertions are on the error `code`, never the message. The code is what the Convex mutation
  * surfaces and what an operator UI branches on; a message is prose and may be reworded.
  */
