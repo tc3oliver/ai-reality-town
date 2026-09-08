@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-09-08 18:18'
-updated_date: '2026-09-08 18:25'
+updated_date: '2026-09-08 18:48'
 labels:
   - prd-1.0
   - epic-p
@@ -60,10 +60,10 @@ The docblocks that assert the opposite of their own functions must be corrected,
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 getStoryQualityMetrics excludes the not-yet-due world day from the coverage denominator with a reason, and agrees with the long-run harness on the same evidence.
-- [ ] #2 A provider failure's stable code reaches the operational-quality reason dimensions, so two different failures are two entries rather than one constant.
-- [ ] #3 The FR-K002 Model Trace reports what was measured, and omits what was not, rather than reporting zero.
-- [ ] #4 No finding code is published that the stored evidence cannot produce.
+- [x] #1 getStoryQualityMetrics excludes the not-yet-due world day from the coverage denominator with a reason, and agrees with the long-run harness on the same evidence.
+- [x] #2 A provider failure's stable code reaches the operational-quality reason dimensions, so two different failures are two entries rather than one constant.
+- [x] #3 The FR-K002 Model Trace reports what was measured, and omits what was not, rather than reporting zero.
+- [x] #4 No finding code is published that the stored evidence cannot produce.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -97,3 +97,48 @@ The docblocks that assert the opposite of their own functions must be corrected,
 6. Fault-inject each fix in turn, name the test that goes red, restore. Then typecheck, the focused suites, and the full check gate.
 7. Update docs/world-quality-metrics.md, docs/llm-tracing.md and docs/proposed-event-review.md.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## What was wrong
+
+Four defects, each a number an operator reads whose source was wrong, missing or invented. Two were contradicted by a docblock asserting the opposite.
+
+1. `getStoryQualityMetrics` never passed `pendingWorldDays`. `toWorldDay` defaults to the world's latest accepted day, and `completedWorldDaysOf` admits a day only once the world has moved PAST it - so the day the window ends on is by construction the one day with no Episode yet. Every default operator read charged that day's high-importance events as uncovered, emitted a severe HIGH_IMPORTANCE_EVENT_UNCOVERED per event and a WORLD_DAY_UNPUBLISHED, and reported a recap_coverage below its own 0.95 target. The long-run harness passed the exclusion, so the ninety-day gate and the console gave two answers to the same Section 16.2 question - while `completedWorldDaysOf`'s docblock said the query already did this.
+2. `recordAuthoringAttempt` accepted an `errorCode` and discarded it. No column, and the read hardcoded null, so both reason dimensions carried one substituted constant each (SCENE_OUTPUT_INVALID, SCENE_ATTEMPT_FAILED). The distinction lost is the one FR-M004 acts on.
+3. The same writer booked literal zeros for inputTokens, outputTokens and latencyMs. Harmless to the rates, which never read them, but the FR-K002 Model Trace panel renders them: before ART-90 the table was empty and it showed null; after, it showed a real call as 0 tokens and 0 ms.
+4. EXCLUSION_WITHOUT_REASON was a declared finding code no stored row could produce, because `buildCoverageExclusion` refuses any reason below MIN_EXCLUSION_REASON_LENGTH after trimming - strictly stronger than 'not blank'.
+
+## What changed
+
+- `convex/operations/worldQualityFunctions.ts`: passes `pendingWorldDays` derived from the world's latest accepted event (not the requested window, so an earlier `toWorldDay` still measures that day in full), and reads `row.errorCode ?? null` instead of hardcoding null.
+- `convex/observability/schema.ts` + `llmTrace.ts`: `errorCode` optional, normalised by ERROR_CODE_PATTERN (upper case, digits, underscores, 64 chars) - deliberately narrower than the id pattern, because anything admitting lower case or punctuation would admit a provider's error message. `inputTokens`/`outputTokens`/`latencyMs` optional; the normaliser does not default them.
+- `convex/simulation/qualityEvidenceFunctions.ts`: writes the code, omits the three unobserved fields, and now builds its row through `normalizeLlmTraceDraft` - the docblock had claimed the whitelist normaliser guarded this writer since ART-90 while it inserted straight into the table.
+- `convex/quality/storyQuality.ts`: EXCLUSION_WITHOUT_REASON withdrawn; the fail-closed behaviour kept under HIGH_IMPORTANCE_EVENT_UNCOVERED, which names the operator who declared the unusable exclusion. Dropping the branch outright would have been the dangerous edit - a bare `exclusion !== undefined` lets a blank reason silently shrink the denominator.
+- Docs: world-quality-metrics.md, llm-tracing.md, proposed-event-review.md, both PRD matrices.
+
+## RED first
+
+`npm test -- --runTestsByPath convex/operations/worldQualityFunctions.test.ts` against the pre-fix code: Tests: 8 failed, 2 passed, 10 total. Coverage read 0.5 with two HIGH_IMPORTANCE_EVENT_UNCOVERED findings on the newest day; providerFailureReasons read [{ SCENE_ATTEMPT_FAILED, 2 }] for two different codes; the trace row's inputTokens read 0.
+
+## Fault injection (each restored afterwards)
+
+| Injection | Named test that went red | Counts |
+| --- | --- | --- |
+| drop `pendingWorldDays` from the query | 'excludes the newest accepted day from the coverage denominator with a reason' | 4 failed, 6 passed, 10 total |
+| reader back to `errorCode: null` | 'keeps two different provider failure codes apart in the reason dimension' | 3 failed, 7 passed, 10 total |
+| writer drops `errorCode` | 'keeps two different provider failure codes apart in the reason dimension' | 3 failed, 7 passed, 10 total |
+| writer books zeros again | 'books no token count and no latency it never observed' | 1 failed, 9 passed, 10 total |
+| FR-K002 reader defaults absent fields to 0 | 'omits the unmeasured accounting fields rather than reporting them as 0' | 1 failed, 18 passed, 19 total |
+| lower the exclusion floor to zero | 'refuses to honour an exclusion whose reason is empty, and keeps the event counted' (+3) | 4 failed, 41 passed, 45 total |
+| re-declare EXCLUSION_WITHOUT_REASON | 'declares no finding code the stored evidence cannot produce' (+1) | 2 failed, 43 passed, 45 total |
+
+The last injection first produced `Tests: 0 total` - a compile error, not a named failure. The producibility fixture was retyped with `satisfies Partial<...>` so exhaustiveness is asserted at runtime and the guard fails as a red test, per CLAUDE.md section 9.
+
+## Commands
+
+npm run typecheck; npm run check:architecture; npm test -- --runTestsByPath convex/operations/worldQualityFunctions.test.ts; npm test -- --runTestsByPath convex/quality/storyQuality.test.ts; npm test -- --runTestsByPath convex/operations/proposalReviewStore.test.ts; npm test -- --runTestsByPath convex/observability/llmTrace.test.ts; npm run check
+
+npm run check exit 0 - Tests: 14 skipped, 4172 passed, 4186 total; Test Suites: 2 skipped, 243 passed, 243 of 245 total.
+<!-- SECTION:NOTES:END -->
