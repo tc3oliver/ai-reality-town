@@ -65,6 +65,11 @@ import {
   type SnapshotEvidence,
 } from '../quality/continuity';
 import type { EvaluationReport, EvaluatorDefinition } from '../quality/evaluator';
+import { evaluateNarrative, NARRATIVE_EVALUATOR, type NarrativeSceneEvidence } from '../quality/narrative';
+import { personaAnchorFromSeed, type PersonaAnchor } from '../canon/personaDeviation';
+import { groupingRunId } from '../simulation/worldDayLive';
+import { TIME_SLOTS } from '../canon/eventTypes';
+import type { SceneSimulationResult } from '../simulation/sceneSimulation';
 import { credentialArgs, requireOperator } from './opsConsoleFunctions';
 
 type QueryCtx = GenericQueryCtx<DataModel>;
@@ -351,6 +356,112 @@ export const getContinuityQualityMetrics = query({
       definition: wireDefinition(CONTINUITY_EVALUATOR),
       report: wireReport(report),
       origin: { kind: origin.kind, ref: origin.ref, preWindowEventsRead },
+    };
+  },
+});
+
+/**
+ * FR-M002 narrative metrics for one world over a window of world days (ART-88): the §16.2
+ * repeated-scene ratio with its exact / near / template split, dialogue repetition, voice
+ * distinctiveness, persona deviation and event novelty.
+ *
+ * ## Evidence reads
+ *
+ * Scene prose lives only in `sceneSimulationRuns.result` (a `v.any()` LLM-blob table). It is read
+ * by `by_grouping_run` for each `(worldDay, timeSlot)` in the window — the grouping run id is
+ * derived from the slot, so this is `days × 5` point-range reads and never a world-wide sweep. A
+ * scene is joined to Canon through `metadata.sceneId` on its accepted events (FR-P004 stamps it
+ * on every real proposal), and only joined scenes enter the denominator.
+ *
+ * The persona half needs the projection at the window's start; it comes from the same fold origin
+ * `getContinuityQualityMetrics` uses, so the two evaluators agree on where the window began.
+ */
+export const getNarrativeQualityMetrics = query({
+  args: {
+    ...credentialArgs,
+    worldId: v.string(),
+    toWorldDay: v.optional(v.number()),
+    windowDays: v.optional(v.number()),
+  },
+  returns: v.object({
+    definition: definitionValidator,
+    report: evaluationReportValidator,
+    /** Scenes read, and how many of them Canon accepted, so the denominator is checkable. */
+    scenes: v.object({ read: v.number(), accepted: v.number(), withheld: v.number() }),
+  }),
+  handler: async (ctx, args) => {
+    await requireOperator(ctx, 'world.inspect', args);
+    const { worldId } = args;
+
+    const latest = await ctx.db.query('canonEvents')
+      .withIndex('by_world_and_sequence', (q) => q.eq('worldId', worldId)).order('desc').first();
+    const toWorldDay = Math.max(0, Math.floor(args.toWorldDay ?? latest?.worldDay ?? 0));
+    const windowDays = Math.min(Math.max(1, Math.floor(args.windowDays ?? DEFAULT_WINDOW_DAYS)), MAX_WINDOW_DAYS);
+    const fromWorldDay = Math.max(0, toWorldDay - windowDays + 1);
+
+    const rows = await ctx.db.query('canonEvents')
+      .withIndex('by_world_and_day', (q) => q.eq('worldId', worldId).gte('worldDay', fromWorldDay).lte('worldDay', toWorldDay))
+      .take(SCAN_LIMIT + 1);
+    const events = rows.slice(0, SCAN_LIMIT).map(rowToAcceptedEvent)
+      .sort((left, right) => left.sequenceNumber - right.sequenceNumber);
+    const acceptedSequenceByScene = new Map<string, number>();
+    for (const event of events) {
+      const sceneId = typeof event.metadata?.sceneId === 'string' ? event.metadata.sceneId : event.idempotencyKey.split(':event:')[0];
+      const prior = acceptedSequenceByScene.get(sceneId);
+      if (prior === undefined || event.sequenceNumber < prior) acceptedSequenceByScene.set(sceneId, event.sequenceNumber);
+    }
+
+    const scenes: NarrativeSceneEvidence[] = [];
+    let sceneRowsRead = 0;
+    for (let worldDay = fromWorldDay; worldDay <= toWorldDay; worldDay += 1) {
+      for (const timeSlot of TIME_SLOTS) {
+        const runs = await ctx.db.query('sceneSimulationRuns')
+          .withIndex('by_grouping_run', (q) => q.eq('worldId', worldId).eq('groupingRunId', groupingRunId({ worldId, worldDay, timeSlot })))
+          .take(SCAN_LIMIT + 1);
+        sceneRowsRead += runs.length;
+        for (const row of runs.slice(0, SCAN_LIMIT)) {
+          const result = row.result as SceneSimulationResult;
+          scenes.push({
+            sceneId: row.sceneId,
+            worldDay: result.scene.worldDay,
+            timeSlot: result.scene.timeSlot,
+            acceptedSequenceNumber: acceptedSequenceByScene.get(row.sceneId) ?? null,
+            locationId: result.scene.locationId,
+            participantIds: result.scene.participantIds,
+            arcIds: result.scene.arcIds,
+            sceneSummary: result.output.sceneSummary,
+            keyActions: result.output.keyActions,
+            dialogue: result.output.dialogueHighlights,
+            publicSummaries: result.output.proposedEvents.map(({ publicSummary }) => publicSummary ?? ''),
+            withheld: row.status === 'review_required',
+          });
+        }
+      }
+    }
+
+    const [characters, locations, arcs, { origin }] = await Promise.all([
+      ctx.db.query('worldCharacters').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).collect(),
+      ctx.db.query('worldLocations').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).collect(),
+      ctx.db.query('storyArcLifecycles').withIndex('by_world_and_arc', (q) => q.eq('worldId', worldId)).collect(),
+      resolveFoldOrigin(ctx.db, worldId, fromWorldDay),
+    ]);
+    const personaAnchors: Record<string, PersonaAnchor> = Object.fromEntries(characters.flatMap((row) => {
+      const anchor = personaAnchorFromSeed(row.characterId, row.payload);
+      return anchor ? [[row.characterId, anchor] as const] : [];
+    }));
+
+    const report = evaluateNarrative({
+      worldId, fromWorldDay, toWorldDay, scenes, events,
+      identifiers: [worldId, ...characters.map(({ characterId }) => characterId), ...locations.map(({ locationId }) => locationId), ...arcs.map(({ arcId }) => arcId)],
+      personaAnchors,
+      originProjection: origin.projection,
+      scanLimitReached: rows.length > SCAN_LIMIT || sceneRowsRead > SCAN_LIMIT,
+    });
+    const accepted = scenes.filter((scene) => !scene.withheld && scene.acceptedSequenceNumber !== null).length;
+    return {
+      definition: wireDefinition(NARRATIVE_EVALUATOR),
+      report: wireReport(report),
+      scenes: { read: scenes.length, accepted, withheld: scenes.filter(({ withheld }) => withheld).length },
     };
   },
 });

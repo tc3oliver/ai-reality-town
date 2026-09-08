@@ -899,11 +899,11 @@ describe('metering integrity — the ART-72 landmine, detected at runtime', () =
   test('booking against a model the provider did not run is counted and explained', () => {
     // This is the ART-72 shape exactly: the meter keys on the fake author while a real model ran.
     const counters = spend(emptyBudgetCounters(WORLD, 0), 500, {
-      model: 'fake-whole-scene-v1',
+      model: 'fake-whole-scene-v2',
       resolvedModel: 'gpt-4o',
     });
     expect(isModelMeteringMismatch({
-      module: 'scene_simulation', model: 'fake-whole-scene-v1', resolvedModel: 'gpt-4o',
+      module: 'scene_simulation', model: 'fake-whole-scene-v2', resolvedModel: 'gpt-4o',
       upstreamProvider: PROVIDER, allowance: null,
       importance: 'standard', tokens: 500, countedAsRetry: false, onFastModel: false,
     })).toBe(true);

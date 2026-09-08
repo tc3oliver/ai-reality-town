@@ -15,6 +15,7 @@ import { MAX_MAJOR_ACTIVE_ARCS, MAX_MINOR_ACTIVE_ARCS } from '../story/portfolio
 import { ARC_STAGNATION_WORLD_DAYS } from '../story/resolution';
 import { FAKE_SCENE_MODEL } from '../simulation/fakeSceneNarrator';
 import { CONTINUITY_EVALUATOR_ID, CONTINUITY_EVALUATOR_VERSION } from '../quality/continuity';
+import { NARRATIVE_EVALUATOR_ID, NARRATIVE_EVALUATOR_VERSION } from '../quality/narrative';
 import { mistwoodWorldConfiguration } from '../canon/mistwoodSeed';
 import {
   contentDigest,
@@ -40,26 +41,19 @@ const THIRTY_DAY_SLOTS = 30 * TIME_SLOTS.length;
 const FORMERLY_STARVED_CHARACTER_IDS = ['lin-yingxue', 'su-meizhen', 'luo-shan', 'tang-ruoxi', 'wu-zhen'];
 
 /**
- * Distinct scene texts the fake author produces over this seed's cast and locations, per run
- * length. Measured, not chosen.
+ * The §16.2 repeated-scene ceiling, and the ABSOLUTE scene counts the ratio is measured over.
  *
- * It was ONE number until ART-164, because the author's output space was small enough that both
- * run lengths saturated it: 12 texts before ART-101 un-stranded the cast, 32 after. ART-164's
- * zh-Hant narrator gives a scene a deterministic outcome, stake and per-participant stances as
- * well as a place and a subject, and the space is no longer saturated at seven days — so the two
- * lengths legitimately differ and a single constant would have to be wrong for one of them.
- *
- * The widening is a SIDE EFFECT of making the fixture carry a normal scene's worth of information,
- * which FR-G003's 400 中文字 Standard Recap requires. It is not a fix for FINDING 2: the author is
- * still a template, and the duplication below is still its ceiling.
- *
- * Writing the fixture also exposed a real defect in it. Spelling out every participant's stance
- * pushed a large-cast summary past `MAX_PUBLIC_SUMMARY_LENGTH`, and the clamp cut the tail where
- * the scene's outcome lived, so two different scenes at one location truncated to the same text.
- * The measured distinct count FELL from 46 to 41. Ordering the sentence outcome-first and dropping
- * the participant roll-call — which the stances already name — took it to 91.
+ * `DISTINCT_SCENE_TEXTS` — a per-run-length pin of how many distinct texts the fake author produced
+ * (91 of 104 at seven days, 171 of 449 at thirty) — lived here until ART-88. It was an honest
+ * record of FINDING 2 and never a ratio; the ratio itself, `repetition.duplicateRate`, was computed
+ * and asserted by nothing, and every assertion around it compared the report with itself. ART-88
+ * replaced the template author and measures the ratio with `convex/quality/narrative.ts`: exact OR
+ * near-duplicate (Jaccard ≥ 0.8 over identifier-masked 3-grams) against an earlier accepted scene,
+ * over the ACCEPTED scenes. The denominator is pinned as a number so authoring fewer scenes cannot
+ * improve the ratio.
  */
-const DISTINCT_SCENE_TEXTS: Record<number, number> = { 7: 91, 30: 171 };
+const REPEATED_SCENE_CEILING = 0.15;
+const ACCEPTED_SCENES: Record<number, number> = { 7: 104, 30: 449 };
 
 /** Asserts every NFR-007 property that the fixed seed satisfies cleanly. */
 function expectCleanRun(findings: LongRunFindings, worldDays: number): void {
@@ -115,6 +109,51 @@ function expectCleanRun(findings: LongRunFindings, worldDays: number): void {
   expect(continuity.score).toMatchObject({ value: 1, status: 'measured', weightMeasured: 1, weightTotal: 1 });
   // The harness's own checks and the evaluator are two computations; they must agree.
   expect(continuity.findings.filter(({ severity }) => severity === 'severe')).toHaveLength(findings.canonConflicts.length);
+
+  /**
+   * FR-M002 narrative (ART-88) — PRD §16.2 重複場景比例 < 15%, measured by the evaluator over the
+   * run's ACCEPTED scenes, whose count is pinned as an absolute so the ratio cannot be improved by
+   * authoring less. Every companion metric states a non-empty denominator before its value.
+   */
+  const narrative = findings.narrative;
+  expect(narrative.evaluatorId).toBe(NARRATIVE_EVALUATOR_ID);
+  expect(narrative.evaluatorVersion).toBe(NARRATIVE_EVALUATOR_VERSION);
+  const narrativeMetric = (key: string) => {
+    const found = narrative.metrics.find((candidate) => candidate.key === key);
+    if (!found) throw new Error(`narrative metric ${key} missing`);
+    return found;
+  };
+  const repeated = narrativeMetric('repeated_scene_ratio');
+  expect(repeated.denominator).toBe(ACCEPTED_SCENES[worldDays]);
+  expect(repeated.excluded).toBe(0);
+  expect(repeated.status).toBe('measured');
+  expect(repeated.target).toBe(REPEATED_SCENE_CEILING);
+  expect(repeated.rate).not.toBeNull();
+  expect(repeated.rate!).toBeLessThan(REPEATED_SCENE_CEILING);
+  expect(repeated.meetsTarget).toBe(true);
+  expect(narrativeMetric('exact_duplicate_scene_ratio').denominator).toBe(ACCEPTED_SCENES[worldDays]);
+  expect(narrativeMetric('template_reuse_ratio').denominator).toBe(ACCEPTED_SCENES[worldDays]);
+  // Dialogue: hundreds of lines, and the cast has more than one voice. The author's registers
+  // are hash-bound, so a small share of collisions is expected and is reported, not hidden.
+  const dialogue = narrativeMetric('dialogue_repetition_ratio');
+  expect(dialogue.denominator).toBeGreaterThan(ACCEPTED_SCENES[worldDays]);
+  expect(dialogue.rate!).toBeLessThan(0.1);
+  const voice = narrativeMetric('voice_distinctiveness');
+  expect(voice.denominator).toBe(dialogue.denominator);
+  // Measured 1.0 at both run lengths: no two characters say one line. Asserted as a floor rather
+  // than an equality because a register collision is a property of the hash, not a defect.
+  expect(voice.rate!).toBeGreaterThanOrEqual(0.95);
+  // Persona: anchors are present, so the denominator is the accepted events, and Canon's gate
+  // admitted no deviation on this seed.
+  expect(narrativeMetric('persona_deviation_rate')).toMatchObject({ denominator: findings.acceptedEvents, numerator: 0, status: 'measured' });
+  const novelty = narrativeMetric('event_novelty_ratio');
+  expect(novelty.denominator).toBe(findings.acceptedEvents - 1);
+  expect(novelty.rate!).toBeGreaterThan(0.5);
+  expect(narrative.score).toMatchObject({ status: 'measured', weightMeasured: 1 });
+  expect(narrative.coverage.worldDaysEvaluated).toEqual(Array.from({ length: worldDays }, (_, index) => index));
+  // FR-G003: the composing author must still fit the recap bands on every day. Invisible before
+  // ART-88 — a refusal was recorded in the harness's own map and reported nowhere.
+  expect(findings.recapCoverage.recapFormatFailures).toEqual([]);
 
   // Arc limits, progress and resolution (FR-F003/FR-F004, ART-31).
   expect(findings.arcs.maxActiveMajorArcs).toBeLessThanOrEqual(MAX_MAJOR_ACTIVE_ARCS);
@@ -217,20 +256,14 @@ function expectKnownFindings(findings: LongRunFindings, worldDays: number): void
     .toEqual(Array.from({ length: Math.ceil(worldDays / 5) }, (_, index) => index * 5));
   expect(findings.arcs.activeMajorByWorldDay.filter((count) => count > 0).every((count) => count === MAX_MAJOR_ACTIVE_ARCS)).toBe(true);
 
-  // FINDING 2 — content repetition. The fake author's template output space still collapses
-  // the run onto a small set of distinct scene texts. ART-101's un-stranded cast widened it from
-  // twelve to thirty-two, and ART-164's zh-Hant narrator from thirty-two to forty-six. Both are
-  // improvements and neither is a fix: the remaining duplication is the no-cost author, not the
-  // Director, and is deferred to the ART-72 provider. A template with more slots has a larger
-  // output space and is still a template.
-  const distinct = DISTINCT_SCENE_TEXTS[worldDays];
-  expect(distinct).toBeDefined();
-  expect(findings.repetition.distinctContentDigests).toBe(distinct);
-  expect(findings.repetition.duplicateScenes).toBe(findings.repetition.scenes - distinct);
-  expect(findings.repetition.duplicateGroups.length).toBeGreaterThan(0);
-  // Every duplicate group is a repeat of one of those texts; nothing is unaccounted for.
-  expect(findings.repetition.duplicateGroups.reduce((total, { sceneIds }) => total + sceneIds.length, 0))
-    .toBe(findings.repetition.scenes - (distinct - findings.repetition.duplicateGroups.length));
+  // FINDING 2 — content repetition — is RESOLVED by ART-88 and asserted as a property in
+  // `expectCleanRun` (`repeated_scene_ratio`). The exact-digest check ART-60 introduced stays as a
+  // second, independent measure: with the composing author no two accepted scenes share a digest.
+  expect(findings.repetition.scenes).toBe(ACCEPTED_SCENES[worldDays]);
+  expect(findings.repetition.distinctContentDigests).toBe(findings.repetition.scenes);
+  expect(findings.repetition.duplicateScenes).toBe(0);
+  expect(findings.repetition.duplicateGroups).toEqual([]);
+  expect(findings.repetition.duplicateRate).toBe(0);
 }
 
 describe('NFR-007 fixed-seed 7-day simulation (AC#1/#3)', () => {
@@ -285,6 +318,8 @@ describe('NFR-007 fixed-seed 7-day simulation (AC#1/#3)', () => {
       // FR-M002 (ART-58): the continuity evaluator's report over the run's own evidence.
       'continuity',
       'digest',
+      // FR-M002 (ART-88): the narrative evaluator's report over the run's accepted scenes.
+      'narrative',
       'recapCoverage', 'repetition', 'replay',
       // FR-M003 §16.3 (ART-59): the resource report the run's own budget accountant produced.
       'resources',

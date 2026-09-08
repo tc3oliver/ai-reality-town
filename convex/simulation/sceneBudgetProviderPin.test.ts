@@ -47,7 +47,7 @@ describe('the author and the model it is metered against are chosen together', (
     expect(await author.deploymentModelId()).toBe(FAKE_SCENE_MODEL);
     // Against the CONSTANT, not a literal, so renaming the fake author's model id cannot leave
     // this passing against a stale string.
-    expect(FAKE_SCENE_MODEL).toBe('fake-whole-scene-v1');
+    expect(FAKE_SCENE_MODEL).toBe('fake-whole-scene-v2');
   });
 
   it('the live author is metered against the route the caller resolved, never the fake', async () => {

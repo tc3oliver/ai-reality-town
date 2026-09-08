@@ -54,7 +54,7 @@ describe('ART-92 review sample over a real fixed-seed run (AC#1/#2)', () => {
     expect(renderNarrativeReviewPacket(repeat.sample)).toBe(packet);
     // Provenance: the sample records which run it came from, so a score can be re-derived.
     expect(sample.runDigest).toBe(repeat.findings.digest);
-    expect(sample.seed.providerModel).toBe('fake-whole-scene-v1');
+    expect(sample.seed.providerModel).toBe('fake-whole-scene-v2');
   }, 300_000);
 
   it('spans the whole run rather than its opening days (AC#2)', () => {

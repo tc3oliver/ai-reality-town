@@ -1,15 +1,20 @@
 # World quality metrics and evaluators (FR-M002)
 
-ART-58 delivers two things: the **evaluator pattern** every FR-M002 evaluator is built
-from (`convex/quality/evaluator.ts`), and the **Continuity evaluator v1**
-(`convex/quality/continuity.ts`), which measures PRD §16.2's five Canon targets and
-composes them into the Continuity Score.
+FR-M002 is owned by four tasks, not one. Two have delivered:
 
-FR-M002 is owned by four tasks, not one. ART-58 is the pattern plus continuity; ART-88
-(narrative novelty and dialogue repetition), ART-89 (arc progress, recap coverage,
-spoiler violation) and ART-90 (Canon rejection rate, safety withhold rate) are still
-pending and build on the same shapes, so an operator reads four evaluators through one
-vocabulary and the long-run harness reports them through one report type.
+- **ART-58** delivers the **evaluator pattern** every FR-M002 evaluator is built from
+  (`convex/quality/evaluator.ts`), and the **Continuity evaluator v1**
+  (`convex/quality/continuity.ts`), which measures PRD §16.2's five Canon targets and
+  composes them into the Continuity Score.
+- **ART-88** delivers the **Narrative evaluator v1** (`convex/quality/narrative.ts`) and
+  the similarity module it is built on (`convex/quality/textSimilarity.ts`), which measure
+  §16.2's 重複場景比例 plus FR-M002's Character Consistency, Event Novelty and Dialogue
+  Repetition.
+
+ART-89 (arc progress, recap coverage, spoiler violation) and ART-90 (Canon rejection rate,
+safety withhold rate) are still pending and build on the same shapes, so an operator reads
+four evaluators through one vocabulary and the long-run harness reports them through one
+report type.
 
 ## 1. What an evaluator is here
 
@@ -212,28 +217,213 @@ created a **public** fact containing that needle. The finding names the publicat
 the secret or fact id, and how many cited events failed to source it. No needle is ever
 placed in a finding, a metric, or a digest input.
 
-## 4. The operator query
+## 4. The Narrative evaluator v1
 
-`getContinuityQualityMetrics` in `convex/operations/worldQualityFunctions.ts`. Declared in
-`publicFunctionSurface` as a `query` with gate `operator`, which is what makes adding it an
-architectural change rather than a line edit.
+`evaluatorId: 'narrative'`, `version: 1`. Pure, like the continuity one: no Convex, no
+clock, no randomness, no I/O. One entry point, `evaluateNarrative`, takes one window of
+accepted narrative evidence and returns the report. The operator query and the long-run
+harness call that one function, so the number the 7- and 30-day gates assert and the number
+an operator reads are one computation over different evidence.
 
-It lives in `operations` and not in `quality` for the same reason
+### 4.1 The denominator, stated first
+
+`repeated_scene_ratio` is measured over **accepted** scenes: scenes whose Proposed Events
+reached Canon, joined to the accepted log through `metadata.sceneId`, which FR-P004 stamps
+on every real proposal. The `<sceneId>:event:<n>` idempotency-key prefix is the fallback,
+the same join the harness's safety check already uses. A scene's position in accepted order
+is the lowest accepted sequence number among its events, so a repeat is charged to the later
+scene and an original is never charged for being repeated.
+
+A scene the safety gate withheld never reached an audience. It is left out of both sides of
+every ratio, and published as `excluded` with the reason
+「scenes withheld by safety review never reached an audience」 rather than folded in as a
+pass or a failure. A scene that was authored but whose proposal Canon never accepted is out
+for the same reason and is visible in the operator payload as `read` minus `accepted` minus
+`withheld`.
+
+ART-60's `repetition.duplicateRate` measured **every authored scene**, and nothing asserted
+it. A ratio over a different population is a different number, so this one names its own
+population in the metric definition that travels with every report.
+
+### 4.2 The seven metrics
+
+Every denominator is stated before its target, because a rate over an empty population is
+not a passing rate.
+
+| PRD name | Metric key | Numerator | Denominator | Target |
+| --- | --- | --- | --- | --- |
+| 重複場景比例 | `repeated_scene_ratio` | Accepted scenes whose normalised text is an exact **or** near duplicate (Jaccard ≥ 0.8 over identifier-masked character 3-grams) of an earlier accepted scene | Accepted scenes in the window | `0.15`, `atMost` |
+| 重複場景比例（完全相同） | `exact_duplicate_scene_ratio` | Accepted scenes whose normalised text is identical to an earlier accepted scene's | Accepted scenes in the window | none, `atMost` |
+| 重複場景結構 | `template_reuse_ratio` | Accepted scenes whose structural signature (quoted spans, numbers and identifiers collapsed) matches an earlier accepted scene's | Accepted scenes in the window | none, `atMost` |
+| Dialogue Repetition | `dialogue_repetition_ratio` | Dialogue lines that exactly or nearly repeat an earlier line in the window | Dialogue lines in accepted scenes | none, `atMost` |
+| Character Consistency（聲音） | `voice_distinctiveness` | Dialogue lines whose normalised text is spoken by exactly one character in the window | Dialogue lines in accepted scenes | none, `atLeast` |
+| Character Consistency（人設） | `persona_deviation_rate` | Accepted events carrying at least one FR-B003 persona deviation flag | Accepted events with at least one participant who has a persona anchor | none, `atMost` |
+| Event Novelty | `event_novelty_ratio` | Accepted events whose public summary is below `0.6` Jaccard to **every** one of the previous 30 accepted summaries | Accepted events with a public summary, after the first | none, `atLeast` |
+
+Only 重複場景比例 carries a number, because §16.2 is the only place the PRD states one.
+FR-M002 names the other three dimensions and sets no threshold, so the report publishes the
+rate with its denominator and refuses to invent one. The floors and ceilings in
+`longRunHarness.test.ts` — dialogue repetition under 15%, voice above 0.85, novelty above
+0.5 — are regression pins on the fixed seed, not PRD targets, and are labelled as such.
+
+A world with no persona anchors reports `persona_deviation_rate` as `no_observations` with
+the reason 「the world carries no persona anchors」, and its half of the composite drops out
+of the score's measured weight rather than scoring a perfect zero.
+
+### 4.3 Exact, near and template are three different things
+
+- **Exact duplicate.** The normalised scene text — summary, key actions, dialogue lines and
+  Proposed Event public summaries, joined, identifiers masked — is identical to an earlier
+  accepted scene's. This is what ART-60's content digest already caught.
+- **Near duplicate.** Character 3-gram Jaccard against some earlier accepted scene is at
+  least `NEAR_DUPLICATE_SIMILARITY`. This is the case a digest cannot see and a reader can:
+  two fills of one template that differ in a single slot are the same scene to a reader and
+  two distinct digests to a hash.
+- **Template reuse.** The structural signature — the normalised text with every quoted span
+  「…」, every number and every identifier collapsed — matches an earlier scene's. A template
+  with more slots is a larger output space and is still a template.
+
+**The §16.2 ratio counts exact OR near.** Template reuse is reported beside it with no PRD
+target, deliberately: an author can lower the headline ratio by widening its slots, and
+`template_reuse_ratio` is what still says the scenes came from one mould when the other two
+metrics are clean. Folding it into the headline would let a wider template read as
+originality; leaving it out entirely would hide the thing the fixture is most guilty of.
+
+### 4.4 The thresholds are properties of the measure, not of the fixture
+
+| Constant | Value | What it is |
+| --- | --- | --- |
+| `NEAR_DUPLICATE_SIMILARITY` | `0.8` | The point at which two zh-Hant sentences of this length share most of their 3-grams, i.e. where a reader stops seeing two sentences |
+| `NOVELTY_LOOKBACK_EVENTS` | `30` | How many earlier accepted events an event's summary is compared against. Novelty is about recent memory: restating something from six days ago is not the failure the metric is after |
+| `NOVEL_EVENT_MAX_SIMILARITY` | `0.6` | Below this against every event in the lookback, an event says something new. Looser than the duplicate threshold on purpose — a summary may legitimately share vocabulary with its neighbours and still carry new information |
+
+None of the three was tuned until the fixed seed passed. They are versioned with
+`NARRATIVE_EVALUATOR_VERSION`, and changing one changes what the metric means, so it must
+bump the version. The harness test pins the ratio against an **absolute** denominator
+(`ACCEPTED_SCENES`, 104 at seven days and 449 at thirty) rather than against whatever the
+run produced, so the ratio cannot be improved by authoring fewer scenes.
+
+### 4.5 Finding codes
+
+| Code | Severity | Meaning |
+| --- | --- | --- |
+| `SCENE_EXACT_DUPLICATE` | severe | An accepted scene's normalised text is identical to an earlier accepted scene's |
+| `SCENE_NEAR_DUPLICATE` | severe | An accepted scene is at or above the near-duplicate threshold against an earlier accepted scene |
+| `SCENE_TEMPLATE_REUSED` | minor | An accepted scene was written from the same template as an earlier one |
+| `DIALOGUE_REPEATED` | minor | A dialogue line repeats, exactly or nearly, an earlier line in the window |
+| `VOICE_COLLAPSED` | severe | One normalised line is spoken by two or more different characters: the cast has one voice |
+| `EVENT_NOT_NOVEL` | minor | An accepted event's public summary is a near-duplicate of one in the recent lookback |
+| `PERSONA_DEVIATION_FLAGGED` | minor | Canon flagged a justified persona deviation on this accepted event. Reported, not judged |
+
+A repeated scene and a collapsed voice are `severe` because both mean the audience is being
+shown the same thing twice. Template reuse, a repeated line and a restated event are
+`minor`: each is a degree of sameness rather than a duplicate. `PERSONA_DEVIATION_FLAGGED`
+is `minor` because it reports a deviation Canon **accepted**; see the next section.
+
+`VOICE_COLLAPSED` names its subject by the FNV-1a digest of the line, and its evidence refs
+are the character ids that share it. The line itself never enters the report.
+
+### 4.6 Character consistency is two components, honestly
+
+| Component | Metric | Weight | Transform |
+| --- | --- | --- | --- |
+| `voice` | `voice_distinctiveness` | 0.5 | `rate` |
+| `persona` | `persona_deviation_rate` | 0.5 | `complement` |
+
+The composite is `character_consistency`, built by the same `composeScore` the Continuity
+Score uses, so a component with no observations drops its weight instead of contributing a
+zero.
+
+The honest reading of the persona half: FR-B003's gate (`assessPersonaDeviations`) is
+**structural**. It sees occupation, membership and relationship reversals, never voice, and
+it **refuses** an unjustified reversal at the Canon boundary. Accepted history therefore
+carries only *flagged, justified* deviations, and `persona_deviation_rate` measures how
+often one of those was admitted — not how often a character acted out of character, because
+that population cannot exist in accepted history. Reading it as the latter would credit the
+author for a gate's work.
+
+`voice_distinctiveness` is the half the gate cannot see. A cast that all speak one sentence
+scores zero here whatever the projection says about their occupations, which is exactly the
+failure the human review recorded as F-01 before ART-88.
+
+### 4.7 Identifier masking, and why
+
+Every comparison runs over text with the world's identifiers masked to a single token:
+character ids, location ids, arc ids and the world id, longest first so `mistwood-hall-annex`
+is masked before `mistwood-hall`, plus every run of digits. The id lists come from the
+world's own rows, so masking is exact rather than a regex guess at what looks like an id.
+
+Identifiers are unique by construction. Left in, they make two scenes at different places
+trivially distinct, and the §16.2 ratio would read zero for an author emitting one sentence
+with the names swapped — the same reason ART-60's digest excluded them. Masking rather than
+deleting keeps the sentence's shape, so a name-shaped hole still separates two grams that
+were never adjacent. `narrative.test.ts` asserts both directions: a repeat that masking
+catches and an unmasked run misses, and a false near-duplicate that two scenes sharing a
+long cast list produce when the ids are left in.
+
+### 4.8 Text similarity
+
+`convex/quality/textSimilarity.ts` is the measure, and it holds no thresholds: it returns
+numbers, and what counts as "near" is a metric definition versioned with the evaluator that
+owns it. It is pure and carries no node builtin, so the same code runs inside a Convex query
+and inside the harness.
+
+- **Normalisation** (`normalizeNarrative`). Identifiers and digits masked, whitespace and
+  punctuation dropped. Deterministic and idempotent. Two sentences that differ only in a
+  comma are one sentence.
+- **Character 3-gram shingles** (`shingles`) and **Jaccard** (`jaccard`). Character n-grams
+  because the prose is zh-Hant, where words are not whitespace-delimited; three is the
+  smallest window at which two unrelated sentences stop sharing most of their grams. The
+  shingles are a set, windowed over code points rather than UTF-16 units. Two empty sets are
+  identical; one empty set is disjoint.
+- **Structural signature** (`structuralSignature`). The masked text with every 「…」 and
+  every `"…"` span collapsed, hashed to a 16-hex-digit grouping key. What remains is the
+  template.
+- **`nearestEarlier`** returns, for each text, the most similar **earlier** text at or above
+  a threshold, ties broken toward the earliest index. Earlier means lower index, and the
+  caller orders by accepted sequence, which is what charges a repeat to the copy.
+
+The last one is the reason a 30-day window is tractable. A naive scan is quadratic in the
+number of dialogue lines, and thirty days produce thousands. `nearestEarlier` builds an
+inverted index from gram to the earlier texts containing it, and only scores candidates
+sharing at least `ceil(s·a / (1 + s))` grams with the current text of size `a`. That bound
+is derived, not tuned: `shared / (a + b - shared) ≥ s` with `shared ≤ min(a, b)` implies
+`shared ≥ s·a / (1 + s)`, so a candidate below it **cannot** reach the threshold and
+skipping it changes no answer. A test drives a pair just above the threshold to prove the
+pruning does not drop it.
+
+## 5. The operator queries
+
+Both live in `convex/operations/worldQualityFunctions.ts`, declared in
+`publicFunctionSurface` as `query` with gate `operator`, which is what makes adding either
+an architectural change rather than a line edit.
+
+| Query | Evaluator | Delivered by |
+| --- | --- | --- |
+| `getContinuityQualityMetrics` | `convex/quality/continuity.ts` | ART-58 |
+| `getNarrativeQualityMetrics` | `convex/quality/narrative.ts` | ART-88 |
+
+They live in `operations` and not in `quality` for the same reason
 `productAnalyticsFunctions.ts` lives in `operations` and not in `analytics`: the gate lives
 here. `requireOperator` reads the deployment's operator registry, and `quality` is a pure
 module in `canonWriteBoundary.forbiddenModules` — it must not be able to reach the
 console's authorization any more than it can reach a Canon write. The evaluator computes,
 this file reads evidence rows and applies the gate, and neither knows the other's tables.
 
-**Capability: `world.inspect`.** Reused rather than minted, for the reason ART-47 and
-ART-133 reused `schedule.inspect`: a capability is a decision about the operator role
+**Capability: `world.inspect`, for both.** Reused rather than minted, for the reason ART-47
+and ART-133 reused `schedule.inspect`: a capability is a decision about the operator role
 model, and this file reports numbers. It is `world.inspect` because that is what the
 FR-K002 proposal review already uses for the same class of evidence, accepted history and
 its validation. The gate exists even though the payload is ids and counts, because
 「這個世界昨天有幾個 Canon 衝突」 should not be readable by an anonymous caller enumerating
 world ids, and a finding names accepted event ids a public reader has no other route to.
+The narrative query needs the gate for a second reason: it reads a world's scene prose to
+compute its numbers, and however little of that prose reaches the payload, the read itself
+belongs behind the console.
 
-### 4.1 Arguments and window bounds
+### 5.1 Arguments and window bounds
+
+Both queries take the same four arguments and derive the window the same way.
 
 | Argument | Meaning |
 | --- | --- |
@@ -244,7 +434,7 @@ world ids, and a finding names accepted event ids a public reader has no other r
 
 `fromWorldDay` is `max(0, toWorldDay - windowDays + 1)`.
 
-### 4.2 What is read, and from which index
+### 5.2 What `getContinuityQualityMetrics` reads, and from which index
 
 Everything is index-scoped to the world and to the window.
 
@@ -266,48 +456,97 @@ scenes is well under this for the longest window. Reaching it means the world is
 than the report's bound, and the report says so through `coverage.scanLimitReached` rather
 than measuring a prefix and calling it the window. Truncation is never silent.
 
-### 4.3 What the payload never contains
+### 5.3 What `getNarrativeQualityMetrics` reads, and from which index
 
-The return is `{ definition, report, origin }`. The definition is the evaluator's metric
-and score definitions plus its finding codes with their severities. The report is metric
-observations, the composite score, findings, coverage and the digest. The origin says
+Scene prose lives only in `sceneSimulationRuns.result`, a `v.any()` LLM-blob table. CLAUDE.md
+§9 forbids `.collect()`ing a whole world on that kind of table, so the read is index-scoped
+to the slot: `sceneSimulationRuns.by_grouping_run` for each `(worldDay, timeSlot)` in the
+window, where the grouping run id is derived from the slot. That is `days × 5` point-range
+reads, never a world-wide sweep, and it is bounded by the same window as the event scan.
+
+- The window's accepted events come from `canonEvents.by_world_and_day`, and the latest day
+  from `canonEvents.by_world_and_sequence`. They supply the scene join, the persona fold and
+  the novelty denominator.
+- `worldCharacters`, `worldLocations` and `storyArcLifecycles` are read by world index. They
+  are seed-sized, and they supply both the identifier list to mask and the persona anchors
+  (`personaAnchorFromSeed`, the same reader the commit path uses).
+- The fold origin for the persona half is the **same** `resolveFoldOrigin` the continuity
+  query uses, so the two evaluators agree on where the window began rather than each
+  deciding for itself.
+
+`coverage.scanLimitReached` is set when either the event scan or the scene scan hits
+`SCAN_LIMIT`. Truncation is never silent on either read.
+
+### 5.4 The payloads, and what they never contain
+
+`getContinuityQualityMetrics` returns `{ definition, report, origin }`. The origin says
 which kind of origin was chosen, its ref, and how many pre-window events were folded.
 
-No episode prose, no recap text, no secret content, no private fact value, no prompt, and
-no memory content appears anywhere in it — only ids, stable codes, counts and rates.
+`getNarrativeQualityMetrics` returns `{ definition, report, scenes }`, where `scenes` is
+`{ read, accepted, withheld }`. That triple exists so the denominator is checkable from
+outside the evaluator: `accepted` must equal `repeated_scene_ratio`'s denominator, and
+`read − accepted − withheld` is the scenes Canon never accepted. A ratio whose denominator
+cannot be audited is a number an operator has to take on faith.
 
-### 4.4 Nothing is persisted
+In both, the definition is the evaluator's metric and score definitions plus its finding
+codes with their severities, and the report is metric observations, the composite score,
+findings, coverage and the digest.
 
-The query writes no run row. There is therefore no run to deduplicate and no
+No episode prose, no scene text, no dialogue line, no recap text, no secret content, no
+private fact value, no prompt and no memory content appears anywhere in either — only ids,
+stable codes, counts and rates. `narrative.test.ts` drives a finding of every code and
+asserts that not one word of the prose it was computed from appears in the report.
+
+### 5.5 Nothing is persisted
+
+Neither query writes a run row. There is therefore no run to deduplicate and no
 evaluator-version migration to manage: the evidence is the durable record, and the report
 is derived from it on every call. Exactly-once is a property of the evidence ids, and the
-pure module counts by those ids.
+pure modules count by those ids.
 
-## 5. The same evaluator inside the long-run harness
+## 6. The same evaluators inside the long-run harness
 
-`runLongRunSimulation` calls `evaluateContinuityWindow` over the run's own evidence and
-returns it as `LongRunFindings.continuity`. The origin is the seeded `initial_snapshot`,
-the snapshots are the ones the real daily-snapshot stage persisted, and the publications
-are the episodes and recap formats the editorial stages produced.
+`runLongRunSimulation` calls `evaluateContinuityWindow` and `evaluateNarrative` over the
+run's own evidence and returns them as `LongRunFindings.continuity` and
+`LongRunFindings.narrative`. The continuity origin is the seeded `initial_snapshot`, the
+snapshots are the ones the real daily-snapshot stage persisted, and the publications are the
+episodes and recap formats the editorial stages produced. The narrative evidence is the
+run's own authored scenes, joined to the accepted log by the same `metadata.sceneId` join
+the operator query uses, with the run's withheld scenes marked withheld.
 
-This is **not** a restatement of the harness's own `canonConflicts` and `replay` fields.
-Those are the harness's independent checks; agreement between two independent computations
-is the evidence, and disagreement is a finding. The 7-day test asserts that the count of
-severe continuity findings equals the count of harness Canon conflicts.
+This is **not** a restatement of the harness's own `canonConflicts`, `replay` and
+`repetition` fields. Those are the harness's independent checks; agreement between two
+independent computations is the evidence, and disagreement is a finding. The 7-day test
+asserts that the count of severe continuity findings equals the count of harness Canon
+conflicts.
 
-Over the fixed 7-day seed the report is clean, and every denominator is non-empty:
+Over the fixed 7-day seed both reports are clean, and every denominator is non-empty:
 
 | Quantity | Value |
 | --- | --- |
-| Accepted events (all four event-denominated metrics) | 104 |
+| Accepted events (all four event-denominated continuity metrics) | 104 |
 | World days replay-consistent | 7 of 7 |
 | Publications examined (7 episodes + 7 recap-format rows) | 14 |
 | Unsourced secret leaks, severe conflicts, deceased appearances, location conflicts | 0 |
 | Continuity Score | 1.0, `weightMeasured` 1.0 of `weightTotal` 1.0 |
+| Accepted scenes (every scene-denominated narrative metric) | 104 |
+| Repeated scenes (exact or near) | 0 of 104 |
+| Exact duplicates, template reuse | 0, 0 |
+| Repeated dialogue lines | 2 of 348 (0.6%) |
+| Lines spoken by exactly one character | 348 of 348 |
+| Accepted events carrying a persona deviation flag | 0 of 104 |
+| Novel events | 81 of 103 (78.6%) |
+| World days whose recap formats the composer refused | 0 |
+
+Over the 30-day seed the repeated-scene ratio is **0 of 449**, against the §16.2 ceiling of
+15%; exact duplicates and template reuse are zero; event novelty is 309 of 448 (69%); and
+no world day's recap formats were refused. Dialogue repetition stays under 15% and voice
+distinctiveness above 0.85 on that seed, which is what the harness test pins rather than a
+figure quoted here.
 
 See [`long-run-simulation-harness.md`](./long-run-simulation-harness.md).
 
-## 6. How ART-88, ART-89 and ART-90 plug in
+## 7. How ART-89 and ART-90 plug in
 
 A new evaluator is a new file under `convex/quality/` and four decisions, none of which
 require touching the pattern:
@@ -327,11 +566,13 @@ require touching the pattern:
 
 Then add one read surface and one harness field: a query in `convex/operations/` gated on
 an existing capability and declared in `publicFunctionSurface`, and a field on
-`LongRunFindings` beside `continuity`. `EvidenceKind` already carries the kinds the other
-three need — `scene`, `arc`, `coverage_report`, `safety_classification`, `world_day_run` —
-so their findings reference evidence in the same vocabulary.
+`LongRunFindings` beside `continuity` and `narrative`. `EvidenceKind` already carries the
+kinds the remaining two need — `scene`, `arc`, `coverage_report`, `safety_classification`,
+`world_day_run` — so their findings reference evidence in the same vocabulary. ART-88 is
+what shows the pattern holds for a second evaluator: it added `narrative.ts` and its query
+and its harness field, and changed nothing in `evaluator.ts`.
 
-## 7. Verification
+## 8. Verification
 
 - `convex/quality/evaluator.test.ts` pins the shared contract (zero denominator ⇒
   `no_observations`, never `0%`; score renormalisation; finding dedupe; digest stability).
@@ -341,17 +582,37 @@ so their findings reference evidence in the same vocabulary.
   gap and duplicate key, snapshot match / hash mismatch / sequence mismatch, unsourced leak and its
   sourced exception, window chaining, digest determinism — and asserts the secret text never
   appears in a report.
-- `convex/operations/longRunHarness.test.ts` asserts the whole report over the fixed 7-day
+- `convex/quality/textSimilarity.test.ts` pins the measure itself: masking to one token rather
+  than deletion, longest identifier first, digits in either script, idempotence; shingles as a
+  set windowed over code points; Jaccard's empty-set cases and its symmetry; a structural
+  signature equal across two texts differing only inside 「…」, a number or an identifier, and
+  unequal when a clause outside the slots differs; and, for `nearestEarlier`, that the first
+  text is never charged, that the later of two identical texts is, that a tie breaks toward the
+  earliest index, and that the inverted-index pruning does not drop a pair just above the
+  threshold.
+- `convex/quality/narrative.test.ts` drives every finding code from hand-built scenes: copies
+  charged and the original spared; a near duplicate that a digest cannot see, reported as near
+  and counted once; template reuse reported beside a clean ratio; the denominator excluding
+  withheld and unaccepted scenes and reporting what it left out; a window of only withheld
+  scenes measuring *nothing* rather than zero; a repeated line that does not collapse a voice
+  and a shared line that does; the composite over voice alone when no anchors exist; persona
+  flags read from the seed's own anchors rather than a literal; and the fault-injection pair
+  that proves masking is load-bearing — a repeat masking catches and an unmasked run misses,
+  and a false near-duplicate that appears when identifiers are left in.
+- `convex/operations/longRunHarness.test.ts` asserts both whole reports over the fixed 7-day
   and 30-day seeds: evaluator id and version, window, coverage, every metric's numerator
-  *and* denominator, the score, and agreement with the harness's independent checks.
-- `convex/publicRead/publicReadOnlyGuarantee.test.ts` pins `getContinuityQualityMetrics` in
-  `publicFunctionSurface`; declared must equal found, exhaustively.
+  *and* denominator, the score, agreement with the harness's independent checks, and
+  `recapCoverage.recapFormatFailures` empty.
+- `convex/publicRead/publicReadOnlyGuarantee.test.ts` pins `getContinuityQualityMetrics` and
+  `getNarrativeQualityMetrics` in `publicFunctionSurface`; declared must equal found,
+  exhaustively.
 - `npm run check:architecture` fails the build if `convex/quality` names a Canon write
   symbol, or if any module reaches `quality` without declaring it.
 
 ```bash
 npm run check
 npm test -- --runTestsByPath convex/quality/evaluator.test.ts convex/quality/continuity.test.ts
+npm test -- --runTestsByPath convex/quality/textSimilarity.test.ts convex/quality/narrative.test.ts
 npm test -- --runTestsByPath convex/operations/longRunHarness.test.ts
 npm run test:longrun   # the 30-day gate, ART60_LONG_RUN=1
 ```
