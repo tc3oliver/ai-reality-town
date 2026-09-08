@@ -110,7 +110,6 @@ type MutationCtx = GenericMutationCtx<DataModel>;
 /** Server actor for the automated pipeline; FR-K004 reserves `publish` for administrators. */
 const SYSTEM_ACTOR = { type: 'system' as const, id: 'post-commit-pipeline' };
 const OPERATOR = { type: 'operations' as const, operatorId: 'post-commit-pipeline' };
-const LAST_TIME_SLOT = TIME_SLOTS[TIME_SLOTS.length - 1];
 /**
  * Accepted events one `runLiveWorldDayCycle` transaction takes through stages 11–21.
  *
@@ -237,8 +236,7 @@ const runQueuedWorldDaySlotRef = internalFunctionRef<typeof runQueuedWorldDaySlo
 export function completedWorldDays(events: readonly AcceptedEvent[]): number[] {
   const days = [...new Set(events.map(({ worldDay }) => worldDay))].sort((left, right) => left - right);
   const latest = days[days.length - 1];
-  return days.filter((day) => day < latest
-    || events.some((event) => event.worldDay === day && event.timeSlot === LAST_TIME_SLOT));
+  return days.filter((day) => day < latest);
 }
 
 /**
@@ -248,19 +246,41 @@ export function completedWorldDays(events: readonly AcceptedEvent[]): number[] {
  * day set; this takes that set as an argument, because `worldDayLedgers` maintains it
  * incrementally (see that table). A day that produced no events is absent from both.
  *
- * The FILTER is not folded and must not be: whether the latest day is finished changes as that day
- * runs, so it is recomputed from the latest day's own events on every call. Every day below the
- * latest is finished by definition, which is why only one day's rows are ever examined.
+ * ## A day is over when the world has moved past it, not when its last slot begins (ART-89)
+ *
+ * Both functions used to admit the latest day as soon as ONE accepted event carried the last time
+ * slot. That was wrong, and the way it was wrong was invisible: this pipeline runs once per
+ * accepted event, so the FIRST event of a day's night slot marked the day complete, the episode
+ * stage assembled that day's Episode from the events accepted so far, and episodes are idempotent
+ * per world day — so the rest of the night slot was never in any Episode, any recap, or any
+ * publication, for every day of every world. Over the fixed 7-day seed that left 14 of 96
+ * high-importance Accepted Events permanently uncovered and §16.2's 95% coverage clause at 85.4%.
+ * Nothing failed: the coverage gate obliges an Episode to cite the events of its own day AS THE
+ * EPISODE SAW THEM, so an Episode built from a partial day passed its own check.
+ *
+ * `day < latestWorldDay` is the only rule Canon can state honestly. A world day is finished when
+ * a later day has accepted an event; until then the day may still commit more. The cost is that the
+ * newest day's Episode is due on the next day's first commit rather than on its own last slot,
+ * which is what a daily recap means anyway — `getStoryQualityMetrics` excludes the not-yet-due day
+ * from the coverage denominator with a reason rather than counting it as uncovered.
  */
 export function completedWorldDaysOf(
   worldDays: readonly number[],
   latestWorldDay: number,
-  latestDayEvents: readonly AcceptedEvent[],
 ): number[] {
-  const latestIsFinished = latestDayEvents.some((event) => event.timeSlot === LAST_TIME_SLOT);
   return [...worldDays]
     .sort((left, right) => left - right)
-    .filter((day) => day < latestWorldDay || latestIsFinished);
+    .filter((day) => day < latestWorldDay);
+}
+
+/**
+ * Whether the latest world day has entered its final time slot.
+ *
+ * The daily snapshot's condition, and deliberately NOT the episode's — see
+ * `PostCommitWorldState.latestWorldDayFinalSlotStarted` for why the two questions are different.
+ */
+export function finalSlotStarted(latestDayEvents: readonly AcceptedEvent[]): boolean {
+  return latestDayEvents.some((event) => event.timeSlot === TIME_SLOTS[TIME_SLOTS.length - 1]);
 }
 
 /**
@@ -345,7 +365,7 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
    */
   type CanonWorldView = Pick<PostCommitWorldState,
     'event' | 'completedWorldDays' | 'worldDayFirstSequenceNumber' | 'timeSlotFirstSequenceNumber'
-    | 'seasonFirstSequenceNumber' | 'latestWorldDay'>;
+    | 'seasonFirstSequenceNumber' | 'latestWorldDay' | 'latestWorldDayFinalSlotStarted'>;
   let canonView: CanonWorldView | null = null;
 
   /**
@@ -415,7 +435,7 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
     // up and probes whatever it already knew; the second probes the days the first just revealed.
     // Both are bounded, and both write the same row inside one transaction.
     const firstPass = await advanceDayLedger(worldId, []);
-    const completed = completedWorldDaysOf(firstPass.worldDays, latestWorldDay, latestDayEvents);
+    const completed = completedWorldDaysOf(firstPass.worldDays, latestWorldDay);
     episodeWorldDays = (await advanceDayLedger(worldId, completed)).episodeWorldDays;
 
     const worldDayFirstSequenceNumber = dayEvents.reduce(
@@ -423,6 +443,7 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
     canonView = {
       event,
       completedWorldDays: completed,
+      latestWorldDayFinalSlotStarted: finalSlotStarted(latestDayEvents),
       worldDayFirstSequenceNumber,
       // Both derived from the day's events, already loaded — no extra read for either tier.
       timeSlotFirstSequenceNumber: dayEvents

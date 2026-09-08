@@ -78,7 +78,8 @@ the 30-day evidence never exercised the persona gate at all.
 | Character appearance | `appearance` | The Director's own `slotsSinceMajorAppearance` input, sampled at every slot, against `MAX_SLOTS_WITHOUT_APPEARANCE` (two full world days), plus characters that never took part in a committed scene, plus the committed `character_location_changed` count (`relocations`) — a world that never relocates anyone is a world where a stranded character can never be reached (ART-101). |
 | Repetition | `repetition` | 128-bit FNV-1a digest (`contentDigest`) over the canonical JSON of each scene's **authored prose only**: scene summary, key actions, dialogue lines and Proposed Event public summaries. Scene IDs, run IDs, world day and time slot are excluded on purpose — they are unique by construction and would make every scene trivially distinct. Two scenes sharing a digest told the audience the same thing. A pure-JS digest is used rather than `node:crypto` so the module carries no node builtin. It measures **exact** duplication over **every authored** scene, which is a different population from the §16.2 ratio below; it is kept as the harness's own independent check. |
 | Narrative (FR-M002 / §16.2) | `narrative` | An `EvaluationReport` from the **same** `convex/quality/narrative.ts` evaluator the operator query runs, over the run's authored scenes joined to Canon through `metadata.sceneId`. It reports §16.2's 重複場景比例 — exact **or** near-duplicate, Jaccard ≥ 0.8 over identifier-masked character 3-grams, over **accepted** scenes — with the exact and template-reuse splits beside it, plus dialogue repetition, voice distinctiveness, persona deviation and event novelty. The denominator is pinned in the test as an absolute count (104 at seven days, 449 at thirty), so the ratio cannot be improved by authoring fewer scenes. See [`world-quality-metrics.md`](./world-quality-metrics.md). |
-| Recap coverage | `recapCoverage` | Every completed world day must have ≥1 accepted event and exactly one episode; every episode must have non-blank title/headline/one-line summary, at least `MIN_EPISODE_SCENES` key scenes and at least one source event. Each episode is then run through ART-35 `validateRecapCoverage` for FR-G004 coverage gaps and spoiler leaks. `recapFormatFailures` reports every world day whose FR-G003 recap formats the real composer **refused**, with the code. Until ART-88 a refusal was recorded in the harness's own map and reported nowhere, so an author change that made six days in seven unrecappable left every assertion green; the test now requires the list to be empty. |
+| Story quality (FR-M002 / §16.2) | `storyQuality` | An `EvaluationReport` from the **same** `convex/quality/storyQuality.ts` evaluator the operator query runs. It reports §16.2's 高重要度摘要覆蓋率 over the high-importance accepted events **Canon** holds — never over the episodes, which `buildDailyEpisode` refuses to store with one missing, so a ratio over them could not fail — plus Spoiler Violation from the persisted FR-G004 verdicts, and Arc Progress, Arc Stagnation and Arc Resolution evidence. The run declares no exclusions (`exclusions: []`), because a deterministic run has no operator and its coverage rate should be the unassisted one; the newest day is passed as `pendingWorldDays`, so its events are excluded with a reason rather than charged as uncovered. The test asserts the denominator non-empty **before** the rate, and asserts `excluded` is non-zero. See [`world-quality-metrics.md`](./world-quality-metrics.md). |
+| Recap coverage | `recapCoverage` | Every completed world day must have ≥1 accepted event and exactly one episode; every episode must have non-blank title/headline/one-line summary, at least `MIN_EPISODE_SCENES` key scenes and at least one source event. Each episode is then run through ART-35 `validateRecapCoverage` for FR-G004 coverage gaps and spoiler leaks. `recapFormatFailures` reports every world day whose FR-G003 recap formats the real composer **refused**, with the code. Until ART-88 a refusal was recorded in the harness's own map and reported nowhere, so an author change that made six days in seven unrecappable left every assertion green; the test now requires the list to be empty. **`episodes` is `worldDays - 1` since ART-89**, and the missing one is the newest day — see below. |
 | Token anomalies | `tokens` | **Honestly scoped.** The run is authored by the fake provider, which consumes no real tokens — its counts are derived from payload length. The checks prove the `ProviderTraceMetadata` accounting channel is wired and internally sane (finite, non-negative, non-zero counts; no unexpected retries) and record `realProviderSpendChecked: false`. Real spend-anomaly detection needs the ART-72 provider adapter and is deliberately **not** simulated; no token-tracking mechanism was invented for this task. |
 | Safety outcomes | `safety` | Every simulated scene must carry a real `classifyPostGeneration` verdict (ART-54/55) and every episode a safety classification ID. `eventsBypassingSafety` maps each accepted event back to its authoring scene through the `<sceneId>:event:<n>` idempotency key and reports any event whose scene was unclassified or was withheld for review. |
 
@@ -116,9 +117,37 @@ Its only consumer is `convex/operations/narrativeReviewSample.ts`; see
 
 The 7-day and 30-day runs are clean on completion rate (100%), Canon conflicts (zero),
 replay equality (100%), arc limits, arc progress, arc stagnation (zero arcs past the 14-day
-threshold), recap coverage (every world day has canon and exactly one non-empty episode,
-zero FR-G004 findings), token-channel sanity and safety (every scene and episode classified,
-zero events bypassing safety).
+threshold), recap coverage (every **completed** world day has canon and exactly one
+non-empty episode, zero FR-G004 findings), token-channel sanity and safety (every scene and
+episode classified, zero events bypassing safety).
+
+### `episodes` is `worldDays - 1`, and that is the fix
+
+`recapCoverage.episodes` and `recapCoverage.completedWorldDays` are both `worldDays - 1`.
+The test asserted `worldDays` until ART-89, and that assertion was pinning a defect.
+
+A world day used to be treated as complete the moment one accepted event carried the final
+time slot. The post-commit pipeline runs once per accepted event, so the *first* event of a
+day's final slot marked the day complete, the episode stage assembled that day's Episode
+from the events accepted so far, and Episodes are idempotent per world day — so the rest of
+that slot reached no Episode, no recap and no publication, for every day of every world.
+Nothing failed, because the FR-G004 coverage gate obliges an Episode to cite the events of
+its own day as the Episode saw them, and an Episode built from a partial day passes its own
+check. Over this seed that left **14 of 96 high-importance Accepted Events permanently
+uncovered** and §16.2's coverage clause at **85.4%**.
+
+A day is now finished when the world has moved past it, so the newest day's Episode is due
+on the next day's first commit. In production the next cron tick composes it. A run that
+stops mid-world leaves exactly one day pending, which is why the count is one short and why
+`storyQuality` excludes that day with a reason instead of charging it as a failure. See
+[`accepted-event-episodes.md`](./accepted-event-episodes.md).
+
+Two neighbouring numbers move with it, and one deliberately does not. The continuity
+evaluator's publication denominator is now `2 × (worldDays − 1)` — six episodes and six
+recap-format rows at seven days, not seven and seven, and the table below said 14 before
+ART-89. Replay consistency stays at **7 of 7**, because the daily snapshot fires on
+`latestWorldDayFinalSlotStarted` rather than on completion: a snapshot may only be taken
+while its day is still the latest, which is the opposite of what an Episode needs.
 
 The FR-M002 continuity report is clean over both, and every denominator it uses is
 non-empty. Over the 7-day seed:
@@ -127,7 +156,7 @@ non-empty. Over the 7-day seed:
 | --- | --- |
 | Accepted events | 104 |
 | World days replay-consistent against a persisted daily snapshot | 7 of 7 |
-| Publications examined (7 episodes + 7 recap-format rows) | 14 |
+| Publications examined (6 episodes + 6 recap-format rows) | 12 |
 | Severe conflicts, unsourced secret leaks, deceased appearances, location conflicts | 0 |
 | Continuity Score | 1.0 across all five components |
 
@@ -158,6 +187,23 @@ non-empty. Over the 7-day seed:
 | Accepted events carrying a persona deviation flag | 0 of 104 |
 | Novel events | 81 of 103 (78.6%) |
 | World days whose recap formats the composer refused | 0 |
+
+The FR-M002 story-quality report is clean over the 7-day seed, and every denominator it uses
+is non-empty:
+
+| Quantity | Value |
+| --- | --- |
+| High-importance events covered (§16.2 高重要度摘要覆蓋率) | 81 of 81 (100%) |
+| High-importance events excluded as not-yet-due | 15 |
+| Published contents carrying a spoiler finding | 0 of 6 |
+| Active arcs that advanced a projection revision | 3 of 3 |
+| Active arcs past the 14-day stagnation threshold | 0 of 3 |
+| Terminal arcs carrying an outcome and a consequence | 3 of 3 |
+| Story Health | 1.0 |
+
+Coverage is 81 of 81 rather than 81 of 96 because the seventh day's 15 high-importance
+events are on the newest day, whose Episode is not due yet. The same seed measured 85.4%
+before the completion-rule fix described above.
 
 Over the 30-day seed: 449 accepted scenes, a repeated-scene ratio of **0 of 449** against
 the §16.2 ceiling of 15%, zero exact duplicates, zero template reuse, event novelty at 309

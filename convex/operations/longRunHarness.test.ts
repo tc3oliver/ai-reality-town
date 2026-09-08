@@ -16,6 +16,7 @@ import { ARC_STAGNATION_WORLD_DAYS } from '../story/resolution';
 import { FAKE_SCENE_MODEL } from '../simulation/fakeSceneNarrator';
 import { CONTINUITY_EVALUATOR_ID, CONTINUITY_EVALUATOR_VERSION } from '../quality/continuity';
 import { NARRATIVE_EVALUATOR_ID, NARRATIVE_EVALUATOR_VERSION } from '../quality/narrative';
+import { STORY_QUALITY_EVALUATOR_ID, STORY_QUALITY_EVALUATOR_VERSION } from '../quality/storyQuality';
 import { mistwoodWorldConfiguration } from '../canon/mistwoodSeed';
 import {
   contentDigest,
@@ -100,8 +101,9 @@ function expectCleanRun(findings: LongRunFindings, worldDays: number): void {
   expect(metric('severe_canon_conflicts')).toMatchObject({ numerator: 0, rate: 0, status: 'measured', meetsTarget: true });
   expect(metric('replay_consistency').denominator).toBe(worldDays);
   expect(metric('replay_consistency')).toMatchObject({ numerator: worldDays, rate: 1, status: 'measured', meetsTarget: true, excluded: 0 });
-  // Episodes plus recap formats, one of each per world day.
-  expect(metric('unsourced_secret_leaks').denominator).toBe(2 * worldDays);
+  // Episodes plus recap formats, one of each per COMPLETED world day — the newest day's Episode
+  // is due on the next day's first commit (ART-89).
+  expect(metric('unsourced_secret_leaks').denominator).toBe(2 * (worldDays - 1));
   expect(metric('unsourced_secret_leaks')).toMatchObject({ numerator: 0, rate: 0, status: 'measured', meetsTarget: true });
   expect(metric('deceased_character_appearances')).toMatchObject({ numerator: 0, denominator: findings.acceptedEvents, meetsTarget: true });
   expect(metric('character_location_conflicts')).toMatchObject({ numerator: 0, denominator: findings.acceptedEvents, meetsTarget: true });
@@ -155,6 +157,38 @@ function expectCleanRun(findings: LongRunFindings, worldDays: number): void {
   // ART-88 — a refusal was recorded in the harness's own map and reported nowhere.
   expect(findings.recapCoverage.recapFormatFailures).toEqual([]);
 
+  /**
+   * FR-M002 arc / recap / spoiler (ART-89) — PRD §16.2 高重要度摘要覆蓋率 ≥ 95%.
+   *
+   * The denominator is read from CANON, never from the episodes: `buildDailyEpisode` refuses to
+   * store an episode that omits a high-importance event, so a coverage ratio over stored episodes
+   * reads 100% by construction and could not fail. It is asserted non-empty before the rate.
+   */
+  const story = findings.storyQuality;
+  expect(story.evaluatorId).toBe(STORY_QUALITY_EVALUATOR_ID);
+  expect(story.evaluatorVersion).toBe(STORY_QUALITY_EVALUATOR_VERSION);
+  const storyMetric = (key: string) => {
+    const found = story.metrics.find((candidate) => candidate.key === key);
+    if (!found) throw new Error(`story metric ${key} missing`);
+    return found;
+  };
+  const coverageMetric = storyMetric('recap_coverage');
+  expect(coverageMetric.denominator).toBeGreaterThan(0);
+  expect(coverageMetric.status).toBe('measured');
+  expect(coverageMetric.target).toBe(0.95);
+  expect(coverageMetric.rate!).toBeGreaterThanOrEqual(0.95);
+  expect(coverageMetric.meetsTarget).toBe(true);
+  // The newest day is excluded with a reason, not counted as uncovered.
+  expect(coverageMetric.excluded).toBeGreaterThan(0);
+  expect(coverageMetric.excludedReason).toContain('not due yet');
+  // Spoilers: every released episode's persisted FR-G004 verdict, and zero spoiler findings.
+  expect(storyMetric('spoiler_violation_rate')).toMatchObject({ numerator: 0, denominator: worldDays - 1, meetsTarget: true });
+  expect(storyMetric('arc_progress_rate').denominator).toBeGreaterThan(0);
+  expect(storyMetric('arc_stagnation_rate')).toMatchObject({ numerator: 0, meetsTarget: true });
+  expect(storyMetric('arc_resolution_evidence')).toMatchObject({ meetsTarget: true });
+  expect(story.findings).toEqual([]);
+  expect(story.score).toMatchObject({ value: 1, status: 'measured' });
+
   // Arc limits, progress and resolution (FR-F003/FR-F004, ART-31).
   expect(findings.arcs.maxActiveMajorArcs).toBeLessThanOrEqual(MAX_MAJOR_ACTIVE_ARCS);
   expect(findings.arcs.overLimitWorldDays).toEqual([]);
@@ -190,10 +224,22 @@ function expectCleanRun(findings: LongRunFindings, worldDays: number): void {
   expect(findings.arcs.consequenceSummarySubjects.some((subject) => subject.startsWith('character:'))).toBe(true);
   expect(findings.arcs.consequenceSummaryCount).toBeGreaterThan(0);
 
-  // Section 5.1 / AC#7 — every world day produced canon and exactly one non-empty episode.
+  /**
+   * Section 5.1 / AC#7 — every COMPLETED world day produced canon and exactly one non-empty
+   * episode.
+   *
+   * `worldDays - 1`, and the missing one is the newest day. This asserted `worldDays` until ART-89,
+   * which found what that was hiding: a day was treated as complete the moment its night slot
+   * BEGAN, so its Episode was assembled from a partial slot and the rest of that slot reached no
+   * Episode, recap or publication — 14 of 96 high-importance events permanently uncovered over
+   * seven days, and §16.2's coverage clause at 85.4%. A day is now over when the world has moved
+   * past it, so the newest day's Episode is due on the next day's first commit. In production the
+   * next cron tick composes it; a run that stops mid-world leaves exactly one day pending, and the
+   * coverage metric excludes it with a reason instead of counting it as a failure.
+   */
   expect(findings.recapCoverage.worldDaysWithoutAcceptedEvent).toEqual([]);
-  expect(findings.recapCoverage.completedWorldDays).toBe(worldDays);
-  expect(findings.recapCoverage.episodes).toBe(worldDays);
+  expect(findings.recapCoverage.completedWorldDays).toBe(worldDays - 1);
+  expect(findings.recapCoverage.episodes).toBe(worldDays - 1);
   expect(findings.recapCoverage.worldDaysWithoutEpisode).toEqual([]);
   expect(findings.recapCoverage.emptyEpisodes).toEqual([]);
   // FR-G004 (ART-35) found no coverage gap and no spoiler in any released episode.
@@ -234,7 +280,7 @@ function expectCleanRun(findings: LongRunFindings, worldDays: number): void {
   expect(findings.safety.scenesWithoutClassification).toEqual([]);
   expect(findings.safety.policyVersions).toEqual([1]);
   expect(findings.safety.eventsBypassingSafety).toEqual([]);
-  expect(findings.safety.episodes).toBe(worldDays);
+  expect(findings.safety.episodes).toBe(worldDays - 1);
   expect(findings.safety.episodesWithoutClassification).toEqual([]);
 }
 
@@ -324,7 +370,10 @@ describe('NFR-007 fixed-seed 7-day simulation (AC#1/#3)', () => {
       // FR-M003 §16.3 (ART-59): the resource report the run's own budget accountant produced.
       'resources',
       'safety', 'schemaVersion', 'seed', 'slots',
-      'slotsCompleted', 'slotsExecuted', 'tokens',
+      'slotsCompleted', 'slotsExecuted',
+      // FR-M002 (ART-89): arc / recap / spoiler quality over the accepted log and the verdicts.
+      'storyQuality',
+      'tokens',
     ]);
     expect(findings.slots).toHaveLength(SEVEN_DAY_SLOTS);
   });
@@ -475,9 +524,11 @@ describeThirtyDay('NFR-007 fixed-seed 30-day simulation (AC#2/#5/#6/#7)', () => 
     expect(dry.filter((day, index) => index > 0 && day === dry[index - 1] + 1)).toEqual([]);
   });
 
-  it('produces canon and exactly one episode for every world day (AC#7)', () => {
+  it('produces canon and exactly one episode for every completed world day (AC#7)', () => {
     expect(findings.recapCoverage.worldDaysWithoutAcceptedEvent).toEqual([]);
-    expect(findings.recapCoverage.episodes).toBe(30);
+    // 29, not 30: the newest day's Episode is due on the next day's first commit (ART-89). See
+    // `expectCleanRun` for what asserting 30 was hiding.
+    expect(findings.recapCoverage.episodes).toBe(29);
     expect(findings.recapCoverage.worldDaysWithoutEpisode).toEqual([]);
     expect(findings.recapCoverage.emptyEpisodes).toEqual([]);
   });

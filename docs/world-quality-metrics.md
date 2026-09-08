@@ -1,6 +1,6 @@
 # World quality metrics and evaluators (FR-M002)
 
-FR-M002 is owned by four tasks, not one. Two have delivered:
+FR-M002 is owned by four tasks, not one. Three have delivered:
 
 - **ART-58** delivers the **evaluator pattern** every FR-M002 evaluator is built from
   (`convex/quality/evaluator.ts`), and the **Continuity evaluator v1**
@@ -10,11 +10,14 @@ FR-M002 is owned by four tasks, not one. Two have delivered:
   the similarity module it is built on (`convex/quality/textSimilarity.ts`), which measure
   §16.2's 重複場景比例 plus FR-M002's Character Consistency, Event Novelty and Dialogue
   Repetition.
+- **ART-89** delivers the **Story-quality evaluator v1** (`convex/quality/storyQuality.ts`)
+  and the exclusion store it reads (`convex/recaps/coverageExclusions.ts`), which measure
+  §16.2's 高重要度摘要覆蓋率 plus FR-M002's Arc Progress, Arc Stagnation, Arc Resolution and
+  Spoiler Violation.
 
-ART-89 (arc progress, recap coverage, spoiler violation) and ART-90 (Canon rejection rate,
-safety withhold rate) are still pending and build on the same shapes, so an operator reads
-four evaluators through one vocabulary and the long-run harness reports them through one
-report type.
+ART-90 (Canon rejection rate, safety withhold rate) is still pending and builds on the same
+shapes, so an operator reads four evaluators through one vocabulary and the long-run harness
+reports them through one report type.
 
 ## 1. What an evaluator is here
 
@@ -392,16 +395,196 @@ is derived, not tuned: `shared / (a + b - shared) ≥ s` with `shared ≤ min(a,
 skipping it changes no answer. A test drives a pair just above the threshold to prove the
 pruning does not drop it.
 
-## 5. The operator queries
+## 5. The Story-quality evaluator v1
 
-Both live in `convex/operations/worldQualityFunctions.ts`, declared in
-`publicFunctionSurface` as `query` with gate `operator`, which is what makes adding either
-an architectural change rather than a line edit.
+`evaluatorId: 'story_quality'`, `version: 1`. Pure, like the other two: no Convex, no clock,
+no randomness, no I/O. One entry point, `evaluateStoryQuality`, takes one window of arc,
+recap and publication evidence and returns the report. The operator query and the long-run
+harness call that one function, so the number the 7-day gate asserts and the number an
+operator reads are one computation over different evidence.
+
+### 5.1 The five metrics
+
+Every denominator is stated before its target, because a rate over an empty population is
+not a passing rate.
+
+| PRD name | Metric key | Numerator | Denominator | Target |
+| --- | --- | --- | --- | --- |
+| 高重要度摘要覆蓋率 | `recap_coverage` | High-importance accepted events cited by at least one **releasable** published content in the window | High-importance accepted events in the window, less those excluded with a reason and those on a day whose published content is not due yet | `0.95`, `atLeast` |
+| Spoiler Violation | `spoiler_violation_rate` | Published contents whose persisted FR-G004 verdict carries a spoiler-category finding | Published contents with a persisted coverage verdict in the window | `0`, `atMost` |
+| Arc Progress | `arc_progress_rate` | Active-family arcs that appended at least one projection revision inside the window | Active-family arcs alive during the window | none, `atLeast` |
+| Arc Stagnation | `arc_stagnation_rate` | Active-family arcs whose last progress is at least the stagnation threshold before the window end | Active-family arcs alive during the window | `0`, `atMost` |
+| Arc Resolution | `arc_resolution_evidence` | Arcs reaching a terminal status carrying **both** an outcome and at least one consequence | Arcs reaching a terminal status in the window | `1`, `atLeast` |
+
+Only 高重要度摘要覆蓋率 carries a PRD number, because §16.2 is the only place the PRD states
+one. Spoiler Violation and Arc Stagnation are zero-targets because a spoiler that reached an
+audience and an arc that stopped moving are both failures at any rate above nothing. Arc
+Progress publishes its rate and refuses to invent a floor: FR-M002 names the dimension and
+sets no threshold.
+
+High importance is `HIGH_IMPORTANCE_THRESHOLD` (0.7), imported from
+`convex/editorial/episode.ts` — the same constant the Episode builder and the FR-G004 gate
+use. A metric measuring coverage against a different threshold from the one the composer
+obeys would disagree with it for every event between the two numbers.
+
+### 5.2 The denominator is Canon, never the episodes
+
+`recap_coverage`'s denominator is the high-importance **accepted events** of the window,
+read from `canonEvents` by index and classified through `storyArcEventClassifications`. It
+is not the events the episodes happen to cite.
+
+This matters here more than anywhere else in the repository. `buildDailyEpisode` **throws**
+`EPISODE_IMPORTANT_EVENT_MISSING` when an Episode omits a high-importance event, so an
+Episode that would have failed coverage never gets stored at all. A coverage ratio computed
+over stored episodes therefore reads 100% by construction and could not fail — precisely the
+tautology CLAUDE.md §9 warns about, and precisely the shape of the defect described in §5.4
+below. Reading Canon independently is what makes the days that produced no publishable
+episode — withheld, failed, gate-refused — count as uncovered, which is the whole signal
+§16.2 is asking for.
+
+### 5.3 What counts as covered, and the three ways an event leaves the denominator
+
+A high-importance accepted event is covered when a **releasable** published content in the
+window cites it. Releasable is the persisted FR-G004 verdict
+(`episodeCoverageReports.releasable`), so an Episode the coverage gate refused covers
+nothing — it never reached an audience. The cited set is the verdict's own
+`coveredEventIds`, which is the set of high-importance events the candidate actually
+accounted for, not everything it happened to mention.
+
+An event leaves the denominator in exactly three ways.
+
+1. **Excluded with a reason.** A declared exclusion carrying non-blank text removes the
+   event from both sides, and the **count** travels with the report through
+   `MetricObservation.excluded` and `excludedReason`. §16.2 says 「covered **or** carries an
+   explicit reviewable exclusion reason」, and a metric that folded exclusions into the
+   numerator would report a world that excluded everything as fully covered. The operator's
+   own words are **not** in the report — `excludedReason` is a fixed-vocabulary sentence
+   naming how many were excluded and why they left, and the text itself is read from
+   `coverageExclusions` by whoever is reviewing the omission. Findings carry references,
+   never content, and an operator-authored string is content.
+2. **On a day that is not due yet.** `pendingWorldDays` names the newest world day, whose
+   Episode is composed on the next day's first commit (§5.4). Its events are excluded with
+   a reason rather than counted as uncovered: an observation that cannot yet answer the
+   question is not an observation that answered it badly. It is ART-47's rule for a
+   retention cohort that has not aged far enough. A world that stops forever leaves its last
+   day excluded permanently, and the excluded count says so.
+3. **Nothing else.** An exclusion whose reason is blank does **not** leave the denominator.
+   It stays in, and `EXCLUSION_WITHOUT_REASON` is reported against it, because §16.2 asks
+   for a reviewable reason and a blank one is not one.
+
+A day carrying accepted events and no releasable published content is named as
+`WORLD_DAY_UNPUBLISHED` rather than left to be inferred from a rate. That day is where
+uncovered events come from, and the finding carries every publication that was attempted
+with the code that stopped it.
+
+### 5.4 A world day is over when the world has moved past it
+
+The defect ART-89 found is the reason this section exists, and it is worth stating plainly
+because the old rule read as reasonable.
+
+A world day used to be treated as **complete** the moment one accepted event carried the
+final time slot. The post-commit pipeline runs once per accepted event, so the *first* event
+of a day's final slot marked the day complete, the episode stage assembled that day's
+Episode from the events accepted so far, and Episodes are idempotent per world day — so the
+rest of that slot reached no Episode, no recap and no publication. For every day of every
+world.
+
+Nothing failed. The FR-G004 coverage gate obliges an Episode to cite the events of its own
+day **as the Episode saw them**, so an Episode built from a partial day passed its own
+check. This is the same tautology §5.2 is built to avoid, one layer down.
+
+Measured over the fixed 7-day seed, the cost was 14 of 96 high-importance Accepted Events
+permanently uncovered, and §16.2's coverage clause sitting at 85.4%.
+
+`completedWorldDaysOf` in `convex/operations/postCommitLiveFunctions.ts` now admits a day
+only when `day < latestWorldDay`. That is the only rule Canon can state honestly: a world
+day is finished when a later day has accepted an event, and until then the day may still
+commit more. The cost is that the newest day's Episode is due on the next day's first commit
+rather than on its own last slot, which is what a daily recap means anyway. In production the
+next cron tick composes it.
+
+**The daily snapshot keeps the old condition, under its own name.**
+`PostCommitWorldState.latestWorldDayFinalSlotStarted` is the snapshot stage's flag, and it is
+deliberately not the episode stage's. `createDailySnapshot` refuses a past day once later
+events exist, so a snapshot may only be taken while its day is still the latest — the final
+slot is the last moment at which that day can be both complete and current. An Episode has
+the opposite requirement: it must wait until the day cannot gain another event, which is only
+knowable once the world has moved past it. Two stages were asking different questions through
+one flag, and stage 20 of `convex/operations/postCommitLive.ts` now reads its own.
+
+### 5.5 Which stagnation threshold, and why
+
+`ARC_STAGNATION_WORLD_DAYS` (14, from `convex/story/resolution.ts`) — the constant
+`detectArcStagnation` uses and the one the harness reports. The post-commit ladder carries
+its own downgrade and wind-down constants for remediation; those decide *what to do about* a
+stagnant arc, not *whether it is* stagnant, and a metric measured against them would disagree
+with the detector for every arc between the two numbers. See
+[`arc-stagnation-resolution.md`](./arc-stagnation-resolution.md).
+
+An arc is in the active family when `isActiveArcStatus` says so — emerging through climax.
+Terminal means `resolved` or `archived`, and the resolution evidence is read from the arc's
+last `storyArcResolutionDecisions` row whose `resultingStatus` is terminal, never from the
+lifecycle alone: ART-163 records that arcs once reached `resolved` carrying nothing at all.
+
+### 5.6 Finding codes
+
+| Code | Severity | Meaning |
+| --- | --- | --- |
+| `HIGH_IMPORTANCE_EVENT_UNCOVERED` | severe | A high-importance accepted event no releasable published content cites, and no exclusion covers |
+| `EXCLUSION_WITHOUT_REASON` | severe | A declared exclusion whose reason is blank: an omission without a reviewable justification |
+| `SPOILER_VIOLATION` | severe | A published content whose persisted FR-G004 verdict carries a spoiler-category finding |
+| `WORLD_DAY_UNPUBLISHED` | minor | A world day that produced accepted events but no releasable published content at all |
+| `ARC_STAGNANT` | severe | An active arc that has not advanced a projection revision for the stagnation threshold |
+| `ARC_WITHOUT_PROGRESS` | minor | An active arc that advanced no revision inside the window |
+| `ARC_RESOLVED_WITHOUT_EVIDENCE` | severe | An arc that reached a terminal status carrying no outcome or no consequence |
+
+The severities split on whether the audience or the record is already wrong. An uncovered
+event, a blank exclusion reason, a released spoiler, a stalled arc and a verdictless
+resolution are each a thing that has already happened to the public account. An unpublished
+day and an arc quiet for one window are states that may still be resolved on the next commit,
+so they are `minor` and are reported as context for the rates rather than as failures.
+
+Findings carry event ids, arc ids, content refs and finding codes. Recap prose, secret text
+and private knowledge never enter: the spoiler metric reads the persisted verdict's **codes**,
+not the text that produced them.
+
+### 5.7 The Story Health composite
+
+`composeScore` builds one weighted composite, `story_health`.
+
+| Component | Metric | Weight | Transform |
+| --- | --- | --- | --- |
+| `coverage` | `recap_coverage` | 0.40 | `rate` |
+| `spoiler_safety` | `spoiler_violation_rate` | 0.30 | `complement` |
+| `arc_progress` | `arc_progress_rate` | 0.20 | `rate` |
+| `arc_pacing` | `arc_stagnation_rate` | 0.10 | `complement` |
+
+Coverage and spoiler safety carry 70% of the weight between them because they are the two
+components about what the audience was actually shown; the arc pair is about the story's
+pacing, which is a slower and more forgiving signal. `arc_resolution_evidence` is reported
+and **not** in the composite: it is a correctness gate on a small, bursty population — some
+windows close no arc at all — and averaging it into a health score would let a window that
+resolved nothing look the same as one that resolved everything properly.
+
+A component whose metric had no observations contributes nothing and reports
+`no_observations`, and `weightMeasured` against `weightTotal` says how much of the definition
+the score was built from, exactly as with the Continuity Score.
+
+## 6. The operator queries
+
+All three live in `convex/operations/worldQualityFunctions.ts`, declared in
+`publicFunctionSurface` with gate `operator`, which is what makes adding any of them an
+architectural change rather than a line edit.
 
 | Query | Evaluator | Delivered by |
 | --- | --- | --- |
 | `getContinuityQualityMetrics` | `convex/quality/continuity.ts` | ART-58 |
 | `getNarrativeQualityMetrics` | `convex/quality/narrative.ts` | ART-88 |
+| `getStoryQualityMetrics` | `convex/quality/storyQuality.ts` | ART-89 |
+
+One **mutation** shares the file, `declareRecapExclusion` (ART-89, §6.5). It is the only
+write in the FR-M002 surface, and it writes nothing an evaluator computes — it writes the
+operator's words.
 
 They live in `operations` and not in `quality` for the same reason
 `productAnalyticsFunctions.ts` lives in `operations` and not in `analytics`: the gate lives
@@ -410,7 +593,7 @@ module in `canonWriteBoundary.forbiddenModules` — it must not be able to reach
 console's authorization any more than it can reach a Canon write. The evaluator computes,
 this file reads evidence rows and applies the gate, and neither knows the other's tables.
 
-**Capability: `world.inspect`, for both.** Reused rather than minted, for the reason ART-47
+**Capability: `world.inspect`, for all three queries.** Reused rather than minted, for the reason ART-47
 and ART-133 reused `schedule.inspect`: a capability is a decision about the operator role
 model, and this file reports numbers. It is `world.inspect` because that is what the
 FR-K002 proposal review already uses for the same class of evidence, accepted history and
@@ -421,9 +604,9 @@ The narrative query needs the gate for a second reason: it reads a world's scene
 compute its numbers, and however little of that prose reaches the payload, the read itself
 belongs behind the console.
 
-### 5.1 Arguments and window bounds
+### 6.1 Arguments and window bounds
 
-Both queries take the same four arguments and derive the window the same way.
+All three queries take the same four arguments and derive the window the same way.
 
 | Argument | Meaning |
 | --- | --- |
@@ -434,7 +617,7 @@ Both queries take the same four arguments and derive the window the same way.
 
 `fromWorldDay` is `max(0, toWorldDay - windowDays + 1)`.
 
-### 5.2 What `getContinuityQualityMetrics` reads, and from which index
+### 6.2 What `getContinuityQualityMetrics` reads, and from which index
 
 Everything is index-scoped to the world and to the window.
 
@@ -456,7 +639,7 @@ scenes is well under this for the longest window. Reaching it means the world is
 than the report's bound, and the report says so through `coverage.scanLimitReached` rather
 than measuring a prefix and calling it the window. Truncation is never silent.
 
-### 5.3 What `getNarrativeQualityMetrics` reads, and from which index
+### 6.3 What `getNarrativeQualityMetrics` reads, and from which index
 
 Scene prose lives only in `sceneSimulationRuns.result`, a `v.any()` LLM-blob table. CLAUDE.md
 §9 forbids `.collect()`ing a whole world on that kind of table, so the read is index-scoped
@@ -477,7 +660,67 @@ reads, never a world-wide sweep, and it is bounded by the same window as the eve
 `coverage.scanLimitReached` is set when either the event scan or the scene scan hits
 `SCAN_LIMIT`. Truncation is never silent on either read.
 
-### 5.4 The payloads, and what they never contain
+### 6.4 What `getStoryQualityMetrics` reads, and from which index
+
+Every read is index-scoped to the world and to the window, and every one is bounded by the
+same `SCAN_LIMIT`.
+
+- The window's accepted events come from `canonEvents.by_world_and_day`, and the latest day
+  from `canonEvents.by_world_and_sequence`. Event ids are **derived** through
+  `deriveEventId(worldId, sequenceNumber)` rather than read back from the rows, so the
+  denominator's identity does not depend on a stored string.
+- Importance comes from `storyArcEventClassifications.by_world`, folded to the highest
+  membership importance per source sequence number. An event no arc classified has
+  importance 0 and is not in the denominator.
+- The coverage numerator and the whole spoiler denominator come from
+  `episodeCoverageReports.by_world_and_day` — the **persisted** FR-G004 verdicts, not a
+  re-run of the gate. A spoiler is counted from the verdict's finding codes whose category
+  is `spoiler`.
+- Exclusions come from `coverageExclusions.by_world_and_day` (§6.5).
+- Arcs come from `storyArcLifecycles`, `storyArcProjectionEvents` and
+  `storyArcResolutionDecisions`, each by world index. They are arc-sized, not event-sized.
+
+`coverage.scanLimitReached` is set when **any** of those seven reads hits the limit.
+Truncation is never silent.
+
+The query returns `thresholds` — `{ highImportance, stagnationWorldDays }` — beside the
+report, so an operator reading a rate can see the two constants it was measured under
+without opening the source.
+
+### 6.5 `declareRecapExclusion`, and why it reuses `safety.override`
+
+§16.2 lets a high-importance event be either covered **or** carry an explicit, reviewable
+exclusion reason. `declareRecapExclusion` is the writer for the second half; the storage is
+the `coverageExclusions` table, and the rules live in the pure
+`convex/recaps/coverageExclusions.ts`. See
+[`recap-coverage-validation.md`](./recap-coverage-validation.md) for the rules themselves
+and for what was missing before ART-89.
+
+It is gated on **`safety.override`**, an existing capability, rather than a new one. Minting
+a capability is a decision about the operator role model, and this repository reuses unless
+the thing governed is genuinely different — the reasoning ART-47 and ART-58 used for
+`schedule.inspect` and `world.inspect`. `safety.override` is the nearest fit on the merits:
+both are an operator overruling an automated gate about what the public record contains, and
+both are append-only ledgers rather than edits.
+
+It is also the safe direction of reuse. `safety.override` is an `admin` capability — the
+highest-consequence publication decision in the system — and declaring an exclusion is
+strictly smaller than releasing content a classifier withheld. Reusing a *more* privileged
+capability for a *less* consequential action cannot grant anyone a power they did not already
+have. The reverse would.
+
+Two properties are worth stating because they are what keep the metric honest:
+
+- **The named event must be accepted.** The handler parses the sequence number out of the
+  event id, point-reads `canonEvents.by_world_and_sequence`, then **re-derives** the id from
+  the row and compares, so a malformed id cannot resolve to a real event by accident. An
+  exclusion naming an event Canon never accepted would put the exclusion set outside the
+  denominator it reduces.
+- **It is not a Canon write.** The event stays accepted and stays in the world. Both
+  outcomes — a fresh declaration and a deduplicated re-declaration — are written to the
+  operator audit log with a distinct result code.
+
+### 6.6 The payloads, and what they never contain
 
 `getContinuityQualityMetrics` returns `{ definition, report, origin }`. The origin says
 which kind of origin was chosen, its ref, and how many pre-window events were folded.
@@ -488,45 +731,67 @@ outside the evaluator: `accepted` must equal `repeated_scene_ratio`'s denominato
 `read − accepted − withheld` is the scenes Canon never accepted. A ratio whose denominator
 cannot be audited is a number an operator has to take on faith.
 
-In both, the definition is the evaluator's metric and score definitions plus its finding
+`getStoryQualityMetrics` returns `{ definition, report, thresholds }`, for the same reason:
+`recap_coverage`'s denominator means nothing without the importance threshold it was
+selected by, and `arc_stagnation_rate`'s numerator means nothing without the day gap it was
+measured against.
+
+In all three, the definition is the evaluator's metric and score definitions plus its finding
 codes with their severities, and the report is metric observations, the composite score,
 findings, coverage and the digest.
 
 No episode prose, no scene text, no dialogue line, no recap text, no secret content, no
-private fact value, no prompt and no memory content appears anywhere in either — only ids,
-stable codes, counts and rates. `narrative.test.ts` drives a finding of every code and
+private fact value, no prompt and no memory content appears anywhere in any of them — only
+ids, stable codes, counts and rates. `narrative.test.ts` drives a finding of every code and
 asserts that not one word of the prose it was computed from appears in the report.
 
-### 5.5 Nothing is persisted
+### 6.7 Nothing is persisted
 
-Neither query writes a run row. There is therefore no run to deduplicate and no
+No query writes a run row. There is therefore no run to deduplicate and no
 evaluator-version migration to manage: the evidence is the durable record, and the report
 is derived from it on every call. Exactly-once is a property of the evidence ids, and the
 pure modules count by those ids.
 
-## 6. The same evaluators inside the long-run harness
+`declareRecapExclusion` is not an exception to this. It persists an operator's *evidence* —
+a reason for an omission — and no report and no rate. The next call to
+`getStoryQualityMetrics` derives its numbers from that row like any other evidence.
 
-`runLongRunSimulation` calls `evaluateContinuityWindow` and `evaluateNarrative` over the
-run's own evidence and returns them as `LongRunFindings.continuity` and
-`LongRunFindings.narrative`. The continuity origin is the seeded `initial_snapshot`, the
+## 7. The same evaluators inside the long-run harness
+
+`runLongRunSimulation` calls `evaluateContinuityWindow`, `evaluateNarrative` and
+`evaluateStoryQuality` over the run's own evidence and returns them as
+`LongRunFindings.continuity`, `LongRunFindings.narrative` and
+`LongRunFindings.storyQuality`. The continuity origin is the seeded `initial_snapshot`, the
 snapshots are the ones the real daily-snapshot stage persisted, and the publications are the
 episodes and recap formats the editorial stages produced. The narrative evidence is the
 run's own authored scenes, joined to the accepted log by the same `metadata.sceneId` join
 the operator query uses, with the run's withheld scenes marked withheld.
 
-This is **not** a restatement of the harness's own `canonConflicts`, `replay` and
-`repetition` fields. Those are the harness's independent checks; agreement between two
-independent computations is the evidence, and disagreement is a finding. The 7-day test
-asserts that the count of severe continuity findings equals the count of harness Canon
-conflicts.
+The story-quality evidence is the run's accepted log with the arc classifications it
+recorded, the coverage verdicts `runEpisodeCoverageGate` persisted, and the arc lifecycles,
+projections and resolution decisions the run produced. Two of its inputs are set
+deliberately and are worth naming:
 
-Over the fixed 7-day seed both reports are clean, and every denominator is non-empty:
+- **`exclusions: []`.** A deterministic run has no operator, so it declares no exclusions.
+  Its coverage rate is the unassisted one, which is the honest baseline for §16.2 — a
+  fixture that could excuse its own gaps would measure nothing.
+- **`pendingWorldDays: [latestAcceptedWorldDay]`.** A run that stops mid-world leaves
+  exactly one day whose Episode is not due yet (§5.4). Its events are excluded with a reason
+  rather than counted as uncovered.
+
+This is **not** a restatement of the harness's own `canonConflicts`, `replay`, `repetition`,
+`arcs` and `recapCoverage` fields. Those are the harness's independent checks; agreement
+between two independent computations is the evidence, and disagreement is a finding. The
+7-day test asserts that the count of severe continuity findings equals the count of harness
+Canon conflicts.
+
+Over the fixed 7-day seed all three reports are clean, and every denominator is non-empty:
 
 | Quantity | Value |
 | --- | --- |
 | Accepted events (all four event-denominated continuity metrics) | 104 |
 | World days replay-consistent | 7 of 7 |
-| Publications examined (7 episodes + 7 recap-format rows) | 14 |
+| Publications examined (6 episodes + 6 recap-format rows) | 12 |
 | Unsourced secret leaks, severe conflicts, deceased appearances, location conflicts | 0 |
 | Continuity Score | 1.0, `weightMeasured` 1.0 of `weightTotal` 1.0 |
 | Accepted scenes (every scene-denominated narrative metric) | 104 |
@@ -537,6 +802,25 @@ Over the fixed 7-day seed both reports are clean, and every denominator is non-e
 | Accepted events carrying a persona deviation flag | 0 of 104 |
 | Novel events | 81 of 103 (78.6%) |
 | World days whose recap formats the composer refused | 0 |
+| High-importance events covered (§16.2 高重要度摘要覆蓋率) | 81 of 81 (100%) |
+| High-importance events excluded as not-yet-due | 15 |
+| Published contents carrying a spoiler finding | 0 of 6 |
+| Active arcs that advanced a revision (Arc Progress) | 3 of 3 |
+| Active arcs past the 14-day stagnation threshold | 0 of 3 |
+| Terminal arcs carrying an outcome and a consequence | 3 of 3 |
+| Story Health | 1.0 |
+
+Coverage is 81 of 81 rather than 81 of 96 because the seventh day's 15 high-importance
+events are on the newest day, whose Episode is due on the next day's first commit. Before
+ART-89's completion-rule fix (§5.4) the same seed measured **85.4%**: 14 of 96 events were
+permanently uncovered, and nothing reported it.
+
+**The publication count in that table said 14 before ART-89, and that was wrong.** Six days
+publish, not seven, because the newest day's Episode is not due; the continuity evaluator's
+publication denominator is `2 × (worldDays − 1)`. The replay row is still 7 of 7, and the
+contrast is the point: a daily snapshot is taken for every day including the newest, because
+`latestWorldDayFinalSlotStarted` is its condition and it may only fire while the day is
+current (§5.4).
 
 Over the 30-day seed the repeated-scene ratio is **0 of 449**, against the §16.2 ceiling of
 15%; exact duplicates and template reuse are zero; event novelty is 309 of 448 (69%); and
@@ -546,7 +830,7 @@ figure quoted here.
 
 See [`long-run-simulation-harness.md`](./long-run-simulation-harness.md).
 
-## 7. How ART-89 and ART-90 plug in
+## 8. How ART-90 plugs in
 
 A new evaluator is a new file under `convex/quality/` and four decisions, none of which
 require touching the pattern:
@@ -566,13 +850,13 @@ require touching the pattern:
 
 Then add one read surface and one harness field: a query in `convex/operations/` gated on
 an existing capability and declared in `publicFunctionSurface`, and a field on
-`LongRunFindings` beside `continuity` and `narrative`. `EvidenceKind` already carries the
-kinds the remaining two need — `scene`, `arc`, `coverage_report`, `safety_classification`,
-`world_day_run` — so their findings reference evidence in the same vocabulary. ART-88 is
-what shows the pattern holds for a second evaluator: it added `narrative.ts` and its query
-and its harness field, and changed nothing in `evaluator.ts`.
+`LongRunFindings` beside `continuity`, `narrative` and `storyQuality`. `EvidenceKind`
+already carries the kinds ART-90 needs — `safety_classification`, `world_day_run` — so its
+findings reference evidence in the same vocabulary. ART-88 and ART-89 are what show the
+pattern holds beyond its first use: each added an evaluator, a query and a harness field,
+and neither changed a line of `evaluator.ts`.
 
-## 8. Verification
+## 9. Verification
 
 - `convex/quality/evaluator.test.ts` pins the shared contract (zero denominator ⇒
   `no_observations`, never `0%`; score renormalisation; finding dedupe; digest stability).
@@ -599,13 +883,35 @@ and its harness field, and changed nothing in `evaluator.ts`.
   flags read from the seed's own anchors rather than a literal; and the fault-injection pair
   that proves masking is load-bearing — a repeat masking catches and an unmasked run misses,
   and a false near-duplicate that appears when identifiers are left in.
-- `convex/operations/longRunHarness.test.ts` asserts both whole reports over the fixed 7-day
-  and 30-day seeds: evaluator id and version, window, coverage, every metric's numerator
-  *and* denominator, the score, agreement with the harness's independent checks, and
-  `recapCoverage.recapFormatFailures` empty.
-- `convex/publicRead/publicReadOnlyGuarantee.test.ts` pins `getContinuityQualityMetrics` and
-  `getNarrativeQualityMetrics` in `publicFunctionSurface`; declared must equal found,
-  exhaustively.
+- `convex/quality/storyQuality.test.ts` drives every finding code from hand-built evidence,
+  and pins the four things the metric could otherwise get wrong quietly: a denominator read
+  from Canon reporting 3 of 4 while the stored episodes are complete; a refused publication
+  covering nothing and naming the day with the code that refused it; an exclusion honoured
+  only when its reason is non-blank, with the blank case both reported *and* left in the
+  denominator; and the pending day excluded rather than charged, then charged once its
+  content is due. It also asserts the threshold is read as *at least*, that stagnation fires
+  at exactly the threshold and not a day before, that a world with no active arc measures
+  nothing rather than a perfect pace, that the composite's value is hand-computable from its
+  four weights, and that neither the operator's exclusion reason nor any other prose reaches
+  a report.
+- `convex/recaps/coverageExclusions.test.ts` pins the exclusion rules: the trimmed reason and
+  the declaring identity are what is stored; blank, short and over-long reasons are refused;
+  the minimum is measured against trimmed text rather than padding; a re-declaration of the
+  same reason is a no-op; and a *different* reason for an already-excluded event is refused
+  with `COVERAGE_EXCLUSION_CONFLICT`, distinguishable by code from an invalid declaration.
+- `convex/operations/postCommitWorldState.test.ts` pins the completion rule that §5.4
+  describes: the latest day is never finished however far into it the world has got, it
+  becomes finished exactly when a later day accepts an event, and `finalSlotStarted` still
+  answers the snapshot's separate question over the same events.
+- `convex/operations/longRunHarness.test.ts` asserts all three whole reports over the fixed
+  7-day and 30-day seeds: evaluator id and version, window, coverage, every metric's
+  numerator *and* denominator, the score, agreement with the harness's independent checks,
+  and `recapCoverage.recapFormatFailures` empty. The coverage denominator is asserted
+  non-empty *before* the rate, and `excluded` is asserted greater than zero with a reason
+  mentioning the not-yet-due day, so a run that excluded everything could not read as a pass.
+- `convex/publicRead/publicReadOnlyGuarantee.test.ts` pins `getContinuityQualityMetrics`,
+  `getNarrativeQualityMetrics`, `getStoryQualityMetrics` and `declareRecapExclusion` in
+  `publicFunctionSurface`; declared must equal found, exhaustively.
 - `npm run check:architecture` fails the build if `convex/quality` names a Canon write
   symbol, or if any module reaches `quality` without declaring it.
 
@@ -613,6 +919,8 @@ and its harness field, and changed nothing in `evaluator.ts`.
 npm run check
 npm test -- --runTestsByPath convex/quality/evaluator.test.ts convex/quality/continuity.test.ts
 npm test -- --runTestsByPath convex/quality/textSimilarity.test.ts convex/quality/narrative.test.ts
+npm test -- --runTestsByPath convex/quality/storyQuality.test.ts convex/recaps/coverageExclusions.test.ts
+npm test -- --runTestsByPath convex/operations/postCommitWorldState.test.ts
 npm test -- --runTestsByPath convex/operations/longRunHarness.test.ts
 npm run test:longrun   # the 30-day gate, ART60_LONG_RUN=1
 ```

@@ -641,6 +641,18 @@
         "name": "getNarrativeQualityMetrics",
         "kind": "query",
         "gate": "operator"
+      },
+      {
+        "path": "convex/operations/worldQualityFunctions.ts",
+        "name": "getStoryQualityMetrics",
+        "kind": "query",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/worldQualityFunctions.ts",
+        "name": "declareRecapExclusion",
+        "kind": "mutation",
+        "gate": "operator"
       }
     ]
   },

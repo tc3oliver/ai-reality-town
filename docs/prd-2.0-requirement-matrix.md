@@ -209,9 +209,10 @@ Requirement Matrix 不應只放未附證據的診斷結論。ART-139 的既有�
 
 | Closure Matrix 條目 | 覆蓋的 Task |
 |---|---|
-| **FR-M002 世界品質指標** | ART-58、ART-88（**Done**）、ART-89、ART-90（To Do） |
+| **FR-M002 世界品質指標** | ART-58、ART-88、ART-89（**Done**）、ART-90（To Do） |
 
-**ART-58 已交付 FR-M002 的連續性半邊，ART-88 已交付敘事半邊，其餘兩個 Task 仍未完成。**
+**ART-58 已交付 FR-M002 的連續性半邊，ART-88 已交付敘事半邊，ART-89 已交付劇情線／recap／劇透半邊，
+只剩 ART-90 未完成。**
 ART-58 的交付內容：共用的 evaluator
 契約（`convex/quality/evaluator.ts`）與 Continuity evaluator v1（`convex/quality/continuity.ts`）
 —— Continuity Score 加上 §16.2 五項 Canon 目標（嚴重 Canon 衝突、Event Replay 一致率、
@@ -239,9 +240,40 @@ fixture 的正確讀數：舊作者的公開句取自 6 種結果 × 4 種代價
 格**的定義量測——除了完全相同，還計入近似重複——分母則以絕對場景數釘死，因此「少寫幾場戲」無法
 改善這個比例。
 
-**仍未交付：** 劇情線推進／recap 覆蓋／劇透違規（ART-89）、Canon 拒絕率與安全攔截率
-（ART-90）。兩者都建構在 ART-58 的 `EvaluatorDefinition`、`observeMetric`、`composeScore`
-與 `finishReport` 之上，如同 ART-88 未更動它們一樣。
+**ART-89 已交付 FR-M002 的劇情線／recap／劇透半邊。** Story-quality evaluator v1
+（`convex/quality/storyQuality.ts`）同樣建構在那份 evaluator 契約之上，未更動 `evaluator.ts`
+一行。它量測五項指標：§16.2 的**高重要度摘要覆蓋率**（`recap_coverage`）、`spoiler_violation_rate`
+（讀的是**已持久化**的 FR-G004 判定碼，不是 recap 文字）、`arc_progress_rate`、
+`arc_stagnation_rate` 與 `arc_resolution_evidence`，並組成 `story_health` 複合分數
+（覆蓋率 0.4、劇透安全 0.3、劇情線推進 0.2、節奏 0.1）。讀取面是同一個 `world.inspect` 閘門下的
+`getStoryQualityMetrics`，長跑則以同一個函式產出 `LongRunFindings.storyQuality`。
+
+**覆蓋率的分母讀自 Canon，絕不讀自 episode。** `buildDailyEpisode` 只要漏掉一個高重要度事件就會
+丟出 `EPISODE_IMPORTANT_EVENT_MISSING`，因此在已儲存的 episode 上計算覆蓋率必然是 100%，是一個
+不可能失敗的比率——CLAUDE.md §9 所說的同義反覆。ART-89 另外補上了 §16.2 的排除條款：該條款自
+ART-35 起就有型別（`CoverageExclusion`）與檢查（`COVERAGE_EXCLUSION_UNJUSTIFIED`），卻**沒有儲存
+也沒有寫入者**——所有呼叫端一律傳 `declaredExclusions: []`，檢查因此不可觸及，條款的後半句由「什麼
+都沒有」滿足。`coverageExclusions` 資料表與 `safety.override` 閘門下的 `declareRecapExclusion`
+mutation 就是那個儲存與那個寫入者：理由必填且非空白、只能指名已接受的事件、每個
+`(worldId, eventId)` 僅一列且僅可追加。
+
+**§16.2 高重要度摘要覆蓋率 ≥ 95% 現已可量測且達標：7 天固定種子在到期日上為 81/81（100%），
+最新一天的 15 個事件以「尚未到期」被排除。** 這一項在 ART-89 之前**沒有任何東西**量測過，而第一次
+誠實的量測讀到的是 **85.4%**——96 個高重要度 Accepted Event 中有 14 個永久未被覆蓋。成因不在
+composer 而在「世界日何時算完成」的判定：只要有**一個** accepted event 落在最後時段，該世界日就
+被視為完成；而 post-commit pipeline 是每個 accepted event 跑一次，於是該日最後時段的**第一個**
+事件就觸發了當日 Episode，Episode 又是每日冪等的，該時段其餘事件因此不進入任何 Episode、recap
+或發布——每個世界的每一天都如此。過程中沒有任何東西失敗，因為 FR-G004 覆蓋閘門要求 Episode
+引用**它自己所看到的**當日事件，所以以半天資料組成的 Episode 通過了它自己的檢查。現在一個世界日
+只有在世界已經走過它之後才算完成（`completedWorldDaysOf`，`day < latestWorldDay`），最新一天的
+Episode 改在下一天的第一次 commit 產生，正式環境由下一次 cron tick 組成；每日快照則以自己的名稱
+（`latestWorldDayFinalSlotStarted`）保留舊條件，因為快照只能在其所屬日仍是最新日時拍攝。同一份
+種子上劇透違規為 6 個已發布日中的 0 個。細節見 `docs/world-quality-metrics.md` §5 與
+`docs/recap-coverage-validation.md`。
+
+**仍未交付：** Canon 拒絕率與安全攔截率（ART-90）。它同樣建構在 ART-58 的
+`EvaluatorDefinition`、`observeMetric`、`composeScore` 與 `finishReport` 之上，如同 ART-88 與
+ART-89 未更動它們一樣。
 
 ### 5.3 有 Task 但不對應任何延後需求
 
