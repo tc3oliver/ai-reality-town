@@ -58,12 +58,18 @@ import {
 /** Gated for the same reason the thirty-day scenario is, and behind its OWN flag — see AC#4. */
 const describeNinetyDay = process.env.ART73_NINETY_DAY === '1' ? describe : describe.skip;
 
+const TOTAL_WORLD_DAYS = 90;
 const HEALTHY_DAYS_BEFORE = 40;
-const OUTAGE_DAYS = 8;
-const HEALTHY_DAYS_AFTER = 42;
-const TOTAL_WORLD_DAYS = HEALTHY_DAYS_BEFORE + OUTAGE_DAYS + HEALTHY_DAYS_AFTER;
 const OUTAGE_FROM = HEALTHY_DAYS_BEFORE;
-const RECOVERY_FROM = HEALTHY_DAYS_BEFORE + OUTAGE_DAYS;
+/**
+ * Driver ticks the outage phase may spend, not world days.
+ *
+ * World time does NOT advance while a slot keeps failing — the driver retries one slot and
+ * `claimLiveSlot` hands the same row back (ART-167) — so an outage is measured in claims, not in
+ * days. Sixty is comfortably past the thirty a total outage needs to descend all five rungs, and the
+ * remainder is spent being refused, which is what a paused world does.
+ */
+const OUTAGE_TICKS = 60;
 
 /**
  * A provider that can be taken away and given back.
@@ -135,8 +141,12 @@ async function runNinetyDaysThroughAnOutage(): Promise<Phases> {
   provider.down = true;
   let committedAtPause = -1;
   const outage = await runDegradationLadderDays(fixture, {
-    worldDays: OUTAGE_DAYS,
-    startWorldDay: OUTAGE_FROM,
+    // Bounded in TICKS. The world advances only on the deterministic slots the ladder's lower rungs
+    // complete, so how many days this phase covers is an OUTPUT, not an input.
+    worldDays: TOTAL_WORLD_DAYS - OUTAGE_FROM,
+    maxTicks: OUTAGE_TICKS,
+    startWorldDay: before.worldDay,
+    startTimeSlot: before.timeSlot,
     state: before.state,
     // The operator does NOT resume while the cause is still there. Resuming into an outage is what
     // `resumeFromPause` returning to `rules_only` rather than `normal` exists to survive, and a
@@ -151,8 +161,12 @@ async function runNinetyDaysThroughAnOutage(): Promise<Phases> {
 
   provider.down = false;
   const after = await runDegradationLadderDays(fixture, {
-    worldDays: HEALTHY_DAYS_AFTER,
-    startWorldDay: RECOVERY_FROM,
+    worldDays: TOTAL_WORLD_DAYS - outage.worldDay,
+    startWorldDay: outage.worldDay,
+    startTimeSlot: outage.timeSlot,
+    // Generous, because the climb back spends its first slots on deterministic events and one in
+    // every SLOTS_BETWEEN_PROVIDER_PROBES on a probe before the world is authoring again.
+    maxTicks: (TOTAL_WORLD_DAYS - outage.worldDay) * TIME_SLOTS.length + 40,
     state: outage.state,
     onPaused: () => true,
   });
@@ -178,14 +192,26 @@ describeNinetyDay('NFR-007 ninety world days through a provider outage (ART-73)'
     run = await runNinetyDaysThroughAnOutage();
   }, 14_400_000);
 
-  it('executes every slot of all ninety world days, and accounts for every one', () => {
-    expect(run.slots).toHaveLength(TOTAL_WORLD_DAYS * TIME_SLOTS.length);
-    // Three statuses and nothing else, so a slot cannot be quietly unaccounted for.
+  it('advances world time through all ninety world days, and accounts for every tick', () => {
+    // World time is the OUTPUT. A tick that fails does not advance it — the driver retries the same
+    // slot — so the run is over ticks and the ninety days are what those ticks reached.
+    expect(run.after.worldDay).toBe(TOTAL_WORLD_DAYS);
+    expect(run.before.worldDaysAdvanced).toBe(HEALTHY_DAYS_BEFORE);
+    // Three statuses and nothing else, so a tick cannot be quietly unaccounted for.
     expect([...new Set(run.slots.map(({ status }) => status))].sort())
       .toEqual(['completed', 'failed', 'refused']);
-    // The forty healthy days before the outage completed every slot: the outage is the only thing
+    // Every completed tick is one slot, and together they are exactly the ninety days' slots — no
+    // slot authored twice, none skipped.
+    const completed = run.slots.filter(({ status }) => status === 'completed');
+    expect(completed).toHaveLength(TOTAL_WORLD_DAYS * TIME_SLOTS.length);
+    expect(new Set(completed.map(({ worldDay, timeSlot }) => `${worldDay}:${timeSlot}`)).size)
+      .toBe(completed.length);
+    // A failing slot is RETRIED, not skipped: the outage produced repeat claims of one slot, and a
+    // driver that walked past a failure would show none.
+    expect(run.slots.some(({ attempt }) => attempt > 1)).toBe(true);
+    // The forty healthy days before the outage completed every tick: the outage is the only thing
     // this run injects, and a failure before day 40 would mean it is measuring something else.
-    expect(run.before.outcomes.every(({ status }) => status === 'completed')).toBe(true);
+    expect(run.before.outcomes.every(({ status, attempt }) => status === 'completed' && attempt === 1)).toBe(true);
     expect(run.before.state.level).toBe('normal');
     expect(run.before.transitions).toEqual([]);
   });
@@ -391,8 +417,9 @@ describeNinetyDay('NFR-007 ninety world days through a provider outage (ART-73)'
   it('recovers into a world that authors again for the rest of the run', () => {
     // The tail of the run — after the climb — is as healthy as the head. An outage that left the
     // world permanently reduced would show here and nowhere else.
-    const tail = run.after.outcomes.filter(({ worldDay }) => worldDay >= RECOVERY_FROM + 2);
+    const tail = run.after.outcomes.filter(({ worldDay }) => worldDay >= run.outage.worldDay + 3);
     expect(tail.length).toBeGreaterThan(0);
-    expect(tail.every(({ status, level }) => status === 'completed' && level === 'normal')).toBe(true);
+    expect(tail.every(({ status, level, attempt }) =>
+      status === 'completed' && level === 'normal' && attempt === 1)).toBe(true);
   });
 });

@@ -115,7 +115,26 @@ Two scenarios share the flag:
 | scenario | file | what it adds over 30 days |
 | --- | --- | --- |
 | clean 90 days | `longRunHarness.test.ts` | The **same** `expectCleanRun` and `expectKnownFindings` the shorter runs use, at a third length. A separate file would have had to restate them, and a restatement is free to drift from what it restates — which is how `DISTINCT_SCENE_TEXTS` came to stand in for a ratio. On top of those: §16.2's repetition ceiling over three times the sample, an arc portfolio still opening and closing questions in its last third, and the budget accountant still agreeing with the provider traces after 450 slots. |
-| 90 days through an outage | `ninetyDayResilience.test.ts` | One continuous world — 40 healthy days, 8 with the provider gone, 42 after an operator resumes. The FR-M004 ladder is **in the loop**, so the phases are what the ladder decided rather than a script. |
+| 90 days through an outage | `ninetyDayResilience.test.ts` | One continuous world — 40 healthy days, a bounded window of driver ticks with the provider gone, then the rest after an operator resumes. The FR-M004 ladder is **in the loop**, so the phases are what the ladder decided rather than a script. |
+
+### The driver retries a slot; the harness does too (ART-167)
+
+`runDegradationLadderDays` loops over **driver ticks, not slots**, and this is load-bearing rather
+than a detail. `driveOneWorld` stops on the first slot that did not complete; an authoring failure
+deliberately leaves the row `running` rather than `failed`, which is the path every outage takes; and
+`claimLiveSlot` consults the running row before anything queued and hands the *same* row back once
+its lease lapses, with `attemptCount + 1`. So a world under a provider outage does not walk to the
+next slot — it retries one slot, and **world time does not advance until that slot completes**.
+
+The first version of this driver iterated `worldDay × timeSlot` unconditionally. Every signal it
+produced carried a fresh key, so the ladder's exactly-once branch was never taken anywhere in the
+harness while the deployment took it on every retry — and that is how ART-165 shipped a ladder keyed
+on the *slot* that could not escalate at all, with two gates resting on this harness staying green.
+The ladder is now keyed on the **attempt** (ART-167), and the harness retries.
+
+So in the resilience run, the number of world days the outage covers is an **output**, not an input:
+the phase is bounded in ticks, the world stalls while the provider-using rungs fail, and it starts
+moving again on the deterministic slots the lower rungs complete.
 
 The resilience run is the only place the whole ladder is observed end to end: it descends all six
 rungs to `paused`, is resumed by an operator once the provider is back, and climbs all six back to

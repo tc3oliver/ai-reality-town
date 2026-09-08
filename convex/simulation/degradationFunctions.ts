@@ -107,6 +107,12 @@ export const recordSlotOutcome = internalMutation({
      * true is exactly the bug that made the two lowest rungs unreachable.
      */
     usedProvider: v.boolean(),
+    /**
+     * ART-167. `scheduledSlots.attemptCount` for the attempt this outcome is about. Required, so a
+     * re-delivered outcome and a genuine retry cannot arrive as the same signal — which is what
+     * froze the ladder at one failure for the whole of a provider outage.
+     */
+    attempt: v.number(),
     errorCode: v.union(v.string(), v.null()),
     now: v.number(),
   },
@@ -115,8 +121,8 @@ export const recordSlotOutcome = internalMutation({
     const state = await loadDegradationState(ctx.db, args.worldId);
     const decision = advanceDegradation(state, {
       worldId: args.worldId, worldDay: args.worldDay, timeSlot: args.timeSlot,
-      authored: args.authored, usedProvider: args.usedProvider, errorCode: args.errorCode,
-      at: args.now,
+      authored: args.authored, usedProvider: args.usedProvider, attempt: args.attempt,
+      errorCode: args.errorCode, at: args.now,
     });
     const deduplicated = await applyDecision(ctx.db, args.worldId, decision, args.now);
     return {

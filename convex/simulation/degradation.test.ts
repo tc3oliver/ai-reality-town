@@ -68,6 +68,9 @@ const failure = (
   timeSlot: 'morning',
   authored: false,
   usedProvider: true,
+  // ART-167. Every case below is a first attempt unless it says otherwise; a case about RETRY says
+  // so by naming the attempt, and that is the distinction the ladder is built on.
+  attempt: 1,
   errorCode,
   at: 1_700_000_000_000,
   ...overrides,
@@ -381,20 +384,40 @@ describe('the provider probe is what makes the lowest rungs reachable (ART-165)'
   });
 
   it('reaches paused on a sustained outage, one rung at a time, and could not before', () => {
-    // The runtime loop, written out: consult the rung, run the slot it allows, feed back what that
-    // slot actually did. The provider is down throughout, so every slot that calls it fails.
+    /**
+     * The runtime loop, written out — including the part ART-167 found missing.
+     *
+     * The driver stops on the first slot that did not complete and `claimLiveSlot` hands the same
+     * row back with the next attempt, so world time does NOT advance while the provider is down: it
+     * is one slot, retried. A version of this loop that walked to the next slot on every tick was
+     * how the ladder's inability to escalate stayed invisible.
+     */
     let state = initialDegradationState(WORLD_ID);
     const transitions: Array<[string, string]> = [];
-    for (let slot = 0; slot < 40 && state.level !== 'paused'; slot += 1) {
+    let worldDay = 0;
+    let slotIndex = 0;
+    let attempt = 0;
+    for (let tick = 0; tick < 60 && state.level !== 'paused'; tick += 1) {
       const policy = effectivePolicy(state);
       const usedProvider = policy.usesProvider;
+      // A rules-only slot completes; a slot that calls the downed provider does not.
+      const authored = !usedProvider;
+      attempt += 1;
       const decision = advanceDegradation(state, {
-        worldId: WORLD_ID, worldDay: Math.floor(slot / 5), timeSlot: `slot-${slot % 5}`,
-        authored: !usedProvider, usedProvider, errorCode: usedProvider ? OUTAGE : null,
-        at: slot,
+        worldId: WORLD_ID, worldDay, timeSlot: `slot-${slotIndex}`, attempt,
+        authored, usedProvider, errorCode: usedProvider ? OUTAGE : null,
+        at: tick,
       });
       state = decision.state;
       if (decision.transition) transitions.push([decision.transition.fromLevel, decision.transition.toLevel]);
+      if (authored) {
+        attempt = 0;
+        slotIndex += 1;
+        if (slotIndex === 5) {
+          slotIndex = 0;
+          worldDay += 1;
+        }
+      }
     }
     expect(state.level).toBe('paused');
     expect(transitions).toEqual([
@@ -426,14 +449,50 @@ describe('the provider probe is what makes the lowest rungs reachable (ART-165)'
   });
 });
 
-describe('one slot moves the world once, however often its outcome arrives (ART-165)', () => {
+describe('one ATTEMPT moves the world once, however often its outcome arrives (ART-165/ART-167)', () => {
+  /**
+   * ART-167, and the reason this describe block is about attempts rather than slots.
+   *
+   * ART-165 keyed the guard on `worldDay:timeSlot`, and on the deployed path that is the only key a
+   * persistent outage ever produces: `driveOneWorld` stops on the first slot that did not complete,
+   * an authoring failure leaves the row `running` rather than `failed`, and `claimLiveSlot` hands
+   * the same row back with `attemptCount + 1`. So the ladder saw one key forever, froze at one
+   * failure, and could not leave `normal` — every rung below it unreachable, which is a strictly
+   * larger version of the bug ART-165 set out to fix.
+   */
+  it('escalates when the SAME slot fails on two separate attempts', () => {
+    const first = advanceDegradation(
+      initialDegradationState(WORLD_ID), failure(OUTAGE, { worldDay: 3, timeSlot: 'morning', attempt: 1 }));
+    expect(first.state.consecutiveFailures).toBe(1);
+    expect(first.state.level).toBe('normal');
+    const second = advanceDegradation(
+      first.state, failure(OUTAGE, { worldDay: 3, timeSlot: 'morning', attempt: 2 }));
+    expect(second.state.level).toBe('compatible_model');
+    expect(second.transition?.fromLevel).toBe('normal');
+  });
+
+  it('walks the whole ladder on retries of ONE slot, which is what an outage produces', () => {
+    // World time does not advance while a slot keeps failing, so this is the real shape of an
+    // outage: one slot, twelve attempts, six rungs.
+    let state = initialDegradationState(WORLD_ID);
+    const levels: DegradationLevel[] = [];
+    for (let attempt = 1; attempt <= 10; attempt += 1) {
+      const decision = advanceDegradation(state, failure(OUTAGE, { worldDay: 40, timeSlot: 'morning', attempt }));
+      state = decision.state;
+      if (decision.transition) levels.push(decision.transition.toLevel);
+    }
+    expect(levels).toEqual([
+      'compatible_model', 'fewer_scenes', 'rules_only', 'deferred_summaries', 'paused',
+    ]);
+  });
+
   /**
    * `applyDecision` deduplicates the transition ROW on its derived id, and the schema note used to
    * claim that meant a replayed slot could not walk the ladder. It did not: the state row is patched
    * either way, so two deliveries of one failure counted two failures and escalated a world that had
    * failed once.
    */
-  it('ignores a repeated failure from the same slot', () => {
+  it('ignores a repeated delivery of one attempt', () => {
     const signal = failure(OUTAGE, { worldDay: 4, timeSlot: 'evening' });
     const once = advanceDegradation(initialDegradationState(WORLD_ID), signal);
     expect(once.state.consecutiveFailures).toBe(1);
@@ -443,7 +502,7 @@ describe('one slot moves the world once, however often its outcome arrives (ART-
     expect(twice.state.level).toBe('normal');
   });
 
-  it('ignores a repeated recovery from the same slot', () => {
+  it('ignores a repeated delivery of one recovering attempt', () => {
     const signal = authored({ worldDay: 4, timeSlot: 'evening' });
     const once = advanceDegradation(stateAt('rules_only'), signal);
     expect(once.state.level).toBe('fewer_scenes');
@@ -452,10 +511,10 @@ describe('one slot moves the world once, however often its outcome arrives (ART-
     expect(twice.transition).toBeNull();
   });
 
-  it('still moves on the NEXT slot, so the guard is exactly-once and not once-ever', () => {
-    const first = advanceDegradation(initialDegradationState(WORLD_ID), failure(OUTAGE, { timeSlot: 'morning' }));
-    const repeat = advanceDegradation(first.state, failure(OUTAGE, { timeSlot: 'morning' }));
-    const second = advanceDegradation(repeat.state, failure(OUTAGE, { timeSlot: 'noon' }));
+  it('still moves on the NEXT attempt, so the guard is exactly-once and not once-ever', () => {
+    const first = advanceDegradation(initialDegradationState(WORLD_ID), failure(OUTAGE, { attempt: 1 }));
+    const repeat = advanceDegradation(first.state, failure(OUTAGE, { attempt: 1 }));
+    const second = advanceDegradation(repeat.state, failure(OUTAGE, { attempt: 2 }));
     expect(second.state.level).toBe('compatible_model');
   });
 });

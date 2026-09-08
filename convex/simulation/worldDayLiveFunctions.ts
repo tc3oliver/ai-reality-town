@@ -573,6 +573,8 @@ export type PreparedSlot =
      * find out the outage has ended. The rung is still `degradationLevel`; only this slot differs.
      */
     probe: boolean;
+    /** FR-M004 (ART-167): which attempt at this slot the action is about to author. */
+    attempt: number;
   }
   /**
    * The slot reached a terminal state without needing to author anything — every scene was
@@ -738,6 +740,8 @@ export const prepareQueuedWorldDaySlot = internalMutation({
       kind: 'awaiting_authoring', slotId: row._id,
       // Already reduced, by `authoringPlanFromCheckpoints`, from the policy stage 1 pinned.
       plan, degradationLevel: degradation.level, probe: shouldProbeProvider(degradation),
+      // The row's own count, which `claimLiveSlot` has just incremented for this attempt.
+      attempt: row.attemptCount,
     };
   },
 });
