@@ -36,7 +36,16 @@ import { TIME_SLOTS, type TimeSlot } from '../canon/eventTypes';
 import { InMemoryCanonStore } from '../canon/inMemoryStore';
 import { emptyProjection, type AcceptedEvent, type CanonRuleContext, type ProposedEvent, type WorldProjection } from '../canon/model';
 import { mistwoodCharacterSeed, mistwoodWorldConfiguration, MISTWOOD_PUBLIC_WORLD_ID } from '../canon/mistwoodSeed';
+import { personaAnchorFromSeed } from '../canon/personaDeviation';
 import { replayWorldEvents } from '../canon/replay';
+import { cloneProjection, type CanonSnapshot } from '../canon/snapshots';
+import {
+  createDailySnapshot, resolveWorldBaseline,
+  type RecoveryAudit, type RecoveryHead, type SnapshotKind, type SnapshotRecoveryStore, type StoredCanonSnapshot,
+} from '../canon/snapshotManager';
+import { buildWorldImportPlan } from '../canon/worldConfig';
+import { evaluateContinuityWindow, type PublicationEvidence, type SnapshotEvidence } from '../quality/continuity';
+import type { EvaluationReport } from '../quality/evaluator';
 import { validateCanon, validateEventStructure } from '../canon/validators';
 import { authorizeKnowledgeRead } from '../knowledge/authorization';
 import { authorizeMemoryRead } from '../knowledge/memoryAuthorization';
@@ -374,6 +383,11 @@ export type LongRunFindings = {
    */
   resources: ResourceUsageReport;
   safety: SafetyFindings;
+  /**
+   * FR-M002 Continuity Score and the five §16.2 Canon targets (ART-58), computed by the same
+   * `convex/quality/continuity.ts` evaluator the operator query runs, over this run's evidence.
+   */
+  continuity: EvaluationReport;
   /** Canonical digest of every field above except itself. Equal seeds ⇒ equal digest. */
   digest: string;
 };
@@ -431,14 +445,86 @@ function mistwoodRuleContext(): CanonRuleContext {
     organizationIds: mistwoodWorldConfiguration.organizations.map(({ id }) => id),
     initialCharacterAlive: Object.fromEntries(mistwoodCharacterSeed.characters.map(({ id }) => [id, true])),
     initialItemOwners: Object.fromEntries(mistwoodCharacterSeed.assets.map(({ id, ownerCharacterId }) => [id, ownerCharacterId])),
+    initialCharacterLocations: Object.fromEntries(mistwoodCharacterSeed.characters.map(({ id, initialLocationId }) => [id, initialLocationId])),
+    // FR-B003 persona anchors, from the same seed rows production reads them from (ART-58). They
+    // were omitted until now, which left `assessPersonaDeviations` with nothing to assess for the
+    // whole run — absent-means-inert — so the 30-day evidence never exercised the persona gate.
+    characterPersonas: Object.fromEntries(mistwoodCharacterSeed.characters.flatMap((character) => {
+      const anchor = personaAnchorFromSeed(character.id, character);
+      return anchor ? [[character.id, anchor] as const] : [];
+    })),
     locationConnections: Object.fromEntries(activeLocations.map(({ id, connectedLocationIds }) => [id, connectedLocationIds])),
   };
 }
 
+/**
+ * The seeded Mistwood Canon store: rule context AND the `initial` snapshot `importWorld` writes.
+ *
+ * The snapshot was missing until ART-58. Without it every commit in the run validated against
+ * `emptyProjection`, where `validateCanon` skips the unknown-destination, inactive-destination and
+ * capacity checks because `projection.locations` is empty — the exact trap CLAUDE.md §9 records —
+ * so the 30-day evidence was measuring a weaker Canon than production enforces. The plan is built
+ * by the same `buildWorldImportPlan` the deployment's `importWorld` uses, at `createdAt: 0`.
+ */
 export function seededCanonStore(): InMemoryCanonStore {
   const store = new InMemoryCanonStore();
   store.setCanonRuleContext(mistwoodRuleContext());
+  store.setInitialSnapshot(buildWorldImportPlan(mistwoodWorldConfiguration, 0).initialSnapshot);
   return store;
+}
+
+/**
+ * The world's baseline projection, as `commitProposedEvent` and `createDailySnapshot` resolve it.
+ * Every replay in this harness starts here, never at `emptyProjection`.
+ */
+export function seededBaseline(store: InMemoryCanonStore, worldId: string) {
+  return store.loadInitialSnapshot(worldId).then((initial) => resolveWorldBaseline(worldId, initial));
+}
+
+/**
+ * A {@link SnapshotRecoveryStore} over the harness's Canon store (ART-58).
+ *
+ * The daily snapshot stage used to be stubbed here with a comment citing ART-99 — which was Done
+ * long before this harness last changed, so the stub was a stage the 30-day evidence silently
+ * skipped. This binds the REAL `createDailySnapshot`: accepted events come from the Canon store,
+ * the `initial` snapshot is the seeded one, and daily snapshots accumulate in memory where the
+ * continuity evaluator can read them as evidence.
+ */
+export class CanonBackedSnapshotStore implements SnapshotRecoveryStore {
+  private readonly snapshots: StoredCanonSnapshot[] = [];
+  private head: RecoveryHead | null = null;
+  readonly audit: RecoveryAudit[] = [];
+
+  constructor(private readonly canon: InMemoryCanonStore) {}
+
+  /** Every daily snapshot the run persisted, ascending by world day. */
+  dailySnapshots(): StoredCanonSnapshot[] {
+    return this.snapshots.filter((snapshot) => snapshot.kind === 'daily')
+      .sort((left, right) => left.worldDay - right.worldDay);
+  }
+  loadAcceptedEvents(worldId: string): Promise<AcceptedEvent[]> { return this.canon.loadAcceptedEvents(worldId); }
+  findDailySnapshot(worldId: string, worldDay: number): Promise<StoredCanonSnapshot | null> {
+    return Promise.resolve(this.snapshots.find((s) => s.worldId === worldId && s.worldDay === worldDay && s.kind === 'daily') ?? null);
+  }
+  loadLatestSnapshot(worldId: string, throughWorldDay: number): Promise<StoredCanonSnapshot | null> {
+    return Promise.resolve(this.snapshots.filter((s) => s.worldId === worldId && s.worldDay <= throughWorldDay)
+      .sort((a, b) => b.lastSequenceNumber - a.lastSequenceNumber)[0] ?? null);
+  }
+  loadSnapshot(worldId: string, snapshotId: string): Promise<StoredCanonSnapshot | null> {
+    return Promise.resolve(this.snapshots.find((s) => s.worldId === worldId && s.snapshotId === snapshotId) ?? null);
+  }
+  async loadInitialSnapshot(worldId: string): Promise<StoredCanonSnapshot | null> {
+    const initial = await this.canon.loadInitialSnapshot(worldId);
+    return initial ? { ...initial, snapshotId: 'snapshot:initial', kind: 'initial' } : null;
+  }
+  saveSnapshot(snapshot: CanonSnapshot, kind: SnapshotKind): Promise<StoredCanonSnapshot> {
+    const stored: StoredCanonSnapshot = { ...structuredClone(snapshot), kind, snapshotId: `snapshot:${kind}:${snapshot.worldDay}` };
+    this.snapshots.push(stored);
+    return Promise.resolve(stored);
+  }
+  loadRecoveryHead(): Promise<RecoveryHead | null> { return Promise.resolve(this.head); }
+  replaceRecoveryHead(_worldId: string, head: RecoveryHead | null): Promise<void> { this.head = head; return Promise.resolve(); }
+  appendRecoveryAudit(entry: RecoveryAudit): Promise<void> { this.audit.push(entry); return Promise.resolve(); }
 }
 
 // --- durable run stores ------------------------------------------------------
@@ -624,10 +710,13 @@ export function createWorldDayPort(
       Promise.resolve(resolveEffectiveModuleConfig(module, null)),
     async loadWorldSnapshot(slot: WorldDaySlotIdentity) {
       const acceptedEvents = await store.loadAcceptedEvents(slot.worldId);
+      // From the seeded baseline, as the deployment's `loadWorldSnapshot` does — not from empty.
+      const baseline = await seededBaseline(store, slot.worldId);
       const snapshot = buildLiveWorldSnapshot({
         slot,
         acceptedEvents,
-        projection: replayWorldEvents(emptyProjection(slot.worldId), acceptedEvents),
+        projection: replayWorldEvents(cloneProjection(baseline.projection),
+          acceptedEvents.filter((event) => event.sequenceNumber > baseline.lastSequenceNumber)),
         characters: mistwoodCharacterSeed.characters.map(({ id, publicProfile, publicGoal, initialLocationId }) =>
           ({ characterId: id, personaSummary: publicProfile, currentGoal: publicGoal, initialLocationId })),
         locationConnections: Object.fromEntries(activeLocations.map(({ id, connectedLocationIds }) => [id, connectedLocationIds])),
@@ -676,7 +765,7 @@ export function createWorldDayPort(
  * It mirrors the port ART-98's own integration test binds, so the long run exercises the
  * same downstream contracts that task verified for a single day.
  */
-export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: MemoryReadStore) {
+export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: MemoryReadStore, snapshots: SnapshotRecoveryStore = new CanonBackedSnapshotStore(canon)) {
   const arcs = new Map<string, ArcRecord>();
   const classifications = new Map<number, ArcEventClassification>();
   const portfolio: ArcPortfolioEntry[] = [];
@@ -1220,9 +1309,14 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
 
     rebuildOnboardingSummary: (worldId) => Promise.resolve(`onboarding:${worldId}`),
 
-    // ART-99: a world seeded through importWorld cannot take a daily snapshot, so the
-    // harness stands in for the snapshot store rather than asserting a known-broken path.
-    persistDailySnapshot: (_worldId, worldDay) => Promise.resolve({ snapshotId: `snapshot:${worldDay}`, deduplicated: false }),
+    // The REAL ART-22/ART-99 daily snapshot over the harness's Canon (ART-58). The previous
+    // stub cited ART-99 as "known-broken"; ART-99 had been Done for some time, so the stub was a
+    // stage the evidence skipped. `createDailySnapshot` also asserts the previous snapshot against
+    // a full replay, so a reducer regression now fails a run here as it would in production.
+    persistDailySnapshot: async (worldId, worldDay) => {
+      const { snapshot, deduplicated } = await createDailySnapshot(snapshots, worldId, worldDay, now);
+      return { snapshotId: snapshot.snapshotId, deduplicated };
+    },
 
     loadStageMetrics: () => Promise.resolve({
       stages: POST_COMMIT_STAGES.map((stage) => ({ stage, status: 'completed' as const, durationMs: 0 })),
@@ -1272,7 +1366,7 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
 
   return {
     port, arcs, portfolio, episodes, recaps, classifications, stagnationPrompts, recapFormats, storedRecapFormats,
-    resolutionDecisions, consequenceSummaries,
+    resolutionDecisions, consequenceSummaries, snapshots,
     activeArcsForDirector, activeMajorArcIds, activeMinorArcIds, unresolvedMajorArcIds, arcStatusCounts,
   };
 }
@@ -1329,10 +1423,19 @@ function acceptedAsProposed(event: AcceptedEvent): ProposedEvent {
  * unique idempotency keys). Any finding here means Canon accepted something it should not
  * have.
  */
-function revalidateAcceptedLog(events: readonly AcceptedEvent[], ruleContext: CanonRuleContext): CanonConflictFinding[] {
+function revalidateAcceptedLog(
+  events: readonly AcceptedEvent[],
+  ruleContext: CanonRuleContext,
+  /**
+   * The seeded baseline (ART-58). This replayed from `emptyProjection` until ART-58, which left
+   * `destination` undefined for every seed location and let the inactive-destination and capacity
+   * checks pass vacuously — an assertion that partly could not fail.
+   */
+  baseline: WorldProjection,
+): CanonConflictFinding[] {
   const findings: CanonConflictFinding[] = [];
   const seenKeys = new Set<string>();
-  let projection = emptyProjection(LONG_RUN_WORLD_ID);
+  let projection = cloneProjection(baseline);
   events.forEach((event, index) => {
     if (event.sequenceNumber !== index) {
       findings.push({
@@ -1435,6 +1538,8 @@ export type LongRunFixture = {
   postCommitHandlers: ReturnType<typeof createPostCommitStageHandlers>;
   /** FR-M003 / ART-59. The accountant that enforced the run and holds its ledger and counters. */
   budget: InMemoryBudgetAccountant;
+  /** ART-58. The daily snapshots the run persisted, as replay evidence. */
+  snapshots: CanonBackedSnapshotStore;
 };
 
 export function createLongRunFixture(
@@ -1461,7 +1566,8 @@ export function createLongRunFixture(
 ): LongRunFixture {
   const canon = seededCanonStore();
   const readStore = new MemoryReadStore();
-  const harness = createPostCommitHarness(canon, readStore);
+  const snapshots = new CanonBackedSnapshotStore(canon);
+  const harness = createPostCommitHarness(canon, readStore, snapshots);
   const observations: Observations = { simulations: [], plannedAppearance: [] };
   const worldDayRunStore = new MemoryWorldDayRunStore();
   const postCommitRunStore = new MemoryPostCommitRunStore();
@@ -1473,7 +1579,7 @@ export function createLongRunFixture(
   const postCommitHandlers = createPostCommitStageHandlers(harness.port);
   return {
     canon, readStore, harness, observations, worldDayRunStore, postCommitRunStore,
-    worldDayHandlers, postCommitHandlers, budget,
+    worldDayHandlers, postCommitHandlers, budget, snapshots,
   };
 }
 
@@ -1522,7 +1628,11 @@ export async function runLongRunSimulation(input: LongRunInput): Promise<LongRun
   if (!Number.isSafeInteger(worldDays) || worldDays < 1) throw new Error('LONG_RUN_INVALID_WORLD_DAYS');
 
   const { canon, harness, observations, worldDayRunStore, postCommitRunStore,
-    worldDayHandlers, postCommitHandlers, budget } = createLongRunFixture();
+    worldDayHandlers, postCommitHandlers, budget, snapshots } = createLongRunFixture();
+  const baseline = await seededBaseline(canon, LONG_RUN_WORLD_ID);
+  const replayFromBaseline = (events: readonly AcceptedEvent[]): WorldProjection =>
+    replayWorldEvents(cloneProjection(baseline.projection),
+      events.filter((event) => event.sequenceNumber > baseline.lastSequenceNumber));
 
   const slots: SlotOutcome[] = [];
   const canonConflicts: CanonConflictFinding[] = [];
@@ -1533,7 +1643,17 @@ export async function runLongRunSimulation(input: LongRunInput): Promise<LongRun
   const arcStatusByWorldDay: Array<Record<string, number>> = [];
   const arcsResolvedDuringRun = new Set<string>();
   let processedEvents = 0;
-  let liveDigest = projectionDigest(emptyProjection(LONG_RUN_WORLD_ID));
+  /**
+   * The projection the run CARRIES, folded incrementally as each slot commits (ART-58).
+   *
+   * Until ART-58 `liveDigest` was a full replay of the accepted log recomputed every slot, and
+   * `replay.equal` compared it with a second full replay of the same log at the end — the same
+   * computation over the same list, an assertion that could not fail. Now one side is the
+   * step-by-step fold a running world performs and the other is the one-shot replay a recovery
+   * performs; they agree only if the reducer is a pure function of `(projection, event)`.
+   */
+  let liveProjection = replayFromBaseline([]);
+  let liveDigest = projectionDigest(liveProjection);
 
   for (let offset = 0; offset < worldDays; offset += 1) {
     const worldDay = startWorldDay + offset;
@@ -1569,8 +1689,9 @@ export async function runLongRunSimulation(input: LongRunInput): Promise<LongRun
           });
         }
       }
+      liveProjection = replayWorldEvents(liveProjection, accepted.slice(processedEvents));
       processedEvents = accepted.length;
-      liveDigest = projectionDigest(replayWorldEvents(emptyProjection(LONG_RUN_WORLD_ID), accepted));
+      liveDigest = projectionDigest(liveProjection);
     }
 
     // Section 16.2 checkpoint: how many major arcs are active at the end of this world day.
@@ -1593,11 +1714,11 @@ export async function runLongRunSimulation(input: LongRunInput): Promise<LongRun
   const finalWorldDay = startWorldDay + worldDays - 1;
 
   // --- canon conflicts ------------------------------------------------------
-  canonConflicts.push(...revalidateAcceptedLog(acceptedEvents, mistwoodRuleContext()));
+  canonConflicts.push(...revalidateAcceptedLog(acceptedEvents, mistwoodRuleContext(), baseline.projection));
 
   // --- replay consistency (ART-17) -----------------------------------------
-  const replayed = replayWorldEvents(emptyProjection(LONG_RUN_WORLD_ID), acceptedEvents);
-  const replayedAgain = replayWorldEvents(emptyProjection(LONG_RUN_WORLD_ID), structuredClone(acceptedEvents));
+  const replayed = replayFromBaseline(acceptedEvents);
+  const replayedAgain = replayFromBaseline(structuredClone(acceptedEvents));
   const replayedDigest = projectionDigest(replayed);
   const secondReplayDigest = projectionDigest(replayedAgain);
   const replay: ReplayFindings = {
@@ -1827,6 +1948,40 @@ export async function runLongRunSimulation(input: LongRunInput): Promise<LongRun
       .filter(([, row]) => !row.safetyClassificationId).map(([worldDay]) => worldDay),
   };
 
+  // --- FR-M002 continuity (ART-58) ------------------------------------------
+  //
+  // The SAME evaluator the operator query runs, over the run's own evidence: the accepted log
+  // folded from the seeded baseline, the daily snapshots the real snapshot stage persisted, and
+  // the public texts the editorial stages produced. Not a re-statement of `canonConflicts` and
+  // `replay` above — those are the harness's own checks, and agreement between two independent
+  // computations is the evidence; disagreement is a finding.
+  const eventsByDay = new Map<number, AcceptedEvent[]>();
+  for (const event of acceptedEvents) eventsByDay.set(event.worldDay, [...(eventsByDay.get(event.worldDay) ?? []), event]);
+  const snapshotByDay = new Map<number, SnapshotEvidence>(snapshots.dailySnapshots().map((snapshot) => [
+    snapshot.worldDay, { ref: snapshot.snapshotId, lastSequenceNumber: snapshot.lastSequenceNumber, projectionHash: snapshot.projectionHash },
+  ]));
+  const publicationsByDay = new Map<number, PublicationEvidence[]>();
+  for (const [worldDay, row] of harness.episodes.entries()) {
+    if (!row.episode) continue;
+    publicationsByDay.set(worldDay, [{
+      ref: `episode:${LONG_RUN_WORLD_ID}:${worldDay}`, text: dailyEpisodePublicText(row.episode), citedEventIds: row.episode.sourceEventIds,
+    }]);
+  }
+  for (const [worldDay, stored] of harness.storedRecapFormats.entries()) {
+    publicationsByDay.set(worldDay, [...(publicationsByDay.get(worldDay) ?? []), {
+      ref: `recap_formats:${LONG_RUN_WORLD_ID}:${worldDay}`,
+      text: [stored.formats.quickRecap, stored.formats.standardRecap, stored.formats.deepRecap].join(' '),
+      citedEventIds: stored.formats.sourceEventIds,
+    }]);
+  }
+  const continuity = evaluateContinuityWindow({
+    worldId: LONG_RUN_WORLD_ID, fromWorldDay: startWorldDay, toWorldDay: finalWorldDay,
+    origin: { kind: 'initial_snapshot', ref: 'snapshot:initial', projection: baseline.projection, lastSequenceNumber: baseline.lastSequenceNumber },
+    ruleContext: mistwoodRuleContext(),
+    secrets: mistwoodCharacterSeed.secrets.map(({ id, content }) => ({ secretId: id, content })),
+    eventsByDay, snapshotByDay, publicationsByDay, scanLimitReached: false,
+  });
+
   const slotsCompleted = slots.filter(({ status }) => status === 'completed').length;
   const seed: LongRunSeed = {
     worldId: LONG_RUN_WORLD_ID,
@@ -1853,6 +2008,7 @@ export async function runLongRunSimulation(input: LongRunInput): Promise<LongRun
     tokens,
     resources,
     safety,
+    continuity,
   };
   // ART-92 review seam: content only, after the fact, outside the digest.
   input.onContentSample?.({
