@@ -46,7 +46,7 @@ Eleven, not twelve: the PRD's final item is one metric carrying two counters
   entry exists so the owning task populates a declared slot instead of inventing a new
   contract, the same way `PUBLIC_MOTION_TYPES` already reserves `'replay'`.
 
-## Why two metrics are `client_external`
+## Why two metrics are `client_external` — and how ART-47 closed the gap
 
 Active viewer count and renderer error rate both require the **browser to report**: a
 session is only observable where the session is, and a renderer error is only observable
@@ -59,9 +59,28 @@ outside the single provider shim — and `convex/publicRead/publicReadOnlyGuaran
 query. Adding a reporting mutation would not be an extension of that guarantee; it would
 be a hole in it.
 
-So these are not built. ART-136 and ART-137 own whatever mechanism eventually collects
-them — most likely an external analytics sink rather than a Convex write path, which is
-also FR-Q007's territory.
+**They stay `client_external` here, and they are now measured elsewhere.** ART-47 (§15)
+built the telemetry path this document guessed at, and it is neither of the two options
+this section imagined. Not an external sink — a third-party collector sees a viewer's IP,
+which §15's data-minimisation rule forbids, and it would put the aggregate out of reach of
+any test in this repo. And not an extension of the read-only guarantee either: a FOURTH
+gate, `telemetry`, with its own module, its own boundary, its own cap and client roots the
+policy requires to be disjoint from the viewer gate's. `viewerWriteBoundary.maxViewerMutations`
+is still 2, which is the assertion that makes the separation real rather than nominal.
+
+So the numbers exist, and they are read from
+`convex/operations/productAnalyticsFunctions.ts` rather than from this registry:
+
+| This registry | ART-47's metric | Derived from |
+|---|---|---|
+| `activeViewerCount` | `active_live_viewers` | distinct viewer keys with `live_view_opened` |
+| `rendererErrorRate` | `renderer_error_rate` | `live_map_failed` ÷ `live_view_opened` |
+
+They are deliberately NOT folded into this registry. That would put a privacy surface into
+an operational read path and make one registry answer two questions with two different
+gates — the same argument `dynamic-view-analytics.md` §6 already makes for keeping them
+apart. What this document reports is what the SERVER can see; what a viewer's browser
+reports is a separate contract with a separate boundary. See `docs/product-analytics.md`.
 
 ## Why anonymous denials are not durably recorded
 
@@ -225,9 +244,11 @@ observability at all.
 
 ## What this task deliberately did not do
 
-- No product analytics (`live_*` events) — ART-47 / FR-Q007.
+- No product analytics (`live_*` events) — ART-140 / FR-Q007 emitted them; ART-47 / §15
+  built the transport, the store and the metrics over them.
 - No new operator capability, and no operator *control* — ART-134 / FR-Q002.
-- No client-side write path for the two `client_external` metrics — see above.
+- No client-side write path for the two `client_external` metrics — ART-47 built one,
+  behind its own gate. See above.
 - No logic behind the two `pending_feature` metrics — the features do not exist.
 - No new call site writing `outcome: 'refused'`; only a count of what already exists.
 
@@ -238,3 +259,4 @@ observability at all.
 - `docs/canon-runtime-synchronization.md` — why the runtime is re-derived, not synced
 - `docs/public-read-only-guarantee.md` — what makes the two zeros structural
 - `docs/simulation-operations-console.md` — the audit log and the denial-recording constraint
+- `docs/product-analytics.md` — the telemetry path that closed the two `client_external` gaps

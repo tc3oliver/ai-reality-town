@@ -7,6 +7,11 @@ thing, see §6), `docs/public-read-only-guarantee.md` (the guarantee this must n
 
 ## 1. The constraint that shapes everything here
 
+> **Superseded in part by ART-47 (§15).** The transport this document says does not exist has
+> since been built, and the contract moved to `convex/shared/analyticsContract.ts`. The
+> reasoning below is preserved because it is the argument the current design rests on;
+> `docs/product-analytics.md` is what to read for the shipped shape.
+
 The task says to use "the existing compliant collection mechanism". **There isn't one.** ART-47
 (the privacy-preserving analytics platform) is still To Do and this repo has no sink of any
 kind.
@@ -140,18 +145,30 @@ events about what viewers did. They are kept separate deliberately: merging them
 privacy surface into an operational read path and make one registry answer two questions.
 
 The observability doc lists `activeViewerCount` with ART-136 as owner and `rendererErrorRate`
-with ART-137. Neither is built by this task either, and for the same structural reason: both
-need the browser to **report**, which is a client write. When ART-47 installs a sink,
-`live_view_opened` and `live_map_failed` are the events those two metrics would be derived from.
+with ART-137. Neither was built by this task, and for the same structural reason: both need the
+browser to **report**, which is a client write. **ART-47 has since built that path**, and both are
+now derived — from `live_view_opened` and `live_map_failed`, exactly as predicted here.
 
-## 7. Installing a sink (ART-47)
+## 7. The sink, as ART-47 installed it
+
+**Superseded in part.** ART-47 moved the allowlist and the sanitiser to
+`convex/shared/analyticsContract.ts` so the browser and the untrusted-input ingest run the same
+function over the same list, and added PRD 1.0 §15's sixteen product events beside these
+seventeen. Everything this document says about the DESIGN still holds — it is the same allowlist,
+the same choke point, the same refusal to walk nested values — but the code now lives one module
+over. `docs/product-analytics.md` is the current reference.
+
+The sink is installed by `src/components/analytics/AnalyticsTransport.tsx` at app boot. Nothing
+else may install one in the shipped product; a test may:
 
 ```ts
-import { setAnalyticsSink } from './analytics/analyticsSink';
+import { setAnalyticsSink, resetAnalyticsSink } from './analytics/analyticsSink';
 
 setAnalyticsSink((event) => {
   // `event.payload` is already sanitised. Do not re-derive it.
 });
+// Every test that installs a sink must end here.
+resetAnalyticsSink();
 ```
 
 `emitDynamicViewEvent` swallows anything the sink throws. Analytics is the least important thing
