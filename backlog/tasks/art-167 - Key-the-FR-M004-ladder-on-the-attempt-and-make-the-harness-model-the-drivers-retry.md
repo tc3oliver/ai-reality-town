@@ -7,7 +7,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-09-08 22:31'
-updated_date: '2026-09-08 22:32'
+updated_date: '2026-09-08 23:57'
 labels:
   - prd-1.0
   - epic-p
@@ -62,10 +62,10 @@ docs/long-run-simulation-harness.md must say that the driver retries a failed sl
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A slot that fails on two separate attempts escalates the ladder; one attempt whose outcome is delivered twice does not.
-- [ ] #2 A persistent provider outage on the deployed path reaches every rung, including paused.
-- [ ] #3 runDegradationLadderDays retries a failed slot the way driveOneWorld does, and the divergence that hid this is closed.
-- [ ] #4 The harness reports usedProvider from whether the slot reached the provider, not from the rung's policy.
+- [x] #1 A slot that fails on two separate attempts escalates the ladder; one attempt whose outcome is delivered twice does not.
+- [x] #2 A persistent provider outage on the deployed path reaches every rung, including paused.
+- [x] #3 runDegradationLadderDays retries a failed slot the way driveOneWorld does, and the divergence that hid this is closed.
+- [x] #4 The harness reports usedProvider from whether the slot reached the provider, not from the rung's policy.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -85,3 +85,52 @@ docs/long-run-simulation-harness.md must say that the driver retries a failed sl
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## What was wrong
+
+ART-165 keyed advanceDegradation's exactly-once guard on the SLOT (worldDay:timeSlot). On the deployed path that is the only key a persistent outage ever produces:
+
+- driveOneWorld stops on the first slot that did not complete;
+- an authoring failure is deliberately not a slot failure - executeSlot leaves the row running on a SCENE_AUTHORING_DEFERRED, which is the path every outage takes because the finishing pass re-raises it with no provider;
+- claimLiveSlot consults the running row before anything queued and hands the same row back once its lease lapses, with attemptCount + 1, and there is no attempt cap.
+
+So the driver retries one slot forever and never produces a second key. FAILURES_BEFORE_ESCALATION is two and needs two keys, so consecutiveFailures froze at one and the world never left normal - every rung below it implemented, tested, operator-exposed and unreachable. A strictly larger version of the bug ART-165 set out to fix.
+
+## Why no gate caught it
+
+runDegradationLadderDays iterated worldDay by timeSlot unconditionally, so every signal it produced carried a fresh key and the ladder's exactly-once branch was never taken anywhere in the harness while the deployment took it on every retry. Two gates rested on that harness being the model of the live driver.
+
+## What changed
+
+- SlotOutcomeSignal gains attempt; the dedup key and the transition id both derive from it.
+- recordSlotOutcome requires attempt rather than defaulting it, for the reason usedProvider is required.
+- PreparedSlot carries the row's attemptCount; both production call sites pass it.
+- runDegradationLadderDays loops over TICKS. World time advances only when a slot completes, a failing slot is retried with the next attempt, and a paused world consumes ticks without moving. How many world days an outage covers is an output of the resilience run, not an input.
+- The harness reports usedProvider from whether the slot reached the provider, matching driveOneWorld.
+- The ART-73 projection memo is keyed on the world as well as the log length.
+
+## Evidence
+
+Reproduced first: advanceDegradation fed one slot's failure on two attempts left the level at normal.
+
+| injection | red |
+| --- | --- |
+| the signal is keyed on the SLOT again | 11, incl. reaches paused on a sustained outage |
+| the driver walks past a failed slot | 2 |
+| a paused world keeps advancing world time | 5 |
+| usedProvider from the rung policy again | 0 - recorded, not hidden |
+
+The last does not bite: on this seed every slot at a provider-using rung authors, so the two readings never disagree. The fix is an alignment with the driver and the comment says so.
+
+## Commands
+
+- npm run check - Tests: 4174 passed, 31 skipped, 4205 total; Test Suites: 243 passed, 3 skipped
+- npm run test:ninetyday - Tests: 29 passed, 5 skipped; clean 4614 s, resilience 3753 s
+- npm test -- --runTestsByPath convex/simulation/degradation.test.ts convex/operations/degradationIntegration.test.ts convex/operations/longRunHarness.test.ts - 96 passed, 12 skipped
+- npm run e2e - 88 passed
+
+PR #251, auto-merge armed.
+<!-- SECTION:NOTES:END -->
