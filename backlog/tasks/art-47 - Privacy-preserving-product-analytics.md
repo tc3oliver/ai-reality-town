@@ -1,11 +1,11 @@
 ---
 id: ART-47
 title: Privacy-preserving product analytics instrumentation
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-09-08 01:41'
+updated_date: '2026-09-08 01:42'
 labels:
   - prd-1.0
   - epic-l
@@ -100,7 +100,7 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -235,3 +235,46 @@ independently. It is INSIDE the `<section>` rather than replacing it — the pub
 applied structurally by `.public-page main > section`, so swapping the region would have silently
 opted the homepage out of the design system, and `publicPages.a11y.test.tsx` caught exactly that.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Delivered §15's sixteen product events, the transport ART-140 could not build, the store, §16.1's
+eight metrics and the four dynamic-surface rates observability had listed as unmeasurable.
+
+Three decisions carry the design. ART-140's allowlist moved to `convex/shared/analyticsContract.ts`
+so the browser and the untrusted-input ingest run ONE function over ONE list — a client filter plus
+a server filter would have been the obvious shape and the wrong one, because two allowlists drift
+silently while both halves keep producing well-formed payloads. Telemetry got a FOURTH gate rather
+than a third entry under `viewerWriteBoundary`: that gate's justification is that a ballot and a
+progress record are deliberate acts changing what the product shows somebody, and an event counter
+is neither, so `maxViewerMutations` stays 2 and the two boundaries' client roots are required to be
+disjoint. And a zero denominator is never reported as zero — 「首次進站後開啟 Episode 0%」 reads as
+"nobody opened an Episode" and means "nobody arrived".
+
+The unit of measurement is (session, event, subject), declared per event, because deriving it from
+every present field double-counts a `live_view_opened` whose freshness verdict changed mid-view and
+deriving it from worldId alone under-counts two different timeline filters. Retry-safety is two
+independent layers: the client refuses a repeated measurement, and the server re-derives the same
+key from the envelope and resolves it on a unique index.
+
+The browser gate found two defects no unit test could. The transport DEADLOCKED — a flush firing
+mid-send cleared its own timer handle and returned without re-arming, so everything queued
+afterwards sat in memory forever; it survived every jsdom test because those drive the clock by
+hand. And `AnalyticsTransport.tsx` / `analyticsTransport.ts` are the same path on macOS, so the
+logic module could resolve to its own importer and hang jest's loader with no output at all.
+
+13 fault injections, 13 caught; three needed a compiling second attempt, and `Tests: 0 total` is not
+counted as evidence.
+
+Verified: `npm run check` green (229 suites, 3823 passed, exit 0); `npm run e2e` green (88 tests,
+desktop + Pixel 5, including 6 new ART-47 browser tests); `check-boundaries.mjs` clean with 43
+architecture tests passing.
+
+Recorded rather than hidden: `durationMs` is time-to-last-interaction, so 停留超過三分鐘 is a floor
+rather than the PRD's exact quantity; `active_viewers` is not concurrency; `episode_completed` is
+under-reported without `IntersectionObserver`; and `recordAnalyticsEvents`'s row access needs a
+deployment and is not covered by `npm run check`. Two §15 events had no trigger in the product, so
+a copy-link button and a homepage disclosure were added for them. Docs: `docs/product-analytics.md`,
+plus both PRD matrices and the two ART-140 documents marked superseded-in-part.
+<!-- SECTION:FINAL_SUMMARY:END -->
