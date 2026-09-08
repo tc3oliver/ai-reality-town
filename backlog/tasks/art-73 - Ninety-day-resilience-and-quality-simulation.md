@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-08-02 15:43'
-updated_date: '2026-09-08 18:28'
+updated_date: '2026-09-08 22:13'
 labels:
   - prd-1.0
   - epic-p
@@ -70,10 +70,10 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A fixed-seed 90-day simulation completes using the deterministic harness and Fake Provider.
-- [ ] #2 The report covers Canon/replay, narrative consistency, novelty/repetition, arc progress/stagnation, recap/spoiler, rejection/safety, budget/degradation, and token anomalies.
-- [ ] #3 Results identify thresholds, source evidence, evaluator versions, and reproducible seed/configuration.
-- [ ] #4 The 90-day task does not redefine or duplicate the P0 7/30-day gate.
+- [x] #1 A fixed-seed 90-day simulation completes using the deterministic harness and Fake Provider.
+- [x] #2 The report covers Canon/replay, narrative consistency, novelty/repetition, arc progress/stagnation, recap/spoiler, rejection/safety, budget/degradation, and token anomalies.
+- [x] #3 Results identify thresholds, source evidence, evaluator versions, and reproducible seed/configuration.
+- [x] #4 The 90-day task does not redefine or duplicate the P0 7/30-day gate.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -104,3 +104,62 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 5. Pin the 90-day counts from a measured run. Denominators as equalities so the ratio cannot be improved by authoring less; arc counts as floors so a healthier seed is not a regression.
 6. Fault injection over both scenarios, then npm run check, then npm run e2e, then PR with auto-merge.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## What was delivered
+
+Two scenarios behind ART73_NINETY_DAY=1, a flag separate from ART60_LONG_RUN=1 so the P0 gate costs exactly what it did (AC#4).
+
+1. Clean 90 days, in longRunHarness.test.ts, reusing expectCleanRun and expectKnownFindings unchanged. AC#4 is satisfied by running the SAME assertions at a third length rather than restating them.
+2. ninetyDayResilience.test.ts: ONE continuous world of 90 days - 40 healthy, 8 with the provider gone, 42 after an operator resume - with the FR-M004 ladder in the loop. The only place the whole ladder is observed end to end.
+
+Two prerequisites the audit surfaced were fixed in their own tasks rather than recorded: ART-165 (the ladder's two lowest rungs were unreachable, rung 2 changed no call, rung 3 undid itself, and one slot could move the world twice) and ART-166 (four evaluator-evidence defects).
+
+Two harness costs production does not pay were removed first, or the run would not finish: an unindexed read store and a full replay of the accepted log once per character per event. The byte-identical report digest is what makes 'this changes no answer' checkable.
+
+## The one number that was not clean, and what was done about it
+
+Dialogue repetition is a CUMULATIVE ratio over a finite space, so it grows with the square of the sample. ART-88 sized the author's line space for 30 days and measured 3.1%; the same author measured 9.87% at 90 days against a harness assertion of 10%. The threshold was NOT moved - the space was widened (16 openers, 12 closers, quadrupling it) and 90 days now measures 3.4%. The 7- and 30-day gates were re-run and are unchanged.
+
+## Measured over the fixed seed, 90 world days
+
+- 1349 accepted events, 1349 scenes, 450/450 slots, completion 1.0
+- Canon conflicts 0; live fold equals full replay; replay deterministic
+- Continuity Score 1.0 over 1349 events, 90 daily snapshots, 178 publications
+- 重複場景比例 0.0 of 1349 (section 16.2 target < 0.15)
+- 高重要度摘要覆蓋率 1.0 of 1326, 15 excluded as not yet due (target >= 0.95)
+- spoiler violations 0 of 89 released episodes
+- Canon rejection 0 of 2698; safety withhold 0 of 1349
+- JSON 結構成功率 1.0 of 1349 - by construction under the deterministic author; the live evidence is npm run test:live-structure
+- event novelty 0.665, voice distinctiveness 1.0, persona deviation 0, dialogue repetition 0.034
+- 54 arcs, 96 terminal resolutions, 0 stagnant, 0 over limit, live and replay agree
+- 89 episodes for 89 completed world days, none empty, no recap format refused
+- appearance: nobody missing, no neglect violation; public-read LLM calls 0
+- resilience: all six rungs occupied, descended and climbed in order; one operator resume; Canon valid at every rung; sequence numbers dense across the pause; the public never left without a world; no scene narrated during the outage
+
+## Injections
+
+Six, each compiled, executed and turning named tests red:
+
+| injection | red |
+| --- | --- |
+| a paused world still admits simulation | 6 |
+| the provider never actually goes away | 7 |
+| the ladder is fed a rules-only slot as authoring evidence | 7 |
+| the probe runs on every slot | 3 |
+| a rules-only event names an unknown location | 2 |
+| the repetition denominator drops half the scenes | 1 |
+
+Two earlier attempts are recorded as NOT counting: making the paused branch unreachable produced Tests: 0 total, which is a suite that failed to load; and removing the rules-only structural check changed nothing observable because the events it guards are valid. Both were replaced.
+
+## Commands
+
+- npm run check - Tests: 4172 passed, 31 skipped, 4203 total; Test Suites: 243 passed, 3 skipped
+- npm run test:ninetyday - Tests: 29 passed, 5 skipped, 34 total; clean run 4620 s, resilience 3341 s
+- npm run test:longrun - Tests: 17 passed, 7 skipped (the P0 gate, re-run after the author change)
+- npm run e2e - 88 passed
+
+PR #250, auto-merge armed.
+<!-- SECTION:NOTES:END -->
