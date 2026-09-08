@@ -42,8 +42,15 @@ const PUBLIC_FUNCTION_KINDS = ['query', 'mutation', 'action'];
  * "viewing never writes" is proven per surface instead of by a repo-wide ban on anonymous
  * mutations. Every extra rule in {@link validateViewerWriteBoundary} exists to keep the gate
  * from becoming a general-purpose hole; see `docs/daily-environment-vote.md` §2.
+ *
+ * `telemetry` (ART-47 / §15) is the fourth, and it exists because the third would otherwise have
+ * had to stretch. The viewer gate's justification is that a ballot and a progress record are
+ * DELIBERATE ACTS that change what the product shows somebody — which is exactly why an event
+ * counter must not share it. A separate gate keeps `maxViewerMutations` measuring world mutation
+ * and nothing else, and keeps a telemetry field from ever inheriting an argument made about a
+ * vote. See {@link validateAnalyticsWritePolicy}.
  */
-const PUBLIC_FUNCTION_GATES = ['anonymous', 'operator', 'viewer'];
+const PUBLIC_FUNCTION_GATES = ['anonymous', 'operator', 'viewer', 'telemetry'];
 
 export function loadPolicy(path = POLICY_PATH) {
   return JSON.parse(readFileSync(path, 'utf8'));
@@ -146,8 +153,14 @@ export function validatePolicy(policy) {
     if (entry.gate === 'viewer' && !viewerWriteDeclares(policy, entry)) {
       errors.push(`viewer-gated ${entry.kind} ${key} is not declared in viewerWriteBoundary.allowed`);
     }
+    // Same two-edits-in-two-places rule as the viewer gate, for the same reason: naming a gate is
+    // a word, and declaring the write is a decision a reviewer sees.
+    if (entry.gate === 'telemetry' && !analyticsWriteDeclares(policy, entry)) {
+      errors.push(`telemetry-gated ${entry.kind} ${key} is not declared in analyticsWriteBoundary.allowed`);
+    }
   }
   errors.push(...validateViewerWritePolicy(policy));
+  errors.push(...validateAnalyticsWritePolicy(policy));
   if (!policy.providerBoundary?.contractVersion) errors.push('provider contract version is required');
   return errors;
 }
@@ -211,13 +224,146 @@ export function validateViewerWritePolicy(policy) {
   // `/live`, the world surface and every public page remain provably write-free by the same
   // check that always covered them.
   const writeSymbols = ['useMutation', 'useAction', 'useConvex'];
+  // ART-47 widened this from one list of client roots to two, and the widening is the point: a
+  // write exemption must sit under the client root of the boundary that JUSTIFIES it. The vote
+  // hook may write because a ballot is a deliberate act; the transport may write because
+  // telemetry is separately bounded. Neither argument covers the other file, and a single
+  // combined list would have let either one drift into the other's root unnoticed.
+  const writeRoots = [
+    ...(boundary.clientRoots ?? []),
+    ...(policy.analyticsWriteBoundary?.clientRoots ?? []),
+  ];
   for (const exempt of policy.readOnlyClientBoundary?.exemptFiles ?? []) {
     const granted = (exempt.symbols ?? []).filter((symbol) => writeSymbols.includes(symbol));
     if (granted.length === 0) continue;
-    if (!boundary.clientRoots?.some((root) => under(posix(exempt.path), root))) {
+    if (!writeRoots.some((root) => under(posix(exempt.path), root))) {
       errors.push(
-        `${exempt.path}: '${granted.join("', '")}' may only be exempted under a viewerWriteBoundary clientRoot`,
+        `${exempt.path}: '${granted.join("', '")}' may only be exempted under a viewerWriteBoundary or analyticsWriteBoundary clientRoot`,
       );
+    }
+  }
+  return errors;
+}
+
+const analyticsWriteDeclares = (policy, entry) =>
+  (policy.analyticsWriteBoundary?.allowed ?? []).some(
+    (allowed) => allowed.path === entry.path && allowed.name === entry.name,
+  );
+
+/**
+ * Structural rules on the telemetry gate (§15 / ART-47).
+ *
+ * Checked at POLICY level, before a file is read, for the reason the viewer rules are: every one
+ * of these is a rule about what the policy may SAY. The gate's justification is that it is one
+ * declared, capped, privacy-bounded channel that touches no world state; a policy that could
+ * quietly declare a second one, or put one outside `convex/analytics`, or let it be an action,
+ * would have the same words and none of the meaning.
+ *
+ * The rule with no viewer equivalent is the last one. `analyticsWriteBoundary.clientRoots` and
+ * `viewerWriteBoundary.clientRoots` must be DISJOINT, because 「viewer telemetry 與 world
+ * mutation 架構上分離」 is only true while no single file can do both. A file under both roots
+ * would hold the ballot's write exemption and the transport's at once, and the separation would
+ * be a naming convention.
+ */
+export function validateAnalyticsWritePolicy(policy) {
+  const boundary = policy.analyticsWriteBoundary;
+  const gated = (policy.publicFunctionSurface?.allowed ?? []).filter((entry) => entry.gate === 'telemetry');
+  if (!boundary) {
+    return gated.length > 0 ? ['telemetry-gated functions are declared but analyticsWriteBoundary is missing'] : [];
+  }
+  const errors = [];
+  for (const field of ['roots', 'clientRoots', 'requiredSymbols', 'forbiddenSymbols', 'forbiddenPayloadKeys']) {
+    if (!Array.isArray(boundary[field]) || boundary[field].length === 0) {
+      errors.push(`analytics write boundary must declare a non-empty ${field}`);
+    }
+  }
+  if (!Number.isInteger(boundary.maxTelemetryMutations) || boundary.maxTelemetryMutations < 0) {
+    errors.push('analytics write boundary must cap telemetry mutations with a non-negative integer');
+  }
+  for (const entry of boundary.allowed ?? []) {
+    if (!existsSync(join(ROOT, entry.path))) errors.push(`telemetry write ${entry.path}:${entry.name} does not exist`);
+    if (!boundary.roots?.some((root) => under(posix(entry.path), root))) {
+      errors.push(`telemetry write ${entry.path}:${entry.name} must live under an analyticsWriteBoundary root`);
+    }
+    if (!gated.some((allowed) => allowed.path === entry.path && allowed.name === entry.name)) {
+      errors.push(`telemetry write ${entry.path}:${entry.name} is not declared as a telemetry-gated public function`);
+    }
+  }
+  const mutations = gated.filter((entry) => entry.kind === 'mutation');
+  if (mutations.length > (boundary.maxTelemetryMutations ?? 0)) {
+    errors.push(
+      `${mutations.length} telemetry-gated mutations are declared; the boundary caps them at ${boundary.maxTelemetryMutations}`,
+    );
+  }
+  for (const entry of gated) {
+    // An action can reach a provider, and 「公開讀取不得觸發生成」 depends on no public action
+    // existing. A telemetry action would be one.
+    if (entry.kind === 'action') errors.push(`telemetry-gated ${entry.path}:${entry.name} may not be an action`);
+  }
+  const viewerRoots = policy.viewerWriteBoundary?.clientRoots ?? [];
+  for (const root of boundary.clientRoots ?? []) {
+    if (viewerRoots.some((viewerRoot) => under(root, viewerRoot) || under(viewerRoot, root))) {
+      errors.push(`analytics client root ${root} overlaps a viewerWriteBoundary clientRoot; telemetry and world mutation must stay separable`);
+    }
+  }
+  for (const root of boundary.roots ?? []) {
+    if ((policy.viewerWriteBoundary?.roots ?? []).some((viewerRoot) => under(root, viewerRoot) || under(viewerRoot, root))) {
+      errors.push(`analytics root ${root} overlaps a viewerWriteBoundary root`);
+    }
+  }
+  return errors;
+}
+
+/**
+ * Source rules on the telemetry module (§15 / ART-47).
+ *
+ * Three sweeps over `convex/analytics`, and they say different things on purpose:
+ *
+ * - **`requiredSymbols` must appear.** An ingest that never names the shared sanitiser or the
+ *   dedupe derivation is not the ingest this policy sanctioned — it is one that trusts the
+ *   client, or one that counts an interaction twice. This is the rule that fails on ABSENCE,
+ *   because「我們忘記過濾了」is exactly what a denylist cannot see.
+ * - **`forbiddenSymbols` must not.** Telemetry may not name a Canon writer, a reducer, a replay
+ *   entry point, a read-model publisher or the operator gate. The dependency graph already
+ *   forbids importing most of them; this catches the other spelling, where the module grows its
+ *   own.
+ * - **`forbiddenPayloadKeys` must not appear as a stored field.** The privacy claim is about what
+ *   reaches a row, and a module that never mentions `userAgent` cannot store one. This is
+ *   deliberately a crude text sweep: it is the only check here that would fail on a payload key
+ *   added in a hurry, which is how the first leak happens.
+ */
+export function validateAnalyticsWriteSources(root = ROOT, policy = loadPolicy()) {
+  const boundary = policy.analyticsWriteBoundary;
+  if (!boundary?.roots) return [];
+  const errors = [];
+  const sources = new Map();
+  for (const moduleRoot of boundary.roots) {
+    for (const absolutePath of sourceFiles(join(root, moduleRoot))) {
+      const relativePath = posix(relative(root, absolutePath));
+      // Tests name the forbidden symbols on purpose -- an adversarial suite that could not write
+      // `userAgent` could not prove it is refused.
+      if (relativePath.includes('.test.')) continue;
+      sources.set(relativePath, readFileSync(absolutePath, 'utf8'));
+    }
+  }
+  const names = (symbol) => new RegExp(`\\b${symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+  for (const [sourcePath, source] of sources) {
+    for (const symbol of boundary.forbiddenSymbols ?? []) {
+      if (names(symbol).test(source)) {
+        errors.push(`${sourcePath}: the telemetry module may not reference '${symbol}'`);
+      }
+    }
+    for (const key of boundary.forbiddenPayloadKeys ?? []) {
+      // Anchored on a field position (`key:`) rather than on the bare word, so a docblock that
+      // explains why a user agent is never collected does not fail the check that keeps it so.
+      if (new RegExp(`(^|[\\s{,])${key}\\s*:`, 'm').test(source)) {
+        errors.push(`${sourcePath}: '${key}' may not appear as a telemetry field`);
+      }
+    }
+  }
+  for (const symbol of boundary.requiredSymbols ?? []) {
+    if (![...sources.values()].some((source) => names(symbol).test(source))) {
+      errors.push(`no file under the analytics write boundary references required symbol '${symbol}'`);
     }
   }
   return errors;
@@ -514,6 +660,7 @@ export function checkRepository(root = ROOT, policy = loadPolicy()) {
   errors.push(...validatePublicFunctionSurface(root, policy));
   errors.push(...validateForbiddenHttpActions(root, policy));
   errors.push(...validateViewerWriteSources(root, policy));
+  errors.push(...validateAnalyticsWriteSources(root, policy));
   return errors;
 }
 

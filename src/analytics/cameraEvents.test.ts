@@ -14,12 +14,12 @@ import {
   type CameraTransitionMode,
 } from './cameraEvents';
 import { resetAnalyticsSink, setAnalyticsSink } from './analyticsSink';
-import type { DynamicViewEvent } from './dynamicViewEvents';
+import type { AnalyticsEvent } from '../../convex/shared/analyticsContract';
 
 const WORLD = 'mistwood';
 const AT_REST: CameraTransitionMode = { follow: true, focusId: null, zoomStep: 0 };
 
-let received: DynamicViewEvent[];
+let received: AnalyticsEvent[];
 
 beforeEach(() => {
   received = [];
@@ -61,14 +61,17 @@ describe('each camera change emits its own event, once', () => {
     ]);
   });
 
-  test('focusing a scene', () => {
+  test('focusing a scene emits both PRDs\' names for the same interaction', () => {
     transition({ focusId: 'scene:7:evening:mistwood-mill' });
+    // ART-47. PRD 2.0 §17 calls this `live_scene_selected` and PRD 1.0 §15 calls it
+    // `live_scene_opened`; there is one interaction and one call site, which is what stops the
+    // two from disagreeing about how often it happened. They are counted in different metric
+    // families, so this is not a double count within either.
+    const payload = { worldId: WORLD, sceneId: '7:evening:mistwood-mill' };
     expect(received).toEqual([
-      {
-        name: 'live_scene_selected',
-        // The full colon-bearing scene id survives intact — it is one identifier, not three.
-        payload: { worldId: WORLD, sceneId: '7:evening:mistwood-mill' },
-      },
+      // The full colon-bearing scene id survives intact — it is one identifier, not three.
+      { name: 'live_scene_selected', payload },
+      { name: 'live_scene_opened', payload },
     ]);
   });
 
@@ -136,9 +139,11 @@ describe('one press can legitimately be two changes', () => {
     expect(names()).toEqual(['live_camera_follow_disabled', 'live_character_selected']);
   });
 
-  test('zoom and focus together emit exactly two', () => {
+  test('zoom and focus together emit exactly the events those two changes name', () => {
     transition({ zoomStep: 3, focusId: 'scene:s1' });
-    expect(names()).toEqual(['live_zoom_used', 'live_scene_selected']);
+    // Two CHANGES, three events: the scene focus carries both PRDs' names for itself. What
+    // this pins is that the zoom did not also produce a focus event, and vice versa.
+    expect(names()).toEqual(['live_zoom_used', 'live_scene_selected', 'live_scene_opened']);
   });
 });
 

@@ -54,8 +54,56 @@
               "path": { "type": "string" },
               "name": { "type": "string" },
               "kind": { "enum": ["query", "mutation", "action"] },
-              "gate": { "enum": ["anonymous", "operator"] }
+              "gate": { "enum": ["anonymous", "operator", "viewer", "telemetry"] }
             },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "viewerWriteBoundary": {
+      "description": "ART-45 / ART-39. The two writes a viewer reaches by a deliberate act, and the fence around them. Declared here because the root object forbids unknown properties, so a boundary the schema does not know about reads as a policy error in every editor that validates this file.",
+      "type": "object",
+      "required": ["roots", "maxViewerMutations", "requiredSymbols", "forbiddenSymbols", "allowed"],
+      "properties": {
+        "roots": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "clientRoots": { "type": "array", "items": { "type": "string" } },
+        "maxViewerMutations": { "type": "integer", "minimum": 0 },
+        "requiredSymbols": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "forbiddenSymbols": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "allowed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "name"],
+            "properties": { "path": { "type": "string" }, "name": { "type": "string" } },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "analyticsWriteBoundary": {
+      "description": "ART-47. Telemetry, kept structurally apart from the viewer writes above: a separate gate, a separate module and a separate cap, so the world-mutation budget cannot be spent on an event counter and the ballot's justification cannot be borrowed by one.",
+      "type": "object",
+      "required": [
+        "roots", "clientRoots", "maxTelemetryMutations",
+        "requiredSymbols", "forbiddenSymbols", "forbiddenPayloadKeys", "allowed"
+      ],
+      "properties": {
+        "roots": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "clientRoots": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "maxTelemetryMutations": { "type": "integer", "minimum": 0 },
+        "requiredSymbols": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "forbiddenSymbols": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "forbiddenPayloadKeys": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "allowed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "name"],
+            "properties": { "path": { "type": "string" }, "name": { "type": "string" } },
             "additionalProperties": false
           }
         }

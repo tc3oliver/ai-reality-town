@@ -43,6 +43,7 @@ import {
   type EnvironmentVoteCandidate,
 } from '../shared/environmentVoteCatalog';
 import { classifyViewerInput } from '../safety/viewerInput';
+import { fingerprint, opaqueDigest } from '../shared/opaqueDigest';
 
 /** How many candidates a daily ballot offers. FR-J001: 「每日提供 3–4 個環境事件候選」. */
 export const MIN_BALLOT_CANDIDATES = 3;
@@ -197,16 +198,6 @@ export const roundKey = (worldId: string, worldDay: number): string => `${worldI
  */
 export const VOTE_ROUND_DURATION_MS = 6 * 60 * 60 * 1000;
 
-/** Stable, order-independent fingerprint. Same construction the simulation layer uses. */
-function fingerprint(value: string, seed = 2166136261): number {
-  let hash = seed;
-  for (const character of value) {
-    hash ^= character.codePointAt(0) ?? 0;
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
 /**
  * The value stored in place of a device's token (§15 data minimisation).
  *
@@ -220,11 +211,14 @@ function fingerprint(value: string, seed = 2166136261): number {
  * 32-bit pass collides with near-certainty across {@link MAX_SUBMISSIONS_PER_ROUND} rows, and a
  * collision here does not leak anything — it silently merges two strangers' vote budgets and
  * refuses an honest viewer who has not voted. Correctness, not secrecy, is what sets the width.
+ *
+ * ART-47 moved the construction itself to {@link ../shared/opaqueDigest.ts} so the analytics
+ * ingest could reuse it for a third independent token without `analytics` depending on `viewer`
+ * and without a second copy that could drift. This name and this argument stay here, because the
+ * ballot is where the reasoning was first paid for.
  */
 export function deviceDigest(deviceKey: string): string {
-  const low = fingerprint(deviceKey).toString(16).padStart(8, '0');
-  const high = fingerprint(deviceKey, 0x811c9dc5 ^ 0x5bf03635).toString(16).padStart(8, '0');
-  return `fnv1a64:${high}${low}`;
+  return opaqueDigest(deviceKey);
 }
 
 /**

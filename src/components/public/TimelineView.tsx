@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from 'convex/react';
 import { getPublishedReadModelRef } from './publicReadModelRef';
+import { emitTimelineFiltered } from '../../analytics/productEvents';
 import {
   composeTimelineViewModel,
   parseTimelineRoute,
@@ -36,6 +37,17 @@ export default function TimelineView() {
   const [arc, setArc] = useState<string>(NONE);
   const [character, setCharacter] = useState<string>(NONE);
   const [eventType, setEventType] = useState<string>(NONE);
+  /**
+   * §15's `timeline_filtered`, emitted per DIMENSION rather than per selection.
+   *
+   * `filterKind` is part of the event's subject, so filtering by arc and then by character is
+   * two measurements while re-picking a different arc is still one — which is the question the
+   * metric asks (「篩選功能有沒有被用」), not「換了幾次選項」. Clearing a filter back to 全部
+   * emits nothing: undoing a filter is not using one.
+   */
+  const filtered = (kind: 'arc' | 'character' | 'eventType', value: string) => {
+    if (worldId !== null && value !== NONE) emitTimelineFiltered(worldId, kind);
+  };
 
   if (!enabled) {
     return <Frame worldId={null}><p>網址格式應為 <code>#timeline/&lt;worldId&gt;</code></p></Frame>;
@@ -67,21 +79,33 @@ export default function TimelineView() {
         <div className="flex flex-wrap gap-3">
           <label className="text-sm">
             故事線
-            <select value={arc} onChange={(e) => setArc(e.target.value)} className="ml-2">
+            <select
+              value={arc}
+              onChange={(e) => { setArc(e.target.value); filtered('arc', e.target.value); }}
+              className="ml-2"
+            >
               <option value={NONE}>全部</option>
               {vm.arcOptions.map((option) => <option key={option} value={option}>{option}</option>)}
             </select>
           </label>
           <label className="text-sm">
             角色
-            <select value={character} onChange={(e) => setCharacter(e.target.value)} className="ml-2">
+            <select
+              value={character}
+              onChange={(e) => { setCharacter(e.target.value); filtered('character', e.target.value); }}
+              className="ml-2"
+            >
               <option value={NONE}>全部</option>
               {vm.characterOptions.map((option) => <option key={option} value={option}>{option}</option>)}
             </select>
           </label>
           <label className="text-sm">
             事件類型
-            <select value={eventType} onChange={(e) => setEventType(e.target.value)} className="ml-2">
+            <select
+              value={eventType}
+              onChange={(e) => { setEventType(e.target.value); filtered('eventType', e.target.value); }}
+              className="ml-2"
+            >
               <option value={NONE}>全部</option>
               {vm.eventTypeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
             </select>

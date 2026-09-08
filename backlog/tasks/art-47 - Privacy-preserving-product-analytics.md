@@ -1,10 +1,11 @@
 ---
 id: ART-47
 title: Privacy-preserving product analytics instrumentation
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-02 16:59'
+updated_date: '2026-09-08 00:18'
 labels:
   - prd-1.0
   - epic-l
@@ -101,3 +102,23 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. AUDIT (done). ART-140 shipped the 17 live_* events, an ALLOWLIST sanitizer and emission points, with a no-op sink. §15's 16 product events, the transport, persistence and every metric do not exist. `analyticsSurface.test.ts` asserts src/analytics reaches no network; `readOnlyClientBoundary` forbids client write primitives outside two declared viewer roots; PRD 2.0 §22.16 sets successful mutations from public VIEWING to zero.
+
+2. ONE sanitizer boundary. Move ART-140's ALLOWED_PAYLOAD_KEYS + sanitizeAnalyticsPayload into `convex/shared/analyticsContract.ts` and extend the event registry with §15's 16. `shared` depends on nothing and everything may depend on it, so the CLIENT emitter and the SERVER ingest run the SAME function — no second payload filter, and the server does not trust the client.
+
+3. Telemetry is architecturally separate from world mutation. New `convex/analytics/` module, a new `telemetry` gate in publicFunctionSurface, and a new `analyticsWriteBoundary` with its own cap, roots and forbidden symbols. `viewerWriteBoundary.maxViewerMutations` stays 2 — analytics spends none of the world-mutation budget, and that is asserted. The ingest module may not name a Canon, simulation or reducer symbol.
+
+4. Exactly-once logical measurement, two independent layers. (a) The unit of measurement is (sessionKey, eventName, subject) derived from the sanitized payload, so a rerender or a UI retry emits the same key and the pure queue drops it. (b) The envelope carries that key to the server, which resolves it on a unique index — a transport retry re-sends identical keys and inserts nothing new.
+
+5. Identity. A third independent browser token under its own storage key, digested server-side via the existing `deviceDigest`, never stored raw — the design §15 already forced on the ballot and progress keys so the three surfaces cannot be joined on one column. Required because D1/D7 return is not computable without a stable anonymous key. Session key is per-session and never persisted.
+
+6. Metrics. `convex/analytics/metrics.ts` (pure) computes §16.1's eight product metrics against their PRD targets plus the four dynamic-view derivations observability lists as unmeasured. Every rate is `{ numerator, denominator, rate: number | null, status: 'measured' | 'no_observations' }` — a zero denominator is never reported as 0%, and a D7 cohort that has not matured is excluded rather than counted as a non-return.
+
+7. Emission. §15 events wired into the real public surfaces; ART-140's 17 live events routed through the same sink, unchanged.
+
+8. Evidence. Privacy/adversarial suite, transport retry/idempotency suite, funnel/retention fixture suite, a browser Dynamic-View emission gate that captures the real envelopes, and >=10 fault injections each compiled and executed.
+<!-- SECTION:PLAN:END -->

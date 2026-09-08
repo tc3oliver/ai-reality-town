@@ -88,6 +88,15 @@
         "shared"
       ]
     },
+    "analytics": {
+      "roots": [
+        "convex/analytics"
+      ],
+      "mayDependOn": [
+        "publicRead",
+        "shared"
+      ]
+    },
     "visual": {
       "roots": [
         "convex/visual"
@@ -120,7 +129,8 @@
         "publicRead",
         "safety",
         "observability",
-        "shared"
+        "shared",
+        "analytics"
       ]
     },
     "safety": {
@@ -156,7 +166,8 @@
         "clientLiveRoute",
         "clientAnalytics",
         "clientViewerWrite",
-        "clientViewerProgress"
+        "clientViewerProgress",
+        "clientAnalyticsTransport"
       ]
     },
     "clientWorldReadOnly": {
@@ -221,14 +232,17 @@
         "clientProvider",
         "publicRead",
         "shared",
-        "clientAnalytics"
+        "clientAnalytics",
+        "clientAnalyticsTransport"
       ]
     },
     "clientAnalytics": {
       "roots": [
         "src/analytics"
       ],
-      "mayDependOn": []
+      "mayDependOn": [
+        "shared"
+      ]
     },
     "clientViewerWrite": {
       "roots": [
@@ -237,7 +251,8 @@
       "mayDependOn": [
         "viewer",
         "shared",
-        "clientLiveRoute"
+        "clientLiveRoute",
+        "clientAnalytics"
       ]
     },
     "clientViewerProgress": {
@@ -246,6 +261,17 @@
       ],
       "mayDependOn": [
         "viewer",
+        "shared",
+        "clientAnalytics"
+      ]
+    },
+    "clientAnalyticsTransport": {
+      "roots": [
+        "src/components/analytics"
+      ],
+      "mayDependOn": [
+        "clientAnalytics",
+        "analytics",
         "shared"
       ]
     }
@@ -272,6 +298,12 @@
       },
       {
         "path": "src/components/recap/useViewerProgress.ts",
+        "symbols": [
+          "useMutation"
+        ]
+      },
+      {
+        "path": "src/components/analytics/useAnalyticsIngest.ts",
         "symbols": [
           "useMutation"
         ]
@@ -569,6 +601,18 @@
         "name": "describeTokenBudgetDefaults",
         "kind": "query",
         "gate": "operator"
+      },
+      {
+        "path": "convex/analytics/ingestFunctions.ts",
+        "name": "recordAnalyticsEvents",
+        "kind": "mutation",
+        "gate": "telemetry"
+      },
+      {
+        "path": "convex/operations/productAnalyticsFunctions.ts",
+        "name": "getProductAnalyticsMetrics",
+        "kind": "query",
+        "gate": "operator"
       }
     ]
   },
@@ -652,6 +696,57 @@
       "^openai$",
       "^@anthropic-ai/",
       "^@google/generative-ai$"
+    ]
+  },
+  "analyticsWriteBoundary": {
+    "roots": [
+      "convex/analytics"
+    ],
+    "clientRoots": [
+      "src/components/analytics"
+    ],
+    "maxTelemetryMutations": 1,
+    "requiredSymbols": [
+      "sanitizeAnalyticsPayload",
+      "analyticsDedupeKey"
+    ],
+    "forbiddenSymbols": [
+      "canonEvents",
+      "commitProposedEvent",
+      "validateAndCommitProposedEvent",
+      "reduceWorldEvent",
+      "replayWorldEvents",
+      "seedWorldCharacters",
+      "importWorld",
+      "commitReadModelVersion",
+      "requireOperator",
+      "internalAction"
+    ],
+    "forbiddenPayloadKeys": [
+      "viewerId",
+      "ip",
+      "ipAddress",
+      "userAgent",
+      "accountId",
+      "email",
+      "prompt",
+      "apiKey",
+      "token",
+      "secret",
+      "memory",
+      "knowledge",
+      "dialogue",
+      "publicSummary",
+      "headline",
+      "summary",
+      "privateGoal",
+      "fear"
+    ],
+    "allowed": [
+      {
+        "path": "convex/analytics/ingestFunctions.ts",
+        "name": "recordAnalyticsEvents"
+      }
     ]
   }
 }

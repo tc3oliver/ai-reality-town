@@ -28,7 +28,7 @@ import {
   setAnalyticsSink,
 } from './analyticsSink';
 import { characterTargetId, sceneTargetId, TOWN_TARGET_ID } from '../components/live/liveMapRoute';
-import type { DynamicViewEvent } from './dynamicViewEvents';
+import type { AnalyticsEvent } from '../../convex/shared/analyticsContract';
 
 const ROOT = process.cwd();
 
@@ -98,7 +98,7 @@ describe('the emitter', () => {
   });
 
   test('an installed sink receives the event, sanitised', () => {
-    const received: DynamicViewEvent[] = [];
+    const received: AnalyticsEvent[] = [];
     setAnalyticsSink((event) => received.push(event));
     emitDynamicViewEvent('live_character_selected', {
       worldId: 'mistwood',
@@ -114,14 +114,14 @@ describe('the emitter', () => {
     // The structural half of AC#2. If sanitising were the caller's job it would be a discipline;
     // here it is the only path to a sink, and a sink ART-47 installs inherits it without having
     // to know it exists.
-    const received: DynamicViewEvent[] = [];
+    const received: AnalyticsEvent[] = [];
     setAnalyticsSink((event) => received.push(event));
     emitDynamicViewEvent('live_view_opened', { secretContents: 'x', worldId: 'mistwood' });
     expect(received[0].payload).toEqual({ worldId: 'mistwood' });
   });
 
   test('an unknown event name is dropped rather than forwarded', () => {
-    const received: DynamicViewEvent[] = [];
+    const received: AnalyticsEvent[] = [];
     setAnalyticsSink((event) => received.push(event));
     emitDynamicViewEvent('not_an_event', { worldId: 'mistwood' });
     expect(received).toEqual([]);

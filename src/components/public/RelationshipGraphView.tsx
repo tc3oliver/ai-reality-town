@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQueries, useQuery, type RequestForQueries } from 'convex/react';
 import { getPublishedReadModelRef } from './publicReadModelRef';
+import { emitRelationshipGraphOpened } from '../../analytics/productEvents';
 import { PublicPageFrame } from './PublicPageFrame';
 import { relationshipGraphModelRef } from '../../../convex/shared/relationshipGraphRef';
 import {
@@ -74,6 +75,9 @@ export default function RelationshipGraphView() {
   const route = parseRelationshipGraphRoute(hash);
   const worldId = route?.worldId ?? null;
   const enabled = worldId !== null;
+  useEffect(() => {
+    if (worldId !== null) emitRelationshipGraphOpened(worldId);
+  }, [worldId]);
 
   // Public read only — no provider calls, no mutations.
   const liveResult = useQuery(

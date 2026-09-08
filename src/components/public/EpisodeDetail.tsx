@@ -1,8 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from 'convex/react';
 import { getPublishedReadModelRef } from './publicReadModelRef';
 import { PublicPageFrame } from './PublicPageFrame';
 import { characterMapHref } from './liveMapLinks';
+import { useEndOfContent } from '../analytics/useEndOfContent';
+import {
+  emitEpisodeCompleted,
+  emitEpisodeViewed,
+  emitShareAction,
+} from '../../analytics/productEvents';
 
 /**
  * Public Episode detail page (FR-I003). Reads ONLY the published episode
@@ -57,6 +63,19 @@ function navigate(worldId: string, worldDay: number): void {
 
 export default function EpisodeDetail() {
   const route = parseRoute();
+  /**
+   * §16.1's 首次進站後開啟 Episode numerator.
+   *
+   * On the ROUTE, not on the published payload: opening an Episode that turns out to be
+   * unpublished is still opening one, and gating the event on content would make the rate
+   * measure publication coverage instead. The two states are separable afterwards —
+   * `episode_completed` only ever fires for an Episode that rendered.
+   */
+  const routeWorldId = route?.worldId ?? null;
+  const routeWorldDay = route?.worldDay ?? null;
+  useEffect(() => {
+    if (routeWorldId !== null && routeWorldDay !== null) emitEpisodeViewed(routeWorldId, routeWorldDay);
+  }, [routeWorldId, routeWorldDay]);
 
   const result = useQuery(
     getPublishedReadModelRef,
@@ -107,6 +126,14 @@ export default function EpisodeDetail() {
  * from the data-fetching default export so the accessibility suite can render
  * the real markup — in every recap depth — without a Convex client.
  */
+/** Copy a public deep link. Returns the state the button should show. */
+async function copyEpisodeLink(worldId: string, worldDay: number): Promise<'copied' | 'failed'> {
+  const href = `${window.location.origin}${window.location.pathname}#episode/${worldId}/${worldDay}`;
+  if (typeof navigator === 'undefined' || navigator.clipboard === undefined) return 'failed';
+  await navigator.clipboard.writeText(href);
+  return 'copied';
+}
+
 export function EpisodeDetailView({
   worldId,
   worldDay,
@@ -121,6 +148,10 @@ export function EpisodeDetailView({
   onNavigate?: (worldId: string, worldDay: number) => void;
 }) {
   const [view, setView] = useState<RecapView>(initialRecapView);
+  const [shareState, setShareState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  // Fires when the end of the Episode reaches the viewport — including immediately, for an
+  // Episode short enough to fit on one screen, which a scroll listener would never see.
+  const { ref: endOfEpisode } = useEndOfContent(() => emitEpisodeCompleted(worldId, worldDay));
   const prevDay = worldDay - 1;
   const nextDay = worldDay + 1;
 
@@ -227,6 +258,33 @@ export function EpisodeDetailView({
       </section>
 
       {episode.nextEpisodeTease && <p className="mt-4 italic">{episode.nextEpisodeTease}</p>}
+
+      {/* The end of the Episode. `aria-hidden` because it is a measurement point and not
+          content — a screen reader announcing an empty landmark would be the instrumentation
+          leaking into the thing it measures. */}
+      <div ref={endOfEpisode} aria-hidden="true" />
+
+      {/* §15's `share_action`. A copy-link button rather than a share sheet: the deep link is
+          already public and already in the address bar, so this adds no capability and reaches
+          no third party — which a social share widget would, along with the viewer's IP. */}
+      <p className="episode-share mt-4">
+        <button
+          type="button"
+          className="public-tap border"
+          onClick={() => {
+            emitShareAction(worldId, 'episode', 'link');
+            void copyEpisodeLink(worldId, worldDay).then(setShareState, () => setShareState('failed'));
+          }}
+        >
+          複製這一集的連結
+        </button>
+        {shareState === 'copied' && <span className="ml-2 text-sm">已複製</span>}
+        {/* Never silently nothing: a clipboard API can be refused by permission or absent
+            entirely, and a button that appeared to do nothing is worse than one that says so. */}
+        {shareState === 'failed' && (
+          <span className="ml-2 text-sm">無法複製,請直接複製網址列。</span>
+        )}
+      </p>
 
       <nav className="episode-nav mt-4 flex flex-wrap gap-2" aria-label="集數導覽">
         <button

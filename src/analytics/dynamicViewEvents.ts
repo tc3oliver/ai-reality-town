@@ -1,117 +1,42 @@
 /**
  * The dynamic viewing analytics event contract (FR-Q007 / ART-140, PRD 2.0 §17).
  *
- * ## The constraint that shapes this whole module
+ * ## What moved, and why this file is now mostly re-exports
  *
- * The task says to use "the existing compliant collection mechanism". There isn't one. ART-47
- * (the privacy-preserving analytics platform) is still To Do, and there is no sink of any kind
- * in this repo today.
+ * ART-140 defined the seventeen `live_*` events, the payload ALLOWLIST and the sanitiser here,
+ * because there was no sink and the browser was the only consumer. ART-47 added a server that
+ * receives these payloads from an untrusted client, and a server that trusts a client-side
+ * sanitiser has no sanitiser at all.
  *
- * More than that, there structurally CANNOT be one on the client's own initiative:
- * `readOnlyClientBoundary` forbids every client write primitive, and
- * `convex/publicRead/publicReadOnlyGuarantee.test.ts` (ART-128 / FR-O009) asserts that the
- * shipped bundle reaches exactly one Convex surface, a query. Adding a reporting mutation would
- * not extend that guarantee — it would be a hole in it. `docs/dynamic-view-observability.md`
- * reached the same conclusion for the two `client_external` metrics and said so: the collector
- * is "most likely an external analytics sink rather than a Convex write path".
+ * The contract therefore moved to {@link ../../convex/shared/analyticsContract.ts}, which both
+ * this module and the ingest import. It is one allowlist enforced twice, rather than two
+ * allowlists that agree today — the failure mode of the second design is silent, because both
+ * halves keep producing well-formed payloads while one starts admitting a field the other drops.
  *
- * ## So what this task actually delivers
- *
- * Everything except the transport, which is ART-47's:
- *
- * 1. **The contract** — all seventeen §17 events, declared once, with the payload each carries.
- * 2. **The privacy guarantee** — {@link sanitizeAnalyticsPayload} strips anything outside the
- *    declared allowlist, and the negative tests are the load-bearing part of this task. AC#2 is
- *    the one criterion that is cheaper to get right before a sink exists than after.
- * 3. **The emission points** — real triggers in the live surface, through {@link ./analyticsSink}.
- * 4. **The derivations** — §18.1's click-rate and replay-completion computed from the event
- *    stream, so AC#4 is a demonstrated property rather than a promise.
- *
- * The default sink does nothing, so shipping this changes no network behaviour at all and the
- * read-only guarantee is untouched. That is deliberate: an event contract that is proven clean
- * and emitted from the right places is the expensive half, and it is the half that has to exist
- * before any sink can be pointed at it.
+ * What stays here is what is genuinely about the DYNAMIC surface: the seventeen names as a
+ * separately addressable set, and §18.1's two live metrics.
  *
  * Pure module: no React, no Convex, no DOM, no clock, no randomness.
  */
 
-/** The seventeen events PRD 2.0 §17 names for the live surface, in the order it names them. */
-export const DYNAMIC_VIEW_EVENTS = [
-  'live_view_opened',
-  'live_map_ready',
-  'live_map_failed',
-  'live_fallback_used',
-  'live_character_selected',
-  'live_scene_selected',
-  'live_arc_opened',
-  'live_episode_opened',
-  'live_camera_follow_enabled',
-  'live_camera_follow_disabled',
-  'live_zoom_used',
-  'live_runtime_stale_seen',
-  'live_return_to_town',
-  'live_replay_started',
-  'live_replay_completed',
-  'live_replay_skipped',
-  'live_replay_manual_triggered',
-] as const;
+export {
+  ALLOWED_PAYLOAD_KEYS,
+  DYNAMIC_VIEW_EVENTS,
+  MAX_PAYLOAD_VALUE_LENGTH,
+  sanitizeAnalyticsPayload,
+  type AllowedPayloadKey,
+  type AnalyticsPayloadValue,
+  type DynamicViewEventName,
+} from '../../convex/shared/analyticsContract';
 
-export type DynamicViewEventName = (typeof DYNAMIC_VIEW_EVENTS)[number];
+import {
+  DYNAMIC_VIEW_EVENTS,
+  type AnalyticsPayload,
+  type DynamicViewEventName,
+} from '../../convex/shared/analyticsContract';
 
-/**
- * Every field any event may carry, and nothing else.
- *
- * An ALLOWLIST rather than a denylist, and that choice is the whole privacy design. A denylist
- * has to enumerate every private field that exists now and every one added later; the payloads
- * here are built from view models that carry private-adjacent data one property away, so the
- * first field someone forgets is the first leak. An allowlist fails the other way: a field
- * nobody thought about is dropped, and the event is merely less informative.
- *
- * Note what is NOT here: no viewer id, no session id, no IP, no user agent, no free text of any
- * kind. `characterId`, `sceneId`, `arcId` and `locationId` are WORLD identifiers — already
- * public on every Episode page — not personal ones, and PRD 2.0 §17's click-rate metric cannot
- * be computed without knowing which thing was clicked.
- */
-export const ALLOWED_PAYLOAD_KEYS = [
-  /** Which world. Public, and every event is scoped to one. */
-  'worldId',
-  /** A world identifier the surface already publishes. Never a viewer identifier. */
-  'characterId',
-  'sceneId',
-  'arcId',
-  'locationId',
-  /** Canon time. Already printed on every Episode page. */
-  'worldDay',
-  'timeSlot',
-  /** Which ladder rung produced the event (FR-O010). */
-  'degradationLevel',
-  /** The server's freshness verdict at the moment of the event. */
-  'freshness',
-  /** Which Episode was opened. */
-  'episodeNumber',
-  /** Camera zoom step, as an integer. Not a position, and not a viewport size. */
-  'zoomStep',
-  /** Replay progress, so §18.1's completion rate is computable. */
-  'replayId',
-  'sceneIndex',
-  'sceneCount',
-  /** Why a fallback happened, from the ladder's closed vocabulary. */
-  'reason',
-] as const;
-
-export type AllowedPayloadKey = (typeof ALLOWED_PAYLOAD_KEYS)[number];
-
-/**
- * Values a payload field may hold.
- *
- * Deliberately narrow. Objects and arrays are refused outright rather than walked, because a
- * nested value is how a whole view model gets attached to an event by accident — and a
- * recursive sanitiser would then have to decide what is private INSIDE it, which is the
- * judgement this design exists to avoid making at every call site.
- */
-export type AnalyticsPayloadValue = string | number | boolean;
-
-export type DynamicViewEventPayload = Partial<Record<AllowedPayloadKey, AnalyticsPayloadValue>>;
+/** ART-140's name for a §17 payload. The shared contract calls it `AnalyticsPayload`. */
+export type DynamicViewEventPayload = AnalyticsPayload;
 
 export type DynamicViewEvent = {
   name: DynamicViewEventName;
@@ -119,52 +44,18 @@ export type DynamicViewEvent = {
 };
 
 /**
- * The longest a payload string may be.
+ * Whether a name is one of the SEVENTEEN.
  *
- * Not an aesthetic limit. Every allowed key holds an identifier or an enum member, and none of
- * those is long — so a value past this length is, by elimination, something that is not an
- * identifier: a summary, a sentence, a name. Truncating would still emit most of it, so an
- * over-long value is DROPPED. The event survives with one fewer field, which is the right
- * trade against publishing a sentence nobody reviewed.
+ * Deliberately narrower than the shared contract's `isAnalyticsEvent`, which admits §15's
+ * product events too. §18.1's metrics below are about the dynamic surface, and a predicate that
+ * quietly widened to the whole registry would let a §15 event be counted as a live one.
  */
-export const MAX_PAYLOAD_VALUE_LENGTH = 64;
-
-/**
- * Strip a payload to the declared contract.
- *
- * Total: any input, including one carrying a whole view model, yields a payload containing only
- * allowlisted keys holding short scalars. Called inside {@link ./analyticsSink}'s emit rather
- * than left to call sites, so there is no path by which an event reaches a sink unsanitised —
- * "remember to sanitise" is a discipline, and this is a structure.
- */
-export function sanitizeAnalyticsPayload(payload: unknown): DynamicViewEventPayload {
-  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) return {};
-  const source = payload as Record<string, unknown>;
-  const clean: Record<string, AnalyticsPayloadValue> = {};
-
-  for (const key of ALLOWED_PAYLOAD_KEYS) {
-    const value = source[key];
-    if (typeof value === 'string') {
-      // Dropped, not truncated — see MAX_PAYLOAD_VALUE_LENGTH.
-      if (value.length > 0 && value.length <= MAX_PAYLOAD_VALUE_LENGTH) clean[key] = value;
-    } else if (typeof value === 'number') {
-      // A non-finite number serialises as `null` in JSON and reads as a missing field, so it is
-      // dropped here rather than emitted as one.
-      if (Number.isFinite(value)) clean[key] = value;
-    } else if (typeof value === 'boolean') {
-      clean[key] = value;
-    }
-  }
-  return clean;
-}
-
-/** Whether a name is one of the seventeen. Unknown names are refused, not passed through. */
 export function isDynamicViewEvent(name: string): name is DynamicViewEventName {
   return (DYNAMIC_VIEW_EVENTS as readonly string[]).includes(name);
 }
 
 /**
- * PRD 2.0 §18.1's two live metrics, computed from the event stream (AC#4).
+ * PRD 2.0 §18.1's two live metrics, computed from the event stream (ART-140 AC#4).
  *
  * Present as a function rather than as a claim in a document, because "these events make the
  * metric measurable" is exactly the kind of statement that turns out to be false when someone

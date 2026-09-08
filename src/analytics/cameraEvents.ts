@@ -91,10 +91,19 @@ export function emitCameraEvents(
   if (previous.focusId === next.focusId || next.focusId === null) return;
 
   if (next.focusId.startsWith(ANALYTICS_SCENE_PREFIX)) {
-    emitDynamicViewEvent('live_scene_selected', {
-      worldId,
-      sceneId: next.focusId.slice(ANALYTICS_SCENE_PREFIX.length),
-    });
+    const sceneId = next.focusId.slice(ANALYTICS_SCENE_PREFIX.length);
+    emitDynamicViewEvent('live_scene_selected', { worldId, sceneId });
+    /**
+     * PRD 1.0 §15's `live_scene_opened` — the SAME interaction, named by the other PRD.
+     *
+     * Selecting a scene focuses the camera on it and surfaces its public summary, which is
+     * what「開啟場景」means; there is no separate open affordance to attach the §15 event to.
+     * Emitting both from this one place is deliberate: two call sites for one interaction is
+     * how the two events start disagreeing about how many times it happened. They belong to
+     * different metric families (§15's funnel, §17's live click-rate) and are counted
+     * separately in each, so this is not a double count within either.
+     */
+    emitDynamicViewEvent('live_scene_opened', { worldId, sceneId });
   } else if (next.focusId.startsWith(ANALYTICS_CHARACTER_PREFIX)) {
     // Focusing the CAMERA on someone. Opening their card is a separate event emitted where the
     // card opens: an editorial link arrives with both, and a viewer panning to watch someone
