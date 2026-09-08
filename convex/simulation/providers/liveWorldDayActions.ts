@@ -72,6 +72,7 @@ import type {
   PreparedSlot,
   WorldDaySlotOutcome,
 } from '../worldDayLiveFunctions';
+import type { recordAuthoringAttempt as recordAuthoringAttemptExport } from '../qualityEvidenceFunctions';
 import type {
   findReusableSceneSimulation as findReusableSceneSimulationExport,
   persistValidatedSceneSimulation as persistValidatedSceneSimulationExport,
@@ -93,6 +94,9 @@ const prepareQueuedWorldDaySlotRef = internalFunctionRef<typeof prepareQueuedWor
 );
 const runQueuedWorldDaySlotRef = internalFunctionRef<typeof runQueuedWorldDaySlotExport>(
   'simulation/worldDayLiveFunctions:runQueuedWorldDaySlot',
+);
+const recordAuthoringAttemptRef = internalFunctionRef<typeof recordAuthoringAttemptExport>(
+  'simulation/qualityEvidenceFunctions:recordAuthoringAttempt',
 );
 const findReusableSceneSimulationRef = internalFunctionRef<typeof findReusableSceneSimulationExport>(
   'simulation/sceneSimulationFunctions:findReusableSceneSimulation',
@@ -134,6 +138,11 @@ export function actionAuthoringStore(ctx: ActionCtx, now: number): SceneAuthorin
         sceneId: result.scene.sceneId, output: result.output, attemptCount: result.attemptCount,
         trace: result.trace, createdAt: now,
       });
+    },
+    // FR-M002 / ART-90. The action authors, so the action is where a per-attempt record can be
+    // written at all — the finishing mutation only ever sees results that already parsed.
+    recordAuthoringAttempt: async (attempt) => {
+      await ctx.runMutation(recordAuthoringAttemptRef, { ...attempt, now });
     },
     // Three transactions rather than one, because they happen at three moments with a network
     // call between them. That is what `sceneBudget.ts` always described and what a single

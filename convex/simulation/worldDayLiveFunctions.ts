@@ -43,6 +43,10 @@ import type { GenericMutationCtx } from 'convex/server';
 import { v } from 'convex/values';
 import { internalFunctionRef } from '../shared/internalFunctionRef';
 import type { persistDirectorPlan as persistDirectorPlanExport } from './directorFunctions';
+import type {
+  recordProposalValidations as recordProposalValidationsExport,
+  recordAuthoringAttempt as recordAuthoringAttemptExport,
+} from './qualityEvidenceFunctions';
 import type { persistCharacterIntent as persistCharacterIntentExport } from './characterIntentFunctions';
 import type { groupPersistedCharacterIntents as groupPersistedCharacterIntentsExport } from './sceneGroupingFunctions';
 import type {
@@ -102,6 +106,12 @@ const groupPersistedCharacterIntentsRef = internalFunctionRef<typeof groupPersis
 );
 const persistValidatedSceneSimulationRef = internalFunctionRef<typeof persistValidatedSceneSimulationExport>(
   'simulation/sceneSimulationFunctions:persistValidatedSceneSimulation',
+);
+const recordProposalValidationsRef = internalFunctionRef<typeof recordProposalValidationsExport>(
+  'simulation/qualityEvidenceFunctions:recordProposalValidations',
+);
+const recordAuthoringAttemptRef = internalFunctionRef<typeof recordAuthoringAttemptExport>(
+  'simulation/qualityEvidenceFunctions:recordAuthoringAttempt',
 );
 const findReusableSceneSimulationRef = internalFunctionRef<typeof findReusableSceneSimulationExport>(
   'simulation/sceneSimulationFunctions:findReusableSceneSimulation',
@@ -380,6 +390,15 @@ function createConvexWorldDayLivePort(
         sceneId: result.scene.sceneId, output: result.output, attemptCount: result.attemptCount,
         trace: result.trace, createdAt: now,
       });
+    },
+    // FR-M002 / ART-90. Both are insert-if-absent on a derived key, so a retried slot re-records
+    // rather than re-counts; see `convex/simulation/qualityEvidenceFunctions.ts`.
+    recordProposalValidations: async (outcomes) => {
+      if (outcomes.length === 0) return;
+      await ctx.runMutation(recordProposalValidationsRef, { outcomes: [...outcomes], now });
+    },
+    recordAuthoringAttempt: async (attempt) => {
+      await ctx.runMutation(recordAuthoringAttemptRef, { ...attempt, now });
     },
   };
 }

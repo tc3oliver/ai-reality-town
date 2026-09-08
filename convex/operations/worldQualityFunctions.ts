@@ -77,6 +77,10 @@ import { ARC_STAGNATION_WORLD_DAYS } from '../story/resolution';
 import { HIGH_IMPORTANCE_THRESHOLD } from '../editorial/episode';
 import { buildCoverageExclusion, CoverageExclusionError, reconcileCoverageExclusion, type CoverageExclusionRecord } from '../recaps/coverageExclusions';
 import {
+  evaluateOperationalQuality, OPERATIONAL_QUALITY_EVALUATOR,
+  type AuthoringAttemptEvidence, type ProposalValidationEvidence, type SceneSafetyEvidence,
+} from '../quality/operationalQuality';
+import {
   evaluateStoryQuality, STORY_QUALITY_EVALUATOR,
   type ArcEvidence, type CoverageExclusionEvidence, type PublishedContentEvidence, type StoryEventEvidence,
 } from '../quality/storyQuality';
@@ -670,5 +674,118 @@ export const declareRecapExclusion = mutation({
       reason: record.reason, outcome: 'applied', resultCode: 'COVERAGE_EXCLUSION_DECLARED', at,
     });
     return { eventId: args.eventId, worldDay: record.worldDay, deduplicated: false, operatorId: principal.operatorId };
+  },
+});
+
+const reasonDimensionValidator = v.array(v.object({ code: v.string(), count: v.number() }));
+
+/**
+ * FR-M002 operational metrics for one world over a window of world days (ART-90): Canon Rejection
+ * Rate, Safety Withhold Rate and §16.2's structured-output success rate, each with its own reason
+ * dimensions.
+ *
+ * ## Where each number comes from, and why not from somewhere else
+ *
+ *  - **Rejections** — `canonValidationOutcomes`, written per proposal by both validation stages
+ *    (ART-90). Not `worldDayRuns` (patched per attempt), not `scheduledSlots.errorCode` (cleared on
+ *    retry), not `worldDayCheckpoints` (one code per stage, however many proposals it judged).
+ *  - **Structured output** — `llmTraces`, one row per authoring attempt. Not `sceneSimulationRuns`:
+ *    a scene that exhausted its attempts writes no row there, so a rate over it reads 100% by
+ *    construction.
+ *  - **Safety** — the classification stored with each scene result, which is the verdict the commit
+ *    path itself acted on.
+ *
+ * Every unit is deduplicated on an identity a retried slot re-derives, so retries and duplicate
+ * runs cannot inflate a rate.
+ */
+export const getOperationalQualityMetrics = query({
+  args: {
+    ...credentialArgs,
+    worldId: v.string(),
+    toWorldDay: v.optional(v.number()),
+    windowDays: v.optional(v.number()),
+  },
+  returns: v.object({
+    definition: definitionValidator,
+    report: evaluationReportValidator,
+    breakdown: v.object({
+      rejectionReasons: reasonDimensionValidator,
+      withholdReasons: reasonDimensionValidator,
+      structuredOutputReasons: reasonDimensionValidator,
+      providerFailureReasons: reasonDimensionValidator,
+      models: reasonDimensionValidator,
+    }),
+  }),
+  handler: async (ctx, args) => {
+    await requireOperator(ctx, 'world.inspect', args);
+    const { worldId } = args;
+
+    const latest = await ctx.db.query('canonEvents')
+      .withIndex('by_world_and_sequence', (q) => q.eq('worldId', worldId)).order('desc').first();
+    const toWorldDay = Math.max(0, Math.floor(args.toWorldDay ?? latest?.worldDay ?? 0));
+    const windowDays = Math.min(Math.max(1, Math.floor(args.windowDays ?? DEFAULT_WINDOW_DAYS)), MAX_WINDOW_DAYS);
+    const fromWorldDay = Math.max(0, toWorldDay - windowDays + 1);
+
+    const validationRows = await ctx.db.query('canonValidationOutcomes')
+      .withIndex('by_world_and_day', (q) => q.eq('worldId', worldId).gte('worldDay', fromWorldDay).lte('worldDay', toWorldDay))
+      .take(SCAN_LIMIT + 1);
+    const validations: ProposalValidationEvidence[] = validationRows.slice(0, SCAN_LIMIT).map((row) => ({
+      worldDay: row.worldDay, idempotencyKey: row.idempotencyKey, sceneId: row.sceneId,
+      stage: row.stage, outcome: row.outcome, errorCode: row.errorCode,
+    }));
+
+    const traceRows = await ctx.db.query('llmTraces')
+      .withIndex('by_world_and_day', (q) => q.eq('worldId', worldId).gte('worldDay', fromWorldDay).lte('worldDay', toWorldDay))
+      .take(SCAN_LIMIT + 1);
+    const attempts: AuthoringAttemptEvidence[] = traceRows.slice(0, SCAN_LIMIT).map((row) => ({
+      worldDay: row.worldDay,
+      sceneId: row.sceneId ?? row.runId,
+      attemptId: row.traceId,
+      // The trace's two fields say which of the three outcomes this attempt had; `not_run` means
+      // there was no response to validate, which is what the structure rate excludes.
+      outcome: row.validationResult === 'passed' ? 'parsed'
+        : row.validationResult === 'rejected' ? 'output_rejected' : 'provider_failed',
+      errorCode: null,
+      model: row.model,
+      transportRetries: row.retryCount,
+    }));
+
+    // Scenes are read per (day, slot) on the grouping-run index, never as a sweep of the
+    // `v.any()` scene table — the same bound `getNarrativeQualityMetrics` uses.
+    const scenes: SceneSafetyEvidence[] = [];
+    let sceneRowsRead = 0;
+    for (let worldDay = fromWorldDay; worldDay <= toWorldDay; worldDay += 1) {
+      for (const timeSlot of TIME_SLOTS) {
+        const runs = await ctx.db.query('sceneSimulationRuns')
+          .withIndex('by_grouping_run', (q) => q.eq('worldId', worldId).eq('groupingRunId', groupingRunId({ worldId, worldDay, timeSlot })))
+          .take(SCAN_LIMIT + 1);
+        sceneRowsRead += runs.length;
+        for (const row of runs.slice(0, SCAN_LIMIT)) {
+          const result = row.result as SceneSimulationResult;
+          scenes.push({
+            worldDay,
+            sceneId: row.sceneId,
+            label: result.safety?.label ?? null,
+            reasonCodes: result.safety?.reasonCodes ?? [],
+          });
+        }
+      }
+    }
+
+    const { report, breakdown } = evaluateOperationalQuality({
+      worldId, fromWorldDay, toWorldDay, validations, attempts, scenes,
+      scanLimitReached: validationRows.length > SCAN_LIMIT || traceRows.length > SCAN_LIMIT || sceneRowsRead > SCAN_LIMIT,
+    });
+    return {
+      definition: wireDefinition(OPERATIONAL_QUALITY_EVALUATOR),
+      report: wireReport(report),
+      breakdown: {
+        rejectionReasons: [...breakdown.rejectionReasons],
+        withholdReasons: [...breakdown.withholdReasons],
+        structuredOutputReasons: [...breakdown.structuredOutputReasons],
+        providerFailureReasons: [...breakdown.providerFailureReasons],
+        models: [...breakdown.models],
+      },
+    };
   },
 });

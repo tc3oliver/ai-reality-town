@@ -102,6 +102,8 @@ function memoryStore(): SceneAuthoringStore & { persisted: SceneSimulationResult
   const persisted: SceneSimulationResult[] = [];
   return {
     persisted,
+    // ART-90: this fixture measures nothing, so the attempt recorder is inert.
+    recordAuthoringAttempt: () => Promise.resolve(),
     loadPersistedSceneSimulation: (_worldId, _groupingRunId, simulationRunId) =>
       Promise.resolve(persisted.find((entry) => entry.simulationRunId === simulationRunId) ?? null),
     persistSceneSimulation: (_groupingRunId, result) => { persisted.push(result); return Promise.resolve(); },

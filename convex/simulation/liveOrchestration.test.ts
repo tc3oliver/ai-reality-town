@@ -293,6 +293,9 @@ function livePort(store: InMemoryCanonStore, maxConcurrentCalls: number | null =
   const simulations = new Map<string, SceneSimulationResult>();
   const port: WorldDayLivePort = {
     canonStore: store,
+    // ART-90 evidence recorders; this fixture measures nothing, so they are inert.
+    recordProposalValidations: () => Promise.resolve(),
+    recordAuthoringAttempt: () => Promise.resolve(),
     budget: unmeteredWorldDayBudgetPort(),
     loadConcurrencyLimit: () => Promise.resolve(maxConcurrentCalls),
     loadModuleConfig: (_worldId, module) => Promise.resolve(resolveEffectiveModuleConfig(module, null)),

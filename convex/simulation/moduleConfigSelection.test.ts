@@ -102,6 +102,9 @@ function portWith(config: EffectiveModuleConfig): WorldDayLivePort & { requested
     // identical to before ART-59 while leaving the choice visible rather than absent.
     budget: unmeteredWorldDayBudgetPort(),
     canonStore: new InMemoryCanonStore(),
+    // ART-90 evidence recorders; this fixture measures nothing, so they are inert.
+    recordProposalValidations: () => Promise.resolve(),
+    recordAuthoringAttempt: () => Promise.resolve(),
     loadWorldSnapshot: () => Promise.resolve(snapshot()),
     loadScheduledEnvironmentEvents: () => Promise.resolve([]),
     markScheduledEnvironmentEventApplied: () => Promise.resolve(),

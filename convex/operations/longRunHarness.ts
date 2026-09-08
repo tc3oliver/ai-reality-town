@@ -48,9 +48,16 @@ import { evaluateContinuityWindow, type PublicationEvidence, type SnapshotEviden
 import type { EvaluationReport } from '../quality/evaluator';
 import { evaluateNarrative, type NarrativeSceneEvidence } from '../quality/narrative';
 import {
+  evaluateOperationalQuality,
+  type AuthoringAttemptEvidence, type OperationalQualityBreakdown,
+  type ProposalValidationEvidence, type SceneSafetyEvidence,
+} from '../quality/operationalQuality';
+import {
   evaluateStoryQuality,
   type ArcEvidence, type PublishedContentEvidence, type StoryEventEvidence,
 } from '../quality/storyQuality';
+import type { AuthoringAttemptDraft } from '../simulation/worldDayLive';
+import type { ProposalValidationDraft } from '../simulation/validationOutcome';
 import { HIGH_IMPORTANCE_THRESHOLD } from '../editorial/episode';
 import { validateCanon, validateEventStructure } from '../canon/validators';
 import { authorizeKnowledgeRead } from '../knowledge/authorization';
@@ -416,6 +423,14 @@ export type LongRunFindings = {
    * the persisted FR-G004 verdicts, and arc progress / stagnation / resolution evidence.
    */
   storyQuality: EvaluationReport;
+  /**
+   * FR-M002 operational metrics (ART-90): Canon Rejection Rate, Safety Withhold Rate and §16.2's
+   * structured-output success rate, computed from the run's own per-proposal verdicts and
+   * per-attempt traces — the same evidence the deployment writes, deduplicated on the same keys.
+   */
+  operationalQuality: EvaluationReport;
+  /** ART-90 reason dimensions: stable codes and their counts, never messages or payloads. */
+  operationalBreakdown: OperationalQualityBreakdown;
   /** Canonical digest of every field above except itself. Equal seeds ⇒ equal digest. */
   digest: string;
 };
@@ -707,6 +722,14 @@ const ACTOR = { type: 'system' as const, id: 'art-60-harness' };
 export type Observations = {
   simulations: SceneSimulationResult[];
   plannedAppearance: Array<{ characterId: string; slotsSinceMajorAppearance: number; worldDay: number; timeSlot: TimeSlot }>;
+  /**
+   * FR-M002 / ART-90. Every Canon validation verdict and every authoring attempt the run produced,
+   * deduplicated on the same derived keys the deployment's tables are keyed on — so a long run's
+   * rejection and structured-output rates are computed from the evidence an operator would read
+   * rather than from a parallel count kept beside it.
+   */
+  validations: Map<string, ProposalValidationDraft>;
+  attempts: Map<string, AuthoringAttemptDraft>;
 };
 
 // --- world-day port ----------------------------------------------------------
@@ -779,6 +802,18 @@ export function createWorldDayPort(
     // a stored result to reuse. Returning null keeps the harness measuring freshly authored
     // scenes, which is what its token and repetition observations are about.
     loadPersistedSceneSimulation: () => Promise.resolve(null),
+    recordProposalValidations: (outcomes) => {
+      for (const outcome of outcomes) {
+        const key = `${outcome.worldId}|${outcome.idempotencyKey}|${outcome.stage}`;
+        if (!observations.validations.has(key)) observations.validations.set(key, outcome);
+      }
+      return Promise.resolve();
+    },
+    recordAuthoringAttempt: (attempt) => {
+      const key = `${attempt.simulationRunId}:attempt:${attempt.attempt}`;
+      if (!observations.attempts.has(key)) observations.attempts.set(key, attempt);
+      return Promise.resolve();
+    },
   };
 }
 
@@ -1608,7 +1643,9 @@ export function createLongRunFixture(
   const readStore = new MemoryReadStore();
   const snapshots = new CanonBackedSnapshotStore(canon);
   const harness = createPostCommitHarness(canon, readStore, snapshots);
-  const observations: Observations = { simulations: [], plannedAppearance: [] };
+  const observations: Observations = {
+    simulations: [], plannedAppearance: [], validations: new Map(), attempts: new Map(),
+  };
   const worldDayRunStore = new MemoryWorldDayRunStore();
   const postCommitRunStore = new MemoryPostCommitRunStore();
   const budget = new InMemoryBudgetAccountant(FAKE_SCENE_MODEL, policy, moduleDailyTokenBudget);
@@ -2125,6 +2162,31 @@ export async function runLongRunSimulation(input: LongRunInput): Promise<LongRun
     arcs: storyArcs, scanLimitReached: false,
   });
 
+  // --- FR-M002 operational quality (ART-90) ----------------------------------
+  const operationalValidations: ProposalValidationEvidence[] = [...observations.validations.values()]
+    .map(({ worldDay, idempotencyKey, sceneId, stage, outcome, errorCode }) =>
+      ({ worldDay, idempotencyKey, sceneId, stage, outcome, errorCode }));
+  const operationalAttempts: AuthoringAttemptEvidence[] = [...observations.attempts.values()].map((attempt) => ({
+    worldDay: attempt.worldDay,
+    sceneId: attempt.sceneId,
+    attemptId: `${attempt.simulationRunId}:attempt:${attempt.attempt}`,
+    outcome: attempt.outcome,
+    errorCode: attempt.errorCode,
+    model: attempt.resolvedModel ?? attempt.requestedModel,
+    transportRetries: attempt.transportRetries,
+  }));
+  const operationalScenes: SceneSafetyEvidence[] = observations.simulations.map((result) => ({
+    worldDay: result.scene.worldDay,
+    sceneId: result.scene.sceneId,
+    label: result.safety?.label ?? null,
+    reasonCodes: result.safety?.reasonCodes ?? [],
+  }));
+  const operational = evaluateOperationalQuality({
+    worldId: LONG_RUN_WORLD_ID, fromWorldDay: startWorldDay, toWorldDay: finalWorldDay,
+    validations: operationalValidations, attempts: operationalAttempts, scenes: operationalScenes,
+    scanLimitReached: false,
+  });
+
   const slotsCompleted = slots.filter(({ status }) => status === 'completed').length;
   const seed: LongRunSeed = {
     worldId: LONG_RUN_WORLD_ID,
@@ -2154,6 +2216,8 @@ export async function runLongRunSimulation(input: LongRunInput): Promise<LongRun
     continuity,
     narrative,
     storyQuality,
+    operationalQuality: operational.report,
+    operationalBreakdown: operational.breakdown,
   };
   // ART-92 review seam: content only, after the fact, outside the digest.
   input.onContentSample?.({
