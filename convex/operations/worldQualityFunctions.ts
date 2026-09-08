@@ -73,6 +73,8 @@ import { TIME_SLOTS } from '../canon/eventTypes';
 import type { SceneSimulationResult } from '../simulation/sceneSimulation';
 import { credentialArgs, operatorNow, recordAudit, requireOperator } from './opsConsoleFunctions';
 import { isActiveArcStatus } from '../story/lifecycle';
+import { loadDegradationState } from '../simulation/degradationFunctions';
+import { policyFor, resumeFromPause } from '../simulation/degradation';
 import { ARC_STAGNATION_WORLD_DAYS } from '../story/resolution';
 import { HIGH_IMPORTANCE_THRESHOLD } from '../editorial/episode';
 import { buildCoverageExclusion, CoverageExclusionError, reconcileCoverageExclusion, type CoverageExclusionRecord } from '../recaps/coverageExclusions';
@@ -787,5 +789,105 @@ export const getOperationalQualityMetrics = query({
         models: [...breakdown.models],
       },
     };
+  },
+});
+
+/**
+ * The FR-M004 degradation state of a world, and the transitions that produced it (ART-91 AC#2).
+ *
+ * Read-only and `world.inspect`, like every other quality read here. An operator asking why a
+ * world is producing rules-only events needs the rung, the code that caused it and the moves that
+ * got it there — every one of which is an id, a level or a stable code.
+ */
+export const getDegradationStatus = query({
+  args: { ...credentialArgs, worldId: v.string(), limit: v.optional(v.number()) },
+  returns: v.object({
+    level: v.string(),
+    consecutiveFailures: v.number(),
+    lastTriggerCode: v.union(v.string(), v.null()),
+    lastTransitionWorldDay: v.number(),
+    policy: v.object({
+      usesProvider: v.boolean(),
+      usesFallbackModel: v.boolean(),
+      maxMajorScenes: v.union(v.number(), v.null()),
+      rulesOnly: v.boolean(),
+      defersSummaries: v.boolean(),
+      admitsSimulation: v.boolean(),
+    }),
+    transitions: v.array(v.object({
+      transitionId: v.string(),
+      fromLevel: v.string(),
+      toLevel: v.string(),
+      reason: v.string(),
+      triggerCode: v.union(v.string(), v.null()),
+      worldDay: v.number(),
+      timeSlot: v.string(),
+      consecutiveFailures: v.number(),
+      createdAt: v.number(),
+    })),
+  }),
+  handler: async (ctx, args) => {
+    await requireOperator(ctx, 'world.inspect', args);
+    const state = await loadDegradationState(ctx.db, args.worldId);
+    const limit = Math.min(Math.max(1, Math.floor(args.limit ?? 50)), 200);
+    const rows = await ctx.db.query('worldDegradationTransitions')
+      .withIndex('by_world_and_created', (q) => q.eq('worldId', args.worldId))
+      .order('desc').take(limit);
+    return {
+      level: state.level,
+      consecutiveFailures: state.consecutiveFailures,
+      lastTriggerCode: state.lastTriggerCode,
+      lastTransitionWorldDay: state.lastTransitionWorldDay,
+      policy: policyFor(state.level),
+      transitions: rows.map((row) => ({
+        transitionId: row.transitionId, fromLevel: row.fromLevel, toLevel: row.toLevel,
+        reason: row.reason, triggerCode: row.triggerCode, worldDay: row.worldDay,
+        timeSlot: row.timeSlot, consecutiveFailures: row.consecutiveFailures, createdAt: row.createdAt,
+      })),
+    };
+  },
+});
+
+/**
+ * Resume a world the ladder paused (FR-M004 AC#1's recovery path).
+ *
+ * Gated on `world.resume`, the existing FR-K001 capability for restarting a stopped world, rather
+ * than a new one: this is the same authority applied to a different stop. It returns the world to
+ * `rules_only`, not to `normal` — a world that descended all six rungs does not get its full model
+ * budget back on one click, and the next successful authored slot climbs it back on evidence. See
+ * `resumeFromPause`.
+ */
+export const resumeDegradation = mutation({
+  args: { ...credentialArgs, worldId: v.string(), reason: v.string(), now: v.optional(v.number()) },
+  returns: v.object({ level: v.string(), transitioned: v.boolean() }),
+  handler: async (ctx, args) => {
+    const principal = await requireOperator(ctx, 'world.resume', args);
+    const at = operatorNow(args.now);
+    const state = await loadDegradationState(ctx.db, args.worldId);
+    const decision = resumeFromPause(state, at, principal.operatorId);
+    if (decision.transition) {
+      const prior = await ctx.db.query('worldDegradationTransitions')
+        .withIndex('by_transition_id', (q) => q.eq('transitionId', decision.transition!.transitionId)).unique();
+      if (!prior) await ctx.db.insert('worldDegradationTransitions', { ...decision.transition });
+      const row = await ctx.db.query('worldDegradationStates')
+        .withIndex('by_world_id', (q) => q.eq('worldId', args.worldId)).unique();
+      const next = {
+        schemaVersion: 1 as const, worldId: args.worldId, level: decision.state.level,
+        consecutiveFailures: decision.state.consecutiveFailures,
+        lastTriggerCode: decision.state.lastTriggerCode,
+        lastTransitionWorldDay: decision.state.lastTransitionWorldDay,
+        lastTransitionAt: decision.state.lastTransitionAt, updatedAt: at,
+      };
+      if (row) await ctx.db.patch(row._id, next);
+      else await ctx.db.insert('worldDegradationStates', next);
+    }
+    await recordAudit(ctx, {
+      principal, worldId: args.worldId, capability: 'world.resume', target: args.worldId,
+      reason: args.reason,
+      outcome: decision.transition === null ? 'no_op' : 'applied',
+      resultCode: decision.transition === null ? 'DEGRADATION_NOT_PAUSED' : 'DEGRADATION_RESUMED',
+      at,
+    });
+    return { level: decision.state.level, transitioned: decision.transition !== null };
   },
 });

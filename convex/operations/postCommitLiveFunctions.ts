@@ -80,6 +80,8 @@ import { drivableWorldIds } from '../simulation/schedulerOperations';
 import type { AcceptedEvent } from '../canon/model';
 import { TIME_SLOTS } from '../canon/eventTypes';
 import { rowToAcceptedEvent } from '../canon/serialize';
+import { loadDegradationState } from '../simulation/degradationFunctions';
+import { policyFor } from '../simulation/degradation';
 import { readProjectionViaSnapshot } from '../canon/snapshotReplay';
 import { deriveEventId } from '../shared/ids';
 import { authorizeKnowledgeRead } from '../knowledge/authorization';
@@ -729,6 +731,16 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
       const { snapshot, deduplicated } = await ctx.runMutation(
         persistDailySnapshotRef, { worldId, worldDay, createdAt: now });
       return { snapshotId: String(snapshot.snapshotId), deduplicated };
+    },
+
+    /**
+     * FR-M004 rung 5 (ART-91). One indexed point read of the world's degradation state.
+     *
+     * `operations` may depend on `simulation`, so this reads the pure loader rather than routing
+     * through another mutation — the state is one row and this stage already holds a `ctx.db`.
+     */
+    async defersSummaries(worldId) {
+      return policyFor((await loadDegradationState(ctx.db, worldId)).level).defersSummaries;
     },
 
     async loadStageMetrics(runId) {

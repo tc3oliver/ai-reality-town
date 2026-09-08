@@ -94,14 +94,25 @@ carried out:
 | The breach is `concurrency` | `concurrency_is_not_relieved_by_a_cheaper_model` |
 
 One hop, no ordering. FR-M004's ladder — retry the same model, then a compatible model, then fewer
-scenes — is **ART-91**, which depends on this task. Building a second hop here would be ART-91's
-ladder under another name.
+scenes, then rules-only background events, then deferred summaries, then pause — is **ART-91**,
+which depended on this task and **has now shipped**: `convex/simulation/degradation.ts`, documented
+in `docs/model-outage-degradation.md`. Building a second hop here would have been that ladder under
+another name, and the two stay separate for a reason worth stating now that both exist. This hop is
+a decision about **one call** that is over budget, taken inside the reservation and forgotten
+afterwards. The ladder is a decision about **the world**, persisted per world in
+`worldDegradationStates`, and it moves at most one rung per slot. A budget refusal that is not
+relieved by a cheaper model is exactly the input the ladder is supposed to act on, which is the
+next paragraph.
 
 A budget refusal is **not retried**: retrying would spend the retry budget arguing with the limit
 that just refused the call. It reaches `scheduledSlots.errorCode` as `SCENE_BUDGET_REFUSED` or
 `SCENE_BUDGET_DEFERRED` — a stable code, via the `{ error: { code, message } }` shape
 `describeWorldDayError` already recognises for `CanonError`, so an operator can tell "over budget"
 from "the provider broke" without guessing.
+
+Both codes are members of ART-91's `DEGRADATION_TRIGGER_CODES`, so two consecutive slots refused
+for budget move the world down a rung. That is the intended reading: a world that cannot afford to
+author at its current level should author less, not stop.
 
 ## 4. The audit trail (AC#2 "audited")
 

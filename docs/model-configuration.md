@@ -217,13 +217,28 @@ This is a scope boundary taken from the task graph, not an omission.
 **`fallbackModel` and `dailyTokenBudget` are stored, versioned, authorized, audited and readable —
 and nothing spends, meters, or switches on them.**
 
+> **Superseded for `fallbackModel` (ART-91).** The sentence above was accurate when it was written
+> and is no longer true: something now switches on `fallbackModel`. It is carried onto the
+> authoring plan as `SceneAuthoringPlan.fallbackModel` by `buildSceneAuthoringPlan`
+> (`convex/simulation/worldDayLive.ts`) and substituted for `plan.requestedModel` by `degradedPlan`
+> (`convex/simulation/worldDayLiveFunctions.ts`) whenever the world is on rung 2 or below of the
+> FR-M004 ladder. See `docs/model-outage-degradation.md`.
+>
+> The claim about the **call options** is unchanged and still holds. `wholeSceneOptionsFor` does not
+> forward `fallbackModel`, and `moduleConfigSelection.test.ts` still pins that omission — ART-91
+> substitutes the plan's requested model rather than passing a second model alongside the first.
+> That is also the boundary of what rung 2 currently reaches; the limit is stated in
+> `docs/model-outage-degradation.md` §11.
+
 - **ART-59 (FR-M003) owns enforcement, and has now shipped it** for `dailyTokenBudget`. The
   per-module cap is read from THIS table by `convex/simulation/tokenBudgetGate.ts` and handed to
   `evaluateReservation` as a parameter — it is delegated, never copied into ART-59's own policy
   row, so a console change here takes effect in enforcement without a second write. See
-  `docs/token-budget-controls.md` §1. `fallbackModel` remains stored-only.
+  `docs/token-budget-controls.md` §1.
 - **ART-91 owns the ordered degradation path** (same-model retry → compatible model → fewer scenes
-  → …). It depends on both.
+  → rules-only background events → deferred summaries → pause), and **has now shipped it**. It is
+  the consumer of `fallbackModel`. A world with none configured stays on its requested model and
+  rung 2 still applies its other reductions: an absent fallback is not a reason to skip a rung.
 
 Building budget accounting or fallback switching here would duplicate work those tasks own, and
 would do it without the spend ledger and concurrency model they define. `wholeSceneOptionsFor`

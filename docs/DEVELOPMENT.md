@@ -152,6 +152,7 @@ Run a single project with `npx jest --selectProjects a11y` (or `unit`).
 - **Live post-commit pipeline (stages 11–21):** `docs/post-commit-pipeline.md`.
 - **Deterministic long-run simulation harness:** `docs/long-run-simulation-harness.md`.
 - **World quality metrics and evaluators (FR-M002):** `convex/quality/` (pure evaluators, forbidden from Canon writes) and `docs/world-quality-metrics.md`.
+- **Model-outage degradation ladder (FR-M004):** `convex/simulation/degradation.ts` (the pure decision) and `docs/model-outage-degradation.md`. Not to be confused with the client-side renderer ladder in `docs/dynamic-view-degradation.md` (FR-O010).
 - **Manual narrative quality and safety-interception review (PRD 19.5):** `docs/narrative-quality-rubric.md`; executed evaluations in `docs/narrative-quality-reviews/`.
 
 ## Conduct & security

@@ -659,6 +659,18 @@
         "name": "getOperationalQualityMetrics",
         "kind": "query",
         "gate": "operator"
+      },
+      {
+        "path": "convex/operations/worldQualityFunctions.ts",
+        "name": "getDegradationStatus",
+        "kind": "query",
+        "gate": "operator"
+      },
+      {
+        "path": "convex/operations/worldQualityFunctions.ts",
+        "name": "resumeDegradation",
+        "kind": "mutation",
+        "gate": "operator"
       }
     ]
   },

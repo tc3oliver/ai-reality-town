@@ -55,6 +55,45 @@ export const simulationTables = {
     .index('by_run_and_stage', ['runId', 'stage'])
     .index('by_run_stage_attempt', ['runId', 'stage', 'attempt']),
 
+  /**
+   * The FR-M004 degradation state of one world, and its transition log (ART-91).
+   *
+   * Exactly one `worldDegradationStates` row per world: the CURRENT rung, the consecutive failures
+   * counted at it, and where it last moved. The transitions are a separate append-only table for
+   * the reason `safetyStatusOverrides` is separate from the classification it revises — the
+   * history of how a world got here must not be editable by the thing that moves it.
+   *
+   * A transition id is derived from `(worldId, worldDay, timeSlot, kind)`, so a retried slot
+   * re-derives it and the log records one move rather than one per attempt (AC#2).
+   */
+  worldDegradationStates: defineTable({
+    schemaVersion: v.literal(1),
+    worldId: v.string(),
+    level: v.string(),
+    consecutiveFailures: v.number(),
+    lastTriggerCode: v.union(v.string(), v.null()),
+    lastTransitionWorldDay: v.number(),
+    lastTransitionAt: v.number(),
+    updatedAt: v.number(),
+  }).index('by_world_id', ['worldId']),
+
+  worldDegradationTransitions: defineTable({
+    schemaVersion: v.literal(1),
+    transitionId: v.string(),
+    worldId: v.string(),
+    fromLevel: v.string(),
+    toLevel: v.string(),
+    reason: v.string(),
+    triggerCode: v.union(v.string(), v.null()),
+    worldDay: v.number(),
+    timeSlot: v.string(),
+    consecutiveFailures: v.number(),
+    createdAt: v.number(),
+  })
+    .index('by_transition_id', ['transitionId'])
+    .index('by_world_and_day', ['worldId', 'worldDay'])
+    .index('by_world_and_created', ['worldId', 'createdAt']),
+
   worldSchedules: defineTable({
     worldId: v.string(),
     mode: v.union(v.literal('public'), v.literal('development'), v.literal('test'), v.literal('warmup')),

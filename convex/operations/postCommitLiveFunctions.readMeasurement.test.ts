@@ -86,6 +86,15 @@ type Registered = { _handler: (ctx: unknown, args: unknown) => Promise<unknown> 
 
 /** `[table]: { [indexName]: orderedFieldList }`, transcribed from each table's `schema.ts`. */
 const INDEX_REGISTRY: Record<string, Record<string, readonly string[]>> = {
+  /**
+   * ART-91. The recap stage reads the world's degradation rung to decide whether rung 5 defers the
+   * non-essential tiers. One indexed point read per run, which is why it is registered here rather
+   * than excluded: this harness exists to catch reads that GROW, and a per-world point read does
+   * not — but it must still be measured rather than invisible.
+   */
+  worldDegradationStates: {
+    by_world_id: ['worldId'],
+  },
   canonEvents: {
     by_world_and_sequence: ['worldId', 'sequenceNumber'],
     by_world_and_day: ['worldId', 'worldDay'],
