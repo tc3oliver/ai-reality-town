@@ -28,12 +28,12 @@ import {
   dayIndexOf,
   isAnalyticsEvent,
   MAX_ANALYTICS_BATCH_SIZE,
+  MAX_RETURN_DAY_OFFSETS,
   sanitizeAnalyticsPayload,
   type AnalyticsEventName,
   type AnalyticsPayload,
 } from '../shared/analyticsContract';
 import { opaqueDigest } from '../shared/opaqueDigest';
-import { MAX_RETURN_DAY_OFFSETS } from './schema';
 
 export const ANALYTICS_SCHEMA_VERSION = 1;
 

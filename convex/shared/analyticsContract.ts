@@ -298,3 +298,13 @@ export const MAX_ANALYTICS_BATCH_SIZE = 32;
 /** The UTC day an instant falls in. The bucket every retention window is measured in. */
 export const MS_PER_DAY = 86_400_000;
 export const dayIndexOf = (epochMs: number): number => Math.floor(epochMs / MS_PER_DAY);
+
+/**
+ * How many distinct return-day offsets one viewer row records.
+ *
+ * Sized well past D7 — the furthest window §16.1 defines — so a truncated row is a viewer far
+ * outside anything the PRD measures rather than a routine occurrence. It lives with the contract
+ * rather than with the table because it is a rule about MEASUREMENT: the retention metric has to
+ * know the same number in order to exclude a row that can no longer answer.
+ */
+export const MAX_RETURN_DAY_OFFSETS = 32;

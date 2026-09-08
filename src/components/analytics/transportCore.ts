@@ -1,6 +1,11 @@
 /**
  * The transport, as a decision layer with its I/O injected (§15 / ART-47).
  *
+ * Named `transportCore` rather than `analyticsTransport` because macOS and Windows resolve paths
+ * case-insensitively: a module sitting beside `AnalyticsTransport.tsx` and differing from it only
+ * in case can be resolved to its own importer, and the circular import that produces hangs the
+ * module loader with no error. It cost an hour here; the rename is the whole fix.
+ *
  * {@link ./AnalyticsTransport.tsx} supplies the clock, the timer and the mutation; everything
  * that could be WRONG is here, where a test can drive it without a DOM and without a Convex
  * deployment. The split is the same one `viewerProgress.ts` and `viewerProgressFunctions.ts` use.

@@ -23,7 +23,7 @@ import { useEffect } from 'react';
 
 import { resetAnalyticsSink, setAnalyticsSink } from '../../analytics/analyticsSink';
 import { browserAnalyticsIdentity } from './analyticsIdentity';
-import { createAnalyticsTransport } from './analyticsTransport';
+import { createAnalyticsTransport } from './transportCore';
 import { useRecordAnalyticsEvents } from './useAnalyticsIngest';
 
 export default function AnalyticsTransport(): null {

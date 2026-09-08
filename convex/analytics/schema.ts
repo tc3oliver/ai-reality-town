@@ -1,7 +1,7 @@
 import { defineTable } from 'convex/server';
 import { v } from 'convex/values';
 
-import { ALLOWED_PAYLOAD_KEYS } from '../shared/analyticsContract';
+import { ALLOWED_PAYLOAD_KEYS, MAX_RETURN_DAY_OFFSETS } from '../shared/analyticsContract';
 
 /**
  * Tables owned by `analytics` (§15 / §16.1, ART-47).
@@ -22,6 +22,8 @@ import { ALLOWED_PAYLOAD_KEYS } from '../shared/analyticsContract';
  * particular is what makes D1/D7 a bounded read: the offsets a viewer returned on are a short
  * array on one row, rather than a scan of every session they ever had.
  */
+export { MAX_RETURN_DAY_OFFSETS };
+
 export const analyticsTables = {
   /**
    * One row per LOGICAL MEASUREMENT — `(session, event, subject)` — never one per interaction.
@@ -142,11 +144,3 @@ export const analyticsTables = {
   })
     .index('by_world_and_day', ['worldId', 'dayIndex']),
 };
-
-/**
- * How many distinct return-day offsets one viewer row records.
- *
- * Sized well past D7 — the furthest window §16.1 defines — so a truncated row is a viewer far
- * outside anything the PRD measures rather than a routine occurrence.
- */
-export const MAX_RETURN_DAY_OFFSETS = 32;
