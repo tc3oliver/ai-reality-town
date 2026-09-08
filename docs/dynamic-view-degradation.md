@@ -7,6 +7,14 @@ Related: `docs/public-dynamic-projection.md` (rung 1's data), `docs/live-respons
 (the stage contract every rung preserves), `docs/accessibility.md`,
 `docs/dynamic-view-e2e.md` (the browser harness that injects the fault).
 
+**Not the model-outage ladder.** `docs/model-outage-degradation.md` documents FR-M004 / ART-91,
+which shares the word "degradation" and nothing else. That one runs on the server, is persisted per
+world, and reduces what the simulation **generates** when the provider is unavailable. This one runs
+in the browser, is re-derived on every render, and changes only how already-published data is
+**drawn**. No rung here alters Canon or publication, and no rung there alters rendering; PRD §13
+requires the two to coexist. A world degraded all the way to a paused simulation is still served at
+rung 1 of this ladder, because the public read models keep their last known good content.
+
 ## 1. What was actually missing
 
 Two of the four rungs shipped long ago, one was **built but never wired**, and one did not

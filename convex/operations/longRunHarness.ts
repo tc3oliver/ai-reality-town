@@ -1393,6 +1393,10 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
       return { snapshotId: snapshot.snapshotId, deduplicated };
     },
 
+    // ART-91: the deterministic run is never degraded, so nothing is deferred. The rung-5
+    // behaviour itself is exercised in `degradation.test.ts` and `postCommitLive.test.ts`.
+    defersSummaries: () => Promise.resolve(false),
+
     loadStageMetrics: () => Promise.resolve({
       stages: POST_COMMIT_STAGES.map((stage) => ({ stage, status: 'completed' as const, durationMs: 0 })),
       recordedAt: now,

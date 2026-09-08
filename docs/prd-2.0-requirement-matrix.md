@@ -54,7 +54,7 @@
 | **ART-120** | FR-O011 Ambient Movement ＋ FR-O012 Environmental Animation |
 | **ART-121** | FR-O013 Visual Replay ＋ FR-O014 時間狀態標示 |
 
-FR-O010（動態畫面降級）Disposition 為 **New**，擁有專屬 Task **ART-127**；它與 ART-91 是不同故障域的並存關係，**不是** Carry Forward。
+FR-O010（動態畫面降級）Disposition 為 **New**，擁有專屬 Task **ART-127**；它與 ART-91 是不同故障域的並存關係，**不是** Carry Forward。ART-91 已交付，兩者的界線因此可以講得更明確：FR-O010 是瀏覽器畫不出地圖時**同一份已發布資料換一種畫法**，逐次 render 推導、不落地；FR-M004 是模型中斷時**世界少生成什麼**，以 `worldDegradationStates` 逐世界持久化。見 `docs/model-outage-degradation.md` §10 與 `docs/dynamic-view-degradation.md`。
 
 ---
 
@@ -321,9 +321,48 @@ fixture（`convex/quality/operationalQuality.test.ts`）與實際記錄路徑
 `describe.skip`，而**跳過的執行不是證據**。同一份種子上 Canon 拒絕率為 208 個被判定提案中的 0 個、
 安全攔截率為 104 個已分類場景中的 0 個，`operational_health` 為 1.0。
 
-**Epic M 仍未交付的只剩一項：** FR-M004 降級模式（ART-91）。ART-90 正好供應了降級階梯必須據以
-行動的訊號——結構成功率、`PROVIDER_ATTEMPT_FAILED` 的理由維度，以及逐模型的嘗試計數，說明的是
-「該對哪一種失敗降級」。
+**Epic M 已全數交付。** 最後一項 FR-M004 降級模式（ART-91）已完成，文件見
+`docs/model-outage-degradation.md`。ART-90 供應的正是這座階梯必須據以行動的訊號——結構成功率、
+`PROVIDER_ATTEMPT_FAILED` 的理由維度，以及逐模型的嘗試計數，說明的是「該對哪一種失敗降級」。
+
+**ART-91 交付了什麼：** 六階（同模型重試 → 相容模型 → 減少場景 → 僅規則型背景事件 → 延後非必要
+摘要 → 暫停）寫在單一純模組 `convex/simulation/degradation.ts` 裡。`nextLevel` 在有序清單上是全
+函式，因此 `advanceDegradation` 一次最多只移動一階，**沒有任何呼叫端能要求跳階**——AC#1 是函式的
+性質，不是呼叫端的自律。`FAILURES_BEFORE_ESCALATION` 為 2，所以一分鐘的抖動不會讓世界降級；且
+**只有 provider 端的代碼會升階**（`DEGRADATION_TRIGGER_CODES`）：Canon 拒絕、安全拒絕或不認得的
+代碼既不動階級也不動計數器，因為沒有任何一階能讓一個「被正當拒絕的請求」變得可以接受。
+
+**四項不得跳過的保證（Canon 驗證／安全驗證／冪等／事件持久化）之所以成立，是因為這座階梯根本不
+執行它們**：它回傳的是一個**階級**，每一階的事件仍走同一條
+`validate_structured_output` → `validate_canon` → `commit_accepted_events`。第 4 階是最容易被寫成
+繞道的一階，而它不是：`deriveRulesOnlyEvents` 產出的是 **Proposed** Event，帶著推導出來的冪等鍵、
+通過結構驗證、經 `commitProposedEvent` 提交，且只主張「這個時段在某個有人的地點過去了」（一筆公開
+`fact_created`，沒有關係、記憶、知識或謠言——那每一項都是詮釋）。它**明確不是**決定性的假敘事者：
+模型中斷時絕不可把捏造的敘事寫進 Canon，而 `sceneAuthorFor` 沒有預設值，所以假敘事者無法藉由失敗
+被觸及。第 5 階延後 `scene`／`arc`／`season`／`viewer_context`，**永遠不延後 `episode`**——沒有
+Episode 的一天，正是 §16.2 量測的覆蓋失敗，降級不得製造出品質指標存在的理由本身；跳過一層會讓該層
+的 cursor 原地不動，下一次健康的執行自然涵蓋同一段範圍，**cursor 就是補寫佇列**，這也是為什麼沒有
+補寫佇列。第 6 階在**認領時段之前**拒絕受理，因此不會浪費 lease；它與 `world.pause`（停止時鐘預約
+時段）和 FR-K006 kill switch（停住執行器）是三個各自獨立的停止點，可以同時成立，各自由各自的動作
+解除。
+
+AC#2 的可追溯性是 append-only 的 `worldDegradationTransitions`，transition id 由
+`(worldId, worldDay, timeSlot, kind)` 推導，因此**重跑一個時段不會讓階梯往下走**；營運介面是
+`getDegradationStatus`（`world.inspect`）與 `resumeDegradation`（`world.resume`），後者回到
+`rules_only` 而非 `normal`。AC#3／#4／#5 以 ART-60 的真實 fixture 驗證
+（`convex/operations/degradationIntegration.test.ts`）：provider 全面中斷時公開的 last-known-good
+內容逐位元不變、階梯依真實管線產出的結果逐階下降、規則型事件經真實驗證提交且重試時去重、供應商恢復
+後每一個成功撰寫的時段回升一階。
+
+**途中修掉一個真缺陷：** `describeWorldDayError` 會把所有不帶 Canon 形狀 `.error` 的錯誤壓成
+`WORLD_DAY_STAGE_FAILED`，於是 provider 中斷、逾時、路由鏈耗盡與預算拒絕全都以同一個泛用字串抵達
+`scheduledSlots.errorCode`，營運者無從分辨。現在它會保留任何錯誤自己的穩定 `code`——階梯要的正是
+這個分辨能力。**兩項據實記錄的限制：** 第 2 階替換的是 plan 的 requested model，該值會抵達 FR-M003
+的預算保留，但不會成為 provider 呼叫的 `model` override；以及這座階梯只由 live action 路徑餵養，
+所以使用假 provider 的執行永遠不會移動它。細節見 `docs/model-outage-degradation.md` §11。
+
+**RISK-005 的緩解清單至此完整**：佇列、並行控制、場景合併、模型路由、降級與規則型背景事件皆已交付，
+僅存的但書是並行控制在今天循序執行的 live 路徑上不會綁定。
 
 ### 5.3 有 Task 但不對應任何延後需求
 

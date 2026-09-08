@@ -74,6 +74,24 @@ export function describeWorldDayError(error: unknown): RunFailure {
     if (typeof canon?.code === 'string' && typeof canon.message === 'string') return { code: canon.code, message: canon.message };
   }
   if (error instanceof WorldDayOrchestrationError) return { code: error.code, message: error.message };
+  /**
+   * Any error carrying its own stable `code` keeps it (ART-91).
+   *
+   * `SimulationProviderError` and `SceneSimulationError` both do, and both were collapsing to
+   * `WORLD_DAY_STAGE_FAILED` — so every provider outage, timeout, exhausted route chain and budget
+   * refusal reached `scheduledSlots.errorCode` as the same generic string, and an operator reading
+   * a failed slot could not tell an outage from a malformed scene. FR-M004's ladder needs exactly
+   * that distinction: only provider-side codes escalate, and a generic code escalates nothing.
+   *
+   * Read off the error's own field rather than by `instanceof`, so this module stays free of the
+   * provider and scene-simulation imports it has never had.
+   */
+  if (error && typeof error === 'object' && 'code' in error) {
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === 'string' && code.length > 0) {
+      return { code, message: error instanceof Error ? error.message : String(error) };
+    }
+  }
   if (error instanceof Error) return { code: 'WORLD_DAY_STAGE_FAILED', message: error.message };
   return { code: 'WORLD_DAY_STAGE_FAILED', message: String(error) };
 }

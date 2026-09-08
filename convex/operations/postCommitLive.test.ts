@@ -1159,6 +1159,9 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
 
     persistDailySnapshot: (_worldId, worldDay) => Promise.resolve({ snapshotId: `snapshot:${worldDay}`, deduplicated: false }),
 
+    // ART-91: overridden per test where rung-5 deferral is what is under test.
+    defersSummaries: () => Promise.resolve(false),
+
     loadStageMetrics: () => Promise.resolve({
       stages: POST_COMMIT_STAGES.map((stage) => ({ stage, status: 'completed' as const, durationMs: 0 })),
       recordedAt: now,

@@ -75,6 +75,8 @@ const plan = (scenes: GroupedScene[], requestedModel = 'auto'): SceneAuthoringPl
   options: { maxAttempts: 1, temperature: 0.4, maxTokens: 4_000 },
   requestedModel,
   legalDestinationIds: Object.fromEntries(scenes.map((entry) => [entry.sceneId, ['mistwood-square']])),
+  // ART-91: no fallback configured, so rung 2 keeps the requested model.
+  fallbackModel: null,
   maxConcurrentScenes: 1,
 });
 
@@ -175,6 +177,8 @@ const FUNCTION_PATHS = {
   release: 'simulation/tokenBudgetGateFunctions:releaseSceneBudget',
   /** FR-M002 / ART-90: one trace per authoring attempt, written from the action that makes it. */
   recordAttempt: 'simulation/qualityEvidenceFunctions:recordAuthoringAttempt',
+  /** FR-M004 / ART-91: the slot outcome the degradation ladder folds; only the action knows it. */
+  recordSlotOutcome: 'simulation/degradationFunctions:recordSlotOutcome',
 } as const;
 
 /**

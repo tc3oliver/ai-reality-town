@@ -327,6 +327,15 @@ export interface PostCommitLivePort {
   persistDailySnapshot(worldId: string, worldDay: number): Promise<{ snapshotId: string; deduplicated: boolean }>;
   /** Durable per-stage timings recorded by the run store, plus the recording clock. */
   loadStageMetrics(runId: string): Promise<{ stages: StageMetricsEntry[]; recordedAt: number }>;
+  /**
+   * FR-M004 rung 5 (ART-91). Whether this world is degraded far enough to defer non-essential
+   * recap tiers.
+   *
+   * On the port because the degradation state is a `simulation` table and `operations` reads it
+   * through the same kind of boundary it reads every other capability through. A binding that
+   * always returns false is the pre-ART-91 behaviour exactly.
+   */
+  defersSummaries(worldId: string): Promise<boolean>;
 }
 
 // --- deterministic identifiers ---------------------------------------------
@@ -761,12 +770,33 @@ export type RecapTarget = {
  * that did not move has nothing new to summarise, and asking for one would append a version
  * recording no progress and re-read a range that cannot have changed.
  */
+/**
+ * Recap tiers a world on FR-M004 rung 5 defers (ART-91).
+ *
+ * `episode` is NOT among them, and that is the whole decision. The Episode is the day's public
+ * record and the thing the coverage gate obliges; deferring it would mean a day of Canon that no
+ * published content accounts for, which §16.2 measures as a coverage failure — degradation must
+ * not create the very gap the quality metrics exist to detect. The `scene`, `arc` and `season`
+ * tiers are the incremental pyramid above it: skipping one leaves its cursor where it was, so the
+ * next non-deferred run covers the same range and the pyramid closes itself. That is why deferral
+ * here is safe and needs no backfill queue — the cursor IS the backlog.
+ *
+ * `viewer_context` is deferred too: it is the per-world onboarding summary, and a viewer arriving
+ * during an outage is better served by yesterday's than by nothing.
+ */
+export const DEFERRABLE_RECAP_TYPES: ReadonlySet<string> = new Set(['scene', 'arc', 'season', 'viewer_context']);
+
 export function deriveRecapTargets(
   state: PostCommitWorldState,
   movedArcIds: readonly string[],
+  /**
+   * FR-M004 rung 5 (ART-91). When true, only the tiers no one is obliged to publish are skipped;
+   * `episode` always runs. Defaults to false, so every existing caller is unchanged.
+   */
+  deferSummaries = false,
 ): RecapTarget[] {
   const { event } = state;
-  return [
+  const targets: RecapTarget[] = [
     {
       recapType: 'scene',
       targetId: `slot:${event.worldDay}:${event.timeSlot}`,
@@ -783,6 +813,7 @@ export function deriveRecapTargets(
     },
     { recapType: 'viewer_context', targetId: event.worldId, start: 0 },
   ];
+  return deferSummaries ? targets.filter(({ recapType }) => !DEFERRABLE_RECAP_TYPES.has(recapType)) : targets;
 }
 
 /**
@@ -1201,7 +1232,15 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
     recap: async (context): Promise<RecapArtifact> => {
       const state = await port.loadWorldState(sourceOf(context));
       const arcs = artifact<ArcArtifact>(context, 'arc');
-      const targets = deriveRecapTargets(state, arcs.classifiedArcIds);
+      /**
+       * FR-M004 rung 5 (ART-91): a degraded world composes the Episode and defers the rest.
+       *
+       * The deferral cannot block Canon, and it does not: this stage runs AFTER the commit that
+       * triggered it, on a cursor over accepted events. It cannot block publication either, because
+       * the Episode tier is never deferred. Skipping a tier leaves its cursor untouched, so the
+       * next healthy run covers the same range — the pyramid's own contract is the backfill.
+       */
+      const targets = deriveRecapTargets(state, arcs.classifiedArcIds, await port.defersSummaries(context.worldId));
       const cursors = await port.loadRecapCursors(context.worldId, targets);
       const snapshots: RecapArtifact['snapshots'] = [];
       for (const request of deriveRecapRequests(state.event, targets, cursors)) {

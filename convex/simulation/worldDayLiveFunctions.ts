@@ -59,7 +59,9 @@ import type {
   completeScheduledSlot as completeScheduledSlotExport,
   failScheduledSlot as failScheduledSlotExport,
 } from './schedulerOperations';
-import { createConvexCanonStore } from '../canon/commit';
+import { commitProposedEvent, createConvexCanonStore } from '../canon/commit';
+import { validateEventStructure } from '../canon/validators';
+import { CanonError } from '../shared/errors';
 import { TIME_SLOTS, type TimeSlot } from '../canon/eventTypes';
 import type { ProposedEvent, WorldProjection } from '../canon/model';
 import { replayWorldEvents } from '../canon/replay';
@@ -72,8 +74,11 @@ import { resolveModuleConfig } from './moduleConfig';
 import { createConvexBudgetPort, resolveTokenBudgetPolicy } from './tokenBudgetGate';
 import { FakeWholeSceneProvider, FAKE_SCENE_MODEL } from './fakeSceneNarrator';
 import { assertWorldAdmitsSimulation, isWorldEmergencyStopped } from './emergencyStopOperations';
+import { loadDegradationState } from './degradationFunctions';
+import { policyFor, type DegradationLevel, type LevelPolicy } from './degradation';
+import { deriveRulesOnlyEvents } from './rulesOnlyAuthor';
 import { liveClaimHolder, type SlotClaim } from './schedulerOperations';
-import { executeWorldDay, type WorldDayRun, type WorldDayStage } from './worldDayOrchestration';
+import { executeWorldDay, WorldDayOrchestrationError, type WorldDayRun, type WorldDayStage } from './worldDayOrchestration';
 import { createConvexWorldDayRunStore } from './worldDayOrchestrationFunctions';
 import type { LanguageModelProvider } from './provider';
 import {
@@ -81,6 +86,7 @@ import {
   buildSceneAuthoringPlan,
   buildViewerVoteProposal,
   createWorldDayStageHandlers,
+  directorRunId,
   worldDayRunId,
   SCENE_AUTHORING_DEFERRED,
   type GroupingArtifact,
@@ -469,6 +475,69 @@ async function executeSlot(
   };
 }
 
+/**
+ * Run one slot at FR-M004 rung 4 or 5: deterministic background events, no provider (ART-91).
+ *
+ * The slot is claimed and settled exactly as an authored slot is, and its proposals go through the
+ * same two validators and the same commit. What is different is only where the proposals came
+ * from: `deriveRulesOnlyEvents` reads the world snapshot the Director would have planned against
+ * and asserts the one thing the world already implies — that the slot passed at an occupied place.
+ *
+ * A rules-only slot that produces nothing (an empty world, every location vacant) still completes.
+ * It is not a failure, and failing it would push the ladder DOWN for a world that is simply quiet.
+ */
+async function runRulesOnlySlot(
+  ctx: MutationCtx,
+  row: Doc<'scheduledSlots'>,
+  now: number,
+): Promise<WorldDaySlotOutcome> {
+  if (row.status === 'queued') await ctx.runMutation(startScheduledSlotRef, { slotId: row._id, now });
+  const slot: WorldDaySlotIdentity = { worldId: row.worldId, worldDay: row.worldDay, timeSlot: row.timeSlot };
+  const snapshot = await loadWorldSnapshot(ctx.db, slot);
+  const proposals = deriveRulesOnlyEvents({
+    worldId: slot.worldId,
+    worldDay: slot.worldDay,
+    timeSlot: slot.timeSlot,
+    directorRunId: directorRunId(slot),
+    placements: snapshot.characters.map(({ characterId, currentLocationId }) =>
+      ({ characterId, locationId: currentLocationId })),
+  });
+
+  const store = createConvexCanonStore(ctx.db);
+  const committedEventIds: string[] = [];
+  let errorCode: string | undefined;
+  for (const proposed of proposals) {
+    // Structural first, then Canon inside `commitProposedEvent` against the projection it reads —
+    // the same two gates every authored proposal passes. A rules-only event that a validator
+    // refuses is a defect in this derivation, not a reason to write it anyway.
+    const structural = validateEventStructure(proposed);
+    if (structural) {
+      errorCode = structural.code;
+      break;
+    }
+    try {
+      const result = await commitProposedEvent(store, { proposed, traceId: worldDayRunId(slot) });
+      committedEventIds.push(result.eventId);
+    } catch (error) {
+      errorCode = error instanceof CanonError ? error.error.code : 'RULES_ONLY_COMMIT_FAILED';
+      break;
+    }
+  }
+
+  if (errorCode === undefined) {
+    await ctx.runMutation(completeScheduledSlotRef,
+      { slotId: row._id, committedEventId: committedEventIds[0], now });
+  } else {
+    await ctx.runMutation(failScheduledSlotRef, { slotId: row._id, errorCode, now });
+  }
+  return {
+    slotKey: row.slotKey, worldDay: row.worldDay, timeSlot: row.timeSlot,
+    status: errorCode === undefined ? 'completed' : 'failed',
+    attemptCount: row.attemptCount, committedEventIds,
+    ...(errorCode === undefined ? {} : { errorCode }),
+  };
+}
+
 /** What `prepareQueuedWorldDaySlot` found, for the action that has to decide what to do next. */
 export type PreparedSlot =
   /** Nothing queued and nothing orphaned. The caller stops. */
@@ -484,7 +553,13 @@ export type PreparedSlot =
    * and stays that way until the finishing pass settles it, so nothing else picks it up while the
    * network call is in flight.
    */
-  | { kind: 'awaiting_authoring'; slotId: Id<'scheduledSlots'>; plan: SceneAuthoringPlan }
+  | {
+    kind: 'awaiting_authoring';
+    slotId: Id<'scheduledSlots'>;
+    plan: SceneAuthoringPlan;
+    /** FR-M004 (ART-91): the rung this slot is being authored at, so the action can trace it. */
+    degradationLevel: DegradationLevel;
+  }
   /**
    * The slot reached a terminal state without needing to author anything — every scene was
    * already persisted, the Director planned no scenes at all, or a stage before authoring failed.
@@ -557,6 +632,22 @@ export const prepareQueuedWorldDaySlot = internalMutation({
     // alone authored. Throwing here rather than returning a state keeps the kill switch's meaning
     // in one place — the driver catches per world and moves on.
     await assertWorldAdmitsSimulation(ctx.db, args.worldId);
+    /**
+     * FR-M004 rung 6 (ART-91). A world the ladder paused admits no new simulation, and the check
+     * is HERE — before the claim — for the same reason the emergency stop is: a slot claimed and
+     * then refused has burned a lease and left a `running` row behind.
+     *
+     * Deliberately a different gate from `world.pause` and from the kill switch. The schedule's
+     * pause stops the clock reserving slots; the kill switch halts the executor; this one says the
+     * world's automatic responses to a provider outage are exhausted. All three can be true at
+     * once and each is released by its own action.
+     */
+    const degradation = await loadDegradationState(ctx.db, args.worldId);
+    const policy = policyFor(degradation.level);
+    if (!policy.admitsSimulation) {
+      throw new WorldDayOrchestrationError('WORLD_DEGRADATION_PAUSED',
+        `world is paused at degradation level ${degradation.level}`);
+    }
     const author = sceneAuthorFor('preauthored', args.deploymentModelId);
 
     // ART-160. One durable claim per world, covering duplicate delivery and every way the
@@ -572,6 +663,21 @@ export const prepareQueuedWorldDaySlot = internalMutation({
     const row = await ctx.db.get(claim.slotId);
     if (!row) throw new Error('CLAIMED_SLOT_DISAPPEARED');
 
+    /**
+     * FR-M004 rungs 4 and 5 (ART-91): the world proposes deterministic background events and calls
+     * no model at all.
+     *
+     * Handled in the TRANSACTIONAL pass, before authoring is even considered, because a rules-only
+     * slot has nothing to author — and routing it through the action would put an empty network
+     * call between the same two mutations for no reason. The proposals still travel
+     * `validate_structured_output` → `validate_canon` → `commit_accepted_events`: FR-M004 forbids
+     * skipping any of them, and rung 4 is the rung most likely to be built as a bypass.
+     */
+    if (policy.rulesOnly) {
+      const settled = await runRulesOnlySlot(ctx, row, now);
+      return { kind: 'settled', slotId: row._id, outcome: settled };
+    }
+
     const outcome = await executeSlot(ctx, row, now, author);
     if (outcome.errorCode !== SCENE_AUTHORING_DEFERRED) {
       return { kind: 'settled', slotId: row._id, outcome };
@@ -585,7 +691,17 @@ export const prepareQueuedWorldDaySlot = internalMutation({
       // author nothing and then report the slot as done.
       throw new Error('WORLD_DAY_AUTHORING_PLAN_UNAVAILABLE');
     }
-    return { kind: 'awaiting_authoring', slotId: row._id, plan };
+    /**
+     * The ladder's reductions, applied to the plan the action will author from (AC#1).
+     *
+     * Applied here rather than inside `buildSceneAuthoringPlan` because the level is a property of
+     * the WORLD and the plan is a property of the slot: the authoring half runs in an action with
+     * no database handle, so a plan that carried no level would have to re-read one.
+     */
+    return {
+      kind: 'awaiting_authoring', slotId: row._id,
+      plan: degradedPlan(plan, policy), degradationLevel: degradation.level,
+    };
   },
 });
 
@@ -599,6 +715,26 @@ export const prepareQueuedWorldDaySlot = internalMutation({
  * timeSlot), so a completed run short-circuits and a resumed run dedups at commit
  * instead of appending a second event (FR-C001 AC#1/#3/#4).
  */
+/**
+ * Apply one degradation level's reductions to an authoring plan (FR-M004 rungs 2 and 3).
+ *
+ * `fewer_scenes` truncates the scene list rather than asking the Director to re-plan: the plan was
+ * already validated against FR-C002, and a re-plan would be a second planner whose output nothing
+ * had checked. Truncation keeps the scenes planned first, which is the Director's own priority
+ * order.
+ *
+ * `compatible_model` swaps the requested model for the module's configured `fallbackModel` — the
+ * value ART-52 has stored since it shipped and which, until ART-91, no code ever switched to. A
+ * world with no fallback configured stays on its requested model and the level still applies its
+ * other reductions: an absent fallback is not a reason to skip a rung.
+ */
+function degradedPlan(plan: SceneAuthoringPlan, policy: LevelPolicy): SceneAuthoringPlan {
+  const scenes = policy.maxMajorScenes === null ? plan.scenes : plan.scenes.slice(0, policy.maxMajorScenes);
+  const requestedModel = policy.usesFallbackModel && plan.fallbackModel !== null
+    ? plan.fallbackModel : plan.requestedModel;
+  return { ...plan, scenes, requestedModel };
+}
+
 export const runQueuedWorldDaySlot = internalMutation({
   args: {
     worldId: v.string(),

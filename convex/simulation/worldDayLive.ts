@@ -913,6 +913,19 @@ export type SceneAuthoringPlan = {
    * has expressed no opinion, and the safe reading of no opinion is one at a time.
    */
   readonly maxConcurrentScenes: number;
+  /**
+   * FR-K005 「Fallback」 — the model FR-M004's second rung switches to (ART-91).
+   *
+   * Carried on the plan because the authoring half runs in an action with no database handle, so a
+   * degraded slot that had to look it up would be re-reading configuration the transactional half
+   * already had. `null` when the module configures none, in which case rung 2 keeps the requested
+   * model and applies its other reductions — an absent fallback is not a reason to skip a rung.
+   *
+   * ART-52 stored this value from the day it shipped and, until ART-91, no code ever switched to
+   * it; `moduleConfigSelection.test.ts` pinned that it reached no call. That pin is now the
+   * opposite assertion.
+   */
+  readonly fallbackModel: string | null;
 };
 
 /**
@@ -1013,6 +1026,7 @@ export async function buildSceneAuthoringPlan(
     scenes: grouping.result.scenes,
     options: wholeSceneOptionsFor(config),
     requestedModel: config.model ?? await port.budget.deploymentModelId(),
+    fallbackModel: config.fallbackModel ?? null,
     legalDestinationIds,
     // Clamped to at least 1: a configured 0 would author nothing while looking like a setting.
     maxConcurrentScenes: Math.max(1, configuredLimit ?? 1),

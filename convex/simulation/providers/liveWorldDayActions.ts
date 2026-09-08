@@ -88,6 +88,7 @@ import type { LanguageModelProvider } from '../provider';
 import { createLiveSceneAuthor, resolveLiveSceneAuthoringModel } from './liveSceneAuthor';
 import { createProviderCallRecorder } from './providerCallRecorder';
 import type { recordProviderCall as recordProviderCallExport } from '../providerRateFunctions';
+import type { recordSlotOutcome as recordSlotOutcomeExport } from '../degradationFunctions';
 
 const prepareQueuedWorldDaySlotRef = internalFunctionRef<typeof prepareQueuedWorldDaySlotExport>(
   'simulation/worldDayLiveFunctions:prepareQueuedWorldDaySlot',
@@ -112,6 +113,9 @@ const settleSceneBudgetRef = internalFunctionRef<typeof settleSceneBudgetExport>
 );
 const releaseSceneBudgetRef = internalFunctionRef<typeof releaseSceneBudgetExport>(
   'simulation/tokenBudgetGateFunctions:releaseSceneBudget',
+);
+const recordSlotOutcomeRef = internalFunctionRef<typeof recordSlotOutcomeExport>(
+  'simulation/degradationFunctions:recordSlotOutcome',
 );
 const recordProviderCallRef = internalFunctionRef<typeof recordProviderCallExport>(
   'simulation/providerRateFunctions:recordProviderCall',
@@ -209,6 +213,23 @@ export async function authorAndSettle(
   } catch (error) {
     authoringErrorCode = stableCodeOf(error);
   }
+  /**
+   * FR-M004 (ART-91). The ladder is fed here, and only here, because this is the one place that
+   * knows whether the PROVIDER worked — the finishing mutation sees only whether the scenes it
+   * needed were present, which is the same symptom for an outage and for a slot never authored.
+   *
+   * Recorded before the slot is settled, so a world whose provider has now failed twice is already
+   * on the next rung when the next tick claims it. The write is idempotent on a derived transition
+   * id, so a retried slot re-reaches the same decision without walking the ladder.
+   */
+  await ctx.runMutation(recordSlotOutcomeRef, {
+    worldId,
+    worldDay: prepared.plan.slot.worldDay,
+    timeSlot: prepared.plan.slot.timeSlot,
+    authored: authoringErrorCode === undefined,
+    errorCode: authoringErrorCode ?? null,
+    now,
+  });
   const settled: { slots: WorldDaySlotOutcome[] } = await ctx.runMutation(runQueuedWorldDaySlotRef, {
     worldId, slotId: prepared.slotId, maxSlots: 1, sceneAuthor: 'preauthored',
     deploymentModelId: prepared.plan.requestedModel, now,
@@ -249,11 +270,22 @@ async function driveOneWorld(ctx: ActionCtx, input: {
       skipped = 'SLOT_LEASE_HELD';
       break;
     }
-    slots.push(prepared.kind === 'settled'
-      // Nothing to author: every scene was already stored, the Director planned none, or a stage
-      // before authoring decided the slot.
-      ? { outcome: prepared.outcome, authoredScenes: 0 }
-      : await authorAndSettle(ctx, input.provider, prepared, input.worldId, input.now));
+    if (prepared.kind === 'settled') {
+      // Nothing to author: every scene was already stored, the Director planned none, a stage
+      // before authoring decided the slot, or the world is on a rules-only rung. A COMPLETED slot
+      // at a degraded level is what recovers a rung (ART-91), so it feeds the ladder too — but
+      // only when it completed: a slot that failed for a Canon or safety reason says nothing about
+      // whether the provider is working.
+      if (prepared.outcome.status === 'completed') {
+        await ctx.runMutation(recordSlotOutcomeRef, {
+          worldId: input.worldId, worldDay: prepared.outcome.worldDay, timeSlot: prepared.outcome.timeSlot,
+          authored: true, errorCode: null, now: input.now,
+        });
+      }
+      slots.push({ outcome: prepared.outcome, authoredScenes: 0 });
+    } else {
+      slots.push(await authorAndSettle(ctx, input.provider, prepared, input.worldId, input.now));
+    }
     // Stop on the first slot that did not complete, exactly as the deterministic path does.
     if (slots[slots.length - 1].outcome?.status !== 'completed') break;
   }
