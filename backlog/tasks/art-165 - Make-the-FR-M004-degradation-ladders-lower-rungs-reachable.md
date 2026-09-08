@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-09-08 17:55'
-updated_date: '2026-09-08 17:58'
+updated_date: '2026-09-08 18:19'
 labels:
   - prd-1.0
   - epic-p
@@ -57,11 +57,11 @@ Operations documentation describing the ladder.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A sustained provider outage escalates through every rung and reaches paused, one rung at a time, with no rung skipped.
-- [ ] #2 A completed rules-only slot does not by itself recover a rung; only evidence that the provider authored does.
-- [ ] #3 A world on a rules-only rung still learns that the provider has recovered, and climbs back one rung at a time.
-- [ ] #4 Canon Validation, Safety Validation, Idempotency and Event Persistence are unchanged at every rung, and no rung falls back to the deterministic fake author.
-- [ ] #5 Every transition remains individually traceable and idempotent on its derived id.
+- [x] #1 A sustained provider outage escalates through every rung and reaches paused, one rung at a time, with no rung skipped.
+- [x] #2 A completed rules-only slot does not by itself recover a rung; only evidence that the provider authored does.
+- [x] #3 A world on a rules-only rung still learns that the provider has recovered, and climbs back one rung at a time.
+- [x] #4 Canon Validation, Safety Validation, Idempotency and Event Persistence are unchanged at every rung, and no rung falls back to the deterministic fake author.
+- [x] #5 Every transition remains individually traceable and idempotent on its derived id.
 <!-- AC:END -->
 
 ## Definition of Done
@@ -100,3 +100,50 @@ Operations documentation describing the ladder.
 5. Persist the two new state fields as optional, so existing rows read back, and reuse applyDecision in resumeDegradation instead of its second copy of the same write.
 6. Re-run the three tests, then the focused degradation suites, then npm run check.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## What was wrong
+
+The ART-73 acceptance audit hunted for capability that exists but cannot be reached from production. FR-M004 had four instances, all in the wiring.
+
+1. Rungs 5 and 6 were unreachable. `driveOneWorld` recorded `authored: true` for any completed slot, including a rules-only one, which completes precisely because it calls no model. A world at `rules_only` was credited with an authoring it never performed and climbed back to `fewer_scenes`; escalating further needs failures AT `rules_only`, and a rules-only slot does not fail. A world in a total outage oscillated between two rungs forever.
+2. Rung 2 changed no call. `degradedPlan` swapped `requestedModel`, read only for the FR-M003 reservation key, while the model on the wire is `options.model`. It metered a bucket nothing spent from.
+3. Rung 3 undid itself. Truncation reached only the plan handed to the action; the finishing pass rebuilt an unreduced plan, demanded scenes that were never authored, deferred, and let the world recover a rung on a tick that completed nothing.
+4. One slot could move the world twice. `applyDecision` dedups the transition row but patches the state row either way, so two deliveries of one failure counted two failures. The schema note claimed the opposite.
+
+## What changed
+
+- `SlotOutcomeSignal.usedProvider`: a slot that called no model is not evidence about the model in either direction.
+- `SLOTS_BETWEEN_PROVIDER_PROBES` / `shouldProbeProvider` / `effectivePolicy`: one slot per world day at a no-provider rung is admitted as the cheapest real authoring attempt, so the world can learn the outage ended and a continuing outage escalates. A paused world never probes.
+- `DegradationState.lastSignalKey`: exactly-once on the slot that fed the ladder, in the pure decision.
+- `degradedPlan` swaps the fallback into both the reservation key and `options.model`, and moved into the pure module where a named test can fail if it stops working.
+- `WorldStateArtifact.authoringPolicy`: the rung is pinned in the slot's stage-1 checkpoint and both passes reduce from it.
+- `WorldDayLivePort.loadAuthoringPolicy`, bound to `effectivePolicy` in production and to a mutable box in the long-run fixture so the harness exercises rungs 2 and 3 rather than describing them.
+- `runDegradationLadderDays` in `longRunHarness.ts`: the live driver's loop over the real fixture, which is the only place the two lowest rungs can be observed at all.
+- Removed `getDegradationState` and `resumeDegradedWorld` (registered Convex functions, zero callers). `resumeDegradation` now shares `applyDecision`; its copy had already drifted and reported a replayed resume as a transition.
+- `LiveSlotOutcome` carries the rung and whether the slot was a probe.
+- `deriveRulesOnlyEvents` stamps the actual rung, so an event authored at `deferred_summaries` is distinguishable from one at `rules_only`.
+
+## Evidence
+
+Reproduced first: three tests written against today's behaviour, all red before the fix — the sustained outage stopping at `rules_only` instead of `paused`, and one slot's outcome delivered twice escalating the world to `compatible_model`.
+
+Six fault injections, each compiled, executed, and turning named tests red, then restored:
+
+| injection | red |
+| --- | --- |
+| ladder ignores `usedProvider` | 7 failed, incl. 'reaches paused on a sustained outage' |
+| no exactly-once guard on the slot signal | 3 failed |
+| probe never fires | 6 failed |
+| `degradedPlan` swaps the reservation key only | 3 failed |
+| authoring stage stops reducing the plan | 1 failed |
+| rung not checkpointed with the slot | 2 failed |
+
+Commands:
+- npm test -- --runTestsByPath convex/simulation/degradation.test.ts convex/operations/degradationIntegration.test.ts — 82 passed
+- npm run check — Tests: 4156 passed, 14 skipped, 4170 total; Test Suites: 242 passed, 2 skipped
+
+PR #248, auto-merge armed.
+<!-- SECTION:NOTES:END -->
