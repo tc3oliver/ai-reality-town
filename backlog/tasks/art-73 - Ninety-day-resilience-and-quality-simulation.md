@@ -1,10 +1,11 @@
 ---
 id: ART-73
 title: Ninety-day resilience and quality simulation
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-08-02 15:43'
-updated_date: '2026-08-02 16:27'
+updated_date: '2026-09-08 18:28'
 labels:
   - prd-1.0
   - epic-p
@@ -92,3 +93,14 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Make the 90-day run affordable. The harness paid two costs production does not: an unindexed read store and a full replay of the accepted log once per character per event. Both fixed; the byte-identical report digest is what makes 'this changes no answer' checkable.
+2. Audit first, across every layer ART-58/88/89/90/91 touched, for capability that exists but cannot be reached from production. Fix what it finds inside its own task rather than recording it. It found the FR-M004 ladder's lower rungs unreachable (ART-165) and four evaluator-evidence defects (ART-166).
+3. Clean 90-day scenario, in longRunHarness.test.ts behind its own ART73_NINETY_DAY flag, reusing expectCleanRun and expectKnownFindings unchanged. AC#4 is satisfied by running the SAME assertions at a third length rather than by restating them, and by leaving npm run test:longrun exactly as it was.
+4. Resilience scenario, ninetyDayResilience.test.ts: ONE continuous world of 90 days with the provider taken away for eight of them and given back, the FR-M004 ladder in the loop. Asserts what could be quietly untrue after an outage - independent Canon re-validation at every rung, replay equality and dense sequence numbers across the pause, a public that is never left without a world, no scene narrated while the provider is away, and the probe cadence.
+5. Pin the 90-day counts from a measured run. Denominators as equalities so the ratio cannot be improved by authoring less; arc counts as floors so a healthier seed is not a regression.
+6. Fault injection over both scenarios, then npm run check, then npm run e2e, then PR with auto-merge.
+<!-- SECTION:PLAN:END -->

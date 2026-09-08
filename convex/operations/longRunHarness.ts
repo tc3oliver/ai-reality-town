@@ -491,7 +491,7 @@ const projectionDigest = (projection: WorldProjection): string => contentDigest(
 const activeLocations = mistwoodWorldConfiguration.locations.filter(({ active }) => active);
 
 /** Canon rule context for the fixed Mistwood fixture (identical to the ART-97/98 tests). */
-function mistwoodRuleContext(): CanonRuleContext {
+export function mistwoodRuleContext(): CanonRuleContext {
   return {
     worldId: LONG_RUN_WORLD_ID,
     rules: mistwoodWorldConfiguration.immutableRules,
@@ -1578,7 +1578,7 @@ function acceptedAsProposed(event: AcceptedEvent): ProposedEvent {
  * unique idempotency keys). Any finding here means Canon accepted something it should not
  * have.
  */
-function revalidateAcceptedLog(
+export function revalidateAcceptedLog(
   events: readonly AcceptedEvent[],
   ruleContext: CanonRuleContext,
   /**
@@ -1856,7 +1856,8 @@ export async function runDegradationLadderDays(
       let committedEventIds: string[] = [];
 
       if (policy.rulesOnly) {
-        const settled = await commitRulesOnlySlot(fixture, slot);
+        const settled = await commitRulesOnlySlot(
+          fixture, slot, level === 'deferred_summaries' ? 'deferred_summaries' : 'rules_only');
         status = settled.errorCode === null ? 'completed' : 'failed';
         errorCode = settled.errorCode;
         committedEventIds = settled.committedEventIds;
@@ -1909,6 +1910,8 @@ export async function runDegradationLadderDays(
 async function commitRulesOnlySlot(
   fixture: LongRunFixture,
   slot: WorldDaySlotIdentity,
+  /** The rung, stamped on the events exactly as `runRulesOnlySlot` stamps it. */
+  degradationLevel: 'rules_only' | 'deferred_summaries',
 ): Promise<{ errorCode: string | null; committedEventIds: string[] }> {
   const snapshot = await fixture.worldDayPort.loadWorldSnapshot(slot);
   const proposals = deriveRulesOnlyEvents({
@@ -1918,6 +1921,7 @@ async function commitRulesOnlySlot(
     directorRunId: `director:${worldDayRunId(slot)}`,
     placements: snapshot.characters.map(({ characterId, currentLocationId }) =>
       ({ characterId, locationId: currentLocationId })),
+    degradationLevel,
   });
 
   const committedEventIds: string[] = [];

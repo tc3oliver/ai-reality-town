@@ -3,11 +3,13 @@
  *
  * Every assertion below reads a field of {@link LongRunFindings}; nothing is judged by eye.
  *
- * The 7-day scenario runs in the normal suite (~6 s). The 30-day scenario takes ~5 minutes
- * because each of the 450 accepted events drives a full post-commit pipeline whose public
+ * The 7-day scenario runs in the normal suite (~14 s). The 30-day scenario takes ~4 minutes
+ * because each of the 449 accepted events drives a full post-commit pipeline whose public
  * read-model rebuilds replay the whole log (the O(n²) cost documented in
  * `docs/post-commit-pipeline.md`), so it is gated behind `ART60_LONG_RUN=1` and exposed as
- * `npm run test:longrun`. Both scenarios share one harness and one seed.
+ * `npm run test:longrun`. ART-73 adds a 90-day scenario behind its OWN flag, `ART73_NINETY_DAY=1`
+ * — a separate gate rather than a longer P0 one, so `npm run test:longrun` costs exactly what it
+ * always did. All three scenarios share one harness and one seed.
  */
 
 import { TIME_SLOTS } from '../canon/eventTypes';
@@ -55,7 +57,21 @@ const FORMERLY_STARVED_CHARACTER_IDS = ['lin-yingxue', 'su-meizhen', 'luo-shan',
  * improve the ratio.
  */
 const REPEATED_SCENE_CEILING = 0.15;
-const ACCEPTED_SCENES: Record<number, number> = { 7: 104, 30: 449 };
+
+/**
+ * ART-73's ninety-day pins, measured over this seed.
+ *
+ * The event and scene counts are EQUALITIES, for the reason the shorter runs' are: a ratio whose
+ * denominator is free to shrink can be improved by authoring less. The arc counts are floors,
+ * because a seed that opens more questions is not a regression, and a gate that failed on one would
+ * be pinning the story engine's output rather than its health.
+ */
+const NINETY_DAY_ACCEPTED_EVENTS = 1349;
+const NINETY_DAY_SCENES = 1349;
+const NINETY_DAY_MIN_ARCS = 54;
+const NINETY_DAY_MIN_TERMINAL_RESOLUTIONS = 96;
+
+const ACCEPTED_SCENES: Record<number, number> = { 7: 104, 30: 449, 90: NINETY_DAY_SCENES };
 
 /** Asserts every NFR-007 property that the fixed seed satisfies cleanly. */
 function expectCleanRun(findings: LongRunFindings, worldDays: number): void {
@@ -579,5 +595,140 @@ describeThirtyDay('NFR-007 fixed-seed 30-day simulation (AC#2/#5/#6/#7)', () => 
     expect(findings.recapCoverage.episodes).toBe(29);
     expect(findings.recapCoverage.worldDaysWithoutEpisode).toEqual([]);
     expect(findings.recapCoverage.emptyEpisodes).toEqual([]);
+  });
+});
+
+/**
+ * ART-73 — the same fixed seed, for ninety world days.
+ *
+ * ## Why it is here and not in a file of its own
+ *
+ * NFR-007's P0 gate is the seven- and thirty-day scenarios above, and ART-73's AC#4 says the
+ * ninety-day run must not redefine or duplicate it. The strongest way to satisfy that is to run the
+ * SAME assertions — `expectCleanRun` and `expectKnownFindings`, unchanged — at a third length. A
+ * separate file would have had to restate them, and a restatement is free to drift from the thing it
+ * restates; that is how the repository ended up with `DISTINCT_SCENE_TEXTS` standing in for a ratio.
+ *
+ * It is behind its OWN flag. `npm run test:longrun` is exactly what it was, and a P0 gate that got
+ * three times slower because a resilience scenario was added to it would be a real cost paid for a
+ * filing decision.
+ *
+ * ## What ninety days adds over thirty
+ *
+ * Thirty days is enough to show a story engine. Ninety is where slow-accumulating faults surface —
+ * a projection that drifts from its replay by one field a week, a scan that quietly becomes a full
+ * sweep, an arc portfolio that stops opening new questions, a repetition ratio that only crosses
+ * §16.2's ceiling once the author has exhausted its register space. None of those fail at thirty.
+ *
+ * The resilience half of ART-73 — what happens when the provider goes away in the middle of those
+ * ninety days — is `ninetyDayResilience.test.ts`, which shares this file's flag and this file's
+ * fixture.
+ *
+ * Gated: `ART73_NINETY_DAY=1 npm run test:ninetyday`.
+ */
+const describeNinetyDay = process.env.ART73_NINETY_DAY === '1' ? describe : describe.skip;
+
+const NINETY_DAY_SLOTS = 90 * TIME_SLOTS.length;
+
+describeNinetyDay('NFR-007 fixed-seed 90-day simulation (ART-73)', () => {
+  let findings: LongRunFindings;
+
+  beforeAll(async () => {
+    findings = await runLongRunSimulation({ worldDays: 90 });
+  }, 14_400_000);
+
+  it('completes every slot of ninety world days with 100% replay equality', () => {
+    expect(findings.slotsExecuted).toBe(NINETY_DAY_SLOTS);
+    expect(findings.slotsCompleted).toBe(NINETY_DAY_SLOTS);
+    expect(findings.completionRate).toBe(1);
+    expect(findings.replay.equal).toBe(true);
+    expect(findings.replay.deterministic).toBe(true);
+    expect(findings.replay.replayedDigest).toBe(findings.replay.liveDigest);
+    expect(findings.acceptedEvents).toBe(NINETY_DAY_ACCEPTED_EVENTS);
+  });
+
+  it('machine-checks every Section 19.3 dimension over ninety world days', () => {
+    expectCleanRun(findings, 90);
+  });
+
+  it('reports the same known findings at ninety days as at seven and thirty', () => {
+    expectKnownFindings(findings, 90);
+  });
+
+  /**
+   * §16.2's repetition ceiling over three times the sample.
+   *
+   * Asserted again here, separately from `expectCleanRun`, because this is the run length at which
+   * it could plausibly fail: the composing author's registers are finite, and a ratio that is
+   * comfortable over 449 scenes and marginal over 1300 is a fact about the author that a
+   * thirty-day gate cannot report. The measured value is pinned as a CEILING, not an equality, so
+   * an improvement does not fail the gate and a regression does.
+   */
+  it('holds the repeated-scene ratio under 15% across the whole ninety days', () => {
+    const repeated = findings.narrative.metrics.find(({ key }) => key === 'repeated_scene_ratio');
+    expect(repeated).toBeDefined();
+    expect(repeated!.denominator).toBe(ACCEPTED_SCENES[90]);
+    expect(repeated!.status).toBe('measured');
+    expect(repeated!.rate).not.toBeNull();
+    expect(repeated!.rate!).toBeLessThan(REPEATED_SCENE_CEILING);
+    expect(repeated!.meetsTarget).toBe(true);
+  });
+
+  /**
+   * The arc engine is still asking questions on day 89.
+   *
+   * A portfolio that opened arcs for a month and then ran out would satisfy every thirty-day
+   * assertion in this file and leave a world that had stopped happening.
+   */
+  it('keeps opening, advancing and closing arcs for ninety world days', () => {
+    expect(findings.arcs.activeMajorByWorldDay).toHaveLength(90);
+    expect(findings.arcs.activeMinorByWorldDay).toHaveLength(90);
+    expect(findings.arcs.overLimitWorldDays).toEqual([]);
+    expect(findings.arcs.minorOverLimitWorldDays).toEqual([]);
+    expect(findings.arcs.stagnantArcs).toEqual([]);
+    expect(findings.arcs.arcsHoldingActiveSlotWhileStagnant).toEqual([]);
+    expect(findings.arcs.terminalResolutionsWithoutEvidence).toEqual([]);
+    expect(findings.arcs.arcsWhereLiveAndReplayDisagree).toEqual([]);
+    // The last third of the run still had live major arcs. An engine that opened a seed's worth of
+    // questions and then ran out would satisfy every assertion above and leave a world in which
+    // nothing was any longer at stake.
+    expect(findings.arcs.activeMajorByWorldDay.slice(60).some((count) => count > 0)).toBe(true);
+    expect(findings.arcs.unresolvedMajorByWorldDay.slice(60).every((count) => count >= 1)).toBe(true);
+    // …and it kept CLOSING them. Pinned as floors measured over this seed, so the gate fails on a
+    // regression and not on an improvement.
+    expect(findings.arcs.totalArcs).toBeGreaterThanOrEqual(NINETY_DAY_MIN_ARCS);
+    expect(findings.arcs.resolutions.filter(({ terminal }) => terminal).length)
+      .toBeGreaterThanOrEqual(NINETY_DAY_MIN_TERMINAL_RESOLUTIONS);
+    // The world is never dry for longer than a changeover, over three times the sample.
+    const dry = findings.arcs.worldDaysWithoutActiveMajorArc;
+    expect(dry.filter((day, index) => index > 0 && day === dry[index - 1] + 1)).toEqual([]);
+  });
+
+  it('produces canon and exactly one episode for every completed world day', () => {
+    expect(findings.recapCoverage.worldDaysWithoutAcceptedEvent).toEqual([]);
+    expect(findings.recapCoverage.episodes).toBe(89);
+    expect(findings.recapCoverage.worldDaysWithoutEpisode).toEqual([]);
+    expect(findings.recapCoverage.emptyEpisodes).toEqual([]);
+    expect(findings.recapCoverage.recapFormatFailures).toEqual([]);
+  });
+
+  /**
+   * FR-M003 §16.3 over ninety days — and the honest scope of what it can say.
+   *
+   * The deterministic author never retries and never routes, so two of §16.3's ratios have empty
+   * denominators here by construction and are reported as `null` with a reason rather than as a
+   * number. What ninety days DOES measure is that the accountant and the provider traces still
+   * agree after 450 slots, which is the property a drifting counter would break.
+   */
+  it('keeps the budget accountant and the provider traces agreeing for ninety days', () => {
+    expect(findings.resources.totalTokens).toBeGreaterThan(0);
+    expect(findings.resources.totalTokens)
+      .toBe(findings.tokens.totalInputTokens + findings.tokens.totalOutputTokens);
+    expect(findings.resources.grantedCalls).toBe(findings.repetition.scenes);
+    expect(findings.resources.refusedCalls).toBe(0);
+    expect(findings.resources.worldDays).toHaveLength(90);
+    expect(findings.resources.tokensByWorldDay).toHaveLength(90);
+    expect(findings.tokens.anomalies).toEqual([]);
+    expect(findings.resources.publicReadLlmCalls).toBe(0);
   });
 });

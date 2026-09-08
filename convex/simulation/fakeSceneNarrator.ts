@@ -267,8 +267,33 @@ const VOICES: readonly Voice[] = [
 
 const voiceOf = (characterId: string): Voice => VOICES[mix(fingerprint(`voice:${characterId}`)) % VOICES.length];
 
-const LINE_OPENERS = ['說實話，', '我把話說明白：', '先別急，', '你們聽好，', '我只說一次，', '換個角度想，', '', '恕我直言，'] as const;
-const LINE_CLOSERS = ['。', '，這點我不會退。', '，不然今天就談到這裡。', '，其他的等有證據再說。', '，你們自己想想。', '，我話說完了。'] as const;
+/**
+ * The two shared ends of a line, and why there are sixteen and twelve of them (ART-73).
+ *
+ * A line is opener × core × aside × closer, so one character's line space is the product of those
+ * four. ART-88 sized them for thirty world days — 8 × 8 × 8 × 6 = 3072 — and measured 3.1%
+ * repetition there. Ninety days is 5328 lines, roughly 444 per character, and a cumulative
+ * duplicate ratio over a FINITE space grows with the square of the sample: the same author measured
+ * 9.87% at ninety days, against a harness assertion of 10%.
+ *
+ * That is not a finding about the world. It is arithmetic about a fixture, and the honest response
+ * is to make the space big enough for the run length the gate uses rather than to move the
+ * assertion. Sixteen openers and twelve closers quadruple it to 12288, which puts ninety days back
+ * where thirty was. The growth is still quadratic — it always will be — so this number is a
+ * statement about the author at a given run length, and `docs/long-run-simulation-harness.md` says
+ * so rather than letting a reader take it for a narrative-quality result.
+ */
+const LINE_OPENERS = [
+  '說實話，', '我把話說明白：', '先別急，', '你們聽好，',
+  '我只說一次，', '換個角度想，', '', '恕我直言，',
+  '講白了，', '在座都不是外人，', '照理說，', '別怪我多嘴，',
+  '這樣講吧，', '我問一句，', '容我插一句，', '往回想一下，',
+] as const;
+const LINE_CLOSERS = [
+  '。', '，這點我不會退。', '，不然今天就談到這裡。', '，其他的等有證據再說。',
+  '，你們自己想想。', '，我話說完了。', '，剩下的看你們。', '，我不多說了。',
+  '，這句我認。', '，往後再算。', '，聽不聽隨你們。', '，就這樣。',
+] as const;
 
 /**
  * A second, character-bound part of every line, chosen from one of twelve sets by a hash that is

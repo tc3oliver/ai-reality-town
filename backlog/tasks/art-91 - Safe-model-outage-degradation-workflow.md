@@ -1,11 +1,11 @@
 ---
 id: ART-91
 title: Safe model outage degradation workflow
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-02 16:20'
-updated_date: '2026-09-08 17:28'
+updated_date: '2026-09-08 17:41'
 labels:
   - prd-1.0
   - epic-o
@@ -103,3 +103,9 @@ The fake narrator is unreachable by failure: sceneAuthorFor is a closed two-valu
 Fault injections (each compiled, ran, reddened named tests, restored and md5-verified): (a) nextLevel skips a rung -> 19 failed/52; (b) a Canon code added to DEGRADATION_TRIGGER_CODES -> 2 failed/53; (c) FAILURES_BEFORE_ESCALATION=1 -> 19 failed/52; (d) resumeFromPause returns to normal -> 1 failed/52; (e) paused admits simulation -> 3 failed/52; (f) the rules-only author invents a memory -> 2 failed/24 ('carries exactly one public fact_created and nothing else', 'forms no relationship, memory, knowledge or rumor state'); (g) episode added to DEFERRABLE_RECAP_TYPES -> 7 failed/12.
 Verification: npm run check -> 242 suites, 4130 passed, exit 0. npm run test:longrun -> 17/17 over 30 world days. npm run e2e -> 88 passed. convex/operations/degradationIntegration.test.ts drives the REAL fixture under an injected total provider outage and proves AC#3/#4/#5: the public last-known-good payload is byte-identical through the outage, the ladder descends on outcomes the real pipeline produced (5 dead slots = 2 escalations, not 5), rules-only events pass validateEventStructure and validateCanon and commit through commitProposedEvent and dedupe on retry, and recovery climbs one rung per authored slot.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Delivered the FR-M004 ladder — same-model retry, compatible model, fewer scenes, rules-only events, deferred summaries, pause — as a pure state machine wired into the live runtime, with an append-only transition log, an operator status query and a resume path. Only provider-side failures escalate, two are needed per rung, and one authored slot recovers one rung; a paused world resumes to rules-only rather than to normal. Rung 4 proposes deterministic events that pass the same validation, idempotency and commit path as authored ones and assert nothing they cannot observe; rung 5 never defers the Episode, because an unpublished day is the coverage failure §16.2 measures. Fixed a real defect found on the way: every provider outage, timeout, exhausted route chain and budget refusal reached operators as one generic error code. Verified: 88 new unit tests plus a real-pipeline integration suite proving the public last-known-good content survives a total outage byte-identically, 7 fault injections red-then-green, npm run check 4131 passed, 30-day gate 17/17, e2e 88 passed.
+<!-- SECTION:FINAL_SUMMARY:END -->
