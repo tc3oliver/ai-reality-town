@@ -24,6 +24,7 @@
     "typecheck": "tsc --noEmit",
     "test:foundation": "NODE_OPTIONS=--experimental-vm-modules jest --testPathPattern='canon|simulation|visual'",
     "test:longrun": "ART60_LONG_RUN=1 NODE_OPTIONS=--experimental-vm-modules jest --runTestsByPath convex/operations/longRunHarness.test.ts",
+    "test:ninetyday": "ART73_NINETY_DAY=1 NODE_OPTIONS='--experimental-vm-modules --max-old-space-size=8192' jest --runTestsByPath convex/operations/longRunHarness.test.ts convex/operations/ninetyDayResilience.test.ts",
     "test:architecture": "node --test scripts/architecture/check-boundaries.test.mjs",
     "narrative:review-packet": "ART92_REVIEW_PACKET=1 NODE_OPTIONS=--experimental-vm-modules jest --runTestsByPath convex/operations/narrativeReviewSample.test.ts",
     "check:architecture": "node scripts/architecture/check-boundaries.mjs",

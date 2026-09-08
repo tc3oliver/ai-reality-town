@@ -89,8 +89,11 @@ the 30-day evidence never exercised the persona gate at all.
 # 7-day scenario, part of the normal suite (~6 s per run)
 npm test -- --runTestsByPath convex/operations/longRunHarness.test.ts
 
-# 30-day scenario, gated
+# 30-day scenario, gated — the NFR-007 P0 gate
 npm run test:longrun
+
+# 90-day scenario plus the resilience run, gated separately (ART-73)
+npm run test:ninetyday
 ```
 
 The 30-day scenario is gated behind `ART60_LONG_RUN=1` because it takes about five minutes:
@@ -100,7 +103,77 @@ rebuilds replay the whole accepted log, the O(n²) cost already documented in
 `npm run check` would multiply the default suite's runtime; `npm run test:longrun` runs both
 scenarios.
 
-A 90-day run is explicitly **out of scope** here and is owned by **ART-73**.
+## The 90-day gate (ART-73)
+
+`ART73_NINETY_DAY=1` is a **separate** flag from `ART60_LONG_RUN=1`, and that separation is the
+point. The 7- and 30-day scenarios are the P0 gate; ART-73 adds evidence beside them and must not
+replace or redefine them, so `npm run test:longrun` is exactly what it was and a P0 gate that got
+three times slower because a resilience scenario was added to it does not exist.
+
+Two scenarios share the flag:
+
+| scenario | file | what it adds over 30 days |
+| --- | --- | --- |
+| clean 90 days | `longRunHarness.test.ts` | The **same** `expectCleanRun` and `expectKnownFindings` the shorter runs use, at a third length. A separate file would have had to restate them, and a restatement is free to drift from what it restates — which is how `DISTINCT_SCENE_TEXTS` came to stand in for a ratio. On top of those: §16.2's repetition ceiling over three times the sample, an arc portfolio still opening and closing questions in its last third, and the budget accountant still agreeing with the provider traces after 450 slots. |
+| 90 days through an outage | `ninetyDayResilience.test.ts` | One continuous world — 40 healthy days, 8 with the provider gone, 42 after an operator resumes. The FR-M004 ladder is **in the loop**, so the phases are what the ladder decided rather than a script. |
+
+The resilience run is the only place the whole ladder is observed end to end: it descends all six
+rungs to `paused`, is resumed by an operator once the provider is back, and climbs all six back to
+`normal`. What it asserts is what could be quietly untrue after an outage —
+
+- every accepted event, at every rung, still passes an **independent** re-validation from the seeded
+  baseline (the same `revalidateAcceptedLog` the clean run uses, not a second copy of it);
+- the log still replays to one world, with dense ascending sequence numbers **across the pause**;
+- the public is never left without a world, and stops changing once the world pauses — because a
+  paused world commits nothing and the read model is rebuilt per accepted event;
+- **no scene is narrated while the provider is away.** A degraded world produces fewer events, never
+  invented ones. The provider is asked — by the failing slots and by each probe — so this is a
+  measurement of refusal rather than of a world that simply stopped calling;
+- the probe cadence holds, so an outage does not cost full price in provider calls.
+
+Two of its assertions were **weakened by the run itself**, and both are recorded in the file rather
+than quietly adjusted. The first draft asserted the public payload was unchanged for the whole
+outage; a degraded world commits rules-only events and those events legitimately republish, so the
+guarantee is that the public is never handed an empty or invented world, not that it freezes. The
+second asserted that the eventless world days were the *refused* days; the first day of an outage is
+also eventless, because the ladder still has three provider-using rungs to try and every slot at them
+fails — which is `FAILURES_BEFORE_ESCALATION` working as declared.
+
+Measured on the fixed seed: the clean run is 1349 accepted events over 450 slots in **77 minutes**,
+the resilience run **56 minutes**. Both are run with a raised heap, and `npm run test:ninetyday`
+runs them in parallel workers, so the gate costs about 80 minutes of wall time.
+
+### What the ninety-day run measured
+
+| | value |
+| --- | --- |
+| accepted events / scenes | 1349 / 1349, 450 of 450 slots completed |
+| Canon conflicts, replay | 0; live fold equals full replay, and replay is deterministic |
+| Continuity Score | 1.0 over denominators of 1349 events, 90 daily snapshots, 178 publications |
+| 重複場景比例 (§16.2 < 15%) | **0.0** over 1349 accepted scenes |
+| dialogue repetition | 0.034 — see below |
+| event novelty | 0.665; voice distinctiveness 1.0; persona deviation 0 |
+| 高重要度摘要覆蓋率 (§16.2 ≥ 95%) | **1.0** over 1326 high-importance events, 15 excluded as not yet due |
+| spoiler violations | 0 of 89 released episodes |
+| Canon rejection / safety withhold | 0 of 2698 / 0 of 1349 |
+| JSON 結構成功率 (§16.2 ≥ 98%) | 1.0 of 1349 — **by construction**, see the note below |
+| arcs | 54 opened, 96 terminal resolutions, 0 stagnant, 0 over limit, live and replay agree |
+| episodes | 89 for 89 completed world days, none empty, no recap format refused |
+| public-read LLM calls | 0 |
+
+**Dialogue repetition is a statement about the author, not about the world.** A line is
+opener × core × aside × closer, so one character's line space is the product of those four, and a
+*cumulative* duplicate ratio over a finite space grows with the square of the sample. ART-88 sized
+that space for thirty days and measured 3.1%; the same author measured **9.87% at ninety days**,
+against a harness assertion of 10%. ART-73 widened the space rather than moving the assertion —
+sixteen openers and twelve closers, quadrupling it — and ninety days now measures **3.4%**. The
+growth is still quadratic, so this number is only ever a statement about the author at a given run
+length.
+
+**The structured-output rate is 1.0 by construction here**, because the deterministic author returns
+a valid whole-scene output every time. That the metric can FALL is proven on fixtures in
+`convex/quality/operationalQuality.test.ts`; that this deployment's gateway holds the contract is
+measured, when someone runs it, by `npm run test:live-structure`.
 
 ## The content seam (ART-92)
 
