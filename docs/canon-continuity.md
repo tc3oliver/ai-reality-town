@@ -28,10 +28,29 @@ snapshot replay use identical inputs and remain deterministic.
 ## Rejection inspection
 
 Simulation runs persist the failure stage, stable error code, field path, and structured
-details separately from Canon. The internal `simulation.queries.listValidationFailures`
-query returns those records for the administrator console. It is intentionally an
-internal query: public readers cannot inspect validation internals or private world
-state. The operations UI that consumes the query is owned by the Admin Console task.
+details separately from Canon.
+
+This section used to claim that `simulation.queries.listValidationFailures` returned those
+records for the administrator console. **That claim was wrong.** The query had no callers
+anywhere in the repository, and it read `simulationRuns` — a table only the Phase-0
+foundation workflow ever writes, not the live world-day pipeline. It has been removed
+rather than left as a console surface nothing consumed.
+
+Two real surfaces cover the two questions it appeared to answer:
+
+- **Why was one proposal rejected?** The FR-K002 proposed-event review,
+  `listProposedEventReviews` and `reviewProposedEvent` in
+  `convex/operations/proposalReviewFunctions.ts`. Both are operator-gated on
+  `world.inspect` and return the per-proposal failure stage, stable error code and field
+  path.
+- **Does the accepted history contain conflicts?** `getContinuityQualityMetrics` in
+  `convex/operations/worldQualityFunctions.ts`, also gated on `world.inspect`. It
+  re-validates every accepted event in a window against the projection as it stood before
+  it, and reports the PRD §16.2 Canon targets. See
+  [`world-quality-metrics.md`](./world-quality-metrics.md).
+
+Both are operator-gated, not public: public readers cannot inspect validation internals or
+private world state.
 
 ## Verification
 

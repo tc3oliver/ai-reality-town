@@ -39,12 +39,41 @@ Reproducibility is **proved, not asserted**: `LongRunFindings.digest` is a canon
 of every other field, and the test runs the 7-day scenario twice and requires the two
 reports to be byte identical.
 
+## The seeded baseline, and the real snapshot stage
+
+Two stages of the fixture were weaker than production until ART-58, and both weakened the
+evidence in ways a passing run could not show.
+
+**The `initial` snapshot is now seeded.** `seededCanonStore` writes the snapshot
+`importWorld` writes, built by the same `buildWorldImportPlan` the deployment uses. Without
+it every commit in the run validated against `emptyProjection`, where `validateCanon`
+skips the unknown-destination, inactive-destination and capacity checks because
+`projection.locations` is empty and `destination` is always `undefined` — the exact trap
+CLAUDE.md §9 records. The 30-day evidence was measuring a weaker Canon than production
+enforces. Every replay in the harness now starts at `resolveWorldBaseline`, never at
+`emptyProjection`.
+
+**The daily snapshot stage is now real.** `persistDailySnapshot` binds
+`createDailySnapshot` over `CanonBackedSnapshotStore`. It used to be a stub whose comment
+cited ART-99 as known-broken; ART-99 had been **Done** long before the harness last
+changed, so the comment was stale and the stub was a pipeline stage the evidence silently
+skipped. `createDailySnapshot` also asserts the previous snapshot against a full replay, so
+a reducer regression now fails a run here as it would in production, and the persisted
+snapshots are available to the continuity evaluator as replay evidence.
+
+**The rule context now carries persona anchors.** `mistwoodRuleContext` builds
+`characterPersonas` from the same seed rows production reads them from, through
+`personaAnchorFromSeed`. They were absent before, and FR-B003's gate treats an absent
+anchor as inert, so `assessPersonaDeviations` had nothing to assess for the whole run —
+the 30-day evidence never exercised the persona gate at all.
+
 ## What is machine-checked
 
 | Section 19.3 question | `LongRunFindings` field | Method |
 | --- | --- | --- |
-| Canon conflicts | `canonConflicts` | Failed world-day / post-commit runs, **plus** an independent re-run of `validateEventStructure` and `validateCanon` over every accepted event against the projection as it stood immediately before it, plus dense sequence numbers and unique idempotency keys. A validation error swallowed inside the pipeline still surfaces here. |
-| Replay consistency | `replay` | ART-17 `replayWorldEvents` over the accepted log must reproduce the projection the pipeline itself carried (`equal`), and a second independent replay must match the first (`deterministic`). |
+| Canon conflicts | `canonConflicts` | Failed world-day / post-commit runs, **plus** an independent re-run of `validateEventStructure` and `validateCanon` over every accepted event against the projection as it stood immediately before it — folded from the **seeded baseline**, not from `emptyProjection` — plus dense sequence numbers and unique idempotency keys. A validation error swallowed inside the pipeline still surfaces here. |
+| Replay consistency | `replay` | `replay.equal` compares the projection the run **carried**, folded incrementally as each slot commits, against a one-shot ART-17 `replayWorldEvents` over the whole accepted log; `deterministic` requires a second independent replay to match the first. Until ART-58 `liveDigest` was itself a full replay recomputed every slot, so `equal` compared the same computation over the same list — an assertion that could not fail. It was described here as an incremental fold before it was one; that description was wrong, and is now true. The two sides agree only if the reducer is a pure function of `(projection, event)`. |
+| Continuity (FR-M002 / §16.2) | `continuity` | An `EvaluationReport` from the **same** `convex/quality/continuity.ts` evaluator the operator query runs, over the run's own evidence: the accepted log folded from the seeded baseline, the daily snapshots stage 20 persisted, and the episodes and recap formats the editorial stages published. It reports the five §16.2 Canon targets and the Continuity Score. It is not a restatement of `canonConflicts` and `replay` — those are the harness's own checks, and agreement between two independent computations is the evidence. See [`world-quality-metrics.md`](./world-quality-metrics.md). |
 | Arc limits / progress / resolution | `arcs` | FR-F003 `MAX_MAJOR_ACTIVE_ARCS` per end-of-day checkpoint, per-arc projection revisions and lifecycle transitions, and ART-31 `detectArcStagnation` against `ARC_STAGNATION_WORLD_DAYS`. |
 | Character appearance | `appearance` | The Director's own `slotsSinceMajorAppearance` input, sampled at every slot, against `MAX_SLOTS_WITHOUT_APPEARANCE` (two full world days), plus characters that never took part in a committed scene, plus the committed `character_location_changed` count (`relocations`) — a world that never relocates anyone is a world where a stranded character can never be reached (ART-101). |
 | Repetition | `repetition` | 128-bit FNV-1a digest (`contentDigest`) over the canonical JSON of each scene's **authored prose only**: scene summary, key actions, dialogue lines and Proposed Event public summaries. Scene IDs, run IDs, world day and time slot are excluded on purpose — they are unique by construction and would make every scene trivially distinct. Two scenes sharing a digest told the audience the same thing. A pure-JS digest is used rather than `node:crypto` so the module carries no node builtin. |
@@ -90,6 +119,17 @@ threshold), recap coverage (every world day has canon and exactly one non-empty 
 zero FR-G004 findings), token-channel sanity and safety (every scene and episode classified,
 zero events bypassing safety).
 
+The FR-M002 continuity report is clean over both, and every denominator it uses is
+non-empty. Over the 7-day seed:
+
+| Quantity | Value |
+| --- | --- |
+| Accepted events | 104 |
+| World days replay-consistent against a persisted daily snapshot | 7 of 7 |
+| Publications examined (7 episodes + 7 recap-format rows) | 14 |
+| Severe conflicts, unsourced secret leaks, deceased appearances, location conflicts | 0 |
+| Continuity Score | 1.0 across all five components |
+
 Character appearance (FR-C002) is now among the clean checks. It was ART-60's first
 finding and is kept described here because the harness is what proved it and what guards it:
 five of the twelve seeded characters — `lin-yingxue`, `su-meizhen`, `luo-shan`,
@@ -114,7 +154,16 @@ fails loudly and has to be re-triaged.
    `unresolvedMajorByWorldDay` stays in the 1–3 band throughout; `activeMajorByWorldDay`
    does not. Uniform importance is a property of the no-cost tier, so this needs re-measuring
    against the ART-72 provider before it can be called a production defect.
-2. **Content repetition.** 449 scenes over 30 days collapse onto 32 distinct scene texts
-   (92.9% exact duplicates). ART-101's un-stranded cast widened the output space from twelve
-   texts and lowered the duplicate rate from 97.3%, but the residue is the fake author's
-   template space, not the Director, and is deferred to the ART-72 provider.
+2. **Content repetition.** 449 scenes over 30 days collapse onto **171** distinct scene
+   texts (**61.9%** exact duplicates); 104 scenes over 7 days collapse onto **91** (12.5%).
+   The figures previously recorded here — 32 distinct texts and 92.9% duplicates, as one
+   number for both run lengths — were two generations stale and are wrong. ART-101
+   un-stranded the cast, and ART-164's zh-Hant narrator gave a scene a deterministic
+   outcome, stake and per-participant stances as well as a place and a subject, which
+   widened the output space far enough that the two run lengths no longer saturate it and
+   legitimately differ.
+
+   The residue is the fake author's template space, not the Director. This was previously
+   described as "deferred to the ART-72 provider"; **that is no longer accurate** — ART-72
+   is Done. The honest statement is that the fixed-seed author is a template by
+   construction, and the fix is owned by **ART-88** (novelty and repetition evaluators).
