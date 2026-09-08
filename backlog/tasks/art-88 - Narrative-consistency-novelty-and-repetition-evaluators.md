@@ -1,11 +1,11 @@
 ---
 id: ART-88
 title: Narrative consistency novelty and repetition evaluators
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-02 16:20'
-updated_date: '2026-09-08 11:35'
+updated_date: '2026-09-08 12:40'
 labels:
   - prd-1.0
   - epic-o
@@ -66,28 +66,28 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each metric has a documented deterministic calculation or evaluator contract.
-- [ ] #2 Scores retain source trace/event references and expose components.
-- [ ] #3 Fixtures cover consistent, inconsistent, novel, and repetitive cases.
-- [ ] #4 Section 16.2: The repeated-scene ratio is measured with a documented denominator and remains below 15%.
+- [x] #1 Each metric has a documented deterministic calculation or evaluator contract.
+- [x] #2 Scores retain source trace/event references and expose components.
+- [x] #3 Fixtures cover consistent, inconsistent, novel, and repetitive cases.
+- [x] #4 Section 16.2: The repeated-scene ratio is measured with a documented denominator and remains below 15%.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -103,3 +103,20 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 8. Fault injections (>=6): near-dup threshold set to 1.0 (near-dups vanish) reddens the near-dup test; identifier masking removed reddens the masking test; denominator switched to all scenes incl. withheld reddens the denominator test; author reverted to the constant dialogue line reddens the 7-day voice test; author summary reverted to the 24-combo template reddens the 7-day ratio test; evaluator ignores earlier-scene ordering reddens the novelty test.
 9. npm run check, npm run test:longrun, npm run e2e, PR, auto-merge, close.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Root causes found and fixed in convex/simulation/fakeSceneNarrator.ts: (1) the template space (6 outcomes x 4 stakes; one dialogue literal for every character); (2) a hash defect — FNV-1a's low bits depend only on the inputs' low bits, so three salted picks (:opener/:core/:closer) over 8x8x6 options produced 71 distinct triples out of 315 lines; a murmur3 fmix32 finaliser (mix) now precedes every modulo. The public sentence is composed from four clauses (~37 中文字; a five-clause 68-字 sentence made six days in seven refuse with RECAP_QUICK_UNSATISFIABLE because headline + one-line must fit the Quick band), sceneSummary adds consequence and pressure, dialogue is opener + register core + character-bound aside + closer (12 registers x 8 cores, 12 aside sets x 8, two independent hashes). Model id bumped to fake-whole-scene-v2.
+Evaluator convex/quality/narrative.ts + convex/quality/textSimilarity.ts; operator query getNarrativeQualityMetrics; LongRunFindings.narrative; LongRunFindings.recapCoverage.recapFormatFailures (recap refusals were previously invisible in the report).
+Measured: 7-day 104 accepted scenes: repeated 0/104, exact 0, template 0, dialogue repetition 2/348, voice 348/348, novelty 81/103; before ART-88 the evaluator over the old author read 63/104 repeated and voice 0/348. 30-day (first pass, three-part lines): repeated 0/449, exact 0, template 0, dialogue repetition 448/1728 (25.9%), voice 0.76 — dialogue fixed with the aside part; 30-day re-measurement in progress. Rubric bumped to 1.1 (D1/D6 complements name the evaluator).
+
+Fault injections (each compiled, ran, reddened named tests, restored byte-identically — md5 verified): A identifier masking not longest-first -> textSimilarity 'masks the longest identifier first' red (1 failed/61); B pruning bound = every gram -> 5 failed/61 incl. 'does not let the inverted-index pruning drop a match above the threshold' and the narrative near-duplicate test; C withheld/unaccepted scenes in the denominator -> 3 failed/31 incl. 'counts only accepted scenes, and publishes what it left out'; D a shared line counts toward voice distinctiveness -> 3 failed/31 incl. the score test; E scene text compared unmasked -> 2 failed/31 in both directions; F the author reverted to the single dialogue literal -> longRunHarness 'passes every clean Section 19.3 check' red (1 failed/17). Every injection is the kind whose symptom is a BETTER-looking number, which is why each is asserted with its denominator.
+Verification: npm run check -> 233 suites, 3931 passed, exit 0. npm run test:longrun -> 17/17 over 30 world days; 449 accepted scenes; repeated_scene_ratio 0/449 (target <15% MET), exact 0, template 0, dialogue repetition 54/1728 (3.1%), voice distinctiveness 1728/1728, novelty 309/448, zero recap-format refusals, continuity 30/30 clean. npm run e2e -> 88 passed.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Delivered the Narrative evaluator v1 (convex/quality/narrative.ts + convex/quality/textSimilarity.ts): repeated-scene ratio (exact OR near-duplicate, identifier-masked 3-gram Jaccard >= 0.8) with its exact/near/template split, dialogue repetition, voice distinctiveness, persona deviation and event novelty, all over ACCEPTED scenes joined to Canon through metadata.sceneId with withheld scenes excluded and published. Operator query getNarrativeQualityMetrics (world.inspect); LongRunFindings.narrative. FINDING 2 is fixed at its root, not in the metric: the deterministic author now composes a four-clause public sentence and four-part per-character dialogue, and a murmur3 finaliser fixed an FNV-1a low-bit defect that had collapsed three 'independent' picks to 71 distinct triples in 315 lines. The 30-day fixed seed now measures 0/449 repeated scenes (was 171 distinct of 449, 61.9%) with voice distinctiveness 1.0. DISTINCT_SCENE_TEXTS retired; recap-format refusals are now visible in the report. Verified: 61 new evaluator tests plus 107 across convex/quality, 6 fault injections red-then-green, npm run check 3931 passed, 30-day gate 17/17, e2e 88 passed.
+<!-- SECTION:FINAL_SUMMARY:END -->

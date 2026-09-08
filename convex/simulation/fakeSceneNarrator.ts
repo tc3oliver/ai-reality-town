@@ -25,9 +25,9 @@
  *    subject — an output space in the thousands rather than 24 — and the scene summary adds a
  *    consequence and a pressure clause on top;
  *  - every participant speaks in a VOICE: a per-character register (twelve registers, assigned by
- *    a stable hash of the character id) with its own cores, and a line is opener + core + closer,
- *    so two characters rarely say one sentence and one character does not repeat herself for a
- *    month. The scene's subject is named once, in the public sentence, and NOT quoted in every
+ *    a stable hash of the character id) with its own cores, and a line is opener + core + aside
+ *    + closer, with the aside set bound to the character by a second independent hash — so two
+ *    characters rarely say one sentence and one character does not repeat herself for a month. The scene's subject is named once, in the public sentence, and NOT quoted in every
  *    line: the Director's goal text is a long English string the cast shares for days, and echoing
  *    it in each line made every line at a location a near-duplicate of every other;
  *  - a participant's stance is drawn from a register-specific pool, not one shared table of four.
@@ -270,11 +270,38 @@ const voiceOf = (characterId: string): Voice => VOICES[mix(fingerprint(`voice:${
 const LINE_OPENERS = ['說實話，', '我把話說明白：', '先別急，', '你們聽好，', '我只說一次，', '換個角度想，', '', '恕我直言，'] as const;
 const LINE_CLOSERS = ['。', '，這點我不會退。', '，不然今天就談到這裡。', '，其他的等有證據再說。', '，你們自己想想。', '，我話說完了。'] as const;
 
+/**
+ * A second, character-bound part of every line, chosen from one of twelve sets by a hash that is
+ * INDEPENDENT of the register's. Two characters who happen to share a register (twelve registers,
+ * twelve seeded residents, so some do) then share cores but not asides, and a verbatim collision
+ * needs both bindings to coincide. It also multiplies one character's own line space by eight,
+ * which is what keeps a month of five scenes a day from repeating itself: measured over the 30-day
+ * seed, three-part lines repeated 26% of the time and four-part lines do not.
+ */
+const LINE_ASIDES: readonly (readonly string[])[] = [
+  ['這不是威脅', '我沒有別的意思', '你們可以不信', '這話我只對你們說', '我知道這不好聽', '別當我在開玩笑', '這是我的立場', '我不會再重複'],
+  ['帳我會記著', '這件事有人要負責', '我不想把話說絕', '請把這句記下來', '我知道你們在想什麼', '這不是我一個人的事', '我等你們的答覆', '先到這裡'],
+  ['我說到做到', '我不是來吵架的', '這是底線', '我可以等，但不會忘', '你們自己衡量', '我不想弄到那一步', '這件事拖不得', '我只要一句實話'],
+  ['我不會替任何人擋', '這話我負責', '你們心裡都清楚', '我沒必要騙人', '接下來怎麼辦，你們說', '我不站任何一邊', '我看得夠多了', '別讓我再說第二次'],
+  ['這是我的看法', '證據會說話', '我今天不打算讓', '請容我直接一點', '我沒有時間繞', '這件事我記得很清楚', '大家都聽見了', '我先說到這裡'],
+  ['我不是在指控誰', '我只是把事實擺出來', '你們願不願意聽是另一回事', '我已經給過機會', '這話我不收回', '我不要別人替我決定', '我知道代價', '我不會退'],
+  ['這裡沒有外人', '我把該說的說了', '我沒有藏什麼', '你們可以去查', '我不怕對質', '這件事到此為止', '我等著看', '我不會裝沒聽見'],
+  ['我不會假裝沒事', '我需要一個答案', '這不是請求', '我知道分寸', '我不會亂說出去', '我只是提醒', '你們別誤會', '我心裡有數'],
+  ['這件事我想了很久', '我不是今天才知道', '我不想傷任何人', '我只求公平', '我沒有其他選擇', '你們也知道規矩', '我不會半途而廢', '我看著辦'],
+  ['話說到這個份上', '這不是我能替你們決定的', '我把難處說在前面', '我不要口頭承諾', '該面對的躲不掉', '我盡力了', '我還是那句話', '請把這當真'],
+  ['我不會再讓步', '我不想聽藉口', '這是最後一次好好談', '我把話留在這裡', '我不是在問', '你們自己決定', '我知道誰在撒謊', '我等得起'],
+  ['我沒有時間再等', '這件事誰都跑不掉', '我把話講開', '我不會裝糊塗', '我知道自己在說什麼', '這是我欠的', '我還是會問下去', '我先記著'],
+];
+
+const asidesOf = (characterId: string): readonly string[] =>
+  LINE_ASIDES[mix(fingerprint(`aside:${characterId}`)) % LINE_ASIDES.length];
+
 function dialogueLine(scene: GroupedScene, characterId: string): string {
   const voice = voiceOf(characterId);
   const seedKey = `${scene.sceneId}:line:${characterId}`;
   const core = pickFor(voice.cores, seedKey, 'core');
-  return `${characterId}：「${pickFor(LINE_OPENERS, seedKey, 'opener')}${core}${pickFor(LINE_CLOSERS, seedKey, 'closer')}」`;
+  const aside = pickFor(asidesOf(characterId), seedKey, 'aside');
+  return `${characterId}：「${pickFor(LINE_OPENERS, seedKey, 'opener')}${core}，${aside}${pickFor(LINE_CLOSERS, seedKey, 'closer')}」`;
 }
 
 function stanceLine(scene: GroupedScene, characterId: string): string {

@@ -137,10 +137,12 @@ function expectCleanRun(findings: LongRunFindings, worldDays: number): void {
   // are hash-bound, so a small share of collisions is expected and is reported, not hidden.
   const dialogue = narrativeMetric('dialogue_repetition_ratio');
   expect(dialogue.denominator).toBeGreaterThan(ACCEPTED_SCENES[worldDays]);
-  expect(dialogue.rate!).toBeLessThan(0.15);
+  expect(dialogue.rate!).toBeLessThan(0.1);
   const voice = narrativeMetric('voice_distinctiveness');
   expect(voice.denominator).toBe(dialogue.denominator);
-  expect(voice.rate!).toBeGreaterThan(0.85);
+  // Measured 1.0 at both run lengths: no two characters say one line. Asserted as a floor rather
+  // than an equality because a register collision is a property of the hash, not a defect.
+  expect(voice.rate!).toBeGreaterThanOrEqual(0.95);
   // Persona: anchors are present, so the denominator is the accepted events, and Canon's gate
   // admitted no deviation on this seed.
   expect(narrativeMetric('persona_deviation_rate')).toMatchObject({ denominator: findings.acceptedEvents, numerator: 0, status: 'measured' });

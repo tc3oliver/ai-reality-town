@@ -10,7 +10,8 @@ the questions a digest, a classifier and a coverage validator cannot answer.
 | --- | --- | --- |
 | Recap coverage of high-importance events; verbatim secret leakage in recap text | ART-35 `validateRecapCoverage` | Does the episode *mislead*? Can a viewer *infer* a secret that is never quoted? |
 | Pre- and post-generation content classification | ART-54 / ART-55 | Is there content a human would withhold that the classifier labelled `allow`? |
-| Canon conflicts, replay equality, arc limits, character appearance, **exact** content duplication | ART-60 `runLongRunSimulation` | Does a *reader* perceive causality, progression and variety — including near-duplication a digest treats as distinct? |
+| Canon conflicts, replay equality, arc limits, character appearance, **exact** content duplication | ART-60 `runLongRunSimulation` | Does a *reader* perceive causality and progression? |
+| Repeated-scene ratio (exact and near-duplicate), template reuse, dialogue repetition, voice distinctiveness, persona deviation, event novelty | ART-88 `convex/quality/narrative.ts` | Does a character *sound* like the same person when the words differ? Is a paraphrase under the similarity threshold still a repeat to a reader? |
 
 If a dimension below can be decided by a machine, it belongs in one of those tasks, not
 here.
@@ -52,6 +53,9 @@ re-derived months later.
    - **2 scenes per sampled world day**, evenly spaced within the day in canon order;
    - **the episode of every sampled world day**;
    - a **repetition exhibit**: the three largest exact-duplicate scene-text groups, quoted.
+     Since ART-88 the fixed-seed runs produce none, and the packet prints
+     「_No scene text repeats in this run._」 An empty exhibit means no two scenes share a
+     text *verbatim*; it says nothing about paraphrase, which is D6's job.
 
 3. The packet records the **run digest**. A score is only valid against the run digest it
    was taken from. If the digest differs, the text differs, and the evaluation must be
@@ -133,8 +137,9 @@ both together.
 - Pass threshold: **3**
 - Instruction: read the sampled dialogue in order. Would a reader notice they have read this
   before? Judge near-duplication and formula, not only exact repeats. The packet's
-  repetition exhibit gives the exact-duplicate baseline; your score must account for
-  paraphrase and template reuse on top of it.
+  repetition exhibit gives the exact-duplicate baseline, which is empty on the current
+  fixed-seed runs; a score of 4 needs more than that emptiness, because paraphrase and
+  template reuse are exactly what it cannot show.
 
 ### D7 Summary fidelity
 

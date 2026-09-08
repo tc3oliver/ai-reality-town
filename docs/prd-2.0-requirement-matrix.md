@@ -209,9 +209,10 @@ Requirement Matrix 不應只放未附證據的診斷結論。ART-139 的既有�
 
 | Closure Matrix 條目 | 覆蓋的 Task |
 |---|---|
-| **FR-M002 世界品質指標** | ART-58（**Done**）、ART-88、ART-89、ART-90（To Do） |
+| **FR-M002 世界品質指標** | ART-58、ART-88（**Done**）、ART-89、ART-90（To Do） |
 
-**ART-58 已交付 FR-M002 的連續性半邊，其餘三個 Task 仍未完成。** 交付內容：共用的 evaluator
+**ART-58 已交付 FR-M002 的連續性半邊，ART-88 已交付敘事半邊，其餘兩個 Task 仍未完成。**
+ART-58 的交付內容：共用的 evaluator
 契約（`convex/quality/evaluator.ts`）與 Continuity evaluator v1（`convex/quality/continuity.ts`）
 —— Continuity Score 加上 §16.2 五項 Canon 目標（嚴重 Canon 衝突、Event Replay 一致率、
 無來源秘密洩漏、死者不合理出場、角色位置衝突），每項都隨報告帶出自己的分子、分母、目標與方向；
@@ -221,9 +222,26 @@ Requirement Matrix 不應只放未附證據的診斷結論。ART-139 的既有�
 `convex/quality` 已列入 `canonWriteBoundary.forbiddenModules`，量測世界因此無法寫入世界。
 細節見 `docs/world-quality-metrics.md`。
 
-**仍未交付：** 事件新穎度與對話重複（ART-88，也是修復固定種子假作者模板重複率的擁有者）、
-劇情線推進／recap 覆蓋／劇透違規（ART-89）、Canon 拒絕率與安全攔截率（ART-90）。三者都建構在
-ART-58 的 `EvaluatorDefinition`、`observeMetric`、`composeScore` 與 `finishReport` 之上。
+**ART-88 已交付 FR-M002 的敘事半邊。** Narrative evaluator v1（`convex/quality/narrative.ts`）
+與其相似度模組（`convex/quality/textSimilarity.ts`）建構在同一份 evaluator 契約之上，未更動
+`evaluator.ts` 一行。它量測 §16.2 的**重複場景比例**：分子是與更早一個**已接受**場景完全相同
+**或**近似重複（遮蔽識別碼後、字元 3-gram 的 Jaccard ≥ 0.8）的已接受場景，分母是視窗內的已接受
+場景；被安全閘門攔下的場景不進入任何一邊，而是以 `excluded` 與理由一併公布。並列回報的還有
+完全相同比例、模板重用比例、`dialogue_repetition_ratio`、`voice_distinctiveness`、
+`persona_deviation_rate` 與 `event_novelty_ratio`，以及由聲音與人設各佔 0.5 權重組成的
+`character_consistency` 複合分數。讀取面是同一個 `world.inspect` 閘門下的
+`getNarrativeQualityMetrics`，長跑則以同一個函式產出 `LongRunFindings.narrative`。
+
+**§16.2 重複場景比例 < 15% 現已達標：30 天固定種子 0/449，7 天 0/104。** 本文件先前記載此項
+「固定種子假作者未達標（30 天 61.9%）、由 ART-88 承接」；**該敘述已被取代。** 那在當時是對舊
+fixture 的正確讀數：舊作者的公開句取自 6 種結果 × 4 種代價共 24 個組合，每個角色在每場戲只說同
+一句台詞，這個輸出空間在任何長度的長跑下都不可能滿足 15% 的上限。ART-88 更換了作者，並以**更嚴
+格**的定義量測——除了完全相同，還計入近似重複——分母則以絕對場景數釘死，因此「少寫幾場戲」無法
+改善這個比例。
+
+**仍未交付：** 劇情線推進／recap 覆蓋／劇透違規（ART-89）、Canon 拒絕率與安全攔截率
+（ART-90）。兩者都建構在 ART-58 的 `EvaluatorDefinition`、`observeMetric`、`composeScore`
+與 `finishReport` 之上，如同 ART-88 未更動它們一樣。
 
 ### 5.3 有 Task 但不對應任何延後需求
 
