@@ -1,5 +1,6 @@
 import { getFunctionName } from 'convex/server';
 
+import { fixtureCollectorRefuses } from './fixtureCollector';
 import { fixtureScenario } from './fixtureScenario';
 import {
   fixtureProjection,
@@ -66,6 +67,7 @@ export type E2ERecorder = {
 
 /** The one telemetry function the fixture will record rather than treat as a world write. */
 const TELEMETRY_REFERENCE = 'analytics/ingestFunctions:recordAnalyticsEvents';
+
 
 const FIXTURE_QUERY_HANDLERS: Record<string, (args: Record<string, unknown>) => unknown> = {
   /**
@@ -139,12 +141,30 @@ export function createFixtureConvexClient(recorder: E2ERecorder) {
     return (query: unknown, args: Record<string, unknown> = {}) => {
       const reference = referenceName(query);
       const name = `${kind}:${reference}`;
-      // ART-47. Recorded in its own bucket, and STILL REFUSED. The fixture's refusal is not
-      // relaxed for telemetry: the transport is required to survive a collector that rejects
-      // everything, so a fixture that accepted the write would stop testing the property the
-      // browser gate exists to prove. What changes is only which list it lands in.
-      if (reference === TELEMETRY_REFERENCE) recorder.telemetry.push({ name: reference, args });
-      else recorder.writes.push(name);
+
+      /**
+       * ART-47. The ONE declared telemetry surface is recorded and ANSWERED; every world write is
+       * recorded and refused.
+       *
+       * The split is the point, and it is narrow by construction: `TELEMETRY_REFERENCE` is a
+       * single literal, matched exactly, and `publicReadOnlyGuarantee.test.ts` pins that the
+       * shipped bundle can name exactly one telemetry function. Anything else — a second
+       * analytics function, a world mutation, an action — still lands in `recorder.writes` and
+       * still throws, so PRD 2.0 §22.16's assertion stays at zero and keeps meaning something.
+       *
+       * Telemetry has to be ANSWERED rather than refused because of how the transport behaves
+       * under failure: a rejected batch stays in flight and every retry re-sends it, so a fixture
+       * that refused everything would make only the page-open events observable and no
+       * interaction would ever reach a batch a spec could read. The refusal case is still tested —
+       * `?art47=refuse` below turns it back on, which is what the failure-isolation spec uses.
+       */
+      if (reference === TELEMETRY_REFERENCE) {
+        recorder.telemetry.push({ name: reference, args });
+        if (fixtureCollectorRefuses()) throw new Error('[ART-47] the fixture collector refused the batch');
+        return Promise.resolve({ accepted: true, recorded: 0, duplicates: 0, code: null });
+      }
+
+      recorder.writes.push(name);
       // Thrown, not swallowed. A guarantee that is only observed cannot be enforced; this makes
       // the run fail at the moment a write is attempted rather than at an assertion afterwards.
       throw new Error(`[ART-137] the public surface attempted a ${kind}: ${name}`);

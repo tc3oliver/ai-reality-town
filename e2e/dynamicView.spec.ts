@@ -45,7 +45,22 @@ const BASE = '/ai-town';
 const LIVE = `${BASE}/live/${WORLD}`;
 
 /** What the fixture transport recorded. Shape mirrors `src/e2e/fixtureConvexClient.ts`. */
-type Recorder = { queries: string[]; writes: string[] };
+type Recorder = {
+  queries: string[];
+  /** WORLD writes. Must stay empty — PRD 2.0 §22.16. */
+  writes: string[];
+  /** §15 / ART-47. Telemetry attempts, with the arguments they carried. */
+  telemetry: Array<{ name: string; args: Record<string, unknown> }>;
+};
+
+/** One envelope as the transport actually put it on the wire. */
+type TelemetryArgs = {
+  worldId: string;
+  deviceKey: string;
+  sessionToken: string;
+  droppedEventCount: number;
+  events: Array<{ name: string; payload: Record<string, unknown>; sessionElapsedMs: number }>;
+};
 
 /** The server this suite serves the build from. Everything else is off-site by definition. */
 const ORIGIN = 'http://127.0.0.1:4173';
@@ -754,6 +769,182 @@ test.describe('the scoped relationship graph (FR-I007 / ART-44)', () => {
     // replaced, so it cannot be the only witness to its own guarantee.
     expect((await recorder(page)).writes).toEqual([]);
     expect(network.writes).toEqual([]);
+    expect(network.offSite).toEqual([]);
+  });
+});
+
+/**
+ * §15 / ART-47 — the browser half of「從真實 UI interaction 到 collected analytics」.
+ *
+ * Every other ART-47 suite runs in jsdom, where the transport's ports are injected. This is the
+ * only evidence that the WHOLE chain survives a real browser: a real click, the real emitter, the
+ * real allowlist, the real queue, the real debounce timer, and the real Convex mutation call with
+ * the arguments it actually carried.
+ *
+ * ## Two collectors, because the transport behaves differently against each
+ *
+ * By default the fixture ANSWERS the one declared telemetry call and records its arguments, so
+ * batches keep flowing and a spec can read what a real interaction produced. With
+ * `__ART47_COLLECTOR__ = 'refuse'` it rejects every batch, which is the failure case: a rejected batch stays in
+ * flight and every retry re-sends it, so nothing queued afterwards is ever delivered. Both are
+ * real states a collector can be in, and the product's rules differ between them — one is about
+ * what is measured, the other about what a viewer experiences when nothing is.
+ *
+ * World writes are still refused in both, unchanged: `recorder.writes` stays empty and PRD 2.0
+ * §22.16's assertion keeps meaning what it always did.
+ */
+test.describe('§15 product analytics reach a collector (ART-47)', () => {
+  /** Longer than `FLUSH_DELAY_MS` (2s) plus a margin for a slow CI machine. */
+  const FLUSH_WAIT_MS = 3_500;
+  /** Longer than `RETRY_BASE_DELAY_MS` (5s), so a retry has actually been attempted. */
+  const RETRY_WAIT_MS = 7_000;
+
+  test('a real interaction produces a real, sanitised batch', async ({ page }) => {
+    const network = watchNetwork(page);
+    await openLive(page);
+
+    // Things a viewer does, chosen because each maps to a different §15 or §17 event and because
+    // each has a payload built from a view model carrying private-adjacent data.
+    //
+    // ORDER MATTERS, and the reason is a real product property rather than a test artefact: this
+    // fixture REFUSES every batch, so the first one stays in flight forever and nothing queued
+    // afterwards is ever sent. Only the first flush window is observable, so every interaction
+    // being asserted has to happen inside it. That is exactly the retry behaviour the assertion
+    // at the end of this test pins.
+    //
+    // The town view precedes the scene focus because the mobile layout starts already focused on
+    // the primary scene — pressing 聚焦此場景 there is a no-op transition and correctly emits
+    // nothing (`cameraEvents.test.ts` asserts a no-op emits nothing), which made the first
+    // version of this test fail on mobile for a reason that was not a defect.
+    await page.getByRole('button', { name: '回到全鎮視角' }).click();
+    await page.getByRole('button', { name: '聚焦此場景' }).first().click();
+    await page.getByRole('button', { name: '拉近' }).click();
+    // The card open, which is the one interaction whose event is layout-INDEPENDENT: it is
+    // emitted from the view's own wrapper rather than derived from a camera transition, so it
+    // cannot be a no-op the way a zoom already at its bound or a focus already on its target is.
+    await page.getByRole('button', { name: /的角色卡$/ }).first().click();
+    await page.waitForTimeout(FLUSH_WAIT_MS);
+
+    const recorded = await recorder(page);
+    // 1. The transport fired at all. This is the assertion ART-140 could not make, because there
+    //    was no transport — and the defect class it guards against is a contract that is emitted
+    //    into a no-op sink forever.
+    expect(recorded.telemetry.length).toBeGreaterThan(0);
+    for (const attempt of recorded.telemetry) {
+      expect(attempt.name).toBe('analytics/ingestFunctions:recordAnalyticsEvents');
+    }
+
+    const batches = recorded.telemetry.map((attempt) => attempt.args as unknown as TelemetryArgs);
+    const names = batches.flatMap((batch) => batch.events.map((event) => event.name));
+    // 2. Real interactions, real events. `live_view_opened` is the denominator of every §18.1
+    //    rate, so its absence would make all of them unmeasurable while every unit test passed.
+    expect(names).toContain('live_view_opened');
+    expect(names).toContain('live_map_ready');
+    expect(names).toContain('live_character_selected');
+    /**
+     * The camera-derived events are asserted for their INVARIANT rather than their presence,
+     * and the difference is a real product property rather than a concession.
+     *
+     * `emitCameraEvents` fires on a TRANSITION, so a control that changes nothing emits
+     * nothing — a zoom already at its bound, a focus already on its target. The mobile layout
+     * starts with a different camera and different zoom bounds from the desktop one, so which
+     * of these presses is a real change differs by viewport. Requiring both everywhere asserted
+     * something false about mobile; requiring neither would assert nothing.
+     *
+     * What holds on every layout is the pairing: PRD 2.0 §17 calls opening a scene
+     * `live_scene_selected` and PRD 1.0 §15 calls it `live_scene_opened`, they come from ONE
+     * call site, and one appearing without the other is the failure this guards.
+     */
+    expect(names.filter((name) => name === 'live_scene_opened'))
+      .toHaveLength(names.filter((name) => name === 'live_scene_selected').length);
+
+    // 3. The payloads are clean — asserted against the ALLOWLIST rather than against a list of
+    //    scary field names, because the mechanism is membership and a denylist's first
+    //    forgotten field is the first leak.
+    const allowed = new Set([
+      'worldId', 'characterId', 'sceneId', 'arcId', 'locationId', 'worldDay', 'timeSlot',
+      'degradationLevel', 'freshness', 'episodeNumber', 'zoomStep', 'replayId', 'sceneIndex',
+      'sceneCount', 'reason', 'surface', 'filterKind', 'shareTarget', 'entryRank', 'followed',
+    ]);
+    for (const batch of batches) {
+      expect(batch.worldId).toBe(WORLD);
+      for (const event of batch.events) {
+        for (const key of Object.keys(event.payload)) expect(allowed.has(key)).toBe(true);
+        for (const value of Object.values(event.payload)) {
+          // Scalars only. A nested object is how a whole view model gets attached by accident.
+          expect(['string', 'number', 'boolean']).toContain(typeof value);
+        }
+        // A duration, never a wall-clock instant: an absolute timestamp is a correlation key.
+        expect(event.sessionElapsedMs).toBeGreaterThanOrEqual(0);
+        expect(event.sessionElapsedMs).toBeLessThan(4 * 60 * 60 * 1000);
+      }
+    }
+    // 4. No private text of any kind reaches the wire, checked against what the fixture world
+    //    actually contains — so this fails on a real leak rather than on a hypothetical one.
+    const wire = JSON.stringify(batches);
+    for (const leak of ['publicSummary', 'headline', 'summary', 'dialogue', 'prompt', 'apiKey']) {
+      expect(wire).not.toContain(leak);
+    }
+
+    // 5. One session for the whole visit. A transport that minted a session per navigation, or
+    //    per batch, would turn every per-visit rate in §16.1 into a per-page rate — plausible
+    //    numbers, wrong denominator, nothing failing anywhere.
+    expect(new Set(batches.map((batch) => batch.sessionToken)).size).toBe(1);
+    expect(new Set(batches.map((batch) => batch.deviceKey)).size).toBe(1);
+    // 6. Nothing was dropped, so the numbers above are the whole of what happened.
+    for (const batch of batches) expect(batch.droppedEventCount).toBe(0);
+  });
+
+  test('the world guarantee is untouched: telemetry spends none of it', async ({ page }) => {
+    const network = watchNetwork(page);
+    await openLive(page);
+    await page.getByRole('button', { name: '拉近' }).click();
+    await page.waitForTimeout(FLUSH_WAIT_MS);
+
+    const recorded = await recorder(page);
+    // PRD 2.0 §22.16 is about WORLD mutation, and it is unchanged. Telemetry is recorded in its
+    // own bucket precisely so this assertion can stay at zero and keep meaning something.
+    expect(recorded.writes).toEqual([]);
+    expect(recorded.telemetry.length).toBeGreaterThan(0);
+    // And the browser itself made no request to anything but its own assets — the fixture
+    // transport is what the app talks to, so a bare `fetch` or a second client would appear here
+    // and nowhere else.
+    expect(network.writes).toEqual([]);
+    expect(network.offSite).toEqual([]);
+  });
+
+  test('a collector that refuses every batch does not reach the viewer', async ({ page }) => {
+    const consoleErrors: string[] = [];
+    page.on('pageerror', (error) => consoleErrors.push(error.message));
+    const network = watchNetwork(page);
+    // The fixture collector rejects every batch in this run. Analytics is the least important
+    // thing on screen, so it has to be indistinguishable from a healthy one for the viewer.
+    // Set through `addInitScript` rather than a URL parameter: `fixtureConvexClient.ts` holds
+    // the build-time gate, and `fixtureIsolation.test.ts` refuses any runtime escape in that
+    // file — a gate Vite cannot constant-fold survives into the production bundle.
+    await page.addInitScript(() => {
+      (globalThis as Record<string, unknown>).__ART47_COLLECTOR__ = 'refuse';
+    });
+    await openLive(page);
+
+    await page.getByRole('button', { name: /的角色卡$/ }).first().click();
+    await page.waitForTimeout(RETRY_WAIT_MS);
+
+    // Every batch was refused, and the SAME batch was retried rather than a fresh window over a
+    // queue that had moved on — which is what makes the server's key derivation able to
+    // recognise the repeat. A transport that rebuilt it would insert a new row per retry and
+    // multiply every §16.1 numerator by the collector's error rate.
+    const refused = (await recorder(page)).telemetry
+      .map((attempt) => attempt.args as unknown as TelemetryArgs);
+    expect(refused.length).toBeGreaterThan(1);
+    for (const batch of refused.slice(1)) expect(batch).toEqual(refused[0]);
+    // ...and the map is still there, the controls still respond, and nothing reached the page as
+    // an error. Analytics is the least important thing on screen; a viewer losing the live map
+    // because a telemetry call failed would be a far worse defect than a lost event.
+    await expect(stage(page)).toBeVisible();
+    await page.getByRole('button', { name: '拉遠' }).click();
+    await expect(page.locator('.live-map-canvas')).toBeVisible();
+    expect(consoleErrors).toEqual([]);
     expect(network.offSite).toEqual([]);
   });
 });

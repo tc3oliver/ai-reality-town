@@ -93,6 +93,20 @@ export function createAnalyticsTransport(
   const sessionStartedAt = ports.now();
   let cancelTimer: (() => void) | null = null;
   let sending = false;
+  /**
+   * A flush fell due while a send was in flight, and still needs to happen.
+   *
+   * Without it the transport DEADLOCKS, and the browser gate is what found it: the flush timer
+   * fires, clears `cancelTimer`, calls `drain`, and `drain` returns immediately because
+   * `sending` is still true — so no timer is left armed and no later event ever re-arms one,
+   * because `accept` only arms when `cancelTimer` is null and it already is. Everything queued
+   * from that moment on sits in memory forever.
+   *
+   * It is a narrow race, which is why it survived every jsdom test: those drive the clock by
+   * hand, so a send resolves before the next timer is due. On a real phone, where a click takes
+   * a quarter of a second and the debounce is two, it happened on the first run.
+   */
+  let drainRequested = false;
   let retryDelayMs = RETRY_BASE_DELAY_MS;
   let stopped = false;
 
@@ -137,8 +151,14 @@ export function createAnalyticsTransport(
   }
 
   async function drain(): Promise<void> {
-    if (sending || stopped) return;
+    if (stopped) return;
+    if (sending) {
+      // Remembered rather than dropped. See `drainRequested`.
+      drainRequested = true;
+      return;
+    }
     sending = true;
+    drainRequested = false;
     let allSent = true;
     try {
       for (const [worldId, queue] of queues) {
@@ -157,8 +177,9 @@ export function createAnalyticsTransport(
     }
     if (allSent) {
       retryDelayMs = RETRY_BASE_DELAY_MS;
-      // Anything queued while a send was in flight.
-      if ([...queues.values()].some((queue) => queue.stats.pending > 0)) arm(FLUSH_DELAY_MS);
+      // Anything queued while a send was in flight, plus any flush that fell due during it.
+      const pending = [...queues.values()].some((queue) => queue.stats.pending > 0);
+      if (pending || drainRequested) arm(drainRequested ? 0 : FLUSH_DELAY_MS);
       return;
     }
     const delay = retryDelayMs;

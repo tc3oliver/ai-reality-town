@@ -317,6 +317,43 @@ describe('the transport under a collector that fails', () => {
     expect(pending()).toBe(0);
   });
 
+  test('a flush that falls due mid-send is remembered, not dropped', async () => {
+    /**
+     * The deadlock the browser gate found, pinned here where it is cheap to run.
+     *
+     * A send is in flight; the flush timer for the NEXT batch fires. `drain` used to return
+     * immediately because `sending` was true — which also cleared `cancelTimer` on the way in, so
+     * `accept` would never arm another one and everything queued afterwards sat in memory
+     * forever. This holds the send open across the second flush to reproduce exactly that window.
+     */
+    const sent: AnalyticsSendRequest[] = [];
+    let release: (() => void) | null = null;
+    const { transport, advance } = harness((request) => {
+      sent.push(request);
+      if (sent.length > 1) return Promise.resolve({});
+      return new Promise<unknown>((resolve) => { release = () => resolve({}); });
+    });
+
+    transport.accept(event('home_viewed'));
+    await advance(FLUSH_DELAY_MS);
+    expect(sent).toHaveLength(1);
+
+    // Queued and flushed WHILE the first send is still open.
+    transport.accept(event('relationship_graph_opened'));
+    await advance(FLUSH_DELAY_MS);
+    expect(sent).toHaveLength(1);
+
+    release!();
+    // Twice: the first lets the in-flight send's promise chain settle and re-arm, the second
+    // runs the timer it armed. One call would read the timer list before it had been added to.
+    await advance(0);
+    await advance(0);
+    // The remembered flush ran. Before the fix this stayed at one forever, and no later event
+    // could revive it.
+    expect(sent).toHaveLength(2);
+    expect(sent[1].events.map((envelope) => envelope.name)).toEqual(['relationship_graph_opened']);
+  });
+
   test('stop cancels the pending flush and refuses further events', async () => {
     const sent: AnalyticsSendRequest[] = [];
     const { transport, advance } = harness((request) => {
