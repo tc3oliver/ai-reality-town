@@ -660,10 +660,13 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
       if (!event) throw new Error('POST_COMMIT_SOURCE_NOT_ACCEPTED');
       const days = [...new Set(all.map(({ worldDay }) => worldDay))].sort((left, right) => left - right);
       const latestWorldDay = days[days.length - 1];
-      const completed = days.filter((day) => day < latestWorldDay
-        || all.some((candidate) => candidate.worldDay === day && candidate.timeSlot === TIME_SLOTS[TIME_SLOTS.length - 1]));
+      // ART-89: a day is over when the world has moved past it; the final-slot condition belongs
+      // to the daily snapshot alone.
+      const completed = days.filter((day) => day < latestWorldDay);
       return Promise.resolve({
         event,
+        latestWorldDayFinalSlotStarted: all.some((candidate) =>
+          candidate.worldDay === latestWorldDay && candidate.timeSlot === TIME_SLOTS[TIME_SLOTS.length - 1]),
         arcs: [...arcs.values()].map((record): LiveArcState => ({
           arcId: record.lifecycle.arcId,
           status: record.lifecycle.status,
@@ -1570,7 +1573,9 @@ describe('coverage and spoiler gate as a publication precondition (FR-G004)', ()
     const readStore = new MemoryReadStore();
     const harness = createLivePostCommitPort(canon, readStore);
     const runStore = new MemoryPostCommitStore();
-    await runWorldDays(canon, 1, () => []);
+    // Two world days, not one: since ART-89 a day is finished when the world has moved past it, so
+    // one day produces no Episode and therefore no publication to refuse.
+    await runWorldDays(canon, 2, () => []);
     const canonBefore = JSON.stringify(canon.committedEvents());
 
     const refusing: PostCommitLivePort = {

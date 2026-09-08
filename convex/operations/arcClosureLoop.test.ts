@@ -121,6 +121,7 @@ function harness(input: { arcs: LiveArcState[]; event?: AcceptedEvent; latestWor
       timeSlotFirstSequenceNumber: source.sequenceNumber,
       seasonFirstSequenceNumber: source.sequenceNumber,
       latestWorldDay: input.latestWorldDay ?? source.worldDay,
+      latestWorldDayFinalSlotStarted: true,
     }),
     recordArcClassification: () => {
       calls.push({ kind: 'classify' });

@@ -62,7 +62,20 @@ describe('ART-92 review sample over a real fixed-seed run (AC#1/#2)', () => {
     expect(sample.protocol.worldDaysSampled.at(-1))
       .toBe(sample.protocol.worldDaysInRun.at(-1));
     expect(sample.protocol.scenesSampled).toBeGreaterThan(0);
-    expect(sample.protocol.episodesSampled).toBe(sample.protocol.worldDaysSampled.length);
+    /**
+     * One episode per sampled day EXCEPT the newest (ART-89).
+     *
+     * This asserted one per sampled day until ART-89, which found that a world day was treated as
+     * complete the moment its final slot began — so every day's Episode was assembled from a
+     * partial slot. A day is now finished when the world has moved past it, and the newest day's
+     * Episode is due on the next day's first commit, so the last sampled day has none yet. The
+     * sampler is asked for the days it sampled minus that one, which is a real count rather than
+     * "however many episodes there happened to be".
+     */
+    const sampledWithEpisode = sample.protocol.worldDaysSampled
+      .filter((worldDay) => worldDay !== sample.protocol.worldDaysInRun.at(-1));
+    expect(sample.protocol.episodesSampled).toBe(sampledWithEpisode.length);
+    expect(sample.protocol.episodesSampled).toBeGreaterThan(0);
   });
 
   it('carries the authored prose a reviewer has to read, not a digest', () => {

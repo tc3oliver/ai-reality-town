@@ -47,6 +47,11 @@ import { buildWorldImportPlan } from '../canon/worldConfig';
 import { evaluateContinuityWindow, type PublicationEvidence, type SnapshotEvidence } from '../quality/continuity';
 import type { EvaluationReport } from '../quality/evaluator';
 import { evaluateNarrative, type NarrativeSceneEvidence } from '../quality/narrative';
+import {
+  evaluateStoryQuality,
+  type ArcEvidence, type PublishedContentEvidence, type StoryEventEvidence,
+} from '../quality/storyQuality';
+import { HIGH_IMPORTANCE_THRESHOLD } from '../editorial/episode';
 import { validateCanon, validateEventStructure } from '../canon/validators';
 import { authorizeKnowledgeRead } from '../knowledge/authorization';
 import { authorizeMemoryRead } from '../knowledge/memoryAuthorization';
@@ -78,6 +83,7 @@ import {
   relationshipChangeMagnitude,
   validateRecapCoverage,
   type CoverageFinding,
+  type CoverageReport,
   type CoverageSourceEvent,
 } from '../recaps/coverageValidation';
 import { buildRecapSnapshot, type RecapSnapshot } from '../recaps/model';
@@ -135,6 +141,7 @@ import {
 } from './postCommitOrchestration';
 import {
   createPostCommitStageHandlers,
+  episodeContentRef,
   postCommitRunId,
   recapCursorOf,
   recapTargetKey,
@@ -403,6 +410,12 @@ export type LongRunFindings = {
    * query runs.
    */
   narrative: EvaluationReport;
+  /**
+   * FR-M002 arc / recap / spoiler metrics (ART-89): §16.2 高重要度摘要覆蓋率 over the accepted
+   * events Canon holds (never over the episodes, which cannot omit one), spoiler violations from
+   * the persisted FR-G004 verdicts, and arc progress / stagnation / resolution evidence.
+   */
+  storyQuality: EvaluationReport;
   /** Canonical digest of every field above except itself. Equal seeds ⇒ equal digest. */
   digest: string;
 };
@@ -791,7 +804,14 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
   const stagnationPrompts: Array<{ arcId: string; stagnantWorldDays: number; status: string }> = [];
   const recapFormats = new Map<number, { status: 'ready' | 'failed'; episodeNumber: number; deduplicated: boolean; errorCode?: string }>();
   const storedRecapFormats = new Map<number, { formats: RecapFormats; composition: RecapComposition }>();
-  const coverageReports = new Map<number, { releasable: boolean; findingCodes: string[] }>();
+  /**
+   * The FULL FR-G004 verdict per world day, not just its boolean (ART-89).
+   *
+   * It held `{ releasable, findingCodes }` and was written and never read. The story-quality
+   * evaluator needs the report itself: which high-importance events a releasable candidate
+   * actually covered, and which findings were spoiler-category rather than coverage-category.
+   */
+  const coverageReports = new Map<number, { releasable: boolean; findingCodes: string[]; report: CoverageReport | null }>();
   const resolutionDecisions: ArcResolutionDecision[] = [];
   const consequenceSummaries = new Map<string, ConsequenceSummary>();
   let now = 10_000;
@@ -830,8 +850,11 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
       if (!event) throw new Error('POST_COMMIT_SOURCE_NOT_ACCEPTED');
       const days = [...new Set(all.map(({ worldDay }) => worldDay))].sort((left, right) => left - right);
       const latestWorldDay = days[days.length - 1];
-      const completed = days.filter((day) => day < latestWorldDay
-        || all.some((candidate) => candidate.worldDay === day && candidate.timeSlot === TIME_SLOTS[TIME_SLOTS.length - 1]));
+      // ART-89: a day is over when the world has moved past it. The old rule admitted the latest
+      // day the moment its night slot began, so its Episode was assembled from a partial slot and
+      // the rest of that slot reached no Episode, recap or publication — see
+      // `completedWorldDaysOf`, whose docblock records what that cost.
+      const completed = days.filter((day) => day < latestWorldDay);
       return Promise.resolve({
         event,
         arcs: [...arcs.values()].map((record): LiveArcState => ({
@@ -849,6 +872,8 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
         })),
         characterIds: mistwoodCharacterSeed.characters.map(({ id }) => id),
         completedWorldDays: completed,
+        latestWorldDayFinalSlotStarted: all.some((candidate) =>
+          candidate.worldDay === latestWorldDay && candidate.timeSlot === TIME_SLOTS[TIME_SLOTS.length - 1]),
         episodeWorldDays: [...episodes.keys()],
         worldDayFirstSequenceNumber: all.filter(({ worldDay }) => worldDay === event.worldDay)
           .reduce((lowest, candidate) => Math.min(lowest, candidate.sequenceNumber), event.sequenceNumber),
@@ -1156,7 +1181,7 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
     runCoverageGate(_worldId, worldDay, contentRef) {
       const episodeRow = episodes.get(worldDay);
       if (!episodeRow?.episode) {
-        coverageReports.set(worldDay, { releasable: false, findingCodes: ['COVERAGE_INVALID_SHAPE'] });
+        coverageReports.set(worldDay, { releasable: false, findingCodes: ['COVERAGE_INVALID_SHAPE'], report: null });
         return Promise.resolve({ releasable: false, findingCodes: ['COVERAGE_INVALID_SHAPE'] });
       }
       const memberships = membershipsBySequence();
@@ -1174,7 +1199,7 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
         episodeCandidate(LONG_RUN_WORLD_ID, contentRef, episodeRow.episode, sources), sources, [],
       );
       const findingCodes = [...new Set(report.findings.map(({ code }) => code))];
-      coverageReports.set(worldDay, { releasable: report.releasable, findingCodes });
+      coverageReports.set(worldDay, { releasable: report.releasable, findingCodes, report });
       return Promise.resolve({ releasable: report.releasable, findingCodes });
     },
 
@@ -1381,7 +1406,7 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
 
   return {
     port, arcs, portfolio, episodes, recaps, classifications, stagnationPrompts, recapFormats, storedRecapFormats,
-    resolutionDecisions, consequenceSummaries, snapshots,
+    resolutionDecisions, consequenceSummaries, snapshots, coverageReports,
     activeArcsForDirector, activeMajorArcIds, activeMinorArcIds, unresolvedMajorArcIds, arcStatusCounts,
   };
 }
@@ -1849,8 +1874,10 @@ export async function runLongRunSimulation(input: LongRunInput): Promise<LongRun
 
   // --- recap coverage -------------------------------------------------------
   const daysWithEvents = new Set(acceptedEvents.map(({ worldDay }) => worldDay));
+  // ART-89: the same rule the pipeline uses — a day is over when the world has moved past it.
+  const latestAcceptedWorldDay = acceptedEvents.reduce((highest, event) => Math.max(highest, event.worldDay), 0);
   const completedWorldDays = [...new Set(acceptedEvents.map(({ worldDay }) => worldDay))]
-    .filter((day) => acceptedEvents.some((event) => event.worldDay === day && event.timeSlot === TIME_SLOTS[TIME_SLOTS.length - 1]))
+    .filter((day) => day < latestAcceptedWorldDay)
     .sort((left, right) => left - right);
   const importanceBySequence = new Map([...harness.classifications.values()].map((entry) => [
     entry.sourceEventSequenceNumber,
@@ -2040,6 +2067,64 @@ export async function runLongRunSimulation(input: LongRunInput): Promise<LongRun
     scanLimitReached: false,
   });
 
+  // --- FR-M002 arc / recap / spoiler (ART-89) --------------------------------
+  //
+  // The coverage denominator is read from the ACCEPTED log and the arc classifications the run
+  // recorded, never from the episodes: `buildDailyEpisode` refuses to store an episode that omits
+  // a high-importance event, so a ratio over stored episodes could not fail.
+  const storyEvents: StoryEventEvidence[] = acceptedEvents.map((event) => ({
+    eventId: event.eventId,
+    worldDay: event.worldDay,
+    importance: importanceBySequence.get(event.sequenceNumber) ?? 0,
+  }));
+  const storyPublications: PublishedContentEvidence[] = [...harness.episodes.entries()]
+    .sort((left, right) => left[0] - right[0])
+    .flatMap(([worldDay, row]) => {
+      const verdict = harness.coverageReports.get(worldDay);
+      if (!verdict) return [];
+      const report = verdict.report;
+      return [{
+        contentRef: episodeContentRef(LONG_RUN_WORLD_ID, worldDay),
+        worldDay,
+        releasable: verdict.releasable,
+        findingCodes: verdict.findingCodes,
+        spoilerFindingCodes: (report?.findings ?? []).filter((finding) => finding.category === 'spoiler').map((finding) => finding.code),
+        citedEventIds: report?.coveredEventIds ?? [],
+        errorCode: row.episode ? null : 'EPISODE_NOT_PUBLISHABLE',
+      }];
+    });
+  const storyArcs: ArcEvidence[] = [...harness.arcs.entries()].map(([arcId, record]) => {
+    const decision = harness.resolutionDecisions
+      .filter((entry) => entry.arcId === arcId
+        && (entry.resultingStatus === 'resolved' || entry.resultingStatus === 'archived'))
+      .at(-1);
+    return {
+      arcId,
+      status: record.lifecycle.status,
+      active: isActiveArcStatus(record.lifecycle.status),
+      lastProgressWorldDay: record.projections.reduce((highest, projection) => Math.max(highest, projection.worldDay), 0),
+      revisionsInWindow: record.projections.filter((projection) =>
+        projection.worldDay >= startWorldDay && projection.worldDay <= finalWorldDay).length,
+      reachedTerminal: record.lifecycle.status === 'resolved' || record.lifecycle.status === 'archived',
+      terminalOutcomeRecorded: (decision?.outcome ?? '').trim().length > 0,
+      terminalConsequenceCount: decision?.consequences.length ?? 0,
+    };
+  });
+  const storyQuality = evaluateStoryQuality({
+    worldId: LONG_RUN_WORLD_ID, fromWorldDay: startWorldDay, toWorldDay: finalWorldDay,
+    highImportanceThreshold: HIGH_IMPORTANCE_THRESHOLD,
+    stagnationThresholdWorldDays: ARC_STAGNATION_WORLD_DAYS,
+    events: storyEvents, publications: storyPublications,
+    // The deterministic run has no operator, so it declares no exclusions: its coverage rate is
+    // the unassisted one, which is the honest baseline for §16.2.
+    exclusions: [],
+    // The newest day's Episode is due on the next day's first commit, so its events are not yet
+    // answerable — excluded with a reason rather than counted as uncovered, the same rule ART-47's
+    // retention cohorts use for a cohort that has not aged far enough to answer.
+    pendingWorldDays: [latestAcceptedWorldDay],
+    arcs: storyArcs, scanLimitReached: false,
+  });
+
   const slotsCompleted = slots.filter(({ status }) => status === 'completed').length;
   const seed: LongRunSeed = {
     worldId: LONG_RUN_WORLD_ID,
@@ -2068,6 +2153,7 @@ export async function runLongRunSimulation(input: LongRunInput): Promise<LongRun
     safety,
     continuity,
     narrative,
+    storyQuality,
   };
   // ART-92 review seam: content only, after the fact, outside the digest.
   input.onContentSample?.({

@@ -46,12 +46,13 @@
 import { v } from 'convex/values';
 import type { GenericQueryCtx } from 'convex/server';
 
-import { query } from '../_generated/server';
+import { mutation, query } from '../_generated/server';
 import type { DataModel } from '../_generated/dataModel';
 import type { AcceptedEvent, WorldProjection } from '../canon/model';
 import { emptyProjection } from '../canon/model';
 import { readCanonRuleContext } from '../canon/ruleContextReader';
 import { rowToAcceptedEvent } from '../canon/serialize';
+import { deriveEventId } from '../shared/ids';
 import { cloneProjection, type CanonSnapshot } from '../canon/snapshots';
 import { replayWorldEvents } from '../canon/replay';
 import { dailyEpisodePublicText, type DailyEpisode } from '../editorial/episode';
@@ -70,7 +71,15 @@ import { personaAnchorFromSeed, type PersonaAnchor } from '../canon/personaDevia
 import { groupingRunId } from '../simulation/worldDayLive';
 import { TIME_SLOTS } from '../canon/eventTypes';
 import type { SceneSimulationResult } from '../simulation/sceneSimulation';
-import { credentialArgs, requireOperator } from './opsConsoleFunctions';
+import { credentialArgs, operatorNow, recordAudit, requireOperator } from './opsConsoleFunctions';
+import { isActiveArcStatus } from '../story/lifecycle';
+import { ARC_STAGNATION_WORLD_DAYS } from '../story/resolution';
+import { HIGH_IMPORTANCE_THRESHOLD } from '../editorial/episode';
+import { buildCoverageExclusion, CoverageExclusionError, reconcileCoverageExclusion, type CoverageExclusionRecord } from '../recaps/coverageExclusions';
+import {
+  evaluateStoryQuality, STORY_QUALITY_EVALUATOR,
+  type ArcEvidence, type CoverageExclusionEvidence, type PublishedContentEvidence, type StoryEventEvidence,
+} from '../quality/storyQuality';
 
 type QueryCtx = GenericQueryCtx<DataModel>;
 type ReadDb = QueryCtx['db'];
@@ -463,5 +472,203 @@ export const getNarrativeQualityMetrics = query({
       report: wireReport(report),
       scenes: { read: scenes.length, accepted, withheld: scenes.filter(({ withheld }) => withheld).length },
     };
+  },
+});
+
+/**
+ * FR-M002 arc / recap / spoiler metrics for one world over a window of world days (ART-89).
+ *
+ * ## Where each number comes from
+ *
+ *  - **Coverage denominator** — high-importance accepted events, read from `canonEvents` by
+ *    `by_world_and_day` and classified by `storyArcEventClassifications`. Never from the episodes:
+ *    `buildDailyEpisode` refuses to store an episode that omits a high-importance event, so a ratio
+ *    over stored episodes reads 100% by construction. See `convex/quality/storyQuality.ts`.
+ *  - **Coverage numerator** — the events cited by published contents whose PERSISTED FR-G004
+ *    verdict (`episodeCoverageReports.releasable`) is true. A refused episode covers nothing.
+ *  - **Exclusions** — `coverageExclusions`, the operator's explicit reasons (ART-89).
+ *  - **Arcs** — lifecycles, their projection revisions and their resolution decisions.
+ *
+ * Reads are index-scoped to the world and the window and bounded by `SCAN_LIMIT`, and a truncated
+ * read is reported as `coverage.scanLimitReached` rather than quietly measured.
+ */
+export const getStoryQualityMetrics = query({
+  args: {
+    ...credentialArgs,
+    worldId: v.string(),
+    toWorldDay: v.optional(v.number()),
+    windowDays: v.optional(v.number()),
+  },
+  returns: v.object({
+    definition: definitionValidator,
+    report: evaluationReportValidator,
+    thresholds: v.object({ highImportance: v.number(), stagnationWorldDays: v.number() }),
+  }),
+  handler: async (ctx, args) => {
+    await requireOperator(ctx, 'world.inspect', args);
+    const { worldId } = args;
+
+    const latest = await ctx.db.query('canonEvents')
+      .withIndex('by_world_and_sequence', (q) => q.eq('worldId', worldId)).order('desc').first();
+    const toWorldDay = Math.max(0, Math.floor(args.toWorldDay ?? latest?.worldDay ?? 0));
+    const windowDays = Math.min(Math.max(1, Math.floor(args.windowDays ?? DEFAULT_WINDOW_DAYS)), MAX_WINDOW_DAYS);
+    const fromWorldDay = Math.max(0, toWorldDay - windowDays + 1);
+
+    const eventRows = await ctx.db.query('canonEvents')
+      .withIndex('by_world_and_day', (q) => q.eq('worldId', worldId).gte('worldDay', fromWorldDay).lte('worldDay', toWorldDay))
+      .take(SCAN_LIMIT + 1);
+    const classificationRows = await ctx.db.query('storyArcEventClassifications')
+      .withIndex('by_world', (q) => q.eq('worldId', worldId)).take(SCAN_LIMIT + 1);
+    const importanceBySequence = new Map<number, number>(classificationRows.slice(0, SCAN_LIMIT).map((row) => [
+      row.sourceEventSequenceNumber,
+      (row.memberships as Array<{ importance: number }>).reduce((max, membership) => Math.max(max, membership.importance), 0),
+    ]));
+    const events: StoryEventEvidence[] = eventRows.slice(0, SCAN_LIMIT).map((row) => ({
+      eventId: deriveEventId(worldId, row.sequenceNumber),
+      worldDay: row.worldDay,
+      importance: importanceBySequence.get(row.sequenceNumber) ?? 0,
+    }));
+
+    const reportRows = await ctx.db.query('episodeCoverageReports')
+      .withIndex('by_world_and_day', (q) => q.eq('worldId', worldId).gte('worldDay', fromWorldDay).lte('worldDay', toWorldDay))
+      .take(SCAN_LIMIT + 1);
+    const publications: PublishedContentEvidence[] = reportRows.slice(0, SCAN_LIMIT).map((row) => {
+      const report = row.report as { findings?: Array<{ code: string; category: string }>; citedEventIds?: string[]; coveredEventIds?: string[] } | null;
+      const findings = report?.findings ?? [];
+      return {
+        contentRef: row.contentRef,
+        worldDay: row.worldDay,
+        releasable: row.releasable,
+        findingCodes: [...row.findingCodes],
+        spoilerFindingCodes: findings.filter(({ category }) => category === 'spoiler').map(({ code }) => code),
+        // The verdict records which high-importance events the candidate actually covered; that is
+        // the set a coverage numerator may count, not everything the candidate happened to cite.
+        citedEventIds: report?.coveredEventIds ?? [],
+        errorCode: row.errorCode ?? null,
+      };
+    });
+
+    const exclusionRows = await ctx.db.query('coverageExclusions')
+      .withIndex('by_world_and_day', (q) => q.eq('worldId', worldId).gte('worldDay', fromWorldDay).lte('worldDay', toWorldDay))
+      .take(SCAN_LIMIT + 1);
+    const exclusions: CoverageExclusionEvidence[] = exclusionRows.slice(0, SCAN_LIMIT).map((row) => ({
+      eventId: row.eventId, worldDay: row.worldDay, reason: row.reason, operatorId: row.operatorId,
+    }));
+
+    const [lifecycles, projections, decisions] = await Promise.all([
+      ctx.db.query('storyArcLifecycles').withIndex('by_world_and_arc', (q) => q.eq('worldId', worldId)).take(SCAN_LIMIT + 1),
+      ctx.db.query('storyArcProjectionEvents').withIndex('by_world_arc_and_revision', (q) => q.eq('worldId', worldId)).take(SCAN_LIMIT + 1),
+      ctx.db.query('storyArcResolutionDecisions').withIndex('by_world_and_arc', (q) => q.eq('worldId', worldId)).take(SCAN_LIMIT + 1),
+    ]);
+    const arcs: ArcEvidence[] = lifecycles.slice(0, SCAN_LIMIT).map((lifecycle) => {
+      const own = projections.filter((row) => row.arcId === lifecycle.arcId);
+      const lastProgressWorldDay = own.reduce((highest, row) => Math.max(highest, row.worldDay), 0);
+      const terminal = lifecycle.status === 'resolved' || lifecycle.status === 'archived';
+      const decision = decisions
+        .filter((row) => row.arcId === lifecycle.arcId)
+        .map((row) => row.decision as { outcome?: string | null; consequences?: unknown[]; resultingStatus?: string })
+        .filter((row) => row.resultingStatus === 'resolved' || row.resultingStatus === 'archived')
+        .at(-1);
+      return {
+        arcId: lifecycle.arcId,
+        status: lifecycle.status,
+        active: isActiveArcStatus(lifecycle.status),
+        lastProgressWorldDay,
+        revisionsInWindow: own.filter((row) => row.worldDay >= fromWorldDay && row.worldDay <= toWorldDay).length,
+        reachedTerminal: terminal,
+        terminalOutcomeRecorded: (decision?.outcome ?? '').trim().length > 0,
+        terminalConsequenceCount: decision?.consequences?.length ?? 0,
+      };
+    });
+
+    const report = evaluateStoryQuality({
+      worldId, fromWorldDay, toWorldDay,
+      highImportanceThreshold: HIGH_IMPORTANCE_THRESHOLD,
+      stagnationThresholdWorldDays: ARC_STAGNATION_WORLD_DAYS,
+      events, publications, exclusions, arcs,
+      scanLimitReached: eventRows.length > SCAN_LIMIT || classificationRows.length > SCAN_LIMIT
+        || reportRows.length > SCAN_LIMIT || exclusionRows.length > SCAN_LIMIT
+        || lifecycles.length > SCAN_LIMIT || projections.length > SCAN_LIMIT || decisions.length > SCAN_LIMIT,
+    });
+    return {
+      definition: wireDefinition(STORY_QUALITY_EVALUATOR),
+      report: wireReport(report),
+      thresholds: { highImportance: HIGH_IMPORTANCE_THRESHOLD, stagnationWorldDays: ARC_STAGNATION_WORLD_DAYS },
+    };
+  },
+});
+
+/**
+ * Declare, in words, why a high-importance Accepted Event is not in the public record (ART-89).
+ *
+ * ## Why `safety.override` and not a new capability
+ *
+ * Minting a capability is a decision about the operator role model, and this repository reuses
+ * rather than mints unless the thing governed is genuinely different (ART-47, ART-58). The nearest
+ * existing capability is `safety.override`: both are an operator overruling an automated gate about
+ * what the public record contains, and both are append-only ledgers rather than edits.
+ *
+ * It is also the SAFE direction of reuse. `safety.override` is `admin` — 「the highest-consequence
+ * publication decision in the system」 — and declaring an exclusion is strictly smaller than
+ * releasing content a classifier withheld. Reusing a more privileged capability for a less
+ * consequential action cannot grant anyone a power they did not already have; the reverse would.
+ *
+ * ## It is not a Canon write
+ *
+ * The event stays accepted. The row records a reason, and the coverage metric reports the excluded
+ * count and the reason beside the rate rather than folding it into the numerator.
+ */
+export const declareRecapExclusion = mutation({
+  args: {
+    ...credentialArgs,
+    worldId: v.string(),
+    eventId: v.string(),
+    reason: v.string(),
+    now: v.optional(v.number()),
+  },
+  returns: v.object({
+    eventId: v.string(), worldDay: v.number(), deduplicated: v.boolean(), operatorId: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    const principal = await requireOperator(ctx, 'safety.override', args);
+    const at = operatorNow(args.now);
+
+    // The event must be accepted: an exclusion naming an event Canon never accepted excuses
+    // nothing, and would put the exclusion set outside the denominator it reduces. An event id is
+    // `<worldId>#event#<sequence>` (`deriveEventId`), so the sequence is read back out of the id
+    // and the row is a point lookup on `by_world_and_sequence` — then the id is DERIVED again from
+    // the row and compared, so a malformed id cannot resolve to a real event by accident.
+    const suffix = args.eventId.startsWith(`${args.worldId}#event#`)
+      ? args.eventId.slice(`${args.worldId}#event#`.length) : '';
+    const sequenceNumber = /^\d+$/.test(suffix) ? Number(suffix) : -1;
+    const row = sequenceNumber < 0 ? null : await ctx.db.query('canonEvents')
+      .withIndex('by_world_and_sequence', (q) => q.eq('worldId', args.worldId).eq('sequenceNumber', sequenceNumber))
+      .unique();
+    if (!row || deriveEventId(args.worldId, row.sequenceNumber) !== args.eventId) {
+      throw new CoverageExclusionError('COVERAGE_EXCLUSION_SOURCE_NOT_ACCEPTED',
+        'an exclusion may only name an accepted event of this world');
+    }
+
+    const record = buildCoverageExclusion({
+      worldId: args.worldId, worldDay: row.worldDay, eventId: args.eventId,
+      reason: args.reason, operatorId: principal.operatorId, createdAt: at,
+    });
+    const prior = await ctx.db.query('coverageExclusions')
+      .withIndex('by_world_and_event', (q) => q.eq('worldId', args.worldId).eq('eventId', args.eventId))
+      .unique();
+    if (prior) {
+      reconcileCoverageExclusion(prior as CoverageExclusionRecord, record);
+      await recordAudit(ctx, {
+        principal, worldId: args.worldId, capability: 'safety.override', target: args.eventId,
+        reason: record.reason, outcome: 'no_op', resultCode: 'COVERAGE_EXCLUSION_DEDUPLICATED', at,
+      });
+      return { eventId: args.eventId, worldDay: prior.worldDay, deduplicated: true, operatorId: principal.operatorId };
+    }
+    await ctx.db.insert('coverageExclusions', record);
+    await recordAudit(ctx, {
+      principal, worldId: args.worldId, capability: 'safety.override', target: args.eventId,
+      reason: record.reason, outcome: 'applied', resultCode: 'COVERAGE_EXCLUSION_DECLARED', at,
+    });
+    return { eventId: args.eventId, worldDay: record.worldDay, deduplicated: false, operatorId: principal.operatorId };
   },
 });

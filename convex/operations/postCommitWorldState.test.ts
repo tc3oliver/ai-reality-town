@@ -10,7 +10,7 @@
 
 import { TIME_SLOTS } from '../canon/eventTypes';
 import type { AcceptedEvent } from '../canon/model';
-import { completedWorldDays, completedWorldDaysOf } from './postCommitLiveFunctions';
+import { completedWorldDays, completedWorldDaysOf, finalSlotStarted } from './postCommitLiveFunctions';
 
 const LAST_TIME_SLOT = TIME_SLOTS[TIME_SLOTS.length - 1];
 const FIRST_TIME_SLOT = TIME_SLOTS[0];
@@ -48,11 +48,7 @@ function ledgerWorldDays(events: readonly AcceptedEvent[]): number[] {
 /** Run the bounded implementation the way `loadWorldState` wires it, over an event list. */
 function bounded(events: readonly AcceptedEvent[]): number[] {
   const latestWorldDay = Math.max(...events.map((candidate) => candidate.worldDay));
-  return completedWorldDaysOf(
-    ledgerWorldDays(events),
-    latestWorldDay,
-    events.filter((candidate) => candidate.worldDay === latestWorldDay),
-  );
+  return completedWorldDaysOf(ledgerWorldDays(events), latestWorldDay);
 }
 
 /** Day shapes chosen to hit the boundaries, not to be representative. */
@@ -113,10 +109,29 @@ describe('ART-100 bounded completedWorldDays', () => {
   it('excludes a day that produced no event', () => {
     const events = [event(0, 1, LAST_TIME_SLOT), event(1, 3, LAST_TIME_SLOT)];
     expect(ledgerWorldDays(events)).toEqual([1, 3]);
-    expect(completedWorldDaysOf([1, 3], 3, [events[1]])).toEqual([1, 3]);
-    // ...and one that DID would, so the assertion above is a real exclusion rather than a list
-    // that happens to be short.
-    expect(completedWorldDaysOf([1, 2, 3], 3, [events[1]])).toEqual([1, 2, 3]);
+    // Day 3 is the latest, so it is not finished however far into it the world has got (ART-89).
+    expect(completedWorldDaysOf([1, 3], 3)).toEqual([1]);
+    // ...and a day that DID produce events appears, so the assertion above is a real exclusion
+    // rather than a list that happens to be short.
+    expect(completedWorldDaysOf([1, 2, 3], 3)).toEqual([1, 2]);
+  });
+
+  /**
+   * ART-89. A day is over when the world has moved past it, not when its final slot begins.
+   *
+   * `completedWorldDaysOf` used to admit the latest day as soon as one of its events carried the
+   * final time slot, and the episode stage read it — so every day's Episode was assembled from a
+   * partial final slot and the rest of that slot reached no Episode, recap or publication. The
+   * daily snapshot, which may only be taken while its day is still the latest, keeps that
+   * condition under its own name.
+   */
+  it('never calls the latest day finished, however far into it the world is', () => {
+    const events = [event(0, 4, FIRST_TIME_SLOT), event(1, 4, LAST_TIME_SLOT)];
+    expect(completedWorldDaysOf([4], 4)).toEqual([]);
+    expect(finalSlotStarted([events[0]])).toBe(false);
+    expect(finalSlotStarted(events)).toBe(true);
+    // And the day becomes finished exactly when a later day accepts an event.
+    expect(completedWorldDaysOf([4, 5], 5)).toEqual([4]);
   });
 
   /**

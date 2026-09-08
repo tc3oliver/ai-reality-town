@@ -173,6 +173,21 @@ export type PostCommitWorldState = {
   seasonFirstSequenceNumber: number;
   /** Highest accepted world day in canon right now. */
   latestWorldDay: number;
+  /**
+   * Whether the latest world day has accepted an event in the final time slot (ART-89).
+   *
+   * The DAILY SNAPSHOT needs this and the episode stage must not: they ask different questions.
+   * A snapshot may only be taken for the latest day — `createDailySnapshot` refuses a past day once
+   * later events exist — so it has to be taken while that day is still current, and the final slot
+   * is the last moment at which it can be both complete and current. An EPISODE, by contrast, must
+   * wait until the day cannot gain another event, which is only knowable once the world has moved
+   * past it (`completedWorldDays`).
+   *
+   * Conflating the two is what ART-89 found: `completedWorldDays` used to mean "the final slot has
+   * begun", the episode stage read it, and every day's Episode was assembled from a partial final
+   * slot.
+   */
+  latestWorldDayFinalSlotStarted: boolean;
 };
 
 export type RecapRequest = {
@@ -1368,7 +1383,10 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
     snapshot: async (context): Promise<SnapshotArtifact> => {
       const state = await port.loadWorldState(sourceOf(context));
       const worldDay = state.latestWorldDay;
-      if (!state.completedWorldDays.includes(worldDay)) {
+      // The latest day, once its final slot has begun — see `latestWorldDayFinalSlotStarted`. Not
+      // `completedWorldDays`, which since ART-89 means "the world has moved past it" and would
+      // therefore never admit the only day a snapshot may be taken for.
+      if (!state.latestWorldDayFinalSlotStarted) {
         return { worldDay: null, snapshotId: null, deduplicated: false, errorCode: null, errorMessage: null };
       }
       try {

@@ -19,14 +19,6 @@ import { rowToAcceptedEvent } from '../canon/serialize';
 import type { AcceptedEvent } from '../canon/model';
 import { parseArcEventClassification } from '../story/classification';
 import { dailyEpisodePublicText, type DailyEpisode } from '../editorial/episode';
-import {
-  transitionPublication,
-  validatePublicationRecord,
-  PublicationLifecycleError,
-  type PublicationActor,
-  type PublicationContentKind,
-  type PublicationRecord,
-} from '../editorial/publicationLifecycle';
 import { deriveFactId } from './recapFormats';
 import {
   deriveRelationshipChangeId,
@@ -37,8 +29,6 @@ import {
   type CoverageReport,
   type CoverageSourceEvent,
 } from './coverageValidation';
-
-const actorArgs = v.object({ type: v.union(v.literal('admin'), v.literal('system')), id: v.string() });
 
 const unique = (values: readonly string[]): string[] => [...new Set(values)];
 
@@ -193,46 +183,10 @@ export const getEpisodeCoverageReport = internalQuery({
 });
 
 /**
- * Pre-release gate for the editorial publication path. Computes the FR-G004
- * coverage report for the Episode behind `contentRef` and advances the current
- * publication record `generated` -> `validated` only when it is releasable;
- * otherwise it throws {@link RecapCoverageError} with every blocking finding and
- * leaves the record untouched. Zero canon writes.
- */
-export const validateEpisodeCoverageGate = internalMutation({
-  args: {
-    worldId: v.string(), worldDay: v.number(), contentRef: v.string(),
-    actor: actorArgs, reason: v.string(), now: v.number(),
-  },
-  handler: async (ctx, args) => {
-    if (!Number.isSafeInteger(args.worldDay) || args.worldDay < 0 || !Number.isFinite(args.now)) {
-      throw new RecapCoverageError('COVERAGE_INVALID_SHAPE', 'invalid coverage gate request');
-    }
-    const report = await buildEpisodeReport(ctx.db, args.worldId, args.worldDay, args.contentRef);
-    if (!report.releasable) {
-      const codes = unique(report.findings.map(({ code }) => code)).join(', ');
-      throw new RecapCoverageError(report.findings[0].code, `Episode failed coverage validation: ${codes}`, report.findings);
-    }
-    const row = await ctx.db.query('publicationRecords')
-      .withIndex('by_current', (q) => q.eq('worldId', args.worldId).eq('contentRef', args.contentRef).eq('isCurrent', true))
-      .unique();
-    if (!row) throw new PublicationLifecycleError('PUBLICATION_NOT_FOUND', 'no current publication for content reference');
-    const record: PublicationRecord = validatePublicationRecord({
-      schemaVersion: row.schemaVersion, publicationId: row.publicationId, worldId: row.worldId,
-      contentKind: row.contentKind as PublicationContentKind, contentRef: row.contentRef, status: row.status,
-      version: row.version, summary: row.summary ?? null, audit: row.audit as PublicationRecord['audit'],
-    });
-    const next = transitionPublication(record, 'validate', args.actor as PublicationActor, args.reason, args.now);
-    await ctx.db.patch(row._id, { status: next.status, audit: next.audit, updatedAt: args.now });
-    return { publicationId: next.publicationId, status: next.status, version: next.version, report };
-  },
-});
-
-/**
  * The FR-G004 gate as the LIVE pipeline runs it (ART-164).
  *
- * Two things distinguish it from {@link validateEpisodeCoverageGate}, and both are forced by where
- * it runs.
+ * Two things distinguish it from the pre-release gate ART-35 shipped — `validateEpisodeCoverageGate`,
+ * which ART-89 removed once this replaced it — and both are forced by where it runs.
  *
  * **It returns its verdict instead of throwing.** The post-commit publication stage is not
  * failure-isolated: a throw inside it aborts everything after it, including `rebuildLiveProjection`
@@ -240,7 +194,7 @@ export const validateEpisodeCoverageGate = internalMutation({
  * reaching the public surface. Refusing to publish must never be the reason unsafe content stays
  * up.
  *
- * **It performs no publication transition.** `validateEpisodeCoverageGate` decides AND advances
+ * **It performs no publication transition.** The removed gate decided AND advanced
  * `generated` -> `validated`, which is convenient for an operator calling one function and wrong
  * here: it would give the pipeline two owners of the publication lifecycle, one of which advances
  * a record as a side effect of asking a question. This one only answers, and the publication stage

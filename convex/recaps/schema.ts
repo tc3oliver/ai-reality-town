@@ -83,4 +83,33 @@ export const recapTables = {
     .index('by_world_and_day', ['worldId', 'worldDay'])
     .index('by_world_and_ref', ['worldId', 'contentRef'])
     .index('by_world_and_releasable', ['worldId', 'releasable']),
+
+  /**
+   * FR-G004 / §16.2 — an operator's explicit, reviewable reason for leaving a high-importance
+   * Accepted Event out of the public record (ART-89).
+   *
+   * §16.2 reads 「至少 95% 的高重要度 Accepted Event 由已發布 recap 覆蓋，或帶有明確、可審查的排除理由」.
+   * The second half had a TYPE (`CoverageExclusion`) and a check
+   * (`COVERAGE_EXCLUSION_UNJUSTIFIED`) since ART-35, and no storage and no writer — every caller
+   * passed `declaredExclusions: []`, so the check was unreachable and the clause was satisfied by
+   * nothing. This is that storage.
+   *
+   * Append-only and one row per `(worldId, eventId)`: an exclusion is a decision about a
+   * particular event, and re-declaring it must not create a second reason for the same omission.
+   * It never touches Canon — the event stays accepted and stays in the denominator; the row only
+   * records that a named operator said, in words, why it is not in a recap.
+   */
+  coverageExclusions: defineTable({
+    schemaVersion: v.literal(1),
+    worldId: v.string(),
+    /** The world day the excluded event belongs to, so a window read is index-scoped. */
+    worldDay: v.number(),
+    eventId: v.string(),
+    /** Non-empty by construction: an exclusion without a reason is what the gate refuses. */
+    reason: v.string(),
+    operatorId: v.string(),
+    createdAt: v.number(),
+  })
+    .index('by_world_and_day', ['worldId', 'worldDay'])
+    .index('by_world_and_event', ['worldId', 'eventId']),
 };
