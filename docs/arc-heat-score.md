@@ -119,12 +119,33 @@ scene. The breakdown reaches an authorized surface, and the surest way for it no
 unpublished narrative is for it never to hold any. `heat.test.ts` asserts that every string in
 every component's evidence matches an identifier shape.
 
-## 6. AC#2 — the ordering is not the model's
+## 6. AC#2 — what heat actually orders
 
-`compareArcsByHeat` is exported so the ordering has one definition: heat descending, ties broken on
-arc id. A comparator written out at each call site is how two surfaces come to disagree about which
-arc is hottest, and an arc's position is the first thing a viewer reads. The tie-break is what makes
-the order a property of the arcs rather than of whichever query returned them first.
+`compareArcsByHeat` is the one definition of the heat ordering: heat descending, ties broken on arc
+id. A comparator written out at each call site is how two surfaces come to disagree about which arc
+is hottest. Its callers are:
+
+- **`candidateArcs`** (`convex/operations/postCommitLive.ts`) — which arcs an accepted event
+  classifies into. This is heat's live, load-bearing consumer, and it is **simulation-side**: heat
+  decides arc membership, not what a viewer sees first.
+- **`selectHomepageArc`** (`convex/story/portfolio.ts`) — the FR-F006 public ordering.
+
+**And `selectHomepageArc` is not wired to a surface.** It has had no production caller since ART-41.
+What actually orders arcs on the public surfaces today is neither of these: `pickPrimaryArc`
+(`src/components/public/homeRoute.ts`) ranks by lifecycle status then arc id, and
+`liveState.activeArcs` sorts alphabetically. `heatScore` is published in **no read model at all** —
+not `liveState`, not `arcPrimer`, not the ops console — so heat could not influence a public
+ordering even if a surface asked for it.
+
+AC#2 「首頁排序不得完全由 LLM 自由決定」 is therefore satisfied, but not by heat: the homepage
+ordering is deterministic because it is status-then-id, and nothing about it is left to the model.
+Wiring heat to it would mean publishing `heatScore` in a read model and pointing the homepage at
+`selectHomepageArc` — a public-payload change with its own `contentHash` and traceability cost, and
+not something FR-F006 asks for.
+
+ART-32's own PR body said AC#2 was "already true and now pinned", which was true of the criterion
+and overstated what heat does. ART-170 corrected that, wired `compareArcsByHeat` to both callers
+that exist, and left the third — the public surface — named rather than implied.
 
 ## 7. Evidence
 
@@ -132,6 +153,8 @@ Six injections, each turning named tests red:
 
 | Injection | Test |
 | --- | --- |
+| revert the arc CREATION path to the stand-in (ART-170) | 3 tests, incl. `is not the old stand-in` |
+| drop the heat leg from `selectHomepageArc` (ART-170) | `picks the arc the comparator ranks first, ties included` |
 | score an unmeasured signal as zero instead of renormalising | `renormalises, so an unobservable signal does not depress every arc equally` |
 | let a resolved arc keep peak climax proximity | `peaks at the climax and drops to zero once the arc has resolved` |
 | stop freshness decaying | `falls as the arc goes untouched, and reaches zero at the freshness window` |

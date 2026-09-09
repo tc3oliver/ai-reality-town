@@ -286,11 +286,51 @@ export function computeArcHeat(input: ArcHeatInput): ArcHeatScore {
 }
 
 /**
+ * The heat of an arc at the moment it is created (ART-170).
+ *
+ * ART-32 replaced the `Math.round(importance * 100)` stand-in in `nextArcProjectionFields` and left
+ * it standing at the three places an arc is CREATED, so a new arc carried the pre-ART-32 score until
+ * its first update. `heatScore` is written at creation and on every revision; a composite that
+ * applies to only one of those is two scoring rules wearing one field name.
+ *
+ * A new arc has no history to read, and the values below are facts about that rather than
+ * placeholders: it has made no progress yet (so `freshness` is at its maximum, which is correct —
+ * it just happened), its only unresolved question is the one it was created with, and its status is
+ * whatever the lifecycle starts it at. `viewerInteractionCount` is `null` rather than `0` because no
+ * rollup was consulted, not because none exists — the first update reads the real one.
+ */
+export function initialArcHeat(input: {
+  worldId: string;
+  arcId: string;
+  status: StoryArcStatus;
+  worldDay: number;
+  eventImportance: number;
+  sourceEventId: string;
+  coreCharacterIds: readonly string[];
+  eventParticipantIds: readonly string[];
+  unresolvedQuestionCount: number;
+}): ArcHeatScore {
+  return computeArcHeat({
+    ...input,
+    currentWorldDay: input.worldDay,
+    // Created and last progressed on the same day: a new arc is as fresh as an arc can be.
+    lastProgressWorldDay: input.worldDay,
+    viewerInteractionCount: null,
+  });
+}
+
+/**
  * Order arcs by heat, breaking every tie deterministically.
  *
- * Exported so the homepage's ordering has ONE definition (FR-F006 AC#2: the ordering must not be
- * left to the model). A comparator written out at each call site is how two surfaces come to
- * disagree about which arc is hottest, and an arc's position is the thing a viewer reads first.
+ * Exported so the heat ordering has ONE definition (FR-F006 AC#2: the ordering must not be left to
+ * the model). A comparator written out at each call site is how two surfaces come to disagree about
+ * which arc is hottest.
+ *
+ * Its callers are `candidateArcs` (`convex/operations/postCommitLive.ts`), which decides which arcs
+ * an accepted event classifies into, and `selectHomepageArc` (`convex/story/portfolio.ts`). ART-32
+ * exported this and wired nothing to it while `candidateArcs` wrote the identical comparator out
+ * inline — two definitions of one rule, one of them unreachable, which is the exact drift the export
+ * exists to prevent. ART-170 wired both.
  */
 export function compareArcsByHeat(
   left: { arcId: string; heatScore: number },

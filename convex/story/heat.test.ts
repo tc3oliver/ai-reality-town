@@ -12,6 +12,7 @@
  *         the ones that could not be measured, with the reason.
  */
 
+import { selectHomepageArc, type ArcPortfolioEntry } from './portfolio';
 import {
   ARC_CLIMAX_PROXIMITY,
   ARC_FRESHNESS_WINDOW_DAYS,
@@ -21,6 +22,7 @@ import {
   ARC_INTERACTION_SATURATION,
   compareArcsByHeat,
   computeArcHeat,
+  initialArcHeat,
   type ArcHeatInput,
 } from './heat';
 
@@ -269,5 +271,91 @@ describe('the signal the deployment has to observe (ART-32)', () => {
     await bump(db, 'story_arc_viewed', { worldId: 'mistwood', arcId: 'arc:mill' });
     await bump(db, 'story_arc_viewed', { worldId: 'mistwood', arcId: 'arc:truce' });
     expect(db.rows.map((row) => row.interactions)).toEqual([1, 1]);
+  });
+});
+
+
+/**
+ * The score is the composite EVERYWHERE it is written (ART-170).
+ *
+ * ART-32 replaced the `Math.round(importance * 100)` stand-in in the update path and left it at the
+ * three places an arc is created, so a new arc carried the pre-ART-32 score until its first
+ * revision — two scoring rules under one field name, and the one a brand-new arc got was the old one.
+ */
+describe('an arc is created at the same composite it is updated at', () => {
+  const creation = {
+    worldId: 'mistwood', arcId: 'arc:new', status: 'emerging' as const, worldDay: 4,
+    eventImportance: 0.8, sourceEventId: 'mistwood#event#9',
+    coreCharacterIds: ['pei-lan', 'wu-zhen'], eventParticipantIds: ['pei-lan'],
+    unresolvedQuestionCount: 1,
+  };
+
+  it('is not the old stand-in', () => {
+    // `Math.round(0.8 * 100)` is 80. An emerging arc with one open question and no viewer rollup is
+    // not at 80, and the whole point of ART-32 is that it should not be.
+    expect(initialArcHeat(creation).score).not.toBe(80);
+  });
+
+  it('reports the same six components the update path reports', () => {
+    expect(initialArcHeat(creation).components.map((component) => component.key))
+      .toEqual([...ARC_HEAT_COMPONENTS]);
+  });
+
+  it('is maximally fresh, because it just happened', () => {
+    const freshness = initialArcHeat(creation).components
+      .find((component) => component.key === 'freshness');
+    expect(freshness?.value).toBe(1);
+    expect(freshness?.evidence).toMatchObject({ daysSinceProgress: 0 });
+  });
+
+  it('consults no viewer rollup, and says so rather than scoring zero', () => {
+    const interaction = initialArcHeat(creation).components
+      .find((component) => component.key === 'viewer_interaction');
+    expect(interaction?.status).toBe('no_observations');
+    expect(interaction?.value).toBeNull();
+  });
+
+  it('agrees with computeArcHeat given the same facts', () => {
+    // The creation helper is a way of stating a new arc's facts, not a second scoring rule.
+    expect(initialArcHeat(creation).score).toBe(computeArcHeat({
+      ...creation, currentWorldDay: creation.worldDay, lastProgressWorldDay: creation.worldDay,
+      viewerInteractionCount: null,
+    }).score);
+  });
+});
+
+/**
+ * The heat ordering has one definition, and both surfaces obey it (ART-170).
+ *
+ * ART-32 exported `compareArcsByHeat` as that definition and wired nothing to it, while
+ * `candidateArcs` wrote the identical comparator out inline. This asserts the property that matters
+ * — the two surfaces cannot disagree about which of two arcs is hotter — rather than asserting that
+ * a particular function is called, which a refactor could satisfy while breaking the agreement.
+ */
+describe('the homepage selector and the comparator cannot disagree', () => {
+  const entry = (arcId: string, heatScore: number): ArcPortfolioEntry => ({
+    projection: {
+      schemaVersion: 1, worldId: 'mistwood', arcId, title: arcId, premise: 'p',
+      currentQuestion: 'q', status: 'active', coreCharacterIds: ['pei-lan'],
+      incitingEventId: 'mistwood#event#0', latestTurningPointEventId: null, essentialFactIds: [],
+      unresolvedQuestions: ['q'], resolvedQuestions: [], recommendedEntryEventId: null,
+      heatScore, lastProgressTime: { worldDay: 1, timeSlot: 'morning', sourceEventId: 'mistwood#event#0' },
+      revision: 0,
+    },
+    tier: 'major', priority: 50, published: true, sourceEventIds: ['mistwood#event#0'],
+  });
+
+  it('picks the arc the comparator ranks first, ties included', () => {
+    const hotter = entry('arc:b', 90);
+    const cooler = entry('arc:a', 40);
+    expect(selectHomepageArc([cooler, hotter])?.arcId).toBe('arc:b');
+    expect([cooler, hotter].map((candidate) => ({
+      arcId: candidate.projection.arcId, heatScore: candidate.projection.heatScore,
+    })).sort(compareArcsByHeat)[0].arcId).toBe('arc:b');
+
+    // A tie falls to the arc id, in both places, so the same two arcs order the same way.
+    const tiedA = entry('arc:a', 70);
+    const tiedB = entry('arc:b', 70);
+    expect(selectHomepageArc([tiedB, tiedA])?.arcId).toBe('arc:a');
   });
 });
