@@ -6,11 +6,14 @@
 
 import {
   CHARACTER_FORBIDDEN_KEYS,
+  characterCurrentArcs,
+  characterRelationships,
   composeCharacterViewModel,
   forbiddenKeysInViewModel,
   parseCharacterRoute,
   type CharacterProjection,
   type CharacterRecentEvent,
+  type CharacterRelationshipGraphInput,
 } from './characterRoute';
 
 function character(overrides: Partial<CharacterProjection> = {}): CharacterProjection {
@@ -98,5 +101,141 @@ describe('composeCharacterViewModel', () => {
     expect(CHARACTER_FORBIDDEN_KEYS).toContain('prompt');
     expect(CHARACTER_FORBIDDEN_KEYS).toContain('rawModelOutput');
     expect(CHARACTER_FORBIDDEN_KEYS).toContain('adminNotes');
+  });
+});
+
+
+/**
+ * The FR-I005 fields that had no source when ART-43 closed, and now have one (ART-151).
+ *
+ * Each case pins the RULE rather than the rendering, because the rule is the part two surfaces
+ * have to agree on: 「所屬 Arc」 is answered by the same function the live map's character card
+ * calls, and 「主要關係」 is read out of the published FR-I007 graph rather than out of Canon.
+ */
+describe('the fields ART-43 AC#1 could not deliver at the time', () => {
+  const scenes = [
+    { title: '磨坊對峙', status: 'active' as const, participantCharacterIds: ['char-a', 'char-b'], arcIds: ['arc-mill'] },
+    { title: '昨日的和解', status: 'ended' as const, participantCharacterIds: ['char-a'], arcIds: ['arc-truce'] },
+    { title: '市集閒談', status: 'active' as const, participantCharacterIds: ['char-c'], arcIds: ['arc-market'] },
+  ];
+
+  it('reports only arcs from active scenes the character is actually in', () => {
+    expect(characterCurrentArcs('char-a', scenes)).toEqual([{ arcId: 'arc-mill', sceneTitle: '磨坊對峙' }]);
+  });
+
+  it('deduplicates an arc that runs through two concurrent scenes, first scene winning', () => {
+    const concurrent = [
+      { title: '第一場', status: 'active' as const, participantCharacterIds: ['char-a'], arcIds: ['arc-mill'] },
+      { title: '第二場', status: 'active' as const, participantCharacterIds: ['char-a'], arcIds: ['arc-mill'] },
+    ];
+    expect(characterCurrentArcs('char-a', concurrent)).toEqual([{ arcId: 'arc-mill', sceneTitle: '第一場' }]);
+  });
+
+  it('names an arc from the published active-arc list, and keeps the membership when it is absent', () => {
+    const vm = composeCharacterViewModel({
+      worldId: 'mistwood', character: character(), recentEvents: null,
+      activeScenes: scenes,
+      activeArcs: [{ arcId: 'arc-mill', title: '磨坊之爭', status: 'escalating' }],
+    });
+    expect(vm.arcs).toEqual([{
+      arcId: 'arc-mill', title: '磨坊之爭', status: 'escalating',
+      href: '#arc/mistwood/arc-mill',
+    }]);
+
+    const unnamed = composeCharacterViewModel({
+      worldId: 'mistwood', character: character(), recentEvents: null,
+      activeScenes: scenes, activeArcs: [],
+    });
+    // The membership is the published fact; a missing title is a gap in the arc list, not
+    // evidence the character is not in the arc.
+    expect(unnamed.arcs).toEqual([{ arcId: 'arc-mill', title: 'arc-mill', status: '', href: '#arc/mistwood/arc-mill' }]);
+  });
+
+  const graph: CharacterRelationshipGraphInput = {
+    worldDay: 12,
+    arc: { arcId: 'arc-mill', title: '磨坊之爭', status: 'escalating' },
+    edges: [
+      {
+        sourceCharacterId: 'char-b', targetCharacterId: 'char-a',
+        relationshipType: 'trust', strength: 4, lastChangedWorldDay: 11,
+        recentChanges: [{ reason: '共同守夜' }],
+      },
+      {
+        sourceCharacterId: 'char-a', targetCharacterId: 'char-c',
+        relationshipType: 'resentment', strength: 7, lastChangedWorldDay: 9,
+      },
+      { sourceCharacterId: 'char-b', targetCharacterId: 'char-c', relationshipType: 'fear', strength: 9, lastChangedWorldDay: 12 },
+    ],
+  };
+
+  it('takes the other end of every edge that touches the character, strongest first', () => {
+    expect(characterRelationships('char-a', 'mistwood', graph)).toEqual([
+      {
+        otherCharacterId: 'char-c', href: '#character/mistwood/char-c',
+        relationshipType: 'resentment', strength: 7, lastChangedWorldDay: 9, reasons: [],
+      },
+      {
+        otherCharacterId: 'char-b', href: '#character/mistwood/char-b',
+        relationshipType: 'trust', strength: 4, lastChangedWorldDay: 11, reasons: ['共同守夜'],
+      },
+    ]);
+  });
+
+  it('carries no edge the character is not part of', () => {
+    const others = characterRelationships('char-a', 'mistwood', graph)
+      .map((relationship) => relationship.otherCharacterId);
+    expect(others).not.toContain('char-a');
+    // char-b–char-c touches neither end of char-a and must not appear as a relationship of theirs.
+    expect(characterRelationships('char-a', 'mistwood', graph)).toHaveLength(2);
+  });
+
+  it('publishes the day the relationships are as of, so an empty list is not read as "none"', () => {
+    const withGraph = composeCharacterViewModel({
+      worldId: 'mistwood', character: character(), recentEvents: null, relationshipGraph: graph,
+    });
+    expect(withGraph.relationshipsAsOfWorldDay).toBe(12);
+
+    const withoutGraph = composeCharacterViewModel({
+      worldId: 'mistwood', character: character(), recentEvents: null,
+    });
+    expect(withoutGraph.relationships).toEqual([]);
+    expect(withoutGraph.relationshipsAsOfWorldDay).toBeNull();
+  });
+
+  it('resolves the current location to its published name, and falls back to the id', () => {
+    const named = composeCharacterViewModel({
+      worldId: 'mistwood', character: character(), recentEvents: null,
+      locations: [{ locationId: 'mistwood-market', name: '晨霧市集' }],
+    });
+    expect(named.locationName).toBe('晨霧市集');
+
+    const unread = composeCharacterViewModel({
+      worldId: 'mistwood', character: character(), recentEvents: null,
+    });
+    expect(unread.locationName).toBe('mistwood-market');
+
+    const nowhere = composeCharacterViewModel({
+      worldId: 'mistwood', character: character({ currentLocationId: null }), recentEvents: null,
+    });
+    expect(nowhere.locationName).toBe('\u2014');
+  });
+
+  it('carries the sprite key through untouched, including its absence', () => {
+    const withSprite = composeCharacterViewModel({
+      worldId: 'mistwood', character: character(), recentEvents: null, spriteKey: 'f1',
+    });
+    expect(withSprite.spriteKey).toBe('f1');
+    expect(composeCharacterViewModel({
+      worldId: 'mistwood', character: character(), recentEvents: null,
+    }).spriteKey).toBeUndefined();
+  });
+
+  it('adds no forbidden key by way of the new fields', () => {
+    const vm = composeCharacterViewModel({
+      worldId: 'mistwood', character: character(), recentEvents: null,
+      activeScenes: scenes, activeArcs: [], relationshipGraph: graph, spriteKey: 'f1',
+      locations: [{ locationId: 'mistwood-market', name: '晨霧市集' }],
+    });
+    expect(forbiddenKeysInViewModel(vm)).toEqual([]);
   });
 });

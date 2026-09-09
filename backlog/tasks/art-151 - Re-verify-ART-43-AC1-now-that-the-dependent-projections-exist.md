@@ -1,9 +1,11 @@
 ---
 id: ART-151
 title: Re-verify ART-43 AC#1 now that the dependent projections exist
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-08-29 05:41'
+updated_date: '2026-09-09 11:48'
 labels:
   - prd-1.0
   - epic-i
@@ -44,3 +46,14 @@ ART-43 (Privacy-safe public character pages) closed with AC#1 unchecked because 
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Read FR-I005 from the PRD and enumerate its ten public fields verbatim, rather than trusting the task summary.
+2. Assess each field against what is actually published today, naming the read model and the file.
+3. Deliver every field whose source now exists, reusing the published projection rather than adding one.
+4. For 所屬 Arc, move the live card's private membership helper to clientPublic so both surfaces answer with one function instead of two.
+5. Record the two fields that still have no source, name what would supply them, and open a scoped follow-up; leave ART-43 AC#1 unchecked.
+6. Fault injections, npm run check, npm run e2e.
+<!-- SECTION:PLAN:END -->

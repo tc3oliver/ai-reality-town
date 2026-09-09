@@ -672,6 +672,15 @@ p[contenteditable='true']:empty::before {
   margin-top: 0.75rem;
 }
 
+/* The character page's identity block: sprite beside the name, rather than above it
+ * as on the homepage tile, because here the name is a page heading and pushing it
+ * down a sprite's height would put the page's own title below the fold on mobile. */
+.character-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
 /* The whole tile is the link — sprite and name together — so the touch target is
  * the thing a viewer is aiming at rather than the four characters of the name. */
 .home-cast-link {
