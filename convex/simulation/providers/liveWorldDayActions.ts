@@ -239,6 +239,8 @@ export async function authorAndSettle(
     authored: authoringErrorCode === undefined,
     // This branch exists because the slot needed a provider, so it called one (ART-165).
     usedProvider: true,
+    // ART-167: the attempt, so a retried slot's second failure counts as a second failure.
+    attempt: prepared.attempt,
     errorCode: authoringErrorCode ?? null,
     now,
   });
@@ -298,7 +300,7 @@ async function driveOneWorld(ctx: ActionCtx, input: {
       await ctx.runMutation(recordSlotOutcomeRef, {
         worldId: input.worldId, worldDay: prepared.outcome.worldDay, timeSlot: prepared.outcome.timeSlot,
         authored: prepared.outcome.status === 'completed', usedProvider: false,
-        errorCode: null, now: input.now,
+        attempt: prepared.outcome.attemptCount, errorCode: null, now: input.now,
       });
       slots.push({
         outcome: prepared.outcome, authoredScenes: 0,

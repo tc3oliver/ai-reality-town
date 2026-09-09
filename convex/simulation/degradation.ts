@@ -82,6 +82,10 @@
  * whether or not the transition was new, so two deliveries of one failure counted two failures.
  * {@link DegradationState.lastSignalKey} closes it here, in the pure decision, where it holds for
  * every caller rather than for the one that remembers.
+ *
+ * It is keyed on the ATTEMPT, not on the slot (ART-167). Keyed on the slot — which is what ART-165
+ * shipped — a persistent outage produced one key forever and the ladder could not escalate at all.
+ * See {@link signalKeyOf}.
  */
 
 export const DEGRADATION_LEVELS = [
@@ -218,6 +222,15 @@ export type SlotOutcomeSignal = {
    * failure is not evidence that the provider is broken. Both are statements about the derivation.
    */
   usedProvider: boolean;
+  /**
+   * Which attempt at this slot produced the outcome (ART-167).
+   *
+   * `scheduledSlots.attemptCount`, which `claimLiveSlot` increments every time it hands a `running`
+   * row back. Required rather than defaulted, for the reason `usedProvider` is: a caller that does
+   * not know which attempt it is reporting cannot be distinguished from one reporting the same
+   * attempt twice, and that indistinguishability is the whole defect.
+   */
+  attempt: number;
   /** The stable code authoring failed with, when it did. */
   errorCode: string | null;
   at: number;
@@ -235,8 +248,14 @@ export const initialDegradationState = (worldId: string): DegradationState => ({
   lastSignalKey: null,
 });
 
+/**
+ * Derived from the ATTEMPT that caused the move (ART-167), so a re-delivered decision re-derives the
+ * same id and `applyDecision` writes one row — while two moves caused by two attempts at one slot,
+ * which is what an outage produces, stay two rows. Keyed on the slot alone they collided whenever a
+ * world left and re-entered a rung at the same slot.
+ */
 const transitionId = (signal: SlotOutcomeSignal, kind: string): string =>
-  `degradation:${signal.worldId}:${signal.worldDay}:${signal.timeSlot}:${kind}`;
+  `degradation:${signal.worldId}:${signal.worldDay}:${signal.timeSlot}:${signal.attempt}:${kind}`;
 
 export type DegradationDecision = {
   state: DegradationState;
@@ -244,8 +263,23 @@ export type DegradationDecision = {
   transition: DegradationTransition | null;
 };
 
-/** `worldDay:timeSlot` — the slot's identity, which is what one outcome is about. */
-const signalKeyOf = (signal: SlotOutcomeSignal): string => `${signal.worldDay}:${signal.timeSlot}`;
+/**
+ * `worldDay:timeSlot:attempt` — the ATTEMPT's identity, which is what one outcome is about.
+ *
+ * ART-165 keyed this on the slot, and that was the larger version of the bug it set out to fix. The
+ * live driver stops on the first slot that did not complete; an authoring failure deliberately
+ * leaves the row `running` rather than `failed`, which is the path every outage takes; and
+ * `claimLiveSlot` hands the same row back once its lease lapses, with `attemptCount + 1`. So the
+ * only signal a persistent outage ever produces is ONE slot key, over and over.
+ * `FAILURES_BEFORE_ESCALATION` needs two, so `consecutiveFailures` froze at one and the world never
+ * left `normal` — every rung below it implemented, tested, operator-exposed and unreachable.
+ *
+ * The attempt is what distinguishes the two cases the ladder must tell apart: a re-DELIVERED
+ * outcome of one attempt is one failure, and a second ATTEMPT that failed is two. Keyed on the slot,
+ * they are the same string.
+ */
+const signalKeyOf = (signal: SlotOutcomeSignal): string =>
+  `${signal.worldDay}:${signal.timeSlot}:${signal.attempt}`;
 
 /**
  * Fold one slot outcome into the world's degradation state.

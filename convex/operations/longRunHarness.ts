@@ -920,12 +920,17 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
    * fix and changes no answer — `longRunHarness.test.ts` asserts the same report digest before and
    * after, which is what makes that claim checkable rather than asserted.
    */
-  let projectionCache: { length: number; projection: WorldProjection } | null = null;
+  let projectionCache: { worldId: string; length: number; projection: WorldProjection } | null = null;
   const worldProjection = (worldId: string): WorldProjection => {
     const all = events();
-    if (projectionCache?.length === all.length) return projectionCache.projection;
+    // Keyed on the world as well as the log length. The fixture is single-world today, so the
+    // world half of the key can never miss — which is exactly why it would be easy to leave out
+    // and expensive to discover missing.
+    if (projectionCache?.length === all.length && projectionCache.worldId === worldId) {
+      return projectionCache.projection;
+    }
     const projection = replayWorldEvents(emptyProjection(worldId), all);
-    projectionCache = { length: all.length, projection };
+    projectionCache = { worldId, length: all.length, projection };
     return projection;
   };
   const arcProjectionData = (arcId: string) => {
@@ -1762,6 +1767,8 @@ export function createLongRunFixture(
 export type LadderSlotOutcome = {
   worldDay: number;
   timeSlot: TimeSlot;
+  /** Which claim of this slot produced the outcome. A retried slot repeats with the next number. */
+  attempt: number;
   /** The rung the world was on when the slot was admitted. */
   level: DegradationState['level'];
   /** Whether this slot was a provider probe taken at a rung that does not normally call one. */
@@ -1777,13 +1784,29 @@ export type LadderRunResult = {
   outcomes: LadderSlotOutcome[];
   transitions: DegradationTransition[];
   state: DegradationState;
+  /** The next slot world time is standing on. A stalled world ends where it started. */
+  worldDay: number;
+  timeSlot: TimeSlot;
+  /** World days this call actually advanced through. Fewer than asked when the world stalled. */
+  worldDaysAdvanced: number;
 };
 
 export type LadderRunInput = {
+  /** World days to advance through. Reached only if the world is not stalled on a failing slot. */
   worldDays: number;
   startWorldDay?: number;
+  /** The slot within `startWorldDay` to begin on, so a stalled world can be resumed where it stopped. */
+  startTimeSlot?: TimeSlot;
   /** Carry a world's rung across calls, so an outage and its recovery can be driven separately. */
   state?: DegradationState;
+  /**
+   * Driver ticks this call may spend, whether or not they advance world time.
+   *
+   * A failing slot is retried rather than skipped — see the loop — so a world under a provider
+   * outage consumes ticks without moving. Defaults to one per slot of `worldDays`, which is what a
+   * healthy world needs; a scenario that expects stalling passes its own budget.
+   */
+  maxTicks?: number;
   /**
    * Called when the ladder refuses to admit a slot. Returning true performs the operator resume
    * that rung 6 documents as its only way out; returning false leaves the world paused.
@@ -1799,13 +1822,31 @@ export type LadderRunInput = {
  * the FR-M004 decision consulted before each slot and fed the outcome afterwards, which is the
  * shape of `driveOneWorld` in `convex/simulation/providers/liveWorldDayActions.ts`.
  *
+ * ## One tick is one claim, and a failing slot is RETRIED (ART-167)
+ *
+ * This is the part that matters most, and the part the first version got wrong. `driveOneWorld`
+ * stops on the first slot that did not complete; an authoring failure deliberately leaves the row
+ * `running` rather than `failed`, which is the path every outage takes; and `claimLiveSlot` consults
+ * the running row before anything queued and hands the SAME row back once its lease lapses, with
+ * `attemptCount + 1`. So a world under a provider outage does not skip to the next slot — it retries
+ * one slot, and world time does not move until that slot completes.
+ *
+ * The first version of this driver iterated `worldDay × timeSlot` unconditionally. Every signal it
+ * produced therefore carried a fresh key, the ladder's exactly-once branch was never taken anywhere
+ * in the harness, and the deployment took it on every retry — which is exactly how ART-165 shipped a
+ * ladder that could not escalate at all while two gates that rest on this driver stayed green.
+ *
+ * So the loop is over TICKS, not over slots. World time advances only when a slot completes; a
+ * failing slot is retried with the next attempt number; and a paused world consumes ticks without
+ * moving, because that is what a world whose claim is refused does.
+ *
  * ## What it models, and what it does not
  *
- * It models the two things the ladder actually decides: whether a slot is ADMITTED, and what the
- * slot's outcome tells the ladder. It does not model rung 3's plan truncation, because the harness
- * builds its authoring plan inside `executeWorldDay` where there is nothing to intercept;
- * `degradedPlan` is a pure function over a plan and is covered directly in `degradation.test.ts`.
- * Saying so here is better than a driver that silently measures less than it appears to.
+ * It models what the ladder decides — whether a slot is ADMITTED, what its outcome says, and which
+ * attempt said it. It does not model rung 3's plan truncation, because the harness builds its
+ * authoring plan inside `executeWorldDay` where there is nothing to intercept; `degradedPlan` is a
+ * pure function over a plan and is covered directly in `degradation.test.ts`. Saying so here is
+ * better than a driver that silently measures less than it appears to.
  *
  * The rules-only rung goes through `deriveRulesOnlyEvents` → `validateEventStructure` →
  * `commitProposedEvent`, exactly as `runRulesOnlySlot` does, so a rung built as a bypass would
@@ -1816,87 +1857,132 @@ export async function runDegradationLadderDays(
   input: LadderRunInput,
 ): Promise<LadderRunResult> {
   const startWorldDay = input.startWorldDay ?? 0;
+  const endWorldDay = startWorldDay + input.worldDays;
   let state = input.state ?? initialDegradationState(LONG_RUN_WORLD_ID);
   const outcomes: LadderSlotOutcome[] = [];
   const transitions: DegradationTransition[] = [];
   let processed = fixture.canon.committedEvents().length;
   let clock = 1;
 
-  for (let offset = 0; offset < input.worldDays; offset += 1) {
-    const worldDay = startWorldDay + offset;
-    for (const timeSlot of TIME_SLOTS) {
-      clock += 1;
-      const slot: WorldDaySlotIdentity = { worldId: LONG_RUN_WORLD_ID, worldDay, timeSlot };
+  let worldDay = startWorldDay;
+  let slotIndex = TIME_SLOTS.indexOf(input.startTimeSlot ?? TIME_SLOTS[0]);
+  if (slotIndex < 0) throw new Error('LADDER_RUN_UNKNOWN_TIME_SLOT');
+  // `claimLiveSlot` increments `attemptCount` on every claim, so the first claim of a slot is 1.
+  let attempt = 0;
+  const maxTicks = input.maxTicks ?? input.worldDays * TIME_SLOTS.length;
 
-      // Rung 6, checked BEFORE anything is claimed, exactly as `prepareQueuedWorldDaySlot` does.
-      if (!policyFor(state.level).admitsSimulation) {
-        if (input.onPaused?.(state) === true) {
-          const resumed = resumeFromPause(state, clock, 'operator:long-run');
-          state = resumed.state;
-          if (resumed.transition) transitions.push(resumed.transition);
-        } else {
-          outcomes.push({
-            worldDay, timeSlot, level: state.level, probe: false, usedProvider: false,
-            status: 'refused', errorCode: 'WORLD_DEGRADATION_PAUSED', committedEventIds: [],
-          });
-          continue;
-        }
-      }
+  for (let tick = 0; tick < maxTicks && worldDay < endWorldDay; tick += 1) {
+    clock += 1;
+    const timeSlot = TIME_SLOTS[slotIndex];
+    const slot: WorldDaySlotIdentity = { worldId: LONG_RUN_WORLD_ID, worldDay, timeSlot };
+    attempt += 1;
 
-      // `effectivePolicy`, not `policyFor`: one slot in every SLOTS_BETWEEN_PROVIDER_PROBES is the
-      // probe that lets a no-provider world find out the outage ended (ART-165).
-      const probe = shouldProbeProvider(state);
-      const policy = effectivePolicy(state);
-      const level = state.level;
-      // The port authors under this rung, so `fewer_scenes` really does truncate the plan and
-      // `compatible_model` really does swap the model — in the harness as in the deployment.
-      fixture.authoringPolicy.current = policy;
-      let status: 'completed' | 'failed';
-      let errorCode: string | null = null;
-      let committedEventIds: string[] = [];
-
-      if (policy.rulesOnly) {
-        const settled = await commitRulesOnlySlot(
-          fixture, slot, level === 'deferred_summaries' ? 'deferred_summaries' : 'rules_only');
-        status = settled.errorCode === null ? 'completed' : 'failed';
-        errorCode = settled.errorCode;
-        committedEventIds = settled.committedEventIds;
+    // Rung 6, checked BEFORE anything is claimed, exactly as `prepareQueuedWorldDaySlot` does.
+    if (!policyFor(state.level).admitsSimulation) {
+      if (input.onPaused?.(state) === true) {
+        const resumed = resumeFromPause(state, clock, 'operator:long-run');
+        state = resumed.state;
+        if (resumed.transition) transitions.push(resumed.transition);
       } else {
-        const run = await executeWorldDay(
-          { runId: worldDayRunId(slot), ...slot }, fixture.worldDayRunStore, fixture.worldDayHandlers,
-        );
-        status = run.status === 'completed' ? 'completed' : 'failed';
-        errorCode = run.errorCode ?? null;
-        committedEventIds = run.committedEventIds ?? [];
+        // The tick is spent and world time does not move: a refused claim leaves the slot exactly
+        // where it was, which is what a paused world means.
+        outcomes.push({
+          worldDay, timeSlot, attempt, level: state.level, probe: false, usedProvider: false,
+          status: 'refused', errorCode: 'WORLD_DEGRADATION_PAUSED', committedEventIds: [],
+        });
+        continue;
       }
+    }
 
-      // Stages 11–21 for everything this slot accepted, so the world the next slot plans against
-      // is the one the pipeline actually produced.
-      const accepted = fixture.canon.committedEvents();
-      for (const event of accepted.slice(processed)) {
-        await executePostCommitPipeline({
-          runId: postCommitRunId(LONG_RUN_WORLD_ID, event.sequenceNumber), worldId: LONG_RUN_WORLD_ID,
-          sourceEventId: event.eventId, sourceEventSequenceNumber: event.sequenceNumber,
-          worldDay: event.worldDay,
-        }, fixture.postCommitRunStore, fixture.postCommitHandlers, event.traceId);
+    // `effectivePolicy`, not `policyFor`: one slot in every SLOTS_BETWEEN_PROVIDER_PROBES is the
+    // probe that lets a no-provider world find out the outage ended (ART-165).
+    const probe = shouldProbeProvider(state);
+    const policy = effectivePolicy(state);
+    const level = state.level;
+    // The port authors under this rung, so `fewer_scenes` really does truncate the plan and
+    // `compatible_model` really does swap the model — in the harness as in the deployment.
+    fixture.authoringPolicy.current = policy;
+    let status: 'completed' | 'failed';
+    let errorCode: string | null = null;
+    let committedEventIds: string[] = [];
+    let usedProvider: boolean;
+
+    if (policy.rulesOnly) {
+      const settled = await commitRulesOnlySlot(
+        fixture, slot, level === 'deferred_summaries' ? 'deferred_summaries' : 'rules_only');
+      status = settled.errorCode === null ? 'completed' : 'failed';
+      errorCode = settled.errorCode;
+      committedEventIds = settled.committedEventIds;
+      // No model was called, and that is the whole content of this rung.
+      usedProvider = false;
+    } else {
+      const scenesBefore = fixture.observations.simulations.length;
+      const run = await executeWorldDay(
+        { runId: worldDayRunId(slot), ...slot }, fixture.worldDayRunStore, fixture.worldDayHandlers,
+      );
+      status = run.status === 'completed' ? 'completed' : 'failed';
+      errorCode = run.errorCode ?? null;
+      committedEventIds = run.committedEventIds ?? [];
+      /**
+       * Whether the slot REACHED the provider, not whether its rung permits one (ART-167).
+       *
+       * `driveOneWorld` reports `usedProvider: true` only from the branch that authored, and
+       * `false` for every slot that settled without authoring — a Director that planned nothing, a
+       * stage that decided the slot earlier, scenes already persisted. Deriving it from the rung's
+       * policy instead made a healthy world recover a rung here that it would not recover there.
+       *
+       * A failed authoring counts: the provider was asked and refused, which is exactly the
+       * evidence the ladder is built on.
+       *
+       * On THIS seed the two readings never disagree — every slot the Director plans at a
+       * provider-using rung authors at least one scene — so this is an alignment with the driver
+       * rather than a measured difference, and an injection that reverts it turns no test red. It is
+       * kept because the gate's value is that it runs what the deployment runs, and a fixture that
+       * agrees only by luck stops agreeing the moment the Director plans an empty slot.
+       */
+      usedProvider = fixture.observations.simulations.length > scenesBefore || status === 'failed';
+    }
+
+    // Stages 11–21 for everything this slot accepted, so the world the next slot plans against
+    // is the one the pipeline actually produced.
+    const accepted = fixture.canon.committedEvents();
+    for (const event of accepted.slice(processed)) {
+      await executePostCommitPipeline({
+        runId: postCommitRunId(LONG_RUN_WORLD_ID, event.sequenceNumber), worldId: LONG_RUN_WORLD_ID,
+        sourceEventId: event.eventId, sourceEventSequenceNumber: event.sequenceNumber,
+        worldDay: event.worldDay,
+      }, fixture.postCommitRunStore, fixture.postCommitHandlers, event.traceId);
+    }
+    processed = accepted.length;
+
+    outcomes.push({
+      worldDay, timeSlot, attempt, level, probe, usedProvider, status, errorCode, committedEventIds,
+    });
+
+    const decision = advanceDegradation(state, {
+      worldId: LONG_RUN_WORLD_ID, worldDay, timeSlot, attempt,
+      authored: status === 'completed', usedProvider, errorCode, at: clock,
+    });
+    state = decision.state;
+    if (decision.transition) transitions.push(decision.transition);
+
+    // World time moves only on a slot that settled. A failed slot is the SAME slot next tick, with
+    // the next attempt number — which is what `claimLiveSlot` hands the driver back.
+    if (status === 'completed') {
+      attempt = 0;
+      slotIndex += 1;
+      if (slotIndex === TIME_SLOTS.length) {
+        slotIndex = 0;
+        worldDay += 1;
       }
-      processed = accepted.length;
-
-      outcomes.push({
-        worldDay, timeSlot, level, probe, usedProvider: policy.usesProvider,
-        status, errorCode, committedEventIds,
-      });
-
-      const decision = advanceDegradation(state, {
-        worldId: LONG_RUN_WORLD_ID, worldDay, timeSlot,
-        authored: status === 'completed', usedProvider: policy.usesProvider, errorCode, at: clock,
-      });
-      state = decision.state;
-      if (decision.transition) transitions.push(decision.transition);
     }
   }
 
-  return { outcomes, transitions, state };
+  return {
+    outcomes, transitions, state,
+    worldDay, timeSlot: TIME_SLOTS[slotIndex],
+    worldDaysAdvanced: worldDay - startWorldDay,
+  };
 }
 
 /**

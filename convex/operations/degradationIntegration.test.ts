@@ -128,9 +128,11 @@ describe('FR-M004 the ladder against the real pipeline (ART-91)', () => {
 
     let state: DegradationState = initialDegradationState(LONG_RUN_WORLD_ID);
     const levels: string[] = [];
-    for (const outcome of outcomes) {
+    for (const [index, outcome] of outcomes.entries()) {
       const decision = advanceDegradation(state, {
         worldId: LONG_RUN_WORLD_ID, worldDay: outcome.worldDay, timeSlot: outcome.timeSlot,
+        // `runDays` walks the slots rather than retrying one, so each is its own first attempt.
+        attempt: 1 + index * 0,
         authored: outcome.status === 'completed', usedProvider: true, errorCode: outcome.errorCode, at: 1_000,
       });
       state = decision.state;
@@ -225,7 +227,7 @@ describe('FR-M004 the ladder against the real pipeline (ART-91)', () => {
     for (const outcome of failed) {
       state = advanceDegradation(state, {
         worldId: LONG_RUN_WORLD_ID, worldDay: outcome.worldDay, timeSlot: outcome.timeSlot,
-        authored: false, usedProvider: true, errorCode: outcome.errorCode, at: 1_000,
+        attempt: 1, authored: false, usedProvider: true, errorCode: outcome.errorCode, at: 1_000,
       }).state;
     }
     expect(state.level).toBe('fewer_scenes');
@@ -238,7 +240,7 @@ describe('FR-M004 the ladder against the real pipeline (ART-91)', () => {
     for (const outcome of recovered) {
       const decision = advanceDegradation(state, {
         worldId: LONG_RUN_WORLD_ID, worldDay: outcome.worldDay, timeSlot: outcome.timeSlot,
-        authored: true, usedProvider: true, errorCode: null, at: 2_000,
+        attempt: 1, authored: true, usedProvider: true, errorCode: null, at: 2_000,
       });
       state = decision.state;
       if (decision.transition) climbed.push(decision.transition.toLevel);
@@ -391,7 +393,7 @@ describe('FR-M004 the ladder against the real pipeline (ART-91)', () => {
    */
   it('does not move the world twice when one slot outcome is delivered twice', () => {
     const signal = {
-      worldId: LONG_RUN_WORLD_ID, worldDay: 3, timeSlot: 'morning',
+      worldId: LONG_RUN_WORLD_ID, worldDay: 3, timeSlot: 'morning', attempt: 1,
       authored: false, usedProvider: true, errorCode: 'LLM_NETWORK_ERROR', at: 10,
     };
     const once = advanceDegradation(initialDegradationState(LONG_RUN_WORLD_ID), signal);
@@ -411,7 +413,7 @@ describe('FR-M004 the ladder against the real pipeline (ART-91)', () => {
     for (let failure = 0; failure < 10; failure += 1) {
       state = advanceDegradation(state, {
         worldId: LONG_RUN_WORLD_ID, worldDay: 0, timeSlot: TIME_SLOTS[failure % TIME_SLOTS.length],
-        authored: false, usedProvider: true, errorCode: 'LLM_NETWORK_ERROR', at: failure,
+        attempt: 1, authored: false, usedProvider: true, errorCode: 'LLM_NETWORK_ERROR', at: failure,
       }).state;
     }
     expect(state.level).toBe('paused');

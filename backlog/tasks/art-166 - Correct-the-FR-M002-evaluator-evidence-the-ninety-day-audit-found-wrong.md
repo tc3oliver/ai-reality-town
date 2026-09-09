@@ -1,11 +1,11 @@
 ---
 id: ART-166
 title: Correct the FR-M002 evaluator evidence the ninety-day audit found wrong
-status: In Review
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-09-08 18:18'
-updated_date: '2026-09-08 18:51'
+updated_date: '2026-09-08 22:30'
 labels:
   - prd-1.0
   - epic-p
