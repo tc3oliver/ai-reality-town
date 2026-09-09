@@ -339,6 +339,16 @@ export interface PostCommitLivePort {
   rebuildVoteConsequenceProjection(worldId: string, targetWorldDay: number): Promise<string>;
   /** ART-44 scoped relationship graph (FR-I007) for the committed event's world day. */
   rebuildRelationshipGraphProjection(worldId: string, targetWorldDay: number): Promise<string>;
+  /**
+   * ART-169 viewer-known secrets and dramatic-irony facts (FR-I005) for the characters this
+   * event touched.
+   *
+   * Takes the whole character list in ONE call rather than one call per character: the world-level
+   * inputs it joins (Canon's facts, the world's secrets, the published Episodes) are identical for
+   * every character, so a per-character port method would have multiplied the read budget by the
+   * number of characters the event named. Returns the refs it published.
+   */
+  rebuildViewerKnowledgeProjections(worldId: string, characterIds: readonly string[]): Promise<string[]>;
   /** ART-I006 arc read model and ART-38 arc primer. */
   rebuildArcReadModel(worldId: string, arcId: string): Promise<string>;
   rebuildArcPrimer(worldId: string, arcId: string): Promise<string>;
@@ -1480,6 +1490,23 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
        * would republish identical payloads and dedup them, which is work with no result.
        */
       modelRefs.push(await port.rebuildRelationshipGraphProjection(context.worldId, context.worldDay));
+      /**
+       * FR-I005 / ART-169 — LAST, after the relationship graph, for the reason repeated three
+       * times above: this handler is not failure-isolated, so the newest read model sits
+       * downstream of the two SAFETY-BEARING rebuilds and never upstream of them.
+       *
+       * It is the only rebuild on this path that reads the EDITORIAL PUBLICATION lifecycle, so it
+       * must also run after the publication block earlier in this stage — a withhold decided above
+       * has to be visible to it in the same run, or a withheld Episode would go on releasing the
+       * secret it cited until the next accepted event.
+       *
+       * The characters are stage 11's, not re-derived: `affectedCharacterIds` is what the world
+       * and character projections were rebuilt for, and deriving the set twice would let the two
+       * stages disagree about the same event.
+       */
+      const projection = artifact<ProjectionArtifact>(context, 'projection');
+      modelRefs.push(...await port.rebuildViewerKnowledgeProjections(
+        context.worldId, projection.characterIds));
       return {
         contentRef, publicationStatus, shareFormatStatus, shareFormatReasonCodes,
         coverageReleasable, coverageFindingCodes, reassessedArcIds, modelRefs,

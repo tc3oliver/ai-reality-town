@@ -71,6 +71,7 @@ import { rebuildLiveProjection } from '../publicRead/liveStateFunctions';
 import { rebuildOnboardingSummary } from '../publicRead/onboardingSummaryFunctions';
 import { rebuildVoteConsequenceProjection } from '../publicRead/voteConsequenceProjectionFunctions';
 import { rebuildRelationshipGraphProjection } from '../publicRead/relationshipGraphProjectionFunctions';
+import { rebuildViewerKnowledgeProjections } from '../publicRead/viewerKnowledgeProjectionFunctions';
 import { reassessMajorActiveArcEntries } from '../story/entryRecommendationFunctions';
 import { refreshArcStagnationPrompts } from '../story/resolutionFunctions';
 import { generateIncrementalRecap } from '../recaps/functions';
@@ -135,6 +136,13 @@ const INDEX_REGISTRY: Record<string, Record<string, readonly string[]>> = {
   worldCharacters: {
     by_world_id: ['worldId'],
     by_world_and_character: ['worldId', 'characterId'],
+  },
+  // ART-169: the seeded secrets the viewer-knowledge rebuild joins against. World-scoped and
+  // bounded by the world config, but registered here like any other so a rebuild that started
+  // reading it per event would show up in the per-table breakdown rather than hiding.
+  worldSecrets: {
+    by_world_id: ['worldId'],
+    by_world_and_secret: ['worldId', 'secretId'],
   },
   dailyEpisodes: {
     by_world_and_day: ['worldId', 'worldDay'],
@@ -369,6 +377,7 @@ function makeCtx(tables: Tables, stats: ReadStats) {
     'publicRead/onboardingSummaryFunctions:rebuildOnboardingSummary': rebuildOnboardingSummary as unknown as Registered,
     'publicRead/voteConsequenceProjectionFunctions:rebuildVoteConsequenceProjection': rebuildVoteConsequenceProjection as unknown as Registered,
     'publicRead/relationshipGraphProjectionFunctions:rebuildRelationshipGraphProjection': rebuildRelationshipGraphProjection as unknown as Registered,
+    'publicRead/viewerKnowledgeProjectionFunctions:rebuildViewerKnowledgeProjections': rebuildViewerKnowledgeProjections as unknown as Registered,
     'story/entryRecommendationFunctions:reassessMajorActiveArcEntries': reassessMajorActiveArcEntries as unknown as Registered,
     'story/resolutionFunctions:refreshArcStagnationPrompts': refreshArcStagnationPrompts as unknown as Registered,
     'recaps/functions:generateIncrementalRecap': generateIncrementalRecap as unknown as Registered,

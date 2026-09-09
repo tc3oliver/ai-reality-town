@@ -2,6 +2,7 @@ import {
   commitReadModelVersion,
   createReadModelVersion,
   hashPayload,
+  allowedPrivateKeysFor,
   invalidateReadModel,
   sanitizeForPublic,
   selectServedVersion,
@@ -103,6 +104,60 @@ describe('sanitizeForPublic (AC#4 — field allowlist)', () => {
     const snapshot = JSON.parse(JSON.stringify(input)) as JsonValue;
     sanitizeForPublic(input);
     expect(input).toEqual(snapshot);
+  });
+});
+
+/**
+ * The one carve-out (ART-169), and the reason it has to be scoped rather than global.
+ *
+ * FR-I005 lists 「觀眾已知秘密」 as a PUBLIC character-page field, so exactly one model kind
+ * lawfully carries the text of a Canon secret. Before this exception the filter deleted it on the
+ * way into the row — the projection built the field, the store stripped it, and the page rendered
+ * an empty section with nothing to explain why.
+ */
+describe('sanitizeForPublic — the viewerKnowledge carve-out', () => {
+  const payload = {
+    viewerKnownSecrets: [{ secretId: 's1', content: 'said out loud on day five' }],
+    omittedSecretCount: 2,
+    memory: 'still stripped',
+  } as unknown as JsonValue;
+
+  it('keeps the declared keys for the kind that declares them', () => {
+    const kept = sanitizeForPublic(payload, allowedPrivateKeysFor('viewerKnowledge')) as Record<string, unknown>;
+    expect(kept.viewerKnownSecrets).toHaveLength(1);
+    expect(kept.omittedSecretCount).toBe(2);
+    // The carve-out is a LIST, not a suspension: everything else the filter refuses is still
+    // refused inside the very same payload.
+    expect(kept.memory).toBeUndefined();
+  });
+
+  it('strips those same keys for every other kind', () => {
+    for (const kind of ['world', 'character', 'episode', 'liveState'] as const) {
+      const stripped = sanitizeForPublic(payload, allowedPrivateKeysFor(kind)) as Record<string, unknown>;
+      expect(stripped.viewerKnownSecrets).toBeUndefined();
+      expect(stripped.omittedSecretCount).toBeUndefined();
+    }
+  });
+
+  it('does not grant a key the carve-out does not name, even for its own kind', () => {
+    const kept = sanitizeForPublic(
+      { secretPlan: 'nope', viewerKnownSecrets: [] } as unknown as JsonValue,
+      allowedPrivateKeysFor('viewerKnowledge'),
+    ) as Record<string, unknown>;
+    expect(kept.secretPlan).toBeUndefined();
+    expect(kept.viewerKnownSecrets).toEqual([]);
+  });
+
+  it('is applied on the way OUT as well as on the way in', async () => {
+    // Sanitising only on write would have stored the field and served it stripped, which reads
+    // exactly like a projection that never built it.
+    const store = new MemoryReadStore();
+    await commitReadModelVersion(store, {
+      worldId: target.worldId, modelKind: 'viewerKnowledge', modelRef: 'viewerKnowledge:zhao-ming',
+      payload, sourceEventIds: ['e1'], status: SERVABLE_STATUS, now: 1_000,
+    });
+    const served = await serveReadModel(store, target.worldId, 'viewerKnowledge', 'viewerKnowledge:zhao-ming');
+    expect((served?.payload as Record<string, unknown>).viewerKnownSecrets).toHaveLength(1);
   });
 });
 

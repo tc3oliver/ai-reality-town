@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useQuery } from 'convex/react';
 import { relationshipGraphModelRef } from '../../../convex/shared/relationshipGraphRef';
+import { viewerKnowledgeModelRef } from '../../../convex/shared/viewerKnowledgeRef';
 import { MISTWOOD_CHARACTER_VISUALS } from '../../../data/mistwoodCharacters';
 import { emitCharacterViewed } from '../../analytics/productEvents';
 import { getPublishedReadModelRef } from './publicReadModelRef';
@@ -14,6 +15,7 @@ import {
   type CharacterRecentEvent,
   type CharacterRelationshipGraphInput,
   type CharacterSceneInput,
+  type CharacterViewerKnowledgeInput,
   type CharacterViewModel,
 } from './characterRoute';
 
@@ -96,6 +98,19 @@ export default function CharacterPage() {
       }
       : 'skip',
   );
+  // FR-I005's last two fields (ART-169). Its own read model, not a field on `character:<id>`,
+  // because it is the only public payload whose contents depend on the editorial publication
+  // lifecycle — so it changes on a trigger no other model shares.
+  const viewerKnowledgeResult = useQuery(
+    getPublishedReadModelRef,
+    enabled
+      ? {
+        worldId: worldId as string,
+        modelKind: 'viewerKnowledge',
+        modelRef: viewerKnowledgeModelRef(characterId as string),
+      }
+      : 'skip',
+  );
 
   if (!enabled) {
     return (
@@ -138,6 +153,7 @@ export default function CharacterPage() {
     activeScenes: live?.activeScenes ?? null,
     activeArcs: live?.activeArcs ?? null,
     relationshipGraph: (graphResult?.payload ?? null) as CharacterRelationshipGraphInput | null,
+    viewerKnowledge: (viewerKnowledgeResult?.payload ?? null) as CharacterViewerKnowledgeInput | null,
   });
 
   return <CharacterPageView worldId={worldId as string} vm={vm} />;
@@ -226,6 +242,65 @@ export function CharacterPageView({ worldId, vm }: { worldId: string; vm: Charac
         {vm.relationshipsAsOfWorldDay !== null && (
           <p className="public-muted text-sm">
             以第 {vm.relationshipsAsOfWorldDay} 日的關係圖為準,範圍限於當前 Arc 的關係網與近七日的變化。
+          </p>
+        )}
+      </section>
+
+      {/* FR-I005 「觀眾已知秘密」 (ART-169). Every row here was proven, server-side, to have been
+          said out loud by an event a PUBLISHED Episode cited — the page adds no judgement of its
+          own, because an unrevealed secret never reaches this payload. */}
+      <section className="character-secrets mt-4" aria-labelledby="character-secrets">
+        <h2 id="character-secrets" className="text-xl font-semibold">觀眾已知秘密</h2>
+        {vm.viewerKnownSecrets.length > 0 ? (
+          <ul className="public-rows">
+            {vm.viewerKnownSecrets.map((secret) => (
+              <li key={secret.secretId} className="text-sm">
+                {secret.content}
+                <a
+                  href={secret.episodeHref}
+                  className="ml-2 public-tap"
+                  aria-label={`揭露這件事的本日故事:${secret.content}`}
+                >
+                  第 {secret.revealedOnWorldDay} 日故事
+                </a>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="public-muted">觀眾還沒有從已發布的故事裡得知這個角色的任何秘密。</p>}
+        {vm.viewerKnowledgeOmissions.secrets > 0 && (
+          <p className="public-muted text-sm">另有 {vm.viewerKnowledgeOmissions.secrets} 項未列出。</p>
+        )}
+      </section>
+
+      {/* FR-I005 「角色不知道但觀眾知道的資訊」 (ART-169). The difference between what a viewer can
+          see published and what this character's knowledge ledger holds. */}
+      <section className="character-irony mt-4" aria-labelledby="character-irony">
+        <h2 id="character-irony" className="text-xl font-semibold">角色還不知道的事</h2>
+        {vm.dramaticIronyFacts.length > 0 ? (
+          <ul className="public-rows">
+            {vm.dramaticIronyFacts.map((fact) => (
+              <li key={fact.factId} className="text-sm">
+                {fact.label}
+                <a
+                  href={fact.episodeHref}
+                  className="ml-2 public-tap"
+                  aria-label={`公開這件事的本日故事:${fact.label}`}
+                >
+                  第 {fact.revealedOnWorldDay} 日故事
+                </a>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="public-muted">觀眾知道的公開資訊,這個角色目前都已經知道了。</p>}
+        {vm.viewerKnowledgeOmissions.facts > 0 && (
+          <p className="public-muted text-sm">另有 {vm.viewerKnowledgeOmissions.facts} 項未列出。</p>
+        )}
+        {/* The scope is stated, not implied, exactly as 「主要關係」 states its own: the server
+            reads a bounded window of the newest published Episodes, so an empty list above means
+            "nothing within that window". */}
+        {vm.viewerKnowledgeFromWorldDay !== null && (
+          <p className="public-muted text-sm">
+            以第 {vm.viewerKnowledgeFromWorldDay} 日之後已發布的故事為準。
           </p>
         )}
       </section>

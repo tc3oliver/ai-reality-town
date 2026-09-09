@@ -72,6 +72,7 @@ import type {
 import type { rebuildEpisodeIndexProjection as rebuildEpisodeIndexProjectionExport } from '../publicRead/episodeIndexProjectionFunctions';
 import type { rebuildVoteConsequenceProjection as rebuildVoteConsequenceProjectionExport } from '../publicRead/voteConsequenceProjectionFunctions';
 import type { rebuildRelationshipGraphProjection as rebuildRelationshipGraphProjectionExport } from '../publicRead/relationshipGraphProjectionFunctions';
+import type { rebuildViewerKnowledgeProjections as rebuildViewerKnowledgeProjectionsExport } from '../publicRead/viewerKnowledgeProjectionFunctions';
 import type { rebuildArcPrimer as rebuildArcPrimerExport } from '../publicRead/arcPrimerFunctions';
 import type { rebuildLiveProjection as rebuildLiveProjectionExport } from '../publicRead/liveStateFunctions';
 import type { rebuildOnboardingSummary as rebuildOnboardingSummaryExport } from '../publicRead/onboardingSummaryFunctions';
@@ -217,6 +218,9 @@ const rebuildVoteConsequenceProjectionRef = internalFunctionRef<typeof rebuildVo
 );
 const rebuildRelationshipGraphProjectionRef = internalFunctionRef<typeof rebuildRelationshipGraphProjectionExport>(
   'publicRead/relationshipGraphProjectionFunctions:rebuildRelationshipGraphProjection',
+);
+const rebuildViewerKnowledgeProjectionsRef = internalFunctionRef<typeof rebuildViewerKnowledgeProjectionsExport>(
+  'publicRead/viewerKnowledgeProjectionFunctions:rebuildViewerKnowledgeProjections',
 );
 const rebuildArcPrimerRef = internalFunctionRef<typeof rebuildArcPrimerExport>(
   'publicRead/arcPrimerFunctions:rebuildArcPrimer',
@@ -729,6 +733,12 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
       const { modelRef } = await ctx.runMutation(
         rebuildRelationshipGraphProjectionRef, { worldId, targetWorldDay, now });
       return modelRef;
+    },
+
+    async rebuildViewerKnowledgeProjections(worldId, characterIds) {
+      const { modelRefs } = await ctx.runMutation(
+        rebuildViewerKnowledgeProjectionsRef, { worldId, characterIds: [...characterIds], now });
+      return modelRefs;
     },
 
     async rebuildArcReadModel(worldId, arcId) {

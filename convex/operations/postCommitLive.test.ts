@@ -70,6 +70,11 @@ import {
   RELATIONSHIP_GRAPH_MODEL_KIND,
 } from '../publicRead/relationshipGraphProjection';
 import { relationshipGraphModelRef } from '../shared/relationshipGraphRef';
+import {
+  buildViewerKnowledgeProjection,
+  VIEWER_KNOWLEDGE_MODEL_KIND,
+} from '../publicRead/viewerKnowledgeProjection';
+import { viewerKnowledgeModelRef } from '../shared/viewerKnowledgeRef';
 import { buildLiveProjection, LIVE_MODEL_KIND, liveSourceEventIds } from '../publicRead/liveState';
 import {
   commitReadModelVersion,
@@ -96,6 +101,7 @@ import {
   arcTransitionTarget,
   createPostCommitStageHandlers,
   deriveArcClassification,
+  episodeContentRef,
   deriveRecapRequests,
   deriveRecapTargets,
   seasonOf,
@@ -115,6 +121,7 @@ import {
   type PostCommitLivePort,
   type PostCommitSource,
   type PostCommitWorldState,
+  type ProjectionArtifact,
   type PublicationArtifact,
   type SafetyArtifact,
   type SnapshotArtifact,
@@ -1140,6 +1147,52 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
       );
     },
 
+    /**
+     * FR-I005 / ART-169, over the REAL builder rather than a ref-returning stub.
+     *
+     * A stub would have made the stage's own assertion vacuous: the pipeline test would prove
+     * that a string was appended to `modelRefs` while nothing had joined a secret to a
+     * publication record. Running the real function over the run's own events means removing the
+     * stage call, or breaking the publication rule inside it, changes what this port publishes.
+     */
+    async rebuildViewerKnowledgeProjections(worldId, characterIds) {
+      const projection = replayWorldEvents(emptyProjection(worldId), events());
+      const citedEvents = episodeRefs().flatMap(({ worldDay, sourceEventIds }) => {
+        const publicationRef = episodeContentRef(worldId, worldDay);
+        return sourceEventIds.map((eventId) => ({
+          eventId,
+          worldDay,
+          publicationRef,
+          publicationStatus: publications.get(publicationRef)?.status ?? 'absent',
+          sceneId: null,
+        }));
+      });
+      const refs: string[] = [];
+      for (const characterId of [...new Set(characterIds)].sort((left, right) => left.localeCompare(right))) {
+        const { projection: payload } = buildViewerKnowledgeProjection({
+          worldId,
+          characterId,
+          // The production seed's own secrets, so the join runs against the strings a real world
+          // would hold rather than against a shape invented for the test.
+          secrets: mistwoodCharacterSeed.secrets.map(({ id, content, initialKnowerCharacterIds }) => ({
+            secretId: id, content, holderCharacterIds: initialKnowerCharacterIds,
+          })),
+          facts: projection.facts,
+          citedEvents,
+          withheldSceneIds: new Set<string>(),
+          characterKnownFactIds: new Set(
+            (projection.characterKnowledge[characterId] ?? []).map((record) => record.factId)),
+        });
+        refs.push(await publish(
+          VIEWER_KNOWLEDGE_MODEL_KIND,
+          viewerKnowledgeModelRef(characterId),
+          payload,
+          payload.viewerKnownSecrets.map((secret) => secret.revealingEventId),
+        ));
+      }
+      return refs;
+    },
+
     rebuildArcReadModel(worldId, arcId) {
       const projection = arcProjectionData(arcId);
       const payload = buildArcProjection({
@@ -1285,8 +1338,28 @@ describe('live post-commit pipeline over real world-day commits (AC#1/#2/#3/#4)'
     // A system actor may take an episode to `ready`; FR-K004 reserves `publish` for an admin.
     expect(publicationArtifacts.filter(({ publicationStatus }) => publicationStatus !== null)
       .every(({ publicationStatus }) => publicationStatus === 'ready')).toBe(true);
-    expect(runStore.artifact<PublicationArtifact>(lastRunId, 'publication').modelRefs)
+    const lastPublication = runStore.artifact<PublicationArtifact>(lastRunId, 'publication');
+    expect(lastPublication.modelRefs)
       .toEqual(expect.arrayContaining([`episodes:${WORLD_ID}`, `timeline:${WORLD_ID}`, `live:${WORLD_ID}`]));
+
+    /**
+     * FR-I005 / ART-169 — the viewer-knowledge model is rebuilt for the characters the event
+     * touched, and it is rebuilt LAST.
+     *
+     * Both halves matter. Without the first, the projection is a function with no production
+     * caller and every character page serves an empty section forever. Without the second, a
+     * defect in the newest read model sits upstream of `live:` and `onboarding:` — the two
+     * SAFETY-BEARING rebuilds — and can stop a withhold from reaching the public surface.
+     */
+    const projectionArtifact = runStore.artifact<ProjectionArtifact>(lastRunId, 'projection');
+    expect(projectionArtifact.characterIds.length).toBeGreaterThan(0);
+    for (const characterId of projectionArtifact.characterIds) {
+      expect(lastPublication.modelRefs).toContain(viewerKnowledgeModelRef(characterId));
+    }
+    const lastViewerKnowledgeAt = lastPublication.modelRefs
+      .map((ref, index) => (ref.startsWith('viewerKnowledge:') ? index : -1))
+      .reduce((highest, index) => Math.max(highest, index), -1);
+    expect(lastPublication.modelRefs.indexOf(`live:${WORLD_ID}`)).toBeLessThan(lastViewerKnowledgeAt);
 
     // FR-G005 / ART-36 — the same stage derived share formats from the Episode it just gated,
     // and derived them from REAL accepted events rather than from a fixture.

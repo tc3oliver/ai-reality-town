@@ -313,6 +313,27 @@ function characterViewModel() {
         episodeNumber: 6,
       },
     ],
+    // FR-I005's last two fields (ART-169). Populated, because the a11y suite's job is the rendered
+    // markup: an empty payload would render the two sections' placeholder prose and prove nothing
+    // about the rows, their links or their accessible names.
+    viewerKnowledge: {
+      viewerKnownSecrets: [{
+        secretId: 'secret-hejun-ledger',
+        content: '他在水車停轉那晚把舊帳本搬離了磨坊。',
+        revealedOnWorldDay: 4,
+      }],
+      dramaticIronyFacts: [{
+        factId: 'mistwood#event#76:fact:0',
+        subjectType: 'world',
+        subjectId: WORLD_ID,
+        predicate: '聽證會日期',
+        value: '第九日上午',
+        revealedOnWorldDay: 5,
+      }],
+      omittedSecretCount: 0,
+      omittedIronyFactCount: 0,
+      oldestConsideredWorldDay: 4,
+    },
   });
 }
 
@@ -971,6 +992,48 @@ describe('public links resolve to real routes', () => {
     const container = render(<LiveViewBody worldId={WORLD_ID} vm={liveViewModel()} />);
     const hrefs = Array.from(container.querySelectorAll('a[href]')).map((a) => a.getAttribute('href'));
     expect(hrefs).toContain(`#arc/${WORLD_ID}/arc:mistwood:50`);
+  });
+
+  test('the two ART-169 sections render, and are named by their own visible headings', () => {
+    // FR-I005's last two public fields. A page that dropped these sections would still pass every
+    // other case in this file, so this is the assertion that they are ON the page at all — the
+    // fault injection ART-169 AC#4 asks for has this test as its target.
+    const container = render(
+      <CharacterPageView worldId={WORLD_ID} vm={characterViewModel()} />,
+    );
+    for (const [selector, heading] of [
+      ['.character-secrets', '觀眾已知秘密'],
+      ['.character-irony', '角色還不知道的事'],
+    ] as const) {
+      const section = container.querySelector(selector);
+      expect(section).not.toBeNull();
+      expect(accessibleName(section as Element)).toBe(heading);
+      expect(section?.textContent).toContain(heading);
+    }
+    // The rows themselves, not just the headings: an empty section renders its own explanation.
+    expect(container.querySelector('.character-secrets')?.textContent)
+      .toContain('他在水車停轉那晚把舊帳本搬離了磨坊。');
+    expect(container.querySelector('.character-irony')?.textContent).toContain('聽證會日期');
+  });
+
+  test('the two ART-169 sections say so when they are empty, rather than rendering nothing', () => {
+    const vm = composeCharacterViewModel({ worldId: WORLD_ID, character: null, recentEvents: null });
+    const container = render(<CharacterPageView worldId={WORLD_ID} vm={vm} />);
+    expect(container.querySelector('.character-secrets')?.textContent)
+      .toContain('觀眾還沒有從已發布的故事裡得知這個角色的任何秘密。');
+    expect(container.querySelector('.character-irony')?.textContent)
+      .toContain('觀眾知道的公開資訊,這個角色目前都已經知道了。');
+  });
+
+  test('every ART-169 row link is distinguishable out of context', () => {
+    const container = render(<CharacterPageView worldId={WORLD_ID} vm={characterViewModel()} />);
+    const names = Array.from(
+      container.querySelectorAll('.character-secrets a[href], .character-irony a[href]'),
+    ).map(accessibleName);
+    expect(names.length).toBe(2);
+    // Each carries what it is a link TO, so a screen reader listing the page's links out of
+    // context does not read two identical 「第 N 日故事」 entries (WCAG 2.4.4).
+    expect(new Set(names).size).toBe(names.length);
   });
 
   test('repeated character-page links are distinguishable out of context', () => {

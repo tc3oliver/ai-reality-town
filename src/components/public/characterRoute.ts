@@ -108,6 +108,50 @@ export type CharacterRelationshipGraphInput = {
 };
 
 /**
+ * The published FR-I005 viewer-knowledge model, as far as this page reads it (ART-169).
+ *
+ * Structural rather than imported from `convex/publicRead/viewerKnowledgeProjection.ts`, matching
+ * every other payload type in this file: the page describes the fields it renders, and a payload
+ * that grows a field the page does not name cannot reach the render by accident.
+ */
+export type CharacterViewerKnowledgeInput = {
+  viewerKnownSecrets?: ReadonlyArray<{
+    secretId?: unknown;
+    content?: unknown;
+    revealedOnWorldDay?: unknown;
+  }>;
+  dramaticIronyFacts?: ReadonlyArray<{
+    factId?: unknown;
+    predicate?: unknown;
+    value?: unknown;
+    subjectType?: unknown;
+    subjectId?: unknown;
+    revealedOnWorldDay?: unknown;
+  }>;
+  omittedSecretCount?: unknown;
+  omittedIronyFactCount?: unknown;
+  oldestConsideredWorldDay?: unknown;
+};
+
+/** One secret the viewer already knows about this character (FR-I005 「觀眾已知秘密」). */
+export type CharacterKnownSecret = {
+  secretId: string;
+  /** The secret in its own words. Published only because a published event already said it. */
+  content: string;
+  revealedOnWorldDay: number;
+  /** The day's story, where the viewer can read the scene that revealed it. */
+  episodeHref: string;
+};
+
+/** One published fact this character does not know (FR-I005 「角色不知道但觀眾知道的資訊」). */
+export type CharacterIronyFact = {
+  factId: string;
+  label: string;
+  revealedOnWorldDay: number;
+  episodeHref: string;
+};
+
+/**
  * The arcs this character is in RIGHT NOW.
  *
  * Scoped to scenes that are still `active` and that name the character as a participant. An
@@ -186,6 +230,30 @@ export type CharacterViewModel = {
    */
   relationshipsAsOfWorldDay: number | null;
   recentEvents: Array<{ eventId: string; label: string; episodeHref: string | null }>;
+  /**
+   * FR-I005 「觀眾已知秘密」 (ART-169). Empty until a published Episode has revealed one.
+   *
+   * The page renders the secret's own words, and it may do so for exactly one reason: the server
+   * put it in the payload only after proving a PUBLISHED accepted event said it out loud
+   * (`convex/publicRead/viewerKnowledgeProjection.ts`). This layer adds no judgement of its own —
+   * an unrevealed secret never arrives here, so there is nothing for the page to filter.
+   */
+  viewerKnownSecrets: CharacterKnownSecret[];
+  /** FR-I005 「角色不知道但觀眾知道的資訊」 (ART-169). */
+  dramaticIronyFacts: CharacterIronyFact[];
+  /**
+   * What the server's caps left out of each list. Truncation is never silent: a page showing
+   * twenty of thirty secrets without saying so has told the viewer something false.
+   */
+  viewerKnowledgeOmissions: { secrets: number; facts: number };
+  /**
+   * The earliest world day the viewer-knowledge join could see, or null when it saw none.
+   *
+   * Published for the same reason `relationshipsAsOfWorldDay` is: the server reads a bounded
+   * window of the newest published Episodes, so an empty list means "nothing within that window",
+   * which is a weaker claim than "nothing".
+   */
+  viewerKnowledgeFromWorldDay: number | null;
 };
 
 const EM_DASH = '—';
@@ -222,6 +290,8 @@ export function composeCharacterViewModel(input: {
   activeArcs?: readonly CharacterArcInput[] | null;
   /** The published FR-I007 graph for the current world day, for 「主要關係」. */
   relationshipGraph?: CharacterRelationshipGraphInput | null;
+  /** The published FR-I005 viewer-knowledge model for this character (ART-169). */
+  viewerKnowledge?: CharacterViewerKnowledgeInput | null;
 }): CharacterViewModel {
   const character = input.character;
   const recent = input.recentEvents ?? [];
@@ -263,7 +333,86 @@ export function composeCharacterViewModel(input: {
       label: `[日 ${event.worldDay} ${event.timeSlot}] ${event.publicSummary ?? '(無摘要)'}`,
       episodeHref: event.episodeNumber != null ? `#episode/${input.worldId}/${event.worldDay}` : null,
     })),
+    viewerKnownSecrets: viewerKnownSecrets(input.worldId, input.viewerKnowledge ?? null),
+    dramaticIronyFacts: dramaticIronyFacts(input.worldId, input.viewerKnowledge ?? null),
+    viewerKnowledgeOmissions: {
+      secrets: countOrZero(input.viewerKnowledge?.omittedSecretCount),
+      facts: countOrZero(input.viewerKnowledge?.omittedIronyFactCount),
+    },
+    viewerKnowledgeFromWorldDay: worldDayOrNull(input.viewerKnowledge?.oldestConsideredWorldDay),
   };
+}
+
+/** A non-negative count from an untyped payload field; anything else is zero. */
+function countOrZero(value: unknown): number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
+
+/** A world day from an untyped payload field, or null. */
+function worldDayOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+/** Payload text, or `null` when the field is missing or not a non-empty string. */
+function textOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+/**
+ * The secrets the viewer already knows, rendered from NAMED payload fields only.
+ *
+ * A row without a secret id, without content, or without the published day it was revealed on is
+ * DROPPED rather than rendered with a placeholder. The placeholder would be the dangerous choice
+ * here and nowhere else on this page: 「觀眾已知秘密」 is the one section whose rows assert that
+ * something was already released, so a row this layer cannot fully account for must not appear
+ * under that heading at all.
+ */
+export function viewerKnownSecrets(
+  worldId: string,
+  payload: CharacterViewerKnowledgeInput | null,
+): CharacterKnownSecret[] {
+  return (payload?.viewerKnownSecrets ?? []).flatMap((row) => {
+    const secretId = textOrNull(row.secretId);
+    const content = textOrNull(row.content);
+    const revealedOnWorldDay = worldDayOrNull(row.revealedOnWorldDay);
+    if (secretId === null || content === null || revealedOnWorldDay === null) return [];
+    return [{
+      secretId,
+      content,
+      revealedOnWorldDay,
+      episodeHref: `#episode/${encodeURIComponent(worldId)}/${revealedOnWorldDay}`,
+    }];
+  });
+}
+
+/**
+ * The published facts this character does not know, rendered from NAMED payload fields only.
+ *
+ * The label is built here rather than served, so the payload carries the fact and the page owns
+ * the sentence — the same split every other section on this page uses. `value` is stringified
+ * because Canon fact values are `string | number | boolean`.
+ */
+export function dramaticIronyFacts(
+  worldId: string,
+  payload: CharacterViewerKnowledgeInput | null,
+): CharacterIronyFact[] {
+  return (payload?.dramaticIronyFacts ?? []).flatMap((row) => {
+    const factId = textOrNull(row.factId);
+    const predicate = textOrNull(row.predicate);
+    const revealedOnWorldDay = worldDayOrNull(row.revealedOnWorldDay);
+    const value = row.value;
+    const rendered = typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+      ? String(value)
+      : null;
+    if (factId === null || predicate === null || rendered === null || revealedOnWorldDay === null) return [];
+    const subject = textOrNull(row.subjectId);
+    return [{
+      factId,
+      label: subject === null ? `${predicate}:${rendered}` : `${subject} 的 ${predicate}:${rendered}`,
+      revealedOnWorldDay,
+      episodeHref: `#episode/${encodeURIComponent(worldId)}/${revealedOnWorldDay}`,
+    }];
+  });
 }
 
 /** The published name of the character's current location, or a placeholder. */

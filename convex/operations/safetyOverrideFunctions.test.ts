@@ -301,10 +301,12 @@ describe('overridePostGenerationSafetyLabel — the ledger is additive and audit
     //
     // EVERY cached public text surface is refreshed, and this list is deliberately exhaustive —
     // it is the check that fails when someone adds a read model carrying Canon text and forgets
-    // the safety path. It has now done that twice: ART-125's onboarding summary and ART-46's
-    // per-day consequence model. Rebuilding only the live projection would leave the other two
-    // quoting the withheld sentence until the next Canon commit, which on a paused or finished
-    // world never comes — and for a past world day, never at all.
+    // the safety path. It has now done that three times: ART-125's onboarding summary, ART-46's
+    // per-day consequence model, and ART-169's per-character viewer-knowledge model. Rebuilding
+    // only the live projection would leave the others quoting the withheld sentence until the
+    // next Canon commit, which on a paused or finished world never comes — and for a past world
+    // day, never at all. ART-169's is the sharpest case yet: what it would go on serving is the
+    // text of a Canon secret.
     //
     // If you are here because you added a surface: add it to `refreshPublicTextModels`, not to
     // the handler.
@@ -319,6 +321,10 @@ describe('overridePostGenerationSafetyLabel — the ledger is additive and audit
       },
       {
         target: 'publicRead/voteConsequenceProjectionFunctions:refreshVoteConsequenceProjections',
+        worldId: WORLD_ID, now: NOW,
+      },
+      {
+        target: 'publicRead/viewerKnowledgeProjectionFunctions:refreshViewerKnowledgeProjections',
         worldId: WORLD_ID, now: NOW,
       },
     ]);

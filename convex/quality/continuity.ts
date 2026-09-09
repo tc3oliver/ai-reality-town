@@ -59,6 +59,7 @@ import { isSupersedingEventType } from '../canon/eventTypes';
 import { deriveEventId } from '../shared/ids';
 import { CANON_VALIDATION_VERSION } from '../shared/constants';
 import { CanonError, type CanonErrorCode } from '../shared/errors';
+import { MIN_SECRET_NEEDLE_LENGTH, quotesSecret } from '../shared/secretText';
 import {
   composeScore,
   dedupeFindings,
@@ -76,8 +77,15 @@ import {
 export const CONTINUITY_EVALUATOR_ID = 'continuity';
 export const CONTINUITY_EVALUATOR_VERSION = 1;
 
-/** Shortest secret or private value the leak scan looks for; shorter strings are ambient text. */
-export const MIN_SECRET_NEEDLE_LENGTH = 4;
+/**
+ * Shortest secret or private value the leak scan looks for; shorter strings are ambient text.
+ *
+ * Re-exported from `convex/shared/secretText.ts` rather than defined here since ART-169, which
+ * needed the same rule a third time (a viewer knows a secret exactly when a published event said
+ * it out loud). Two constants would have drifted, and the drift would have been invisible: the
+ * leak detector would have cleared a publication the character page had already published.
+ */
+export { MIN_SECRET_NEEDLE_LENGTH };
 
 // --- finding codes ----------------------------------------------------------
 
@@ -330,9 +338,12 @@ function privateNeedles(
 
 /** Whether one of the cited events made `needle` public through a public fact. */
 function sourcedByCitedEvent(needle: string, cited: readonly AcceptedEvent[]): boolean {
+  // `quotesSecret` is the shared primitive (ART-169). The VISIBILITY policy stays here: this
+  // scan accepts only `public` as a source, deliberately stricter than the read models' `public`
+  // or `canon`, because a stricter source rule flags more leaks and this is a leak detector.
   return cited.some((event) => event.stateChanges.some((change) =>
     change.type === 'fact_created' && change.visibility === 'public'
-    && typeof change.value === 'string' && change.value.includes(needle)));
+    && quotesSecret(change.value, needle)));
 }
 
 /**

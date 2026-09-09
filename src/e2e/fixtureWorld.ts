@@ -3,6 +3,7 @@ import { MISTWOOD_CHARACTER_VISUALS } from '../../data/mistwoodCharacters';
 import { mistwoodLocationFootprints } from '../../data/mistwood';
 import { voteConsequenceModelRef } from '../../convex/shared/environmentVoteCatalog';
 import { relationshipGraphModelRef } from '../../convex/shared/relationshipGraphRef';
+import { viewerKnowledgeModelRef } from '../../convex/shared/viewerKnowledgeRef';
 
 /**
  * The deterministic world the browser E2E suite watches (FR-Q006 / ART-137).
@@ -26,9 +27,16 @@ import { relationshipGraphModelRef } from '../../convex/shared/relationshipGraph
  *
  * ## What is deliberately NOT here
  *
- * No private field of any kind: no `privateProfile`, `privateGoal`, `fear` or secret. The
- * payloads below are shaped like the PUBLISHED projections, which are already field-allowlisted
- * server-side — so this fixture cannot put on screen something the real surface would not.
+ * No private field of any kind: no `privateProfile`, `privateGoal` or `fear`. The payloads below
+ * are shaped like the PUBLISHED projections, which are already field-allowlisted server-side — so
+ * this fixture cannot put on screen something the real surface would not.
+ *
+ * ART-169 added a `viewerKnowledge` payload carrying a SECRET, and that is not a hole in the rule
+ * above — it is the rule applied. A row in that payload exists only because the server proved a
+ * published Episode already said it out loud, so by the time it is servable it is public text
+ * with a provenance, not a private field. What the fixture still does not contain is an
+ * UNREVEALED secret, which is the thing FR-I005 forbids; there is no shape in these payloads that
+ * could carry one.
  */
 
 /** Every resident, in roster order. Twelve of them, which AC#2's upper bound asks for. */
@@ -485,6 +493,54 @@ export function fixtureReadModel(modelRef: string): { payload: unknown } | null 
         episodes,
         arcIds,
         characterIds: [...FIXTURE_CHARACTER_IDS],
+      },
+    };
+  }
+  /**
+   * FR-I005's last two fields (ART-169).
+   *
+   * Only the FIRST resident gets a non-empty payload. The other eleven answer with empty lists,
+   * which is what makes the browser evidence worth having: a spec that only ever saw populated
+   * rows would pass against a page that rendered the section unconditionally, and the empty state
+   * is the one a real world spends most of its time in.
+   */
+  const knowledgeOwner = MISTWOOD_CHARACTER_VISUALS
+    .find((visual) => viewerKnowledgeModelRef(visual.characterId) === modelRef);
+  if (knowledgeOwner !== undefined) {
+    // Matched through the SHARED ref builder rather than by parsing the string, so the fixture
+    // answers exactly the address the page asks for and cannot drift from it (ART-146).
+    const characterId = knowledgeOwner.characterId;
+    const revealed = characterId === FIXTURE_CHARACTER_IDS[0];
+    return {
+      payload: {
+        schemaVersion: 1,
+        worldId: FIXTURE_WORLD_ID,
+        characterId,
+        viewerKnownSecrets: revealed
+          ? [{
+            secretId: `secret-${characterId}-ledger`,
+            content: '他在水車停轉那晚把舊帳本搬離了磨坊。',
+            revealingEventId: `${FIXTURE_WORLD_ID}#event#41`,
+            revealedOnWorldDay: FIXTURE_WORLD_DAY - 1,
+            publicationRef: `episode:${FIXTURE_WORLD_ID}:${FIXTURE_WORLD_DAY - 1}`,
+          }]
+          : [],
+        dramaticIronyFacts: revealed
+          ? [{
+            factId: `${FIXTURE_WORLD_ID}#event#42:fact:0`,
+            subjectType: 'world',
+            subjectId: FIXTURE_WORLD_ID,
+            predicate: '鎮公所已排定水車聽證會',
+            value: '第九日上午',
+            revealingEventId: `${FIXTURE_WORLD_ID}#event#42`,
+            revealedOnWorldDay: FIXTURE_WORLD_DAY,
+            publicationRef: `episode:${FIXTURE_WORLD_ID}:${FIXTURE_WORLD_DAY}`,
+          }]
+          : [],
+        omittedSecretCount: 0,
+        omittedIronyFactCount: 0,
+        consideredWorldDays: revealed ? 2 : 0,
+        oldestConsideredWorldDay: revealed ? FIXTURE_WORLD_DAY - 1 : null,
       },
     };
   }
