@@ -1,11 +1,11 @@
 ---
 id: ART-174
 title: Carry an administrator Episode withhold to the episode index
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-09-09 19:14'
-updated_date: '2026-09-09 19:23'
+updated_date: '2026-09-09 20:04'
 labels:
   - prd-1.0
   - epic-k
@@ -30,29 +30,29 @@ Fix: exclude a world day whose CURRENT publication record is not viewer-servable
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A day whose current publication record is withheld or superseded is absent from the published episode index, title and headline included
-- [ ] #2 A day with no publication record at all is still indexed, so a world predating FR-K004 does not lose its episode list
-- [ ] #3 An administrator decision rebuilds the index in the same transaction as the episode read model, so the two cannot disagree
-- [ ] #4 The exclusion costs a bounded number of reads that does not grow with the number of world days indexed
-- [ ] #5 A fault injection proves it: removing the publication filter turns a named test red
+- [x] #1 A day whose current publication record is withheld or superseded is absent from the published episode index, title and headline included
+- [x] #2 A day with no publication record at all is still indexed, so a world predating FR-K004 does not lose its episode list
+- [x] #3 An administrator decision rebuilds the index in the same transaction as the episode read model, so the two cannot disagree
+- [x] #4 The exclusion costs a bounded number of reads that does not grow with the number of world days indexed
+- [x] #5 A fault injection proves it: removing the publication filter turns a named test red
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Notes
@@ -76,3 +76,19 @@ That is how it was caught: the first injection against the new builder gate did 
 
 Three injections, each turning a named test red: the builder gate removed (2 tests), the wiring ignoring `isCurrent` (1), and the command no longer rebuilding the index (3). `npm run check` exit 0 — 4377 passed, 31 skipped, 251 suites.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+An administrator Episode withhold now reaches the episode index. ART-171 withdrew `episode:<day>` and left `episodes:<world>` listing the same day's title and headline — both LLM-written episode text — because `rebuildEpisodeIndexProjection` filtered on `dailyEpisodes.status` (the safety verdict) and had never consulted the publication record. Harmless until ART-171, and only by accident.
+
+AC#1 — `drops a withheld world day, title and headline included`, plus `drops the withheld day from the arc and character filters as well`: a withheld day that still contributed an arc id would announce itself through the shape of the filter list.
+AC#2 — `keeps indexing a day that has no publication record at all`; silence is not a refusal, here as in the Episode read model.
+AC#3 — `lists the day while it is publishable, and drops it once it is withheld` and `brings it back when the administrator resumes the day`, both over the REAL handlers.
+AC#4 — the exclusions come from `publicationRecords.by_world_and_status`, one indexed sweep per non-servable status, not a lookup per indexed day.
+AC#5 — three injections, each turning a named test red: the builder gate removed, the wiring ignoring `isCurrent`, and the command no longer rebuilding the index.
+
+Found a second defect while proving the first. The initial injection did NOT redden the command tests; chasing that turned up `baseTables` seeding rows without `_id`, so `advancePublication`'s patch-by-id landed on whatever row came first and turned the Episode row `withheld` by accident. Three ART-171 tests had been passing for that reason rather than the one they claimed. The code was right; the evidence was not. With `_id`s seeded, ART-171's own injection now reddens the two tests it should have.
+
+Verification: `npm run check` exit 0 (4377 passed, 31 skipped, 251 suites); `npm run e2e` 124 passed; PR #271 merged.
+<!-- SECTION:FINAL_SUMMARY:END -->
