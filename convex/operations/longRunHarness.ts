@@ -140,6 +140,7 @@ import {
   RELATIONSHIP_GRAPH_MODEL_KIND,
 } from '../publicRead/relationshipGraphProjection';
 import { relationshipGraphModelRef } from '../shared/relationshipGraphRef';
+import { CLEARED_RUN_FAILURE } from '../shared/runRecord';
 import { buildLiveProjection, LIVE_MODEL_KIND, liveSourceEventIds } from '../publicRead/liveState';
 import {
   commitReadModelVersion,
@@ -613,7 +614,10 @@ export class MemoryWorldDayRunStore implements WorldDayRunStore {
     return Promise.resolve();
   }
   resumeRun(runId: string, attempt: number): Promise<void> {
-    Object.assign(this.required(runId), { status: 'running', attemptCount: attempt });
+    // ART-150: a new attempt owns the failure fields, so the previous attempt's are cleared here
+    // rather than left to be overwritten by a failure that may not come. `Object.assign` cannot do
+    // that implicitly the way the Convex adapter's `db.patch` does — see {@link CLEARED_RUN_FAILURE}.
+    Object.assign(this.required(runId), { status: 'running', attemptCount: attempt, ...CLEARED_RUN_FAILURE });
     return Promise.resolve();
   }
   failRun(runId: string, stage: WorldDayStage, error: WorldDayRunFailure): Promise<void> {
@@ -621,7 +625,7 @@ export class MemoryWorldDayRunStore implements WorldDayRunStore {
     return Promise.resolve();
   }
   completeRun(runId: string, committedEventIds: string[]): Promise<void> {
-    Object.assign(this.required(runId), { status: 'completed', committedEventIds });
+    Object.assign(this.required(runId), { status: 'completed', committedEventIds, ...CLEARED_RUN_FAILURE });
     return Promise.resolve();
   }
   private required(runId: string): WorldDayRun {
@@ -665,7 +669,7 @@ export class MemoryPostCommitRunStore implements PostCommitRunStore {
     return Promise.resolve();
   }
   resumeRun(runId: string, attempt: number): Promise<void> {
-    Object.assign(this.required(runId), { status: 'running', attemptCount: attempt });
+    Object.assign(this.required(runId), { status: 'running', attemptCount: attempt, ...CLEARED_RUN_FAILURE });
     return Promise.resolve();
   }
   failRun(runId: string, stage: PostCommitStage, error: RunFailure): Promise<void> {
@@ -673,7 +677,7 @@ export class MemoryPostCommitRunStore implements PostCommitRunStore {
     return Promise.resolve();
   }
   completeRun(runId: string, metricsTraceId: string): Promise<void> {
-    Object.assign(this.required(runId), { status: 'completed', metricsTraceId });
+    Object.assign(this.required(runId), { status: 'completed', metricsTraceId, ...CLEARED_RUN_FAILURE });
     return Promise.resolve();
   }
   private required(runId: string): PostCommitRun {

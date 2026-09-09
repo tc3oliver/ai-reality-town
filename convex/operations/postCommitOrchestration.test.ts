@@ -10,6 +10,7 @@ import {
   type PostCommitStage,
   type PostCommitStageHandlers,
 } from './postCommitOrchestration';
+import { CLEARED_RUN_FAILURE } from '../shared/runRecord';
 
 const INPUT: PostCommitRunInput = {
   runId: 'run-1', worldId: 'w1', sourceEventId: 'evt-1',
@@ -37,7 +38,7 @@ class MemoryPostCommitStore implements PostCommitRunStore {
     return Promise.resolve();
   }
   resumeRun(_runId: string, attempt: number): Promise<void> {
-    Object.assign(this.requiredRun(), { status: 'running', attemptCount: attempt, failureStage: undefined, errorCode: undefined, errorMessage: undefined });
+    Object.assign(this.requiredRun(), { status: 'running', attemptCount: attempt, ...CLEARED_RUN_FAILURE });
     return Promise.resolve();
   }
   failRun(_runId: string, stage: PostCommitStage, error: { code: string; message: string }): Promise<void> {
@@ -45,7 +46,7 @@ class MemoryPostCommitStore implements PostCommitRunStore {
     return Promise.resolve();
   }
   completeRun(_runId: string, metricsTraceId: string): Promise<void> {
-    Object.assign(this.requiredRun(), { status: 'completed', metricsTraceId }); return Promise.resolve();
+    Object.assign(this.requiredRun(), { status: 'completed', metricsTraceId, ...CLEARED_RUN_FAILURE }); return Promise.resolve();
   }
   private requiredRun(): PostCommitRun { if (!this.run) throw new Error('missing run'); return this.run; }
   private find(runId: string, stage: PostCommitStage, attempt: number): PostCommitCheckpoint {

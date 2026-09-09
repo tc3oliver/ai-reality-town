@@ -3,9 +3,11 @@ id: ART-150
 title: >-
   worldDayOrchestration reports a prior failed attempt errorCode on a successful
   run
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-08-29 05:41'
+updated_date: '2026-09-09 11:20'
 labels:
   - prd-1.0
 dependencies: []
@@ -44,3 +46,13 @@ When a world-day run fails and is subsequently retried to success, the orchestra
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Audit which record the operations surface actually reads, and whether the bug still exists after ART-159/160/165/167.
+2. Reproduce fail-then-succeed through the real orchestrators before changing anything.
+3. Fix the root cause: the run-store contract had no stated rule about the failure fields, and five implementations each re-derived it. Give it one definition (convex/shared/runRecord.ts) and make every store spread it.
+4. AC#2: surface the per-attempt failure history that already exists in worldDayCheckpoints, rather than copying it onto the slot row.
+5. Fault injections on every new check; npm run check; npm run e2e; PR with auto-merge.
+<!-- SECTION:PLAN:END -->

@@ -10,15 +10,19 @@
  */
 
 import type { GenericMutationCtx } from 'convex/server';
-import type { DataModel, Id } from '../_generated/dataModel';
+import type { DataModel, Doc, Id } from '../_generated/dataModel';
 import {
   loadScheduleRow,
   pauseWorldSchedule,
   readScheduleInspection,
+  readSlotAttemptHistory,
   reserveSlots,
   resumeWorldSchedule,
   retrySlotRun,
+  ATTEMPT_HISTORY_SLOT_LIMIT,
 } from '../simulation/schedulerOperations';
+import { worldDayRunId } from '../simulation/worldDayLive';
+import type { TimeSlot } from '../canon/eventTypes';
 import { decideSlotCancellation } from './opsConsole';
 
 type MutationDb = GenericMutationCtx<DataModel>['db'];
@@ -225,6 +229,92 @@ describe('retry a failed job (FR-K001)', () => {
     await db.patch(slot._id, { status });
     await expect(retrySlotRun(asDb(db), slot._id as Id<'scheduledSlots'>, T0 + 100))
       .rejects.toThrow(/INVALID_SLOT_TRANSITION/);
+  });
+});
+
+/**
+ * What the earlier attempts left behind, once the slot row stopped carrying them (ART-150 AC#2).
+ *
+ * The test above pins the other half: retrying a failed slot CLEARS its error code, so the row an
+ * operator reads describes the attempt about to run rather than the one that failed. That is what
+ * makes a recovered slot readable as recovered — and it is also what would discard the history if
+ * nothing else held it. These cases prove something else holds it.
+ */
+describe('earlier attempt failures survive the retry that clears the slot (ART-150 AC#2)', () => {
+  async function seedRetriedSlot(db: FakeDb, over: Record<string, unknown> = {}) {
+    await seedSchedule(db);
+    await reserveSlots(asDb(db), WORLD, 1, 'manual-slot', T0);
+    const slot = db.rowsOf('scheduledSlots')[0];
+    await db.patch(slot._id, { status: 'queued', attemptCount: 3, errorCode: undefined, ...over });
+    return slot;
+  }
+
+  /** The run id the executor derives for this slot, which is how the checkpoints are found. */
+  const RUN_ID = worldDayRunId({ worldId: WORLD, worldDay: 1, timeSlot: 'morning' });
+
+  async function seedCheckpoint(db: FakeDb, over: Record<string, unknown>) {
+    await db.insert('worldDayCheckpoints', {
+      runId: RUN_ID, stage: 'simulate_scenes', attempt: 1, status: 'failed',
+      errorCode: 'PROVIDER_UNAVAILABLE', errorMessage: 'route chain exhausted',
+      createdAt: T0, updatedAt: T0, ...over,
+    });
+  }
+
+  it('reports each failed attempt in the order it happened', async () => {
+    const db = createFakeDb();
+    const slot = await seedRetriedSlot(db);
+    await seedCheckpoint(db, { attempt: 2, errorCode: 'PROVIDER_TIMEOUT', errorMessage: 'timed out' });
+    await seedCheckpoint(db, { attempt: 1 });
+    await seedCheckpoint(db, { attempt: 3, status: 'completed', errorCode: undefined, errorMessage: undefined });
+
+    const { history, omittedSlots } = await readSlotAttemptHistory(
+      asDb(db), WORLD, db.rowsOf('scheduledSlots') as unknown as Doc<'scheduledSlots'>[]);
+
+    expect(omittedSlots).toBe(0);
+    expect(history).toEqual([{
+      slotKey: slot.slotKey, worldDay: 1, timeSlot: 'morning',
+      failures: [
+        { attempt: 1, stage: 'simulate_scenes', errorCode: 'PROVIDER_UNAVAILABLE', errorMessage: 'route chain exhausted' },
+        { attempt: 2, stage: 'simulate_scenes', errorCode: 'PROVIDER_TIMEOUT', errorMessage: 'timed out' },
+      ],
+    }]);
+    // The completed checkpoint is not a failure and must not be reported as one.
+    expect(history[0].failures.map((failure) => failure.attempt)).not.toContain(3);
+  });
+
+  it('reports nothing for a slot that has only ever been attempted once', async () => {
+    const db = createFakeDb();
+    await seedRetriedSlot(db, { attemptCount: 1 });
+    await seedCheckpoint(db, { attempt: 1 });
+
+    const { history } = await readSlotAttemptHistory(
+      asDb(db), WORLD, db.rowsOf('scheduledSlots') as unknown as Doc<'scheduledSlots'>[]);
+    expect(history).toEqual([]);
+  });
+
+  it('bounds how many slots it reads and says how many it left out', async () => {
+    const db = createFakeDb();
+    await seedSchedule(db);
+    const total = ATTEMPT_HISTORY_SLOT_LIMIT + 4;
+    await reserveSlots(asDb(db), WORLD, total, 'manual-day', T0);
+    for (const row of db.rowsOf('scheduledSlots')) {
+      await db.patch(row._id, { attemptCount: 2 });
+      await db.insert('worldDayCheckpoints', {
+        runId: worldDayRunId({ worldId: WORLD, worldDay: row.worldDay as number, timeSlot: row.timeSlot as TimeSlot }),
+        stage: 'simulate_scenes',
+        attempt: 1, status: 'failed', errorCode: 'PROVIDER_UNAVAILABLE', errorMessage: 'down',
+        createdAt: T0, updatedAt: T0,
+      });
+    }
+
+    const { history, omittedSlots } = await readSlotAttemptHistory(
+      asDb(db), WORLD, db.rowsOf('scheduledSlots') as unknown as Doc<'scheduledSlots'>[]);
+
+    expect(history).toHaveLength(ATTEMPT_HISTORY_SLOT_LIMIT);
+    expect(omittedSlots).toBe(4);
+    // The bound keeps the NEWEST slots in world time — the ones an operator is looking at.
+    expect(history[history.length - 1].timeSlot).toBe(
+      db.rowsOf('scheduledSlots')[total - 1].timeSlot);
   });
 });
 
