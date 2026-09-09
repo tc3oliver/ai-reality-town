@@ -5,7 +5,9 @@
 **前一版基線：** `docs/prd-1.0-closure-matrix.md`
 **盤點日期：** 2026-08-05
 
-> **目前狀態：** PRD 1.0 historical closure complete; current baseline has open release-blocking regressions **ART-99** and **ART-141**（ART-139 已修復並經真實 provider 現場驗證，見 §4）。PRD 2.0 Dynamic Viewing MVP In Progress.
+> **目前狀態（2026-09-09 重新稽核，ART-138）：** ART-99、ART-139、ART-141 **均已修復**，不再是 release blocker。PRD 2.0 §22 三十一條中 **30 條 PASS、1 條 FAIL**（§22.30 中階行動裝置幀率），且 ART-138 自身的 AC#10／AC#11 為 external blocker。**PRD 2.0 Dynamic Viewing MVP 尚未完成。**
+>
+> 逐條證據、現場讀數、owner 必須執行的操作與驗收指令，一律以 **`docs/prd-2.0-closure-record.md`** 為準。本檔案 §14 的阻斷項目表曾長期停留在 2026-08 的狀態；不要再從它推論目前基線健康度。
 >
 > 不得只寫「PRD 1.0 Core Simulation and Backend Baseline Complete」——那描述歷史封閉，不是目前基線健康狀態（PRD 2.0 §13.3／§26）。
 
@@ -142,9 +144,9 @@ FR-O010（動態畫面降級）Disposition 為 **New**，擁有專屬 Task **ART
 
 | 項目 | Disposition | Task | Delivery State | Release Criticality |
 |---|---|---|---|---|
-| 種子世界每日 Canon Snapshot 失敗 | **Carry Forward** | **ART-99**（既有，Medium → Critical） | To Do | **Release Blocker** |
+| 種子世界每日 Canon Snapshot 失敗 | **Carry Forward** | **ART-99**（既有，Medium → Critical） | **Done** | **Release Blocker**（已解除，2026-09-09 重新稽核） |
 | PRD 1.0 FR-C002 真實 provider 場景解析失敗（schemaVersion／sceneId 契約層） | **Existing Baseline Defect**（§13.2 唯一獲准例外） | **ART-139** | **Done**（已對真實 provider 現場驗證） | **Release Blocker**（已解除） |
-| PRD 1.0 FR-C002 真實 provider `proposedEvents` 結構不合規（同一缺陷的第二層，ART-139 驗證時發現） | **Existing Baseline Defect**（ART-139 的延伸，非獨立例外） | **ART-141** | To Do | **Release Blocker** |
+| PRD 1.0 FR-C002 真實 provider `proposedEvents` 結構不合規（同一缺陷的第二層，ART-139 驗證時發現） | **Existing Baseline Defect**（ART-139 的延伸，非獨立例外） | **ART-141** | **Done**（已對真實 provider 現場驗證：2/2 accepted） | **Release Blocker**（已解除，2026-09-09 重新稽核） |
 
 ---
 
@@ -445,7 +447,7 @@ Mutation」。ART-128 當時把後者實作成 repo 級的「禁止任何匿名 
 | Mistwood 世界種子（12 角色／8 地點） | `convex/canon/mistwoodSeed.ts` | FR-N004／N005 綁定來源 |
 | Canon 事件存儲與驗證 | `convex/canon/commit.ts`, `validators.ts`, `continuity.ts` | 唯一語意權威 |
 | Deterministic Reducer／Replay／Snapshot | `convex/canon/reducer.ts`, `replay.ts`, `snapshotManager.ts` | FR-N007 概念基礎；ART-99 修復對象 |
-| 地點投影 | `convex/canon/locationProjection.ts` | FR-N006 語意位置來源 |
+| 地點投影 | `convex/canon/reducer.ts`（`locations` / `locationOccupancy` fold；測試在 `convex/canon/locationProjection.test.ts`） | FR-N006 語意位置來源 |
 | 位置變更事件 | `character_location_changed`（含 `fromLocationId`／`toLocationId`） | ART-114 軌跡規劃輸入 |
 | 決定性抵達產生器 | `convex/simulation/worldDayLive.ts` `withArrivalStateChanges` | ART-117 同步來源（非 LLM 產出） |
 | 世界排程（5 時段／日） | `convex/simulation/scheduler.ts` | §9.1 混合動態模型前提，**不得加速** |
@@ -629,8 +631,10 @@ ART-112 同時負責移除公開面的 Human Player／Interact 語意與相關�
 
 | 項目 | 類型 | 說明 | 處置 |
 |---|---|---|---|
-| **ART-99** | **Release Blocker** | `importWorld` 寫入的 `initial` 快照（`lastSequenceNumber: -1`）無法由 accepted events 推導，`assertSnapshotMatchesHistory` 以 `SNAPSHOT_CORRUPT` 拒絕。FR-N007 公開快照建立其上 | Critical；ART-138 依賴 |
-| **ART-141** | **Release Blocker** | ART-139 修復並經真實 provider 現場驗證後，真實 provider 的 `proposedEvents` 項目仍不符合 `ProposedEvent` 契約（缺 `stateChanges` 等生成內容欄位），`simulateWholeScene()` 因而在真實 provider 下仍無法產出 Accepted Event，`withArrivalStateChanges` 不附加 `character_location_changed`，§22.6 無法達成（§4.3） | Critical；ART-138 依賴；依賴 ART-139（已完成） |
+| ~~**ART-99**~~ | **已解除（2026-09-09 重新稽核）** | 已修復，並有固定 seed 回歸測試 `convex/canon/snapshotManager.test.ts` 的 `ART-99 seeded-world baseline replay and verification`。現場讀數亦確認：已部署世界同時存在 `initial` 與 world day 4 的 `daily` 快照 | 無 |
+| ~~**ART-141**~~ | **已解除（2026-09-09 重新稽核）** | 已修復。ART-141 現場驗證了 provider → parse → normalize → validate → commit 的完整鏈（2/2 accepted）；ART-157 修好提示詞的合法目的地，ART-159／ART-160 把真實 adapter 接進排程驅動的 live path。回歸測試見 `convex/simulation/sceneSimulation.test.ts` | 無 |
+| **§22.30 中階行動裝置幀率** | **Release Blocker（唯一剩下的產品缺口）** | `docs/benchmarks/dynamic-view-latest.md`：mid-tier-mobile 的 `stream`／`delayed` 為 28.4／28.38 fps，低於 NFR2-002 的 30 fps。量測主機無可用 GPU（SwiftShader），因此該數字對真實行動硬體不具定案能力 | 見 `docs/prd-2.0-closure-record.md` §6.1：需真實裝置或具 GPU 的 runner |
+| **已部署環境落後於 `main`** | 環境缺口 | 現場 `function-spec` 僅 62 個模組，缺 `operations/productAnalyticsFunctions`、`operations/worldQualityFunctions`；74/74 場景全部由 `fake-whole-scene-v1` 產生。任何「線上系統」的陳述都是對 ART-159／ART-160 之前那個 build 的陳述 | 見 closure record §6.2／§6.3：需 owner 部署 |
 | **RISK2-008 / RISK2-009** | 產品風險 | Ambient 被誤認為劇情、Replay 被誤認為即時 | ART-120／ART-121 驗收條件緩解，上線後觀察 |
 | **RISK2-004** | 技術風險 | 12+ 角色動畫 ＋ ambient ＋ 環境動畫在中階行動裝置的效能 | **ART-136 固定 Benchmark 必須在公開前通過**，不得以「上線後補」規避 |
 | **地圖工作量未知** | 排程風險 | `data/mistwood.ts` 需以既有 tileset 手工重排八個地點 | ART-107 完成後重估 ART-109 |

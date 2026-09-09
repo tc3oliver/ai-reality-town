@@ -1,11 +1,11 @@
 ---
 id: ART-171
 title: Give the FR-K004 publication lifecycle an operator entry point
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-09-09 17:18'
-updated_date: '2026-09-09 18:01'
+updated_date: '2026-09-09 18:22'
 labels:
   - prd-1.0
   - epic-k
@@ -32,29 +32,29 @@ Scope: an operator-gated command that advances a publication record, on the ART-
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 An authenticated administrator can advance an Episode publication record through the FR-K004 admin-only actions, and an operator who is not an administrator cannot
-- [ ] #2 The command records the same audit trail (actor, reason, timestamp, version delta) the lifecycle already requires, and performs zero Canon writes
-- [ ] #3 A released or withheld Episode recomputes every public read model whose contents depend on publication status, in the same transaction
-- [ ] #4 A fault injection proves the administrator gate: removing the authorization check turns a named test red
-- [ ] #5 Once an Episode is released, a character page shows the FR-I005 viewer-known secret its events revealed — proven end to end, not by unit test alone
+- [x] #1 An authenticated administrator can advance an Episode publication record through the FR-K004 admin-only actions, and an operator who is not an administrator cannot
+- [x] #2 The command records the same audit trail (actor, reason, timestamp, version delta) the lifecycle already requires, and performs zero Canon writes
+- [x] #3 A released or withheld Episode recomputes every public read model whose contents depend on publication status, in the same transaction
+- [x] #4 A fault injection proves the administrator gate: removing the authorization check turns a named test red
+- [x] #5 Once an Episode is released, a character page shows the FR-I005 viewer-known secret its events revealed — proven end to end, not by unit test alone
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -91,3 +91,23 @@ Not a UI. `advancePublication` was reachable only from `postCommitLiveFunctions.
 
 Read from the running deployment with bounded queries: all three current `publicationRecords` in `mistwood` are `ready`, none `published`; 12 character read models are current; 83 accepted events across world days 0–4 name all twelve seeded characters and all eight locations.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+FR-K004's administrator half now has a caller. `decideEpisodePublication` is a public mutation on the ART-48 console surface, gated by a new admin-only `publication.decide` capability, requiring a reason, and writing one `operatorAuditLog` row in its own transaction. The lifecycle itself is untouched: the command calls the existing `advancePublication` through `ctx.runMutation`, so the transition table, the admin-only rule, the audit event and ART-162's gate stay in one place.
+
+Before this, the four administrator actions had no caller at all — `advancePublication`'s only call site types the action as the four a SYSTEM actor may take — so every Episode in every world walked to `ready` and stopped. Confirmed against the running deployment: all three current `publicationRecords` in `mistwood` are `ready`, none released, and 74 of 74 scene runs were authored by `fake-whole-scene-v1`.
+
+The new capability opened a gap that had been harmless until now, and it is closed in the same commit: `rebuildEpisodeProjection` read only `dailyEpisodes.status` — a SAFETY decision — and never consulted the publication record. Without that fix the command would have shipped a withhold that the very next accepted event undid.
+
+AC#1 — `refuses an operator who is not an administrator`, `reserves the FR-K004 publication decision for an administrator`, `refuses an unauthenticated caller and an empty registry alike`.
+AC#2 — `audits the decision with the operator, the content and the resulting status`; `passes the operator through as the lifecycle actor, never a hard-coded one`. No Canon table is named anywhere on this path.
+AC#3 — `refreshes EVERY cached public surface, and the Episode read model, in one transaction`, asserting the exhaustive ORDERED dispatch list; plus `does not let the next accepted event republish a withheld Episode`.
+AC#4 — seven injections, each turning a named test red (table in PR #268). Two earlier attempts produced `Tests: 0 total` — a type error in the injection rather than a defect — and were replaced with injections that compile.
+AC#5 — proven through the REAL handlers over one shared table set: the transition, then `rebuildEpisodeProjection`, then `refreshViewerKnowledgeProjections`, with the resulting payload fed to `composeCharacterViewModel`. The secret reaches the character page on release and disappears again on withhold.
+
+`withdrawReadModel` is new and deliberately distinct from `invalidateReadModel`: one says "this version is bad" and keeps serving the last known good one, the other says "this content may not be shown" and demotes the fallbacks too.
+
+Verification: `npm run check` exit 0 (4369 passed, 31 skipped, 251 suites); `npm run e2e` 124 passed; PR #268 merged with all three CI checks green.
+<!-- SECTION:FINAL_SUMMARY:END -->

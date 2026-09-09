@@ -30,8 +30,8 @@
     "check:architecture": "node scripts/architecture/check-boundaries.mjs",
     "test:asset-licenses": "node --test scripts/assets/check-asset-licenses.test.mjs",
     "check:asset-licenses": "node scripts/assets/check-asset-licenses.mjs",
-    "check:offline": "run-s check:architecture test:architecture check:asset-licenses test:asset-licenses check:closure-matrix test:closure-matrix check:generated-api test:generated-api typecheck lint test:foundation build",
-    "check": "run-s check:architecture test:architecture check:asset-licenses test:asset-licenses check:closure-matrix test:closure-matrix check:generated-api test:generated-api typecheck lint test build",
+    "check:offline": "run-s check:architecture test:architecture check:asset-licenses test:asset-licenses check:closure-matrix test:closure-matrix check:closure-record test:closure-record check:generated-api test:generated-api typecheck lint test:foundation build",
+    "check": "run-s check:architecture test:architecture check:asset-licenses test:asset-licenses check:closure-matrix test:closure-matrix check:closure-record test:closure-record check:generated-api test:generated-api typecheck lint test build",
     "backlog": "backlog",
     "agent:check": "node scripts/agent/check-bootstrap.mjs",
     "agent:context": "node scripts/agent/session-context.mjs",
@@ -49,7 +49,9 @@
     "test:closure-matrix": "node --test scripts/docs/check-closure-matrix.test.mjs",
     "codegen:api": "node scripts/convex/check-generated-api.mjs --write",
     "check:generated-api": "node scripts/convex/check-generated-api.mjs",
-    "test:generated-api": "node --test scripts/convex/check-generated-api.test.mjs"
+    "test:generated-api": "node --test scripts/convex/check-generated-api.test.mjs",
+    "check:closure-record": "node scripts/docs/check-closure-record.mjs",
+    "test:closure-record": "node --test scripts/docs/check-closure-record.test.mjs"
   },
   "dependencies": {
     "@clerk/clerk-react": "^5.61.9",
