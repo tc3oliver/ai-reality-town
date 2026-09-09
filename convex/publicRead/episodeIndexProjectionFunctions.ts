@@ -13,13 +13,9 @@
 import { v } from 'convex/values';
 import { internalMutation } from '../_generated/server';
 import type { DailyEpisode } from '../editorial/episode';
-import {
-  PUBLICATION_STATUSES,
-  isViewerServablePublicationStatus,
-} from '../editorial/publicationLifecycle';
 import { parseArcProjectionFields } from '../story/projection';
 import { commitReadModelVersion } from './readModel';
-import { episodeContentRefOf } from './visualReplay';
+import { readWithheldPublicationWorldDays } from './withheldPublicationDays';
 import { writeStore } from './readModelFunctions';
 import {
   EPISODE_INDEX_MODEL_KIND,
@@ -34,29 +30,6 @@ type DailyEpisodeRow = {
   episode?: DailyEpisode;
 };
 type RecommendedEntryRow = { entry: unknown };
-type PublicationRecordRow = { contentRef: string; status: string; isCurrent: boolean };
-
-/**
- * The publication statuses that take content OFF the surface — the complement of
- * {@link VIEWER_SERVABLE_PUBLICATION_STATUSES}, derived rather than restated so a new status
- * cannot land on the servable side by being forgotten here.
- */
-const NON_SERVABLE_PUBLICATION_STATUSES = PUBLICATION_STATUSES
-  .filter((status) => !isViewerServablePublicationStatus(status));
-
-/**
- * The world day an `episode:<worldId>:<worldDay>` content reference addresses, or `null`.
- *
- * Parsed against the reference this world would MINT rather than by splitting on colons: a world
- * id may contain one, and a reference for another content kind — `episode_share` rides the same
- * lifecycle — must not be read as an Episode.
- */
-function worldDayOfEpisodeContentRef(worldId: string, contentRef: string): number | null {
-  const prefix = `${episodeContentRefOf(worldId, 0).slice(0, -1)}`;
-  if (!contentRef.startsWith(prefix)) return null;
-  const worldDay = Number(contentRef.slice(prefix.length));
-  return Number.isSafeInteger(worldDay) && worldDay >= 0 ? worldDay : null;
-}
 type ArcProjectionEventRow = { arcId: string; revision: number; fields: unknown };
 
 /**
@@ -70,32 +43,17 @@ export const rebuildEpisodeIndexProjection = internalMutation({
       throw new EpisodeIndexError('EPISODE_INDEX_INVALID', 'worldId and a finite now are required');
     }
 
-    const [episodeRows, recommendedRows, projectionRows, ...withheldGroups] = await Promise.all([
+    const [episodeRows, recommendedRows, projectionRows, withheldWorldDays] = await Promise.all([
       ctx.db.query('dailyEpisodes').withIndex('by_world_and_day', (q) => q.eq('worldId', args.worldId)).collect(),
       ctx.db.query('storyArcRecommendedEntries').withIndex('by_world', (q) => q.eq('worldId', args.worldId)).collect(),
       ctx.db.query('storyArcProjectionEvents').withIndex('by_world_arc_and_revision', (q) => q.eq('worldId', args.worldId)).collect(),
       /**
-       * The days an administrator's publication decision has taken off the surface (ART-174).
-       *
-       * Read from the RECORD side — one indexed sweep per non-servable status — rather than as a
-       * lookup per indexed day. This rebuild already collects every `dailyEpisodes` row in the
-       * world; multiplying that by a point read is the pattern ART-100 removed from this pipeline,
-       * and the number of withheld days is small by construction while the number of days is not.
+       * The days an administrator's publication decision has taken off the surface (ART-174),
+       * through the one definition of that join (ART-176). Bounded from the record side — see
+       * `withheldPublicationDays.ts` on why that is the direction that stays small.
        */
-      ...NON_SERVABLE_PUBLICATION_STATUSES.map((status) => ctx.db
-        .query('publicationRecords')
-        .withIndex('by_world_and_status', (q) => q.eq('worldId', args.worldId).eq('status', status))
-        .collect()),
+      readWithheldPublicationWorldDays(ctx.db, args.worldId),
     ]);
-
-    const withheldWorldDays = new Set<number>();
-    for (const row of withheldGroups.flat() as PublicationRecordRow[]) {
-      // `isCurrent` is the whole point: a superseded record for a day that was later republished
-      // must not withhold it. The status sweep finds both, and only the live one decides.
-      if (!row.isCurrent) continue;
-      const worldDay = worldDayOfEpisodeContentRef(args.worldId, row.contentRef);
-      if (worldDay !== null) withheldWorldDays.add(worldDay);
-    }
 
     const episodes: EpisodeIndexEntryInput[] = (episodeRows as DailyEpisodeRow[])
       .filter((row) => row.episode)

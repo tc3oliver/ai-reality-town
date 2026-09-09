@@ -24,6 +24,8 @@ import {
   type RelationshipChange,
   type RelationshipDeltaInput,
 } from './relationshipArcProjection';
+import { readWithheldSceneLabels } from '../safety/effectiveSafetyLabels';
+import { sceneEventRows, withheldEventIds } from './liveStateFunctions';
 import { commitReadModelVersion } from './readModel';
 import { writeStore } from './readModelFunctions';
 
@@ -122,13 +124,16 @@ export const rebuildArcProjection = internalMutation({
     if (args.worldId.trim().length === 0 || args.arcId.trim().length === 0 || !Number.isFinite(args.now)) {
       throw new RelationshipArcError('ARC_INVALID', 'worldId, arcId, and a finite now are required');
     }
-    const [lifecycleRow, projectionRows, entryRow, episodeRows, consequenceRows, classificationRows] = await Promise.all([
+    const [lifecycleRow, projectionRows, entryRow, episodeRows, consequenceRows, classificationRows,
+      withheldSceneLabels] = await Promise.all([
       ctx.db.query('storyArcLifecycles').withIndex('by_world_and_arc', (q) => q.eq('worldId', args.worldId).eq('arcId', args.arcId)).unique(),
       ctx.db.query('storyArcProjectionEvents').withIndex('by_world_arc_and_revision', (q) => q.eq('worldId', args.worldId).eq('arcId', args.arcId)).collect(),
       ctx.db.query('storyArcRecommendedEntries').withIndex('by_world_and_arc', (q) => q.eq('worldId', args.worldId).eq('arcId', args.arcId)).unique(),
       ctx.db.query('dailyEpisodes').withIndex('by_world_and_day', (q) => q.eq('worldId', args.worldId)).collect(),
       ctx.db.query('arcConsequenceSummaries').withIndex('by_world_and_arc', (q) => q.eq('worldId', args.worldId).eq('arcId', args.arcId)).collect(),
       ctx.db.query('storyArcEventClassifications').withIndex('by_world', (q) => q.eq('worldId', args.worldId)).collect(),
+      // The inverted, history-independent question (ART-132). See `effectiveSafetyLabels.ts`.
+      readWithheldSceneLabels(ctx.db, args.worldId),
     ]);
     if (!lifecycleRow) throw new RelationshipArcError('ARC_NOT_FOUND', 'arc has no lifecycle');
     const latestProjection = [...projectionRows].sort((a, b) => b.revision - a.revision)[0];
@@ -167,7 +172,21 @@ export const rebuildArcProjection = internalMutation({
     const arcEvents = canonRows
       .map(rowToAcceptedEvent)
       .sort((left, right) => left.sequenceNumber - right.sequenceNumber);
-    const facts: PublicFact[] = arcEvents.flatMap(publicFactsIn);
+    /**
+     * The safety gate this rebuild did not have (ART-176).
+     *
+     * `knownClues` and `essentialBackstory` are LLM-authored `predicate`/`value` pairs from
+     * `fact_created` changes — exactly the changes `characterSourceFrom` skips for a withheld
+     * Scene (`worldCharacterProjectionFunctions.ts`). Two public surfaces were disagreeing about
+     * whether a fact from a refused Scene is showable, and this was the permissive one.
+     *
+     * An event with no Scene provenance is not withheld, which is ART-132's stated convention.
+     */
+    const withheldEvents = withheldEventIds(
+      sceneEventRows(arcEvents), new Set(Object.keys(withheldSceneLabels)));
+    const facts: PublicFact[] = arcEvents
+      .filter((event) => !withheldEvents.has(event.eventId))
+      .flatMap(publicFactsIn);
 
     const outcomeEntries = consequenceRows
       .filter((row) => row.scope === 'world')
@@ -178,7 +197,7 @@ export const rebuildArcProjection = internalMutation({
 
     const payload = buildArcProjection({
       worldId: args.worldId, arc: arcSummary,
-      essentialBackstory: facts.slice(0, 5), recommendedEntry, relatedEpisodes, knownClues: facts, outcome,
+      essentialBackstory: facts, recommendedEntry, relatedEpisodes, knownClues: facts, outcome,
     });
     const result = await commitReadModelVersion(writeStore(ctx.db), {
       worldId: args.worldId, modelKind: ARC_MODEL_KIND, modelRef: `arc:${args.arcId}`,

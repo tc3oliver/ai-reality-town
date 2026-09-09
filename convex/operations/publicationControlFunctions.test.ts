@@ -211,6 +211,9 @@ function recordingCtx(tables: Tables) {
       if (target.includes('rebuildEpisodeIndexProjection')) {
         return Promise.resolve({ modelRef: `episodes:${WORLD_ID}`, version: 2, deduplicated: false });
       }
+      if (target.includes('refreshArcPrimers')) {
+        return Promise.resolve({ modelRefs: [], rebuiltArcCount: 0 });
+      }
       throw new Error(`undispatched mutation ${target}`);
     },
   };
@@ -295,6 +298,7 @@ describe('decideEpisodePublication — the surface follows the decision', () => 
       'publicRead/onboardingSummaryFunctions:rebuildOnboardingSummary',
       'publicRead/voteConsequenceProjectionFunctions:refreshVoteConsequenceProjections',
       'publicRead/viewerKnowledgeProjectionFunctions:refreshViewerKnowledgeProjections',
+      'publicRead/arcPrimerFunctions:refreshArcPrimers',
     ]);
     // FR-I005's is reported back, because it is the surface a release changes most.
     expect(result.viewerKnowledgeRefresh).toEqual([viewerKnowledgeModelRef(CHARACTER_ID)]);
@@ -365,6 +369,7 @@ function realCtx(tables: Tables) {
       if (target.includes('rebuildLiveProjection')) return Promise.resolve({ modelRef: `live:${WORLD_ID}`, version: 1, correlatedEventCount: 0 });
       if (target.includes('rebuildOnboardingSummary')) return Promise.resolve({ modelRef: `onboarding:${WORLD_ID}`, version: 1 });
       if (target.includes('refreshVoteConsequenceProjections')) return Promise.resolve({ modelRefs: [] });
+      if (target.includes('refreshArcPrimers')) return Promise.resolve({ modelRefs: [] });
       throw new Error(`undispatched mutation ${target}`);
     },
   };

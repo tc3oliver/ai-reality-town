@@ -123,6 +123,7 @@ import type * as publicRead_visualReplayFunctions from "../publicRead/visualRepl
 import type * as publicRead_visualReplayValidators from "../publicRead/visualReplayValidators.js";
 import type * as publicRead_voteConsequenceProjection from "../publicRead/voteConsequenceProjection.js";
 import type * as publicRead_voteConsequenceProjectionFunctions from "../publicRead/voteConsequenceProjectionFunctions.js";
+import type * as publicRead_withheldPublicationDays from "../publicRead/withheldPublicationDays.js";
 import type * as publicRead_worldCharacterProjection from "../publicRead/worldCharacterProjection.js";
 import type * as publicRead_worldCharacterProjectionFunctions from "../publicRead/worldCharacterProjectionFunctions.js";
 import type * as quality_continuity from "../quality/continuity.js";
@@ -378,6 +379,7 @@ declare const fullApi: ApiFromModules<{
   "publicRead/visualReplayValidators": typeof publicRead_visualReplayValidators;
   "publicRead/voteConsequenceProjection": typeof publicRead_voteConsequenceProjection;
   "publicRead/voteConsequenceProjectionFunctions": typeof publicRead_voteConsequenceProjectionFunctions;
+  "publicRead/withheldPublicationDays": typeof publicRead_withheldPublicationDays;
   "publicRead/worldCharacterProjection": typeof publicRead_worldCharacterProjection;
   "publicRead/worldCharacterProjectionFunctions": typeof publicRead_worldCharacterProjectionFunctions;
   "quality/continuity": typeof quality_continuity;

@@ -351,14 +351,64 @@ structurally, the same way it declares `SceneEventLike`, because FR-O013's repla
 that module's whole dependency closure and refuses anything under `convex/safety/`.
 `liveStateFunctions.ts` is where the two meet.
 
+## 4c. The gate also covers the arc primer and the arc read model (ART-176)
+
+An ART-138 audit enumerated every `rebuild*`/`refresh*` mutation under `convex/publicRead/` and
+asked, of each one, which of the two gates it applies. Two more answered neither.
+
+**`primer:<arcId>`** (`convex/publicRead/arcPrimerFunctions.ts`) published a turning-point event's
+`publicSummary` verbatim, twice — the rendered `primerText` and the structured field — with no
+withheld-scene check at all. It was the last unguarded consumer of that field under
+`convex/publicRead/`. Worse than the others, because of WHEN it rebuilds: `rebuildArcPrimer` is
+called only for the arcs a committed event MOVED, so an arc that has resolved is never rebuilt
+again. A Scene withheld afterwards would have narrated itself on that primer permanently.
+
+That is also why the primer needed its own `refreshArcPrimers` entry point, and why it is now on
+`publicTextModelRefresh.ts`'s list. Its target set comes from the read-model store, for the reason
+`refreshVoteConsequenceProjections` derives its day set the same way: a primer nobody published has
+nothing to withdraw.
+
+**`arc:<arcId>`** (`convex/publicRead/relationshipArcProjectionFunctions.ts`) published
+`knownClues` and `essentialBackstory` from `fact_created` changes — LLM-authored `predicate`/
+`value` pairs — with no check, while `characterSourceFrom` skips exactly those changes for a
+withheld Scene. Two public surfaces disagreed about whether a fact from a refused Scene is
+showable, and this was the permissive one.
+
+The primer's canon read was fixed in the same change for an unrelated reason: it `.collect()`ed the
+whole accepted-event log on a per-commit path (CLAUDE.md §9). It now point-looks-up exactly the
+inciting and turning-point events it names. The cost is stated rather than hidden — a character
+whose `name` fact was created by some other event falls back to their id, which is what the builder
+already did for a character it could not name.
+
+## 4d. And the editorial gate covers the onboarding summary and the episode index (ART-174/176)
+
+Distinct from everything above, which is the SAFETY gate. FR-K004's publication record is a second,
+independent lifecycle, and ART-171 made an administrator's `withhold` reachable for the first time.
+
+Two surfaces read only `dailyEpisodes.status` — the safety verdict recorded at generation — and
+never the publication record. That was harmless until ART-171, and only by accident: the sole path
+to a `withheld` record fired exactly when the episode row was not `ready`.
+
+- **`episodes:<worldId>`** kept listing a withheld day's `title` and `headline` (ART-174).
+- **`onboarding:<worldId>`** republished a withheld day's key-scene narration onto the homepage and
+  the story overlay — *in the same transaction as the withhold*, because `decideEpisodePublication`
+  calls `refreshPublicTextModels`, which calls that rebuild (ART-176).
+
+Both now exclude a day whose current publication record is not viewer-servable, through one shared
+join (`convex/publicRead/withheldPublicationDays.ts`) rather than a copy each. Absence is not
+refusal: a day with no publication record at all is still shown, because Episodes predating FR-K004
+have none.
+
 ## 8. Known limitations
 
 - The override is per **classification**, which for a simulated scene is per **Scene**. There is
   no per-event or per-sentence override; the Scene is the unit the classifier judged.
-- Episode-level publication (`publicationRecords`) remains a separate lifecycle, gated
-  separately in `visualReplayFunctions.ts`. The two are not unified, and a scene can be withheld
-  while the episode narrating it is published — in which case the scene card shows the
-  placeholder rather than borrowing the episode's approved words.
+- Episode-level publication (`publicationRecords`) remains a separate lifecycle. The two are not
+  unified, and a scene can be withheld while the episode narrating it is published — in which case
+  the scene card shows the placeholder rather than borrowing the episode's approved words. Since
+  ART-171/174/176 the editorial half is applied by `visualReplayFunctions.ts`,
+  `episodeTimelineProjectionFunctions.ts`, `episodeIndexProjectionFunctions.ts` and
+  `onboardingSummaryFunctions.ts`; §4d lists it.
 - **Override effectiveness is scoped to scenes committed after this feature shipped.** Events
   accepted before it carry no `metadata.sceneId`, so nothing correlates them to a
   classification and overriding that classification changes nothing observable. This is

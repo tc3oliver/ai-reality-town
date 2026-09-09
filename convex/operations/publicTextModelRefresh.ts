@@ -30,6 +30,7 @@ import type { rebuildLiveProjection as rebuildLiveProjectionExport } from '../pu
 import type { rebuildOnboardingSummary as rebuildOnboardingSummaryExport } from '../publicRead/onboardingSummaryFunctions';
 import type { refreshVoteConsequenceProjections as refreshVoteConsequenceProjectionsExport } from '../publicRead/voteConsequenceProjectionFunctions';
 import type { refreshViewerKnowledgeProjections as refreshViewerKnowledgeProjectionsExport } from '../publicRead/viewerKnowledgeProjectionFunctions';
+import type { refreshArcPrimers as refreshArcPrimersExport } from '../publicRead/arcPrimerFunctions';
 
 const rebuildLiveProjectionRef = internalFunctionRef<typeof rebuildLiveProjectionExport>(
   'publicRead/liveStateFunctions:rebuildLiveProjection',
@@ -45,6 +46,9 @@ const refreshViewerKnowledgeProjectionsRef =
   internalFunctionRef<typeof refreshViewerKnowledgeProjectionsExport>(
     'publicRead/viewerKnowledgeProjectionFunctions:refreshViewerKnowledgeProjections',
   );
+const refreshArcPrimersRef = internalFunctionRef<typeof refreshArcPrimersExport>(
+  'publicRead/arcPrimerFunctions:refreshArcPrimers',
+);
 
 export type PublicTextModelRefreshResult = {
   /** How many accepted events the decision actually reached. Zero is a real answer. */
@@ -63,6 +67,14 @@ export type PublicTextModelRefreshResult = {
    * leave the secret that Scene revealed sitting on a character page.
    */
   viewerKnowledgeModelRefs: string[];
+  /**
+   * The FR-H002 arc primers re-derived (ART-176). Empty when the world published none.
+   *
+   * The primer publishes an accepted event's `publicSummary` verbatim, and it was absent from
+   * this list entirely — so a withheld Scene narrated itself on `primer:<arcId>` for as long as
+   * the arc stayed still, which for a resolved arc is forever.
+   */
+  arcPrimerModelRefs: string[];
 };
 
 /**
@@ -92,11 +104,16 @@ export async function refreshPublicTextModels(
   // to withdraw.
   const viewerKnowledge = await ctx.runMutation(
     refreshViewerKnowledgeProjectionsRef, { worldId: args.worldId, now: args.now });
+  // Per arc, and derived from the read-model store for the same reason the two above are: a
+  // primer nobody published has nothing to withdraw.
+  const arcPrimers = await ctx.runMutation(
+    refreshArcPrimersRef, { worldId: args.worldId, now: args.now });
   return {
     correlatedEventCount: live.correlatedEventCount ?? 0,
     live: { modelRef: live.modelRef, version: live.version },
     onboarding: { modelRef: onboarding.modelRef, version: onboarding.version },
     voteConsequenceModelRefs: consequence.modelRefs,
     viewerKnowledgeModelRefs: viewerKnowledge.modelRefs,
+    arcPrimerModelRefs: arcPrimers.modelRefs,
   };
 }
