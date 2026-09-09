@@ -77,13 +77,22 @@ See `docs/architecture/adr/` and `docs/DEVELOPMENT.md`.
 
 `npm run check` is the gate. It runs, in order: `check:architecture` → `test:architecture` →
 `check:asset-licenses` → `test:asset-licenses` → `check:closure-matrix` → `test:closure-matrix` →
-`check:generated-api` → `test:generated-api` → `typecheck` → `lint` → `test` → `build`.
+`check:closure-record` → `test:closure-record` → `check:generated-api` → `test:generated-api` →
+`typecheck` → `lint` → `test` → `build`.
 `npm run check:offline` is the same with `test:foundation` instead of the full suite.
 
 `check:closure-matrix` holds `docs/prd-1.0-closure-matrix.md`'s summary totals equal to the rows
 they summarise (ART-152). Its `Classification` column is a **closed vocabulary** — exactly one token
 per row, no prose or emphasis — so reclassifying a clause means updating the summary count in the
 same commit or the gate fails. Put the nuance in the verification column.
+
+`check:closure-record` holds `docs/prd-2.0-closure-record.md` — the PRD 2.0 release gate — to the
+repository it describes (ART-138). Three rules: the §2 summary must be re-derivable from the rows,
+every cited path must exist, and **every quoted test title must appear verbatim in a file that row
+cites**. That last one is the point: a renamed test breaks the gate instead of quietly orphaning a
+release claim. It does NOT check that the cited test passes — `test` does that — and it skips
+commands, identifiers and abbreviated quotes, so a citation must be a real title to be checked at
+all.
 
 `check:generated-api` holds `convex/_generated/api.d.ts` equal to the Convex modules in the tree
 (ART-153). **Adding or deleting a file under `convex/` means running `npm run codegen:api`**, which
