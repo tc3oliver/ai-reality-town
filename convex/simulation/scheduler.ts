@@ -132,6 +132,72 @@ export function configureWorldSchedule(input: {
   };
 }
 
+/**
+ * The two modes an operator may move a live world between (FR-K001 / ART-172).
+ *
+ * `mode` is the switch every cron binds on — `tickAllPublicSchedules`, the runtime-snapshot cron
+ * and the vote cron all query `by_mode_and_status` for `("public","running")` — so it is what turns
+ * a private development world into the public acceptance environment.
+ *
+ * `test` and `warmup` are deliberately NOT here. They are configuration-time modes a harness sets
+ * when it creates a schedule, and moving a live world into one would detach it from every cron
+ * while looking like an ordinary mode change. An operator's vocabulary is the promotion and the
+ * demotion; the other two are how a world is BUILT.
+ */
+export const OPERATOR_SCHEDULE_MODES = ['development', 'public'] as const;
+export type OperatorScheduleMode = (typeof OPERATOR_SCHEDULE_MODES)[number];
+
+export function isOperatorScheduleMode(value: string): value is OperatorScheduleMode {
+  return (OPERATOR_SCHEDULE_MODES as readonly string[]).includes(value);
+}
+
+export type ScheduleModeChangePlan = {
+  changed: boolean;
+  from: SchedulerMode;
+  to: OperatorScheduleMode;
+  resultCode: string;
+};
+
+/**
+ * Whether a world may move to `targetMode`, decided from state alone.
+ *
+ * The asymmetry is the point. **Promotion** starts a sixty-second cron against the world, so it
+ * requires a world that is actually running and not emergency-stopped: promoting a paused world
+ * would either do nothing (and report success) or, on the next resume, start public scheduling
+ * nobody asked for at that moment. **Demotion** only takes work away, so it is allowed from any
+ * state — refusing to demote a stopped world would leave an operator unable to take a world off
+ * the public crons precisely when something has gone wrong with it.
+ *
+ * Pure: no clock, no database. `simulationHalted` is passed in because the emergency-stop record
+ * lives in another table, and a planner that read it would have to be a mutation to be tested.
+ */
+export function planScheduleModeChange(input: {
+  current: SchedulerMode;
+  status: SchedulerStatus;
+  targetMode: OperatorScheduleMode;
+  simulationHalted: boolean;
+}): ScheduleModeChangePlan {
+  const { current, status, targetMode, simulationHalted } = input;
+  if (current === targetMode) {
+    return { changed: false, from: current, to: targetMode, resultCode: 'SCHEDULE_MODE_UNCHANGED' };
+  }
+  if (targetMode === 'public') {
+    if (simulationHalted) {
+      throw new SchedulerError(
+        'SCHEDULE_MODE_REFUSED_EMERGENCY_STOP',
+        'cannot promote a world whose simulation is emergency-stopped',
+      );
+    }
+    if (status !== 'running') {
+      throw new SchedulerError(
+        'SCHEDULE_MODE_REFUSED_PAUSED',
+        'cannot promote a paused world; resume it first',
+      );
+    }
+  }
+  return { changed: true, from: current, to: targetMode, resultCode: 'SCHEDULE_MODE_CHANGED' };
+}
+
 /** Reference scheduler used by domain tests and mirrored by internal persistence operations. */
 export class InMemoryWorldScheduler {
   private state: WorldScheduleState;

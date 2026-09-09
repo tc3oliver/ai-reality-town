@@ -107,7 +107,7 @@ product failure, or a product pass read as an environment one.
 | 7 | Affected PRD 1.0 P0 capability shows no regression | PASS | §3 #1; the whole suite runs in `npm run check`. |
 | 8 | Typecheck, lint, tests, build and CI pass | PASS | §3 #26. |
 | 9 | The matrix and closure record are updated and no longer claim completion from backend completion alone | PASS | This document; `docs/prd-2.0-requirement-matrix.md` §0 corrected in the same change (§5). |
-| 10 | Public acceptance environment seeded, scheduler producing accepted events, twelve characters verified against real Canon | **EXTERNAL_BLOCKED** | The twelve-character half IS satisfied against real Canon (§4). The world is `development`, and no registered function can change an existing world's mode. §6.3. |
+| 10 | Public acceptance environment seeded, scheduler producing accepted events, twelve characters verified against real Canon | **EXTERNAL_BLOCKED** | The twelve-character half IS satisfied against real Canon (§4). The world is `development`. The "no registered function can change a world's mode" half of this blocker is CLOSED by ART-172; what remains is an owner deploying current `main` and running the command. §6.3. |
 | 11 | The ART-136 benchmark confirmed executed AND passed before release | **EXTERNAL_BLOCKED** | Executed and recorded; mid-tier mobile FAILS at 28.4 fps on a host with no GPU. §6.1. |
 | 12 | Visual Replay references only published identifiers and versions, invalidating on withhold or supersede | PASS | §3 #31. |
 | 13 | Every §18.1 metric not yet measurable is reported as not measured rather than estimated | PASS | §7. |
@@ -285,22 +285,28 @@ do.
 **EXTERNAL_BLOCKED: the owner must deploy current `main` (§6.2) and then enable the acceptance
 environment.**
 
-There is a second, smaller finding here worth stating plainly, because it changes what the owner has
-to do. **No registered function can change an existing world's mode.** `configureSchedule`
-(`convex/simulation/schedulerOperations.ts`) is the only writer of `worldSchedules.mode`, and it
-refuses outright when a schedule already exists (`SCHEDULE_ALREADY_EXISTS`). The operator console has
-`pauseWorld` / `resumeWorld`, which move `status`, not `mode`. So the mode change is a direct row
-patch through the Convex dashboard today. Giving it an audited operator control is new feature work,
-which ART-138's own scope excludes ("This task only verifies and records"), so it is raised as its
-own task rather than done here.
+A second finding here changed what the owner has to do, and **has since been closed.** When this
+record was first written, **no registered function could change an existing world's mode**:
+`configureSchedule` is the only writer of `worldSchedules.mode` and refuses once a schedule exists
+(`SCHEDULE_ALREADY_EXISTS`), while `pauseWorld` / `resumeWorld` move `status`. The mode change was
+therefore a direct row patch in the Convex dashboard — unaudited, unreasoned, and invisible to
+`operatorAuditLog`.
+
+**ART-172 built the audited control.** `changeWorldMode`
+(`convex/operations/worldModeControlFunctions.ts`) is an admin-only, reasoned, audited command that
+refuses to promote a paused or emergency-stopped world and treats a repeat as an audited no-op. So
+the step below is a command rather than a hand patch, and the promotion appears in the trail beside
+every other privileged world action.
 
 Minimum operation, in this order:
 
 ```bash
 npx convex deploy                                  # current main
 npx convex run --inline-query '…'                  # confirm the real provider authored a slot (§6.2)
-# then, deliberately, the mode change — by hand, because nothing exposes it:
-#   Convex dashboard → Data → worldSchedules → the `mistwood` row → set mode = "public"
+# then the mode change, audited (ART-172):
+npx convex run operations/worldModeControlFunctions:changeWorldMode \
+  '{"worldId":"mistwood","targetMode":"public","reason":"<why>",
+    "operatorId":"<id>","operatorToken":"<token>"}'
 ```
 
 Acceptance command:

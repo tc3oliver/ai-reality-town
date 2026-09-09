@@ -174,7 +174,12 @@ describe('capability matrix', () => {
       // whether content everyone agrees is safe is ready to be seen.
       'publication.decide',
       'run.retry', 'safety.override', 'scene.cancel', 'schedule.inspect', 'slot.advance',
-      'snapshot.create', 'world.emergency_resume', 'world.emergency_stop',
+      'snapshot.create',
+      // FR-K001 / ART-172. Its own capability rather than folded into `world.pause`: pausing
+      // stops the clock on a world an operator already runs, while this decides whether the
+      // public sees that world at all, and starts a sixty-second cron when it says yes.
+      'world.change_mode',
+      'world.emergency_resume', 'world.emergency_stop',
       'world.inspect', 'world.pause', 'world.resume', 'world.rollback',
     ]);
     expect(Object.keys(OPS_CAPABILITY_MINIMUM_ROLE).sort()).toEqual([...OPS_CAPABILITIES].sort());

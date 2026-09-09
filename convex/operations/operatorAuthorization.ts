@@ -69,6 +69,13 @@ export const OPS_CAPABILITIES = [
   'schedule.inspect',
   'world.emergency_stop',
   'world.emergency_resume',
+  /**
+   * FR-K001 / ART-172. Moving a world between `development` and `public` decides which crons
+   * touch it, so it is its own capability rather than folded into `world.pause`: an operator
+   * trusted to stop the clock on a world is not thereby trusted to put that world in front of
+   * the public.
+   */
+  'world.change_mode',
   'world.rollback',
   'canon.correct',
   'canon.compensate',
@@ -182,6 +189,9 @@ const CAPABILITY_MINIMUM_ROLE: Readonly<Record<OpsCapability, OperatorRole>> = {
   // All three are world-wide and are therefore reserved for `admin`.
   'world.emergency_stop': 'admin',
   'world.emergency_resume': 'admin',
+  // FR-K001. Promotion starts a sixty-second cron against a world and decides what the public
+  // sees. `admin` for the same reason `snapshot.create` is.
+  'world.change_mode': 'admin',
   'world.rollback': 'admin',
   // FR-K003. A remediation appends to accepted Canon, the most consequential
   // write the console can make, so all three are reserved for `admin`.

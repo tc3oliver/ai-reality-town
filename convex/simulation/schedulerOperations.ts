@@ -8,12 +8,16 @@ import {
   cursorOrdinal,
   deterministicSlotSeed,
   nextCursor,
+  planScheduleModeChange,
   publicDueOrdinal,
   SchedulerError,
   slotKey,
+  type OperatorScheduleMode,
+  type ScheduleModeChangePlan,
   type SlotTrigger,
   type WorldScheduleState,
 } from './scheduler';
+import { readEmergencyStopState } from './emergencyStopOperations';
 import { worldDayRunId } from './worldDayLive';
 
 type MutationDb = GenericMutationCtx<import('../_generated/dataModel').DataModel>['db'];
@@ -70,6 +74,43 @@ export async function resumeWorldSchedule(db: MutationDb, worldId: string, now: 
     });
   }
   return 'running';
+}
+
+/**
+ * Move a world between `development` and `public` (FR-K001 / ART-172).
+ *
+ * The one writer of `worldSchedules.mode` after creation. `configureSchedule` refuses outright
+ * when a schedule already exists, so before this the only way to promote a world was a hand patch
+ * of the row through the Convex dashboard: unaudited, unreasoned, and invisible to
+ * `operatorAuditLog`. Every other privileged world action on the console is authorized and
+ * audited; the one with the largest blast radius was not reachable at all.
+ *
+ * The decision is {@link planScheduleModeChange}'s, not this function's — this only supplies the
+ * two facts a pure planner cannot read (the row, and whether the kill switch is engaged) and
+ * performs the write. Idempotent: a repeat returns `changed: false` and writes nothing, which is
+ * what lets the caller audit it as a `no_op` rather than as a second promotion.
+ *
+ * The halt is read from `worldEmergencyStops`, NOT inferred from the schedule row: the kill switch
+ * deliberately leaves `status` and the queue intact, so a halted world reads `running` here.
+ *
+ * Callers reachable by an unauthenticated client MUST authorize before calling this.
+ */
+export async function changeWorldScheduleMode(
+  db: MutationDb,
+  worldId: string,
+  input: { targetMode: OperatorScheduleMode; now: number },
+): Promise<ScheduleModeChangePlan> {
+  assertNow(input.now);
+  const row = await loadScheduleRow(db, worldId);
+  const stop = await readEmergencyStopState(db, worldId);
+  const plan = planScheduleModeChange({
+    current: row.mode,
+    status: row.status,
+    targetMode: input.targetMode,
+    simulationHalted: stop.engaged,
+  });
+  if (plan.changed) await db.patch(row._id, { mode: plan.to, updatedAt: input.now });
+  return plan;
 }
 
 /** Reserve `count` slots from the world's cursor. Shared by the cron, the internal mutations, and the console. */

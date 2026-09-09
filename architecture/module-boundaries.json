@@ -493,6 +493,12 @@
         "gate": "operator"
       },
       {
+        "path": "convex/operations/worldModeControlFunctions.ts",
+        "name": "changeWorldMode",
+        "kind": "mutation",
+        "gate": "operator"
+      },
+      {
         "path": "convex/operations/emergencyStopFunctions.ts",
         "name": "emergencyStop",
         "kind": "mutation",
