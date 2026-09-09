@@ -319,6 +319,12 @@ describe('FR-C001…FR-C005 live world-day execution', () => {
 
     const resumed = await executeWorldDay(runInput(slotOf('noon')), runStore, handlers);
     expect(resumed).toMatchObject({ status: 'completed', attemptCount: 2 });
+    // ART-170: `toMatchObject` ignores extra keys, so this case passed with the failed attempt's
+    // error still on the record — the exact defect ART-150 fixed, in the one test best placed to
+    // catch it. The store's guarantee is that a run out of `failed` drops all three fields.
+    expect(resumed.errorCode).toBeUndefined();
+    expect(resumed.failureStage).toBeUndefined();
+    expect(resumed.errorMessage).toBeUndefined();
     const events = store.committedEvents();
     expect(events).toHaveLength(expected);
     expect(new Set(events.map(({ idempotencyKey }) => idempotencyKey)).size).toBe(expected);

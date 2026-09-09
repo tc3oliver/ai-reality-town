@@ -110,7 +110,7 @@ import { buildRecapSnapshot, type RecapSnapshot } from '../recaps/model';
 import { classifyPostGeneration } from '../safety/postGeneration';
 import { createArcLifecycle, isActiveArcStatus, transitionArcLifecycle } from '../story/lifecycle';
 import { createArcResolutionDecision, type ArcResolutionDecision } from '../story/resolution';
-import type { ArcHeatScore } from '../story/heat';
+import { initialArcHeat, type ArcHeatScore } from '../story/heat';
 import { deriveConsequenceSummaries, type ConsequenceSummary } from '../story/consequenceSummary';
 import { applyArcPortfolioControl, MAX_MAJOR_ACTIVE_ARCS,
   MAX_MINOR_ACTIVE_ARCS, type ArcPortfolioEntry } from '../story/portfolio';
@@ -1053,7 +1053,15 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
               title: proposal.title, premise: proposal.premise, currentQuestion: proposal.currentQuestion,
               coreCharacterIds: proposal.coreCharacterIds, incitingEventId: classification.sourceEventId,
               latestTurningPointEventId: null, essentialFactIds: [], unresolvedQuestions: [proposal.currentQuestion],
-              resolvedQuestions: [], recommendedEntryEventId: null, heatScore: Math.round(membership.importance * 100),
+              resolvedQuestions: [], recommendedEntryEventId: null,
+              // The same composite the deployment writes at creation (ART-170). A harness that
+              // seeded a different score would report a world the pipeline would not produce.
+              heatScore: initialArcHeat({
+                worldId: LONG_RUN_WORLD_ID, arcId: proposal.arcId, status: 'emerging',
+                worldDay: source.worldDay, eventImportance: membership.importance,
+                sourceEventId: classification.sourceEventId, coreCharacterIds: proposal.coreCharacterIds,
+                eventParticipantIds: source.participantIds, unresolvedQuestionCount: 1,
+              }).score,
             },
             sourceEventId: classification.sourceEventId,
             sourceEventSequenceNumber: classification.sourceEventSequenceNumber,

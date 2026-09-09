@@ -22,8 +22,9 @@
  * whose extension is not a JS/TS one, anything under `_generated/`, dotfiles, emacs `#` tempfiles,
  * ANY file named `schema.ts`/`schema.js` at any depth, any basename containing more than one dot
  * (which is what excludes `*.test.ts` and `auth.config.ts`), any path containing a space, and
- * directories that are nested components (`convex.config.ts`). `_deps/` is an error rather than a
- * skip.
+ * directories that are nested components (`convex.config.ts`), and — the one rule that needs the
+ * file's CONTENTS — a `.ts`/`.tsx` file with no top-level `import` or `export`. `_deps/` is an error
+ * rather than a skip.
  *
  * The RISK of reimplementing is real and is bounded deliberately: this compares the MODULE LIST,
  * not the file byte-for-byte. If Convex changes how it renders the file, this check keeps passing
@@ -68,6 +69,9 @@ export function isConvexModule(relativePath) {
   return true;
 }
 
+/** Whether a TS entry point declares anything an api could reference. */
+export const hasTopLevelImportOrExport = (source) => /^\s*(import|export)\b/m.test(source);
+
 /** Every module path (extension stripped), sorted as the generated file sorts them. */
 export function convexModules(dir = CONVEX_DIR) {
   const found = [];
@@ -85,6 +89,12 @@ export function convexModules(dir = CONVEX_DIR) {
         throw new Error(`"${relativePath}" is under the reserved "_deps" directory`);
       }
       if (!isConvexModule(relativePath)) continue;
+      // The one rule that needs the file's contents rather than its name: the CLI drops a `.ts`/
+      // `.tsx` entry point with no top-level `import` or `export`, because such a file exports
+      // nothing an api could reference. It matches nothing in this repository today, which is
+      // exactly why it is easy to omit — and omitting it would make this check demand a module
+      // `convex dev` excludes.
+      if (/\.tsx?$/.test(relativePath) && !hasTopLevelImportOrExport(readFileSync(full, 'utf8'))) continue;
       found.push(relativePath.replace(/\.[^.]+$/, ''));
     }
   };

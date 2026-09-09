@@ -2,6 +2,7 @@ import { v } from 'convex/values';
 import { internalMutation, internalQuery } from '../_generated/server';
 import { deriveEventId } from '../shared/ids';
 import { ArcClassificationError, parseArcEventClassification, validateArcClassificationReferences } from './classification';
+import { initialArcHeat } from './heat';
 
 export const recordArcEventClassification = internalMutation({
   args: { classification: v.any() },
@@ -54,7 +55,16 @@ export const recordArcEventClassification = internalMutation({
           title: proposed.title, premise: proposed.premise, currentQuestion: proposed.currentQuestion,
           coreCharacterIds: proposed.coreCharacterIds, incitingEventId: classification.sourceEventId,
           latestTurningPointEventId: null, essentialFactIds: [], unresolvedQuestions: [proposed.currentQuestion],
-          resolvedQuestions: [], recommendedEntryEventId: null, heatScore: Math.round(membership.importance * 100),
+          resolvedQuestions: [], recommendedEntryEventId: null,
+          // The same composite the update path applies (ART-170); ART-32 left this stand-in here.
+          heatScore: initialArcHeat({
+            worldId: classification.worldId, arcId: proposed.arcId, status: 'emerging',
+            worldDay: source.worldDay, eventImportance: membership.importance,
+            sourceEventId: classification.sourceEventId,
+            coreCharacterIds: proposed.coreCharacterIds,
+            eventParticipantIds: (source.participantIds as string[] | undefined) ?? [],
+            unresolvedQuestionCount: 1,
+          }).score,
         },
         sourceEventId: classification.sourceEventId, sourceEventSequenceNumber: classification.sourceEventSequenceNumber,
         worldDay: source.worldDay, timeSlot: source.timeSlot,

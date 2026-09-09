@@ -1,4 +1,5 @@
 import type { ArcEventClassification, StoryArcProjectionData, StoryArcStatus } from './model';
+import { compareArcsByHeat } from './heat';
 
 export const MAX_MAJOR_ACTIVE_ARCS = 3;
 export const MAX_MINOR_ACTIVE_ARCS = 6;
@@ -121,7 +122,12 @@ export function selectHomepageArc(entries: readonly ArcPortfolioEntry[]): Homepa
   eligible.sort((left, right) =>
     Number(right.tier === 'major') - Number(left.tier === 'major')
     || right.priority - left.priority
-    || right.projection.heatScore - left.projection.heatScore
+    // The heat leg is `compareArcsByHeat`, shared with `candidateArcs` (ART-170), so the two
+    // surfaces cannot come to disagree about which arc is hottest. The world-day and id legs stay
+    // here because they are this selector's own tie-breaks, applied after heat.
+    || compareArcsByHeat(
+      { arcId: left.projection.arcId, heatScore: left.projection.heatScore },
+      { arcId: right.projection.arcId, heatScore: right.projection.heatScore })
     || right.projection.lastProgressTime.worldDay - left.projection.lastProgressTime.worldDay
     || left.projection.arcId.localeCompare(right.projection.arcId));
   const selected = eligible[0];

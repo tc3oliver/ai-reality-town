@@ -36,7 +36,7 @@ import {
 import { ALLOWED_ARC_TRANSITIONS, isActiveArcStatus } from '../story/lifecycle';
 import type { RecapType } from '../recaps/model';
 import { VOTE_CONSEQUENCE_LOOKAHEAD_DAYS } from '../publicRead/voteConsequenceProjection';
-import { computeArcHeat, type ArcHeatScore } from '../story/heat';
+import { compareArcsByHeat, computeArcHeat, initialArcHeat, type ArcHeatScore } from '../story/heat';
 import {
   MAX_MAJOR_ACTIVE_ARCS,
   MAX_MAJOR_CORE_CHARACTERS,
@@ -458,7 +458,12 @@ function candidateArcs(event: AcceptedEvent, arcs: readonly LiveArcState[]): Liv
   return arcs
     .filter((arc) => arc.status === 'emerging' || isActiveArcStatus(arc.status))
     .filter((arc) => arc.fields.coreCharacterIds.some((characterId) => participants.has(characterId)))
-    .sort((left, right) => right.fields.heatScore - left.fields.heatScore || left.arcId.localeCompare(right.arcId))
+    // One definition of the heat ordering, shared with `selectHomepageArc` (ART-170). This used to
+    // write the same comparator out inline while `compareArcsByHeat` had no caller at all.
+    .sort((left, right) => compareArcsByHeat(
+      { arcId: left.arcId, heatScore: left.fields.heatScore },
+      { arcId: right.arcId, heatScore: right.fields.heatScore },
+    ))
     .slice(0, MAX_EVENT_ARC_MEMBERSHIPS);
 }
 
@@ -529,7 +534,16 @@ export function newArcPortfolioEntry(
       status: 'emerging', coreCharacterIds: [...proposal.coreCharacterIds],
       incitingEventId: event.eventId, latestTurningPointEventId: null,
       essentialFactIds: [], unresolvedQuestions: [proposal.currentQuestion], resolvedQuestions: [],
-      recommendedEntryEventId: null, heatScore: Math.round(importance * 100),
+      recommendedEntryEventId: null,
+      // The same composite `nextArcProjectionFields` applies (ART-170). ART-32 changed the update
+      // path and left the stand-in here, so a new arc carried the pre-ART-32 score until its first
+      // revision — two scoring rules under one field name.
+      heatScore: initialArcHeat({
+        worldId: event.worldId, arcId: proposal.arcId, status: 'emerging', worldDay: event.worldDay,
+        eventImportance: importance, sourceEventId: event.eventId,
+        coreCharacterIds: proposal.coreCharacterIds, eventParticipantIds: event.participantIds,
+        unresolvedQuestionCount: 1,
+      }).score,
       lastProgressTime: { worldDay: event.worldDay, timeSlot: event.timeSlot, sourceEventId: event.eventId },
       revision: 0,
     },

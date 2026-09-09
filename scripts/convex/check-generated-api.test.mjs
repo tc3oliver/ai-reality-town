@@ -20,18 +20,26 @@ import {
   declaredModules,
   fullApiEntries,
   GENERATED_API_PATH,
+  hasTopLevelImportOrExport,
   isConvexModule,
   renderGeneratedApi,
   runCheck,
 } from './check-generated-api.mjs';
 
-/** Writes `files` (paths relative to a fake `convex/`) into a fresh temp directory. */
+/**
+ * Writes `files` (paths relative to a fake `convex/`) into a fresh temp directory.
+ *
+ * An empty string means "an ordinary module" and is given a top-level export, because since
+ * ART-170 a `.ts` file with no top-level import or export is not an entry point at all. Fixtures
+ * that wrote genuinely empty files were asserting the wrong thing the moment that rule landed —
+ * they described a file the CLI skips while claiming it was a module.
+ */
 function fixtureTree(files) {
   const root = mkdtempSync(join(tmpdir(), 'convex-api-'));
   for (const [path, contents] of Object.entries(files)) {
     const full = join(root, path);
     mkdirSync(dirname(full), { recursive: true });
-    writeFileSync(full, contents);
+    writeFileSync(full, contents === '' ? 'export const placeholder = 1;\n' : contents);
   }
   return root;
 }
@@ -192,4 +200,21 @@ test('both halves of the real file agree with each other', () => {
   const imports = declaredModules(source);
   assert.deepEqual(fullApiEntries(source), imports);
   assert.ok(imports.length > 200, `expected the real file to declare its modules, found ${imports.length}`);
+});
+
+test('a TS entry point with no top-level import or export is skipped (ART-170)', () => {
+  // The one rule that needs the file's CONTENTS. It matches nothing in this repository today, which
+  // is exactly why it was easy to omit — and omitting it would make the check demand a module
+  // `convex dev` excludes.
+  assert.equal(hasTopLevelImportOrExport('export const x = 1;\n'), true);
+  assert.equal(hasTopLevelImportOrExport("import { y } from './y';\n"), true);
+  assert.equal(hasTopLevelImportOrExport('// just a note\nconst x = 1;\n'), false);
+
+  const root = fixtureTree({
+    'canon/commit.ts': 'export const commit = 1;\n',
+    'canon/inert.ts': '// no top-level import or export\nconst x = 1;\n',
+    // A `.js` entry point is NOT subject to the rule; only `.ts`/`.tsx` are.
+    'canon/plain.js': 'const y = 2;\n',
+  });
+  assert.deepEqual(convexModules(root), ['canon/commit', 'canon/plain']);
 });
