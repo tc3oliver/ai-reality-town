@@ -1,10 +1,11 @@
 ---
 id: ART-71
 title: Authenticated viewer follows and progress
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-08-02 15:43'
-updated_date: '2026-08-02 16:58'
+updated_date: '2026-09-09 13:27'
 labels:
   - prd-1.0
   - epic-l
@@ -89,3 +90,14 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Establish whether the auth substrate exists: ART-104 configured Clerk, and ART-39 left an unreachable 'auth' viewer-key namespace for exactly this task.
+2. Write the authenticated key and the merge as pure functions; the merge is where FR-H004 AC#7's three words each become a property.
+3. Add as few viewer-write surfaces as the requirement allows — fold the authenticated read and write into the existing endpoints, which is safer as well as smaller.
+4. Raise the write cap deliberately, in all four places the policy requires to agree.
+5. Fault injections at both layers; state the evidence boundary (no live Clerk credential) rather than simulating one.
+6. npm run check, npm run e2e, closure matrix, docs/authenticated-viewer-progress.md.
+<!-- SECTION:PLAN:END -->

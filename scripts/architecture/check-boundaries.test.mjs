@@ -276,12 +276,18 @@ const surfacePolicy = (allowed) => ({
 
 test('the live policy declares exactly the repo\'s client-reachable surface', () => {
   assert.deepEqual(validatePublicFunctionSurface(), []);
-  // Every declared public mutation is an operator control -- or one of the TWO viewer writes,
-  // which `viewerWriteBoundary` fences separately: ART-45's daily ballot (FR-J001) and ART-39's
-  // viewer progress record (FR-H004, PRD §13.12). Anonymous writes remain impossible: the gate is
-  // spelled `viewer`, and it costs a second declaration plus a cap that has to be raised on
-  // purpose. The list is exhaustive rather than counted, so a third write cannot arrive by
-  // replacing one of these.
+  // Every declared public mutation is an operator control -- or one of the THREE viewer writes,
+  // which `viewerWriteBoundary` fences separately: ART-45's daily ballot (FR-J001), ART-39's
+  // viewer progress record (FR-H004, PRD §13.12), and ART-71's progress merge (FR-J003, FR-H004
+  // AC#7's second clause). Anonymous writes remain impossible: the gate is spelled `viewer`, and
+  // it costs a second declaration plus a cap that has to be raised on purpose. The list is
+  // exhaustive rather than counted, so a fourth write cannot arrive by replacing one of these.
+  //
+  // ART-71 added exactly ONE. The authenticated read and write did not need surfaces of their own:
+  // `getViewerProgress` and `recordViewerProgress` prefer a verified identity over the presented
+  // token, which is both fewer endpoints and safer — two endpoints would let a signed-in client
+  // reach the anonymous row by calling the wrong one. Only the MERGE is genuinely a new operation,
+  // because FR-H004 AC#7 requires it to be explicit rather than a side effect of signing in.
   //
   // ART-47 (§15) added `telemetry`, and the two lists below are asserted SEPARATELY on purpose.
   // Telemetry mutates no world state, so it must not be able to spend the world-mutation
@@ -303,6 +309,7 @@ test('the live policy declares exactly the repo\'s client-reachable surface', ()
     [
       'convex/viewer/environmentVoteFunctions.ts:submitEnvironmentVote',
       'convex/viewer/viewerProgressFunctions.ts:recordViewerProgress',
+      'convex/viewer/viewerProgressFunctions.ts:mergeDeviceProgressIntoAccount',
     ],
   );
 });

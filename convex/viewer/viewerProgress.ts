@@ -271,13 +271,24 @@ export function evaluateViewerProgressSubmission(input: {
   rowCount: number;
   /** Whether this device already has a row — only a NEW row spends the world's ceiling. */
   hasExistingRow: boolean;
+  /**
+   * Whether the row is addressed by a VERIFIED identity rather than by a presented token (ART-71).
+   *
+   * The device-key shape check below exists because an anonymous token is a caller-supplied string
+   * that must be refused before it is digested. An authenticated caller supplies no token — the
+   * key comes from `ctx.auth.getUserIdentity()`, which Convex populates only after verifying the
+   * JWT — so there is nothing to shape-check, and requiring one would mean inventing a synthetic
+   * token to satisfy a rule that does not apply. Everything else does apply, including the attempt
+   * budget: a verified identity is not a licence to enumerate the world's ids.
+   */
+  identityVerified?: boolean;
 }): ViewerProgressDecision {
   const { submission, history, published, rowCount, hasExistingRow } = input;
 
   if (history.attempts >= MAX_ATTEMPTS_PER_DEVICE_PER_WORLD) {
     return { accepted: false, code: 'PROGRESS_ATTEMPTS_EXHAUSTED' };
   }
-  if (!isProgressDeviceKey(submission.deviceKey)) {
+  if (input.identityVerified !== true && !isProgressDeviceKey(submission.deviceKey)) {
     return { accepted: false, code: 'PROGRESS_DEVICE_KEY_INVALID' };
   }
   // `worldId` is a caller-supplied string like any other, and until this check it was validated

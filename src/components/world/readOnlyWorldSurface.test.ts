@@ -207,8 +207,14 @@ describe('read-only public surface', () => {
     // allowance, which is what「架構上分離」has to mean if it means anything. The roots must
     // also be disjoint, so no one file can hold both exemptions -- `check-boundaries.mjs`
     // enforces that, and this is the product-side evidence for it.
+    //
+    // ART-71 raised the MUTATION cap 2 -> 3 for FR-J003's progress merge, and deliberately added
+    // no client root: the merge is reached from `src/components/recap`, which is already a
+    // declared write root. The number of client SURFACES a viewer can write from is the property
+    // this file is about, and it did not move — which is why the two bounds are asserted
+    // separately rather than as one number.
     expect(VIEWER_WRITE_CLIENT_ROOTS.length).toBeLessThanOrEqual(2);
-    expect(POLICY.viewerWriteBoundary.maxViewerMutations).toBe(2);
+    expect(POLICY.viewerWriteBoundary.maxViewerMutations).toBe(3);
     expect(TELEMETRY_CLIENT_ROOTS.length).toBeLessThanOrEqual(1);
     for (const telemetryRoot of TELEMETRY_CLIENT_ROOTS) {
       for (const viewerRoot of VIEWER_WRITE_CLIENT_ROOTS) {
