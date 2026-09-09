@@ -30,8 +30,8 @@
     "check:architecture": "node scripts/architecture/check-boundaries.mjs",
     "test:asset-licenses": "node --test scripts/assets/check-asset-licenses.test.mjs",
     "check:asset-licenses": "node scripts/assets/check-asset-licenses.mjs",
-    "check:offline": "run-s check:architecture test:architecture check:asset-licenses test:asset-licenses typecheck lint test:foundation build",
-    "check": "run-s check:architecture test:architecture check:asset-licenses test:asset-licenses typecheck lint test build",
+    "check:offline": "run-s check:architecture test:architecture check:asset-licenses test:asset-licenses check:closure-matrix test:closure-matrix typecheck lint test:foundation build",
+    "check": "run-s check:architecture test:architecture check:asset-licenses test:asset-licenses check:closure-matrix test:closure-matrix typecheck lint test build",
     "backlog": "backlog",
     "agent:check": "node scripts/agent/check-bootstrap.mjs",
     "agent:context": "node scripts/agent/session-context.mjs",
@@ -44,7 +44,9 @@
     "bench:report": "node scripts/bench/report.mjs",
     "bench": "run-s build:e2e bench:run bench:report",
     "test:live-gateway": "ART159_LIVE_SMOKE=1 NODE_OPTIONS=--experimental-vm-modules jest --runTestsByPath convex/simulation/providers/liveGatewaySmoke.test.ts",
-    "test:live-structure": "ART90_LIVE_STRUCTURE=1 NODE_OPTIONS=--experimental-vm-modules jest --runTestsByPath convex/simulation/providers/liveStructuredOutputEvidence.test.ts"
+    "test:live-structure": "ART90_LIVE_STRUCTURE=1 NODE_OPTIONS=--experimental-vm-modules jest --runTestsByPath convex/simulation/providers/liveStructuredOutputEvidence.test.ts",
+    "check:closure-matrix": "node scripts/docs/check-closure-matrix.mjs",
+    "test:closure-matrix": "node --test scripts/docs/check-closure-matrix.test.mjs"
   },
   "dependencies": {
     "@clerk/clerk-react": "^5.61.9",

@@ -76,8 +76,14 @@ See `docs/architecture/adr/` and `docs/DEVELOPMENT.md`.
 ## 7. Commands
 
 `npm run check` is the gate. It runs, in order: `check:architecture` → `test:architecture` →
-`check:asset-licenses` → `test:asset-licenses` → `typecheck` → `lint` → `test` → `build`.
+`check:asset-licenses` → `test:asset-licenses` → `check:closure-matrix` → `test:closure-matrix` →
+`typecheck` → `lint` → `test` → `build`.
 `npm run check:offline` is the same with `test:foundation` instead of the full suite.
+
+`check:closure-matrix` holds `docs/prd-1.0-closure-matrix.md`'s summary totals equal to the rows
+they summarise (ART-152). Its `Classification` column is a **closed vocabulary** — exactly one token
+per row, no prose or emphasis — so reclassifying a clause means updating the summary count in the
+same commit or the gate fails. Put the nuance in the verification column.
 
 **`npm run e2e` is NOT part of `check`, and is not a required CI status check.** Run it
 separately (`build:e2e` → Playwright) before claiming a change is verified — especially for
