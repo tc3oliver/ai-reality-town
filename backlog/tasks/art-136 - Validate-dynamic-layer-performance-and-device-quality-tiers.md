@@ -5,7 +5,7 @@ status: Blocked
 assignee:
   - '@claude'
 created_date: '2026-08-04 16:00'
-updated_date: '2026-08-25 11:45'
+updated_date: '2026-09-09 19:06'
 labels:
   - prd-2.0
   - v2-j
@@ -241,4 +241,16 @@ PR #194 is merged, so DoD #14 is satisfied. The benchmark harness, its committed
 AC#6 is deliberately left unchecked. The benchmark COVERS twelve, twenty and forty visible characters (AC#9, checked, and the samples are in the results file), but AC#6 asks that performance BE measured at those counts, and on a host whose fps figures are inconclusive for the mobile profile the measurement does not settle it. Checking it would be checking the coverage, not the criterion.
 
 Nothing here is waiting on a decision or on further implementation. It is waiting on a GPU host or a real device, and on a deployed environment — the same blockers ART-138 records.
+
+## 2026-09-09 — re-audited alongside ART-138
+
+The four unchecked criteria split three ways, and only one of them is repository work.
+
+**AC#2 (`publicDynamicQueryP95Ms` < 500ms) and AC#3 (runtime-to-screen < 5s): EXTERNAL_BLOCKED, need a deployment.** The E2E build replaces the Convex transport with a synchronous in-process fixture, so measuring either there would record ~0 ms for a path that was never exercised — a pass for something that did not run. `bench/dynamicView.bench.ts` already records both as `requires_deployment` with that reason. The server half of AC#3 is published as ART-133's `runtimeProjectionLatency` and is `server_measured`; the end-to-end figure is not.
+
+**AC#4: measured and FAILING, and inconclusive.** Mid-tier mobile averages 28.4 fps (`stream`) and 28.38 fps (`delayed`) against the 30 fps threshold. The recording host reports an ANGLE/SwiftShader device, so the mobile profile software-rasterises 2.5 Mpx under 4x CPU throttling. The figure is reported as a failure rather than exempted, and it cannot settle the criterion either way for hardware graphics. Needs a real device or a GPU-capable runner — `docs/prd-2.0-closure-record.md` §6.1 has the command and the pass threshold.
+
+**AC#6 (12, 20 and 40 visible characters): NOT external, and it should not have been recorded as unreachable.** `CHARACTER_COUNT_LIMIT` argues that 20 and 40 are not representable because Mistwood has twelve bound residents and the view model drops unbound characters. That argument is right about the WORLD and wrong about the MEASUREMENT: NFR2-002 AC#4 is a renderer-capacity threshold, not a claim about the town's population. A synthetic load probe confined to `src/e2e/` supplies both counts without touching the production roster or its pinning tests. Raised as **ART-173**.
+
+Nothing here changes AC#1 or AC#5, which stay checked.
 <!-- SECTION:NOTES:END -->

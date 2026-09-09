@@ -1,11 +1,11 @@
 ---
 id: ART-138
 title: Run the Dynamic Viewing MVP public release gate
-status: In Progress
+status: Blocked
 assignee:
   - '@claude'
 created_date: '2026-08-04 16:00'
-updated_date: '2026-09-09 18:34'
+updated_date: '2026-09-09 19:05'
 labels:
   - prd-2.0
   - v2-k
@@ -173,4 +173,28 @@ The result is `docs/prd-2.0-closure-record.md` — thirty-one §22 criteria plus
 `npm run check:closure-record` (new, in `npm run check`) holds the document to the tree: the §2 summary must be re-derivable from the rows, every cited path must exist, and **every quoted test title must appear verbatim in a file that row cites**. Run against the first draft it found nine citations that did not resolve — an abbreviated quote, three files named without their directory, and a CI job name mistaken for a test. All nine are fixed; 44 cited test names now resolve.
 
 Three injections against the real artifacts, each turning `the closure record in the repository agrees with itself and with the tree` red: a verdict changed without its summary, a test name altered in the record, and — the one that matters — a cited test RENAMED IN THE SOURCE.
+
+## Terminal state: Blocked on H01 + H03, and on nothing else
+
+Every acceptance criterion that the repository can settle is checked. Two are not, and both are the same class: they need an action `CLAUDE.md` §5 forbids an agent from taking.
+
+**AC#11 — the performance gate (H01: no GPU-capable host available to this agent).**
+`docs/benchmarks/dynamic-view-latest.md` records mid-tier mobile at 28.4 fps (`stream`) and 28.38 fps (`delayed`) against NFR2-002's 30. The number is real and is reported as a FAIL, not exempted. But the recording host has no usable GPU — Chromium reports `ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device …))` — so it software-rasterises a 1080×2340 backing store under 4× CPU throttling, and a software rasteriser missing 30 fps says nothing about a phone. There is no newer benchmark in the tree and no GPU-capable runner in CI.
+
+Owner operation: `npm run bench` on a host with hardware graphics, with `BENCH_SOFTWARE_GL` unset.
+Acceptance: `docs/prd-2.0-closure-record.md` §6.1 gives the exact command and the pass threshold. PASS means mid-tier mobile ≥ 30 fps in `stream` AND `delayed` at 12 characters, on a run whose recorded `Renderer` is not SwiftShader. The `degraded` (60 fps) and `snapshot` (37.35 fps) figures do not substitute, and neither does desktop.
+
+**AC#10 — the public acceptance environment (H03: a production deploy and a production mode change).**
+The twelve-character half is ALREADY satisfied against real Canon: the live deployment holds 83 accepted events naming all twelve residents and all eight locations. What is missing is the world being `public`, and two things stand in the way. The deployment is running a build from before ART-159/ART-160, so promoting it would start a 60-second cron against stale code. And **no registered function can change an existing world's mode** — `configureSchedule` refuses when a schedule exists, and the console's pause/resume move `status`, not `mode` — so the change is a hand patch through the Convex dashboard. That second finding is raised as ART-172.
+
+Owner operation and acceptance: `docs/prd-2.0-closure-record.md` §6.2 and §6.3, each with its command and its pass threshold.
+
+## What is NOT blocking, contrary to the earlier notes
+
+ART-99, ART-139 and ART-141 are all fixed; Convex function execution works; and ART-100's read-cost argument against going public no longer holds. All four were named as blockers here as recently as 2026-09-06. §5 of the closure record records each with the evidence that retired it.
+
+## Follow-ups raised rather than absorbed
+
+- **ART-172** — a world mode change has no audited operator control.
+- **ART-173** — the benchmark records 20 and 40 visible characters as `unreachable`; FR-Q005 requires all three scenarios, and a bench-only load probe can supply them without touching the production roster.
 <!-- SECTION:NOTES:END -->
