@@ -1,11 +1,11 @@
 ---
 id: ART-138
 title: Run the Dynamic Viewing MVP public release gate
-status: Blocked
+status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-08-04 16:00'
-updated_date: '2026-09-06 03:19'
+updated_date: '2026-09-09 18:13'
 labels:
   - prd-2.0
   - v2-k
