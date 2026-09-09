@@ -9,7 +9,9 @@
 import {
   composeEnvironmentVoteViewModel,
   GENERIC_REFUSAL_TEXT,
+  isBallotOpen,
   refusalText,
+  voteViewedTarget,
   VOTE_DISCLAIMER,
   type EnvironmentVoteBallot,
 } from './environmentVoteModel';
@@ -105,5 +107,63 @@ describe('the ballot panel', () => {
     const vm = compose({ interaction: { kind: 'refused', code: 'VOTE_INPUT_REJECTED' } });
     expect(vm.message).toBe('這次送出的內容沒有通過安全檢查。');
     expect(JSON.stringify(vm)).not.toContain('VOTE_INPUT_REJECTED');
+  });
+});
+
+/**
+ * One rule for "is a vote available", and the measurement that depends on it (ART-179).
+ *
+ * There were three answers in this codebase. This one; an identical expression on the homepage
+ * view model that nothing rendered; and — in `Homepage.tsx`, gating `vote_viewed` — a third that
+ * checked only whether a ballot EXISTED. The third was the only one that ran.
+ */
+describe('the one cutoff rule, and the measurement it gates', () => {
+  const open = { worldDay: 4, cutoffAt: CUTOFF };
+
+  it('treats a missing ballot as closed, however it is missing', () => {
+    // `undefined` is the in-flight read and `null` is "no round is open". Neither is evidence
+    // that voting is available, and collapsing them here is what keeps the caller from having to.
+    expect(isBallotOpen(null, 0)).toBe(false);
+    expect(isBallotOpen(undefined, 0)).toBe(false);
+  });
+
+  it('closes exactly AT the cutoff, not after it', () => {
+    expect(isBallotOpen(open, CUTOFF - 1)).toBe(true);
+    // The boundary belongs to the closed side, matching `selectable` and the server's own
+    // refusal. An off-by-one here would offer a control the server rejects.
+    expect(isBallotOpen(open, CUTOFF)).toBe(false);
+    expect(isBallotOpen(open, CUTOFF + 1)).toBe(false);
+  });
+
+  it('is the rule the panel renders from, so the sentence and the flag cannot disagree', () => {
+    const at = (now: number) => composeEnvironmentVoteViewModel({
+      ballot: { ...ballot, cutoffAt: CUTOFF }, interaction: { kind: 'idle' }, now,
+    });
+    expect(at(CUTOFF - 1).available).toBe(isBallotOpen(open, CUTOFF - 1));
+    expect(at(CUTOFF).available).toBe(isBallotOpen(open, CUTOFF));
+    expect(at(CUTOFF).status).toContain('已截止');
+  });
+
+  it('emits vote_viewed for an open ballot, and for nothing else', () => {
+    /**
+     * §16.1's `vote_participation` denominator. Its docblock in `Homepage.tsx` has always said it
+     * fires「only once a ballot is actually open」; until ART-179 it fired for any ballot at all.
+     *
+     * That window is real rather than theoretical: `getEnvironmentVoteBallot` serves any round
+     * whose row reads `status: 'open'`, and that status is moved by `tickEnvironmentVoteRounds`,
+     * a cron on a FIVE-MINUTE interval. For up to five minutes past the cutoff the server hands
+     * back a ballot the panel renders as 「已截止」 with nothing selectable — a viewer who could
+     * enter the denominator and never the numerator.
+     */
+    expect(voteViewedTarget(open, CUTOFF - 1)).toBe(4);
+    expect(voteViewedTarget(open, CUTOFF)).toBeNull();
+    expect(voteViewedTarget(null, 0)).toBeNull();
+    expect(voteViewedTarget(undefined, 0)).toBeNull();
+  });
+
+  it('measures the round the viewer was shown, not the day a winner would affect', () => {
+    // `targetWorldDay` is a day whose events have not happened. Reporting it here would file the
+    // viewing against a round that was never on screen.
+    expect(voteViewedTarget({ worldDay: 4, cutoffAt: CUTOFF }, 0)).toBe(4);
   });
 });

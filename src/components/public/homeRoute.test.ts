@@ -116,15 +116,23 @@ describe('composeHomepageViewModel', () => {
     expect(HOME_MAX_FACTS).toBe(3);
   });
 
-  it('vote availability is derived from the published ballot, never asserted (ART-45)', () => {
-    // It was a hard-coded `false` for as long as FR-J001 did not exist. Now it is a derivation,
-    // and all four states are pinned: no ballot, an in-flight read, an open round, a closed one.
+  it('publishes no vote-availability field, because no view rendered one (ART-179)', () => {
+    /**
+     * This block used to pin `voteAvailable` across four states. Every assertion passed, and the
+     * field reached no view in this repository: an exact duplicate of `isBallotOpen`, on a model
+     * whose consumers never read it.
+     *
+     * It was one of THREE answers to "is a vote available" — this, the ballot panel's, and the
+     * `vote_viewed` gate's, which checked no cutoff at all and was the only one that ran. The
+     * rule now has one definition and one consumer that matters, both covered by
+     * `environmentVoteModel.test.ts`; the separation this field claimed to keep is kept by
+     * `EnvironmentVoteViewModel`, which the panel really renders.
+     */
     const base = { worldId: 'w', summary: summary(), world, live, base: BASE, now: 1_000 };
-    expect(composeHomepageViewModel(base).voteAvailable).toBe(false);
-    expect(composeHomepageViewModel({ ...base, vote: null }).voteAvailable).toBe(false);
-    expect(composeHomepageViewModel({ ...base, vote: { cutoffAt: 2_000 } }).voteAvailable).toBe(true);
-    // Past the cutoff the ballot still exists and is still rendered; voting is not open.
-    expect(composeHomepageViewModel({ ...base, vote: { cutoffAt: 1_000 } }).voteAvailable).toBe(false);
+    for (const vote of [undefined, null, { cutoffAt: 2_000 }, { cutoffAt: 1_000 }]) {
+      expect(composeHomepageViewModel({ ...base, vote }))
+        .not.toHaveProperty('voteAvailable');
+    }
   });
 
   it('degrades gracefully when the onboarding summary is missing (AC#5)', () => {

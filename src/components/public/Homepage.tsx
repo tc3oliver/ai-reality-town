@@ -12,6 +12,7 @@ import { VoteConsequencePanel } from '../vote/VoteConsequencePanel';
 import { getEnvironmentVoteBallotRef } from '../vote/environmentVoteRef';
 import { useEnvironmentVote } from '../vote/useEnvironmentVote';
 import { browserVoteDeviceKey } from '../vote/voteDeviceKey';
+import { voteViewedTarget } from '../vote/environmentVoteModel';
 import type { EnvironmentVoteBallot, VoteInteractionState } from '../vote/environmentVoteModel';
 import type { VoteConsequencePayload } from '../vote/voteConsequenceModel';
 import { voteConsequenceModelRef } from '../../../convex/shared/environmentVoteCatalog';
@@ -140,6 +141,14 @@ export default function Homepage() {
    * participation rate should have — counting viewers who were never offered a vote would
    * measure publication rather than participation.
    *
+   * **Until ART-179 it fired for any ballot that existed**, cutoff or no cutoff, which is the
+   * opposite of what the paragraph above promises. `getEnvironmentVoteBallot` serves any round
+   * whose row reads `status: 'open'`, and that status is moved by a cron on a FIVE-MINUTE
+   * interval, so for up to five minutes past `cutoffAt` the server hands back a ballot the panel
+   * correctly renders as 「已截止」 with nothing selectable — and this gate counted the viewer as
+   * having been offered a vote. They could enter `vote_participation`'s denominator and never its
+   * numerator. The rule is now `isBallotOpen`, the same one the panel renders from.
+   *
    * Both dedupe to one measurement per session in `analyticsQueue`, so a re-render, a
    * navigation back to the homepage or a settling query emits and counts once.
    */
@@ -147,9 +156,17 @@ export default function Homepage() {
     if (worldId !== null) emitHomeViewed(worldId);
   }, [worldId]);
   const ballotWorldDay = ballot?.worldDay ?? null;
+  const ballotCutoffAt = ballot?.cutoffAt ?? null;
   useEffect(() => {
-    if (worldId !== null && ballotWorldDay !== null) emitVoteViewed(worldId, ballotWorldDay);
-  }, [worldId, ballotWorldDay]);
+    // `now` is read at emit time rather than held in a dependency: it moves continuously and
+    // would either re-run this on every render or never re-run it at all. A viewer sitting on the
+    // page as the cutoff passes has already emitted, while it was open, which is correct; one who
+    // arrives after it emits nothing, which is the case this exists for.
+    const target = ballotWorldDay === null || ballotCutoffAt === null
+      ? null
+      : voteViewedTarget({ worldDay: ballotWorldDay, cutoffAt: ballotCutoffAt }, Date.now());
+    if (worldId !== null && target !== null) emitVoteViewed(worldId, target);
+  }, [worldId, ballotWorldDay, ballotCutoffAt]);
 
   const submitVote = useEnvironmentVote();
   const [voteInteraction, setVoteInteraction] = useState<VoteInteractionState>({ kind: 'idle' });

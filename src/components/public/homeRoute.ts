@@ -109,14 +109,6 @@ export type HomepageViewModel = {
   /** Its non-map equivalent, which the homepage must also link (NFR-009 AC#3). */
   textLiveHref: string;
   /**
-   * Whether a daily environment ballot is open right now (FR-J001 / ART-45).
-   *
-   * DERIVED from the published ballot, not asserted. It was a hard-coded `false` for as long as
-   * voting did not exist, which was honest then and would be a lie now. A ballot whose cutoff
-   * has passed reports `false` here while still rendering its result, so "voting is open" and
-   * "there is something to show" stay separate claims.
-   */
-  voteAvailable: boolean;
   /**
    * The story arc the first screen leads with (FR-P001 / ART-129 AC#2), or null.
    *
@@ -190,11 +182,21 @@ export function composeHomepageViewModel(input: {
   base: string;
   /**
    * The open ballot (`getEnvironmentVoteBallot`), `null` when none is open, `undefined` while
-   * the query is in flight. All three collapse to `voteAvailable: false` here — an in-flight
-   * read is not evidence that voting is open.
+   * the query is in flight.
+   *
+   * Accepted and ignored (ART-179). This model used to publish `voteAvailable` from it — an exact
+   * duplicate of `isBallotOpen`, and **rendered by no view in this repository.** A view-model
+   * field no view reads is a rule with nowhere to be wrong, and this one made three answers to
+   * one question: this, the ballot panel's, and the `vote_viewed` gate's, which checked no cutoff
+   * at all and was the only one that ran. The separation it claimed to keep — "voting is open"
+   * versus "there is something to show" — is kept by `EnvironmentVoteViewModel`, which the panel
+   * actually renders.
+   *
+   * The parameters stay so callers need no edit and so the field cannot quietly come back under
+   * a different derivation.
    */
   vote?: { cutoffAt: number } | null;
-  /** Read clock for the ballot cutoff, so the boundary is testable at an exact instant. */
+  /** Read clock for the ballot cutoff. */
   now?: number;
 }): HomepageViewModel {
   const summary = input.summary;
@@ -241,7 +243,6 @@ export function composeHomepageViewModel(input: {
     live: liveTime ? { worldDay: liveTime.worldDay, timeSlot: liveTime.timeSlot } : null,
     liveMapHref: liveMapHref(input.worldId, input.base),
     textLiveHref: textLiveHref(input.worldId, input.base),
-    voteAvailable: input.vote != null && (input.now ?? 0) < input.vote.cutoffAt,
     primaryArc: (() => {
       const arc = pickPrimaryArc(Array.isArray(live?.activeArcs) ? (live?.activeArcs ?? []) : []);
       if (arc === null) return null;
