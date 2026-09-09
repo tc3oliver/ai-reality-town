@@ -230,6 +230,7 @@ import type * as util_object from "../util/object.js";
 import type * as util_sleep from "../util/sleep.js";
 import type * as util_types from "../util/types.js";
 import type * as util_xxhash from "../util/xxhash.js";
+import type * as viewer_authenticatedProgress from "../viewer/authenticatedProgress.js";
 import type * as viewer_environmentVote from "../viewer/environmentVote.js";
 import type * as viewer_environmentVoteFunctions from "../viewer/environmentVoteFunctions.js";
 import type * as viewer_spoilerMode from "../viewer/spoilerMode.js";
@@ -479,6 +480,7 @@ declare const fullApi: ApiFromModules<{
   "util/sleep": typeof util_sleep;
   "util/types": typeof util_types;
   "util/xxhash": typeof util_xxhash;
+  "viewer/authenticatedProgress": typeof viewer_authenticatedProgress;
   "viewer/environmentVote": typeof viewer_environmentVote;
   "viewer/environmentVoteFunctions": typeof viewer_environmentVoteFunctions;
   "viewer/spoilerMode": typeof viewer_spoilerMode;
