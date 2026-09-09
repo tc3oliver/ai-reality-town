@@ -21,7 +21,7 @@ function character(overrides: Partial<CharacterProjection> = {}): CharacterProje
   return {
     id: 'char-a', worldId: 'mistwood', name: '艾拉', age: 28, occupation: '藥師',
     publicProfile: '鎮上的草藥師。', personality: '謹慎', values: '守諾',
-    publicGoal: '治癒妹妹', fear: '失去家人', currentLocationId: 'mistwood-market',
+    publicGoal: '治癒妹妹', currentLocationId: 'mistwood-market',
     healthState: '健康', emotionalState: '憂慮', financialState: '小康', alive: true, active: true,
     ...overrides,
   };

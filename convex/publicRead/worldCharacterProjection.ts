@@ -23,16 +23,54 @@ export const WORLD_ALLOWED_FIELDS = [
   'simulationMode', 'publicLaunchDay', 'createdAt', 'updatedAt',
 ] as const;
 
-/** Allowed public Character fields (PRD §13.2 MINUS private fields). */
+/**
+ * Allowed public Character fields.
+ *
+ * ## §13.2 is the DATA MODEL. FR-I005 is the public list.
+ *
+ * This constant used to be documented as "PRD §13.2 MINUS private fields", and that framing is
+ * what let two fields through (ART-175). §13.2 enumerates the whole Character record — public and
+ * private together — so subtracting the four fields that are OBVIOUSLY private leaves everything
+ * nobody stopped to think about. FR-I005 is the list that says what a viewer may see, it is
+ * exhaustive, and it is the one this allowlist answers to:
+ *
+ *   姓名與圖像 · 年齡與職業 · 公開背景 · 目前狀態 · 公開目標 · 主要關係 ·
+ *   最近重大事件 · 所屬 Arc · 觀眾已知秘密 · 角色不知道但觀眾知道的資訊
+ *
+ * Two fields were removed on that reading, and both were being served to anonymous clients while
+ * being rendered by nothing:
+ *
+ *  - **`behaviorRules`** — model-steering instructions. Mistwood's seeded value is
+ *    `['Act only on known or reasonably inferred information.', 'Protect the private goal unless
+ *    pressure makes disclosure credible.']`. The second rule is prompt material, and it tells any
+ *    reader the character HAS a private goal they are concealing. FR-I005 forbids Prompt outright.
+ *  - **`fear`** — a character's vulnerability, seeded beside `privateGoal`, and on neither of
+ *    FR-I005's lists.
+ *
+ * `personality` and `values` are also outside FR-I005's enumeration and are KEPT, because the page
+ * renders them under 「特質」. That is a product decision about what the page shows, not a privacy
+ * defect, and conflating the two would have made this change unreviewable.
+ *
+ * `sanitizeForPublic` could not have caught either one — its key patterns match neither name — so
+ * this allowlist is the only guard, which is why the fix is here rather than downstream.
+ */
 export const CHARACTER_ALLOWED_FIELDS = [
   'name', 'age', 'occupation', 'publicProfile', 'personality', 'values',
-  'publicGoal', 'fear', 'behaviorRules', 'currentLocationId', 'healthState',
+  'publicGoal', 'currentLocationId', 'healthState',
   'emotionalState', 'financialState', 'alive', 'active',
 ] as const;
 
-/** Character fields that must NEVER appear in a public projection (AC#2). */
+/**
+ * Character fields that must NEVER appear in a public projection (AC#2).
+ *
+ * `fear` and `behaviorRules` joined the list at ART-175. Being absent from
+ * {@link CHARACTER_ALLOWED_FIELDS} is already enough to keep them out — the builder reads named
+ * fields and copies no object — but naming them here is what makes a later re-addition a
+ * deliberate act rather than an oversight, and it is what
+ * {@link assertNoForbiddenCharacterFields} checks.
+ */
 export const CHARACTER_FORBIDDEN_FIELDS = [
-  'privateProfile', 'privateGoal', 'knowledge', 'memory',
+  'privateProfile', 'privateGoal', 'knowledge', 'memory', 'fear', 'behaviorRules',
 ] as const;
 
 export type PublicFact = {
@@ -70,8 +108,6 @@ export type CharacterProjection = {
   personality: string | null;
   values: string | null;
   publicGoal: string | null;
-  fear: string | null;
-  behaviorRules: string | null;
   currentLocationId: string | null;
   healthState: string | null;
   emotionalState: string | null;
@@ -150,8 +186,6 @@ export function buildCharacterProjection(input: {
     personality: pickString(input.source, 'personality'),
     values: pickString(input.source, 'values'),
     publicGoal: pickString(input.source, 'publicGoal'),
-    fear: pickString(input.source, 'fear'),
-    behaviorRules: pickString(input.source, 'behaviorRules'),
     currentLocationId: pickString(input.source, 'currentLocationId'),
     healthState: pickString(input.source, 'healthState'),
     emotionalState: pickString(input.source, 'emotionalState'),

@@ -16,6 +16,7 @@ named — so the next person does not have to re-derive it.
 | 圖像 (image) | **Delivered by ART-151** | `CharacterSprite` over `MISTWOOD_CHARACTER_VISUALS` — the same binding the homepage and the live map resolve, so one character cannot draw as two figures (FR-N004) |
 | 年齡與職業 (age, occupation) | Delivered | `character:<id>`, `age` / `occupation` |
 | 公開背景 (public background) | Delivered | `character:<id>`, `publicProfile` |
+| — | — | **Not published since ART-175:** `fear` and `behaviorRules` were on the projection allowlist, rendered by nothing, and on neither of FR-I005's lists. `behaviorRules` is model-steering text whose seeded value names the character's private goal. See `convex/publicRead/worldCharacterProjection.ts` |
 | 目前狀態 (current state) | **Completed by ART-151** | health / emotion / finance came from `character:<id>`; the LOCATION did not. `currentLocationId` had been in the payload since ART-43 and was never rendered, so 「目前狀態」 said nothing about where the character was. The name is resolved against the published Live projection's `locations` |
 | 公開目標 (public goal) | Delivered | `character:<id>`, `publicGoal` |
 | 主要關係 (primary relationships) | **Delivered by ART-151** | The published FR-I007 relationship graph (ART-44), filtered to edges touching this character. **Scoped** — see §3 |

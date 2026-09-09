@@ -117,13 +117,18 @@ describe('buildCharacterProjection (AC#2 — every allowed field in, every forbi
     expect(() => buildCharacterProjection({ worldId: 'w1', source: { name: 'x' } })).toThrow(ProjectionError);
   });
 
-  it('declares the §13.2 Character allowlist minus private fields', () => {
+  it('declares the FR-I005 public allowlist, not §13.2 minus the obvious private fields', () => {
+    // ART-175 narrowed this. `fear` and `behaviorRules` were here because the list was derived by
+    // subtracting the obviously-private fields from the whole §13.2 DATA MODEL, which lets through
+    // everything nobody stopped to think about. FR-I005 is the public list.
     expect(CHARACTER_ALLOWED_FIELDS).toEqual([
       'name', 'age', 'occupation', 'publicProfile', 'personality', 'values',
-      'publicGoal', 'fear', 'behaviorRules', 'currentLocationId', 'healthState',
+      'publicGoal', 'currentLocationId', 'healthState',
       'emotionalState', 'financialState', 'alive', 'active',
     ]);
-    expect(CHARACTER_FORBIDDEN_FIELDS).toEqual(['privateProfile', 'privateGoal', 'knowledge', 'memory']);
+    expect(CHARACTER_FORBIDDEN_FIELDS).toEqual([
+      'privateProfile', 'privateGoal', 'knowledge', 'memory', 'fear', 'behaviorRules',
+    ]);
   });
 });
 
@@ -167,5 +172,70 @@ describe('the character state field vocabulary agrees across canon, simulation a
       expect(CHARACTER_STATE_FIELD_MAP[field]).toBeUndefined();
       expect((PUBLIC_TEXT_CHARACTER_STATE_FIELDS as readonly string[])).not.toContain(field);
     }
+  });
+});
+
+/**
+ * FR-I005 is the public list; §13.2 is the data model (ART-175).
+ *
+ * The allowlist used to be derived by subtracting the four fields that are obviously private from
+ * §13.2 — which is the whole Character record — so everything nobody stopped to think about came
+ * through. Two fields did, and both were served to anonymous clients while being rendered by
+ * nothing. This block is what makes re-adding either a deliberate act.
+ */
+describe('the character allowlist answers to FR-I005, not to §13.2', () => {
+  const SEEDED_BEHAVIOR_RULES =
+    'Act only on known or reasonably inferred information., '
+    + 'Protect the private goal unless pressure makes disclosure credible.';
+
+  it('never publishes behaviour rules, even when the source carries them', () => {
+    // The live deployment was serving exactly this string on all twelve character models. It is
+    // prompt material, and its second clause tells any reader the character has a private goal
+    // they are concealing.
+    const projection = buildCharacterProjection({
+      worldId: 'mistwood',
+      source: { id: 'zhao-ming', name: '趙明', behaviorRules: SEEDED_BEHAVIOR_RULES },
+    });
+    expect(JSON.stringify(projection)).not.toContain('Protect the private goal');
+    expect(JSON.stringify(projection)).not.toContain('behaviorRules');
+  });
+
+  it('never publishes a character’s fear', () => {
+    const projection = buildCharacterProjection({
+      worldId: 'mistwood',
+      source: { id: 'zhao-ming', name: '趙明', fear: '在證據齊全前引發金融恐慌。' },
+    });
+    expect(JSON.stringify(projection)).not.toContain('金融恐慌');
+    expect(JSON.stringify(projection)).not.toContain('fear');
+  });
+
+  it('names both in the forbidden set, so the guard covers them too', () => {
+    expect([...CHARACTER_FORBIDDEN_FIELDS]).toEqual(
+      expect.arrayContaining(['fear', 'behaviorRules', 'privateProfile', 'privateGoal', 'knowledge', 'memory']));
+    expect(() => assertNoForbiddenCharacterFields({ id: 'x', fear: 'anything' })).toThrow(/fear/);
+    expect(() => assertNoForbiddenCharacterFields({ id: 'x', behaviorRules: 'anything' })).toThrow(/behaviorRules/);
+  });
+
+  it('keeps every field FR-I005 does ask for, so this is a narrowing and not a break', () => {
+    const projection = buildCharacterProjection({
+      worldId: 'mistwood',
+      source: {
+        id: 'zhao-ming', name: '趙明', age: 41, occupation: '合作社會計',
+        publicProfile: '受信任的會計。', publicGoal: '完成稽核。',
+        currentLocationId: 'mistwood-mill', healthState: '健康',
+        emotionalState: '緊繃', financialState: '普通',
+        personality: '沉穩', values: '準確',
+      },
+    });
+    expect(projection).toMatchObject({
+      name: '趙明', age: 41, occupation: '合作社會計', publicProfile: '受信任的會計。',
+      publicGoal: '完成稽核。', currentLocationId: 'mistwood-mill',
+      healthState: '健康', emotionalState: '緊繃', financialState: '普通',
+      personality: '沉穩', values: '準確',
+    });
+    // `personality` and `values` are KEPT deliberately: they are outside FR-I005's enumeration but
+    // the page renders them under 「特質」. Narrowing those is a product decision, not this fix.
+    expect(CHARACTER_ALLOWED_FIELDS).toContain('personality');
+    expect(CHARACTER_ALLOWED_FIELDS).toContain('values');
   });
 });

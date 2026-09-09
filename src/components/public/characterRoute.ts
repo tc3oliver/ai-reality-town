@@ -23,7 +23,6 @@ export type CharacterProjection = {
   personality: string | null;
   values: string | null;
   publicGoal: string | null;
-  fear: string | null;
   currentLocationId: string | null;
   healthState: string | null;
   emotionalState: string | null;
