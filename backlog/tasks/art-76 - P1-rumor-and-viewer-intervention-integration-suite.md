@@ -1,11 +1,11 @@
 ---
 id: ART-76
 title: P1 rumor and viewer-intervention integration suite
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-02 15:53'
-updated_date: '2026-09-09 12:30'
+updated_date: '2026-09-09 14:30'
 labels:
   - prd-1.0
   - epic-p
@@ -65,27 +65,27 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A multi-character rumor preserves origin, chain, versions, credibility, truth status, and divergent beliefs.
-- [ ] #2 A winning environmental vote enters only as a Proposed Event and passes safety, structural, and Canon validation.
-- [ ] #3 Neither scenario controls a character result or turns rumor into Canon.
+- [x] #1 A multi-character rumor preserves origin, chain, versions, credibility, truth status, and divergent beliefs.
+- [x] #2 A winning environmental vote enters only as a Proposed Event and passes safety, structural, and Canon validation.
+- [x] #3 Neither scenario controls a character result or turns rumor into Canon.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -97,3 +97,15 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 4. Inject into PRODUCTION code to prove the suites would catch a regression — the only evidence a test-only task can offer.
 5. npm run check, npm run e2e, closure matrix row, docs/testing/p1-integration-suites.md.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Closed after PR merged; npm run check and npm run e2e green on the merged branch.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Covered PRD §19.2's last two integration scenarios, each missing something specific rather than missing generally. Case 2 (謠言經多人傳播): rumor coverage was thorough but rule-by-rule; no suite drove one rumor through four people and then asked provenance, version divergence, belief divergence and containment OF THE SAME accepted log — asked separately each can be true of a different world. Case 5 (投票事件安全注入): the part neither existing suite covered is the part the scenario names first, SAFETY. The FR-L003 classifier sits at two points on the path and both are called only from Convex handlers, whose bodies never execute under jest; both underlying functions are pure and exported, so the new suite drives all ten links from selectDailyCandidates to replayWorldEvents without a handler. Both halves of 「安全注入」 are asserted: the winner reaches Canon, and nothing else does. No production logic was added, so the evidence is six injections INTO production code, each turning a named test in the new suites red; a seventh is recorded as rejected because it failed to compile and reported Tests: 0 total, which is not evidence. Verified: npm run check exit 0 (4208 passed, 246 suites); npm run e2e 88 passed; the closure matrix's §19.2 row now reads all ten scenarios covered; docs/testing/p1-integration-suites.md; PR #259 merged.
+<!-- SECTION:FINAL_SUMMARY:END -->

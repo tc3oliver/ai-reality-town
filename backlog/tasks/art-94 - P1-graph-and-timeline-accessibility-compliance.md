@@ -1,11 +1,11 @@
 ---
 id: ART-94
 title: P1 graph and timeline accessibility compliance
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-02 16:25'
-updated_date: '2026-09-09 12:09'
+updated_date: '2026-09-09 14:30'
 labels:
   - prd-1.0
   - epic-k
@@ -66,27 +66,27 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Relationship graph is keyboard operable and has an equivalent accessible list/table view.
-- [ ] #2 Timeline filters and Episode links are keyboard and screen-reader accessible.
-- [ ] #3 Both views meet contrast, reduced-motion, mobile touch-target, and focus requirements.
+- [x] #1 Relationship graph is keyboard operable and has an equivalent accessible list/table view.
+- [x] #2 Timeline filters and Episode links are keyboard and screen-reader accessible.
+- [x] #3 Both views meet contrast, reduced-motion, mobile touch-target, and focus requirements.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -99,3 +99,15 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 5. Add a browser suite for the three NFR-009 bullets jsdom cannot speak to: real Tab, real reduced-motion, measured touch targets.
 6. Fault injections, npm run check, npm run e2e, docs/accessibility.md §7.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Closed after PR merged; npm run check and npm run e2e green on the merged branch.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+The relationship graph was already built to ART-93's accessibility floor; what it lacked was anything HOLDING it there, since it was in neither the keyboard nor the touch-target list. The timeline had no coverage at all, and the reason was itself the first defect: no presentational export, so the jsdom suite (which renders through renderToStaticMarkup) structurally could not render it. Extracting TimelineBody exposed five real defects — no lang='zh-Hant' (a screen reader announced Traditional Chinese in the document's declared English), the back link inside <main>, English aria-labels on a Chinese page with no visible headings, identical link text on every row, and opacity instead of the measured contrast token. A new browser suite covers the three NFR-009 bullets jsdom cannot speak to (real Tab with a visible ring, real reduced-motion, measured 44px targets at 390px) and found a sixth the markup suite could not: an <option></option> for any event with no arc, which axe does not flag. The first fix for that was worse than the defect — it called .trim() on a payload field that arrives as undefined and blanked the whole page — and both cases are now pinned. Verified: 6 injections, one turning 6 named tests red at once; npm run check exit 0 (4201 passed, 244 suites); npm run e2e 114 passed (88 + 26 new); docs/accessibility.md §7; PR #258 merged.
+<!-- SECTION:FINAL_SUMMARY:END -->
