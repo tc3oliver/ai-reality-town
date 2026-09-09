@@ -942,9 +942,16 @@ export type SceneAuthoringPlan = {
    * already had. `null` when the module configures none, in which case rung 2 keeps the requested
    * model and applies its other reductions — an absent fallback is not a reason to skip a rung.
    *
-   * ART-52 stored this value from the day it shipped and, until ART-91, no code ever switched to
-   * it; `moduleConfigSelection.test.ts` pinned that it reached no call. That pin is now the
-   * opposite assertion.
+   * ART-52 stored this value from the day it shipped and no code ever switched to it. An earlier
+   * version of this note said `moduleConfigSelection.test.ts`'s pin "is now the opposite
+   * assertion"; it is not, and it should not become one. That test asserts the module config's
+   * `options` carry no `fallbackModel` key, which is still true and still correct — the fallback is
+   * a routing decision the ladder makes, not a field the config hands to a call.
+   *
+   * Where it DOES reach the call is `degradedPlan` (ART-165), which substitutes it into both
+   * `requestedModel` and `options.model` together. ART-91 substituted only the first, which is read
+   * for the FR-M003 reservation alone, so rung 2 metered against the fallback while the primary
+   * model served every request.
    */
   readonly fallbackModel: string | null;
 };
