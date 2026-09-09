@@ -45,6 +45,49 @@ export function refusalText(code: string | null): string {
   return REFUSAL_TEXT[code] ?? GENERIC_REFUSAL_TEXT;
 }
 
+/**
+ * Whether a ballot is open to a viewer right now — the ONE definition (ART-179).
+ *
+ * There were three. This one, an identical copy on the homepage view model that nothing rendered,
+ * and — in production, in `Homepage.tsx` — a third that checked only whether a ballot existed.
+ * That third one is what gated `vote_viewed`, and it is why a closed ballot could be counted as
+ * one a viewer was offered.
+ *
+ * **The cutoff and the row's `status` are not the same fact.** `getEnvironmentVoteBallot` serves
+ * any round whose row reads `status: 'open'`, and that status is moved by
+ * `tickEnvironmentVoteRounds`, a cron on a five-minute interval. For up to five minutes after
+ * `cutoffAt` the server therefore serves a ballot nobody can vote in. The panel already said so —
+ * 「已截止」, no selectable options — while the analytics gate counted the viewer as offered a
+ * vote. Those viewers can enter the denominator of §16.1's `vote_participation` and never its
+ * numerator, so the published rate falls for a reason that is not about participation.
+ *
+ * A missing ballot is not open. Neither is one whose cutoff has passed, whatever its row says.
+ */
+export function isBallotOpen(
+  ballot: { cutoffAt: number } | null | undefined,
+  now: number,
+): boolean {
+  return ballot != null && now < ballot.cutoffAt;
+}
+
+/**
+ * The world day `vote_viewed` should be emitted for, or `null` for no emission (ART-179).
+ *
+ * A function rather than an inline condition in `Homepage.tsx` because it is the DEFINITION of
+ * §16.1's `vote_participation` denominator, and a denominator that lives only inside a `useEffect`
+ * cannot be tested at its boundary. Its previous form — "a ballot exists" — could not have been
+ * tested at a boundary either, because it had none.
+ *
+ * Returns the ballot's own `worldDay`, not the day a winner would affect: the measurement is about
+ * the round the viewer was shown.
+ */
+export function voteViewedTarget(
+  ballot: { worldDay: number; cutoffAt: number } | null | undefined,
+  now: number,
+): number | null {
+  return isBallotOpen(ballot, now) ? (ballot as { worldDay: number }).worldDay : null;
+}
+
 /** What the panel is currently doing. `idle` covers both "not yet voted" and "ready to retry". */
 export type VoteInteractionState =
   | { kind: 'idle' }
@@ -53,7 +96,15 @@ export type VoteInteractionState =
   | { kind: 'refused'; code: string | null };
 
 export type EnvironmentVoteViewModel = {
-  /** Whether a ballot exists to render at all — the honest source of `voteAvailable`. */
+  /**
+   * Whether the ballot is open to this viewer, by {@link isBallotOpen}.
+   *
+   * This field's docblock used to call it「the honest source of `voteAvailable`」, a field on the
+   * homepage view model that was computed separately and rendered by nothing. **That claim was
+   * wrong in both directions**: nothing derived `voteAvailable` from here, and nothing read either
+   * of them. The homepage field is gone (ART-179) and this one is now what gates the `vote_viewed`
+   * measurement, so it has a consumer as well as a definition.
+   */
   available: boolean;
   /** Heading-level status sentence. Always present, so the section never renders empty. */
   status: string;
@@ -126,7 +177,7 @@ export function composeEnvironmentVoteViewModel(input: {
     };
   }
 
-  const open = now < ballot.cutoffAt;
+  const open = isBallotOpen(ballot, now);
   const chosenId = interaction.kind === 'accepted' ? interaction.candidateId : null;
   // A device that has already voted, or is mid-submission, gets no further controls. This is a
   // courtesy, not the control: the server enforces the same limit and does not trust the page.
