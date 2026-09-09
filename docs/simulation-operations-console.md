@@ -24,6 +24,34 @@ Every FR-K001 bullet maps to exactly one capability and one caller-facing functi
 | 建立 Snapshot (create a snapshot) | `snapshot.create` | `createWorldSnapshot` (mutation) | `admin` |
 | 查看排程與 Queue (inspect schedules and queues) | `schedule.inspect` | `inspectScheduleAndQueue` (query) | `viewer` |
 
+One more FR-K001 control was missing until ART-172, and its absence was the largest of the set:
+
+| PRD control (FR-K001) | Capability | Function | Minimum role |
+| --- | --- | --- | --- |
+| 切換世界模式 (move a world between development and public) | `world.change_mode` | `changeWorldMode` (mutation) | `admin` |
+
+`worldSchedules.mode` decides which crons touch a world — `tickAllPublicSchedules`, the
+runtime-snapshot cron and the vote cron all bind `by_mode_and_status` on `("public","running")`. It
+is the switch between a private development world and the public acceptance environment, and
+**nothing could change it**: `configureSchedule` refuses once a schedule exists, and
+`pauseWorld` / `resumeWorld` move `status`. Promotion meant hand-patching the row in the Convex
+dashboard — the one privileged world action with no authorization, no reason and no audit row.
+
+It is `admin` because promotion starts a sixty-second cron against a world and decides what the
+public sees. Three rules, all in the pure `planScheduleModeChange`:
+
+- **Promotion requires a running, un-emergency-stopped world.** Promoting a paused world would
+  either do nothing while reporting success, or start public scheduling at whatever moment somebody
+  later resumed it.
+- **Demotion is allowed from any state**, because it only takes work away. Refusing it would leave
+  an operator unable to take a world off the public crons exactly when something has gone wrong.
+- **A repeat is an audited no-op**, not an error and not a second change — so "who put this world in
+  front of the public, and when" stays answerable even when two operators both thought they had.
+
+`test` and `warmup` are not offered. They are configuration-time modes a harness sets at creation,
+and moving a live world into one would detach it from every cron while reading as an ordinary mode
+change.
+
 Later epics extend the same table with their own capabilities. FR-K005 (ART-52) adds two:
 
 | PRD control (FR-K005) | Capability | Function | Minimum role |

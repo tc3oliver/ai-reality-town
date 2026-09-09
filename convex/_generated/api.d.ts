@@ -87,6 +87,7 @@ import type * as operations_publicTextModelRefresh from "../operations/publicTex
 import type * as operations_publicationControlFunctions from "../operations/publicationControlFunctions.js";
 import type * as operations_safetyOverrideFunctions from "../operations/safetyOverrideFunctions.js";
 import type * as operations_tokenBudgetFunctions from "../operations/tokenBudgetFunctions.js";
+import type * as operations_worldModeControlFunctions from "../operations/worldModeControlFunctions.js";
 import type * as operations_worldQualityFunctions from "../operations/worldQualityFunctions.js";
 import type * as publicRead_activeScenePresentation from "../publicRead/activeScenePresentation.js";
 import type * as publicRead_arcPrimer from "../publicRead/arcPrimer.js";
@@ -343,6 +344,7 @@ declare const fullApi: ApiFromModules<{
   "operations/publicationControlFunctions": typeof operations_publicationControlFunctions;
   "operations/safetyOverrideFunctions": typeof operations_safetyOverrideFunctions;
   "operations/tokenBudgetFunctions": typeof operations_tokenBudgetFunctions;
+  "operations/worldModeControlFunctions": typeof operations_worldModeControlFunctions;
   "operations/worldQualityFunctions": typeof operations_worldQualityFunctions;
   "publicRead/activeScenePresentation": typeof publicRead_activeScenePresentation;
   "publicRead/arcPrimer": typeof publicRead_arcPrimer;
