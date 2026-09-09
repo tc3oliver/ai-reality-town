@@ -28,6 +28,12 @@ import { HomepageView } from './Homepage';
 import { LiveViewBody } from './LiveView';
 import { PublicPageFrame } from './PublicPageFrame';
 import { RelationshipGraphBody } from './RelationshipGraphView';
+import { TimelineBody } from './TimelineView';
+import {
+  composeTimelineViewModel,
+  type TimelineFilter,
+  type TimelineProjection,
+} from './timelineRoute';
 import {
   composeRelationshipGraphViewModel,
   type RelationshipGraphPayload,
@@ -1696,5 +1702,177 @@ describe('the return recap says nothing false about the world (FR-H004 / ART-39)
     const markup = recapMarkup();
     expect(markup).not.toContain('只存在這個裝置');
     expect(markup).toContain('清除瀏覽器資料後就會失效');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ART-94 — NFR-009 for the two P1 views: the world timeline (ART-87) and the
+// scoped relationship graph (ART-44).
+//
+// ART-93 established the public accessibility floor and covered the P0
+// experiences only, which is why the timeline had drifted below it unnoticed:
+// it was the one public page still rendering its own frame, so it declared no
+// `lang`, put its back link inside `<main>`, and named its two sections in
+// English. `expectAccessible` is the same gate the P0 pages pass, so running the
+// timeline through it is what makes those regressions impossible rather than
+// merely fixed.
+//
+// The graph was already built to the floor by ART-44 — it just was not in the
+// keyboard or touch-target lists, so nothing held it there.
+// ---------------------------------------------------------------------------
+
+function timelineProjection(over: Partial<TimelineProjection> = {}): TimelineProjection {
+  return {
+    entries: [
+      {
+        eventId: 'event-1', worldDay: 3, timeSlot: 'morning', eventType: 'conflict',
+        publicSummary: '磨坊的水權爭議浮上檯面。',
+        arcIds: ['arc-mill'], characterIds: ['pei-lan'], episodeNumber: 1,
+      },
+      {
+        eventId: 'event-2', worldDay: 5, timeSlot: 'evening', eventType: 'reconciliation',
+        publicSummary: '兩家人在市集前握手。',
+        arcIds: ['arc-truce'], characterIds: ['wu-zhen'], episodeNumber: 2,
+      },
+    ],
+    ...over,
+  };
+}
+
+function timelineViewModel(
+  projection: TimelineProjection | null = timelineProjection(),
+  filter: TimelineFilter = { arc: null, character: null, eventType: null },
+) {
+  return composeTimelineViewModel({ worldId: WORLD_ID, projection, filter });
+}
+
+describe('the P1 world timeline meets the public accessibility floor (ART-94 / NFR-009)', () => {
+  test('timeline', async () => {
+    await expectAccessible(<TimelineBody worldId={WORLD_ID} vm={timelineViewModel()} />);
+  });
+
+  test('timeline with nothing published', async () => {
+    await expectAccessible(<TimelineBody worldId={WORLD_ID} vm={timelineViewModel(null)} />);
+  });
+
+  test('timeline whose filter matches nothing', async () => {
+    const vm = timelineViewModel(timelineProjection(), { arc: 'arc-nonexistent', character: null, eventType: null });
+    expect(vm.entries).toHaveLength(0);
+    await expectAccessible(
+      <TimelineBody
+        worldId={WORLD_ID}
+        vm={vm}
+        selection={{ arc: 'arc-nonexistent', character: '__none__', eventType: '__none__' }}
+      />,
+    );
+  });
+
+  test('declares the public subtree language, which its own frame never did', () => {
+    const container = render(<TimelineBody worldId={WORLD_ID} vm={timelineViewModel()} />);
+    expect(container.querySelector('.public-page')?.getAttribute('lang')).toBe('zh-Hant');
+  });
+
+  test('keeps navigation outside the main landmark', () => {
+    const container = render(<TimelineBody worldId={WORLD_ID} vm={timelineViewModel()} />);
+    expect(container.querySelectorAll('main')).toHaveLength(1);
+    expect(container.querySelector('main nav')).toBeNull();
+  });
+
+  test('names both sections with a visible heading rather than an English aria-label', () => {
+    const container = render(<TimelineBody worldId={WORLD_ID} vm={timelineViewModel()} />);
+    for (const section of Array.from(container.querySelectorAll('section'))) {
+      const labelledBy = section.getAttribute('aria-labelledby');
+      expect(labelledBy).toBeTruthy();
+      const heading = container.querySelector(`#${labelledBy as string}`);
+      // The name is a real heading a sighted keyboard user can navigate by, and its text is the
+      // page's own language rather than "Filters" / "Timeline events".
+      expect(heading?.tagName).toBe('H2');
+      expect(heading?.textContent ?? '').not.toMatch(/^[\x20-\x7e]+$/u);
+    }
+  });
+
+  test('gives each repeated episode link an accessible name that names its event', () => {
+    const container = render(<TimelineBody worldId={WORLD_ID} vm={timelineViewModel()} />);
+    const links = Array.from(container.querySelectorAll('.timeline-list a[href]'));
+    expect(links).toHaveLength(2);
+    const names = links.map((link) => accessibleName(link));
+    // Same visible text on every row; the announced names must still differ (WCAG 2.4.4).
+    expect(new Set(links.map((link) => link.textContent?.trim())).size).toBe(1);
+    expect(new Set(names).size).toBe(2);
+    expect(names[0]).toContain('磨坊');
+  });
+
+  test('states how many events the current filter leaves, in a live region', () => {
+    const unfiltered = render(<TimelineBody worldId={WORLD_ID} vm={timelineViewModel()} />);
+    const status = unfiltered.querySelector('[role="status"]');
+    expect(status?.textContent).toContain('2');
+
+    const filtered = render(
+      <TimelineBody
+        worldId={WORLD_ID}
+        vm={timelineViewModel(timelineProjection(), { arc: 'arc-mill', character: null, eventType: null })}
+        selection={{ arc: 'arc-mill', character: '__none__', eventType: '__none__' }}
+      />,
+    );
+    expect(filtered.querySelector('[role="status"]')?.textContent).toContain('目前篩選條件下共 1 筆');
+  });
+
+  test('uses the measured muted token rather than opacity, which the harness cannot measure', () => {
+    const container = render(<TimelineBody worldId={WORLD_ID} vm={timelineViewModel()} />);
+    const muted = Array.from(container.querySelectorAll('.public-muted'));
+    expect(muted.length).toBeGreaterThan(0);
+    for (const element of Array.from(container.querySelectorAll('[class]'))) {
+      expect(element.className).not.toMatch(/\bopacity-\d+\b/);
+    }
+  });
+
+  test('labels every filter control by its own visible label element', () => {
+    const container = render(<TimelineBody worldId={WORLD_ID} vm={timelineViewModel()} />);
+    const selects = Array.from(container.querySelectorAll('select'));
+    expect(selects).toHaveLength(3);
+    for (const select of selects) {
+      const id = select.getAttribute('id');
+      expect(id).toBeTruthy();
+      expect(container.querySelector(`label[for="${id as string}"]`)).not.toBeNull();
+    }
+  });
+});
+
+describe('both P1 views are operable by keyboard and touch (ART-94 / NFR-009 AC#1, AC#2)', () => {
+  const p1Views: Array<[string, ReactElement]> = [
+    ['world timeline', <TimelineBody worldId={WORLD_ID} vm={timelineViewModel()} />],
+    ['relationship graph', <RelationshipGraphBody worldId={WORLD_ID} vm={relationshipGraphViewModel()} />],
+  ];
+
+  test.each(p1Views)('%s exposes every control to the keyboard in DOM order', (_name, element) => {
+    const container = render(element);
+    const interactive = Array.from(
+      container.querySelectorAll('a[href], button, select, input, textarea, [tabindex]'),
+    );
+    expect(interactive.length).toBeGreaterThan(0);
+    for (const control of interactive) {
+      const tabindex = control.getAttribute('tabindex');
+      expect(tabindex === null || Number(tabindex) === 0).toBe(true);
+      expect(control.closest('[aria-hidden="true"]')).toBeNull();
+      expect(control.hasAttribute('inert')).toBe(false);
+    }
+  });
+
+  test.each(p1Views)('%s gives every standalone control a 44px touch target', (_name, element) => {
+    const container = render(element);
+    const standalone = Array.from(
+      container.querySelectorAll('nav a[href], section a[href], section button, section select'),
+    );
+    expect(standalone.length).toBeGreaterThan(0);
+    for (const control of standalone) {
+      expect(control.classList.contains('public-tap')).toBe(true);
+    }
+  });
+
+  test.each(p1Views)('%s hard-codes no motion, so reduced-motion is the stylesheet\'s to honour', (_name, element) => {
+    const container = render(element);
+    for (const styled of Array.from(container.querySelectorAll('[style]'))) {
+      expect(styled.getAttribute('style') ?? '').not.toMatch(/animation|transition/i);
+    }
   });
 });

@@ -399,7 +399,6 @@ reach the network.
 
 ## 5. Not covered here
 
-- P1 relationship graph and timeline accessibility — **ART-94**.
 - The PixiJS game runtime itself, which is the visual runtime (ADR-0001) and not
   a P0 public experience.
 - Production deployment.
@@ -453,3 +452,68 @@ isolated: `ambientMotion.test.ts` and `environmentAnimation.dom.test.tsx`, deter
 
 Still open, and unchanged by this task: the graph and timeline surfaces (**ART-94**), and the
 human-in-the-loop checks in §4.
+
+---
+
+## 7. The P1 views (ART-94 / NFR-009)
+
+`§2`–`§4` cover the six P0 experiences ART-93 owned. The two P1 views — the scoped relationship
+graph (FR-I007 / ART-44) and the world timeline (FR-I008 / ART-87) — are covered here, on the same
+floor and with the same gate.
+
+### 7.1 What the timeline had drifted into
+
+The graph was built to the floor: `public-tap` targets, zh-Hant `aria-label`s, `role="img"` on the
+diagram with the same facts written out beside it, and toggle buttons whose state is announced
+rather than only coloured. What it lacked was anything **holding** it there — it was in neither
+the keyboard nor the touch-target list, so a regression would not have been caught.
+
+The timeline was a different matter. It was the last public page still rendering its own `Frame`
+instead of `PublicPageFrame`, and had five concrete defects, each now fixed and pinned:
+
+| Defect | Why it mattered | WCAG |
+| --- | --- | --- |
+| No `lang="zh-Hant"` on the public subtree | The document declares `lang="en"`; a screen reader announced a page of Traditional Chinese with an English voice | 3.1.2 |
+| Back link **inside** `<main>` | Navigation inside the main landmark — the exact defect `PublicPageFrame` was extracted to fix | 1.3.1 |
+| `aria-label="Filters"` / `"Timeline events"` | English section names on a Chinese page, and invisible, so a sighted keyboard user had no heading to navigate by | 2.4.6 |
+| Every row's link read 「查看本日故事 →」 | Nothing told two rows apart in a screen reader's link list | 2.4.4 |
+| `opacity-70`/`opacity-60` for muted text | Opacity composites against whatever is behind it, so the contrast is not a value the stylesheet harness can compute — and on the sunken surface it falls below AA | 1.4.3 |
+
+Standalone controls also carried no `public-tap`, so they had no 44px target.
+
+### 7.2 One defect the markup suite structurally could not find
+
+The filter `<select>`s offered an `<option></option>` — no value, no text — for any event whose
+arc or event type was unset. A screen reader announces it as nothing, and taking it filters the
+list to zero. **axe does not flag it**, because an option without an accessible name is not a rule
+violation; it is simply an offer the page should not make. The browser suite found it.
+
+The first fix for it was worse than the defect: it filtered on `value.trim()`, and a published
+payload reaches the client as unvalidated JSON where an unset field arrives as `undefined`, not
+`''`. That threw during render and blanked the whole timeline. The jsdom suite could not have
+caught that either — its fixtures are built from the declared type, which says `string`. Both the
+option filter and the `undefined` case are now pinned in `timelineRoute.test.ts`.
+
+### 7.3 Where each claim is asserted
+
+| NFR-009 requirement | Graph | Timeline | Where |
+| --- | --- | --- | --- |
+| 鍵盤導覽 (reachability, DOM order, no trap) | ✅ | ✅ | `publicPages.a11y.test.tsx` (markup) + `e2e/p1Accessibility.spec.ts` (real Tab walk) |
+| Visible focus ring | ✅ | ✅ | `e2e/p1Accessibility.spec.ts` — computed outline/box-shadow on the focused control |
+| 合理對比 | ✅ | ✅ | axe `wcag2aa` in a real browser; muted text uses the measured token |
+| Reduced Motion | ✅ | ✅ | `e2e/p1Accessibility.spec.ts` — computed durations under `prefers-reduced-motion` |
+| 非地圖替代檢視 | ✅ | ✅ | Neither renders a canvas; the graph's SVG is `role="img"` with the same facts written out |
+| 圖像替代文字 | ✅ | ✅ | `expectStructuralAccessibility` enforces `alt`; the graph's diagram is named |
+| 行動裝置觸控尺寸 | ✅ | ✅ | Class asserted in jsdom; **measured** at 390px in the browser suite |
+| Landmarks, `lang`, heading order | ✅ | ✅ | `expectAccessible`, the same gate the P0 pages pass |
+| Filter state announced | — | ✅ | `role="status"` reports how many events the filter leaves |
+
+Run the evidence:
+
+```bash
+npm test -- --runTestsByPath src/components/public/publicPages.a11y.test.tsx
+npm run build:e2e && npx playwright test e2e/p1Accessibility.spec.ts
+```
+
+The human-in-the-loop checks in §4.1–§4.4 remain open for these two views as they do for the P0
+six: a screen-reader pass and a 320px/400%-zoom reflow check still need a person on real hardware.
