@@ -82,6 +82,19 @@ export function timelineEntryMatchesFilters(
 const unique = (values: readonly string[]): string[] => [...new Set(values)].sort();
 
 /**
+ * Distinct, sorted filter options, with anything that would render as a nameless choice removed.
+ *
+ * Typed as `unknown[]` on purpose. These values come out of a published read-model payload, which
+ * reaches the client as JSON that no client-side validator has narrowed, so an entry whose
+ * `eventType` was never set arrives as `undefined` and not as `''`. The first version of this
+ * filter assumed the declared type and called `.trim()` on it, which threw during render and blanked
+ * the whole timeline — a worse bug than the nameless option it was fixing. The browser suite caught
+ * it; the jsdom one could not, because its fixtures are built from the declared type.
+ */
+const namedOptions = (values: readonly unknown[]): string[] =>
+  unique(values.filter((value): value is string => typeof value === 'string' && value.trim().length > 0));
+
+/**
  * Compose the timeline render model from the published projection and the
  * active filters (AC#2). Entries are filtered and each carries a deep-link to
  * its episode when one exists (AC#3). Degrades to an empty model when the
@@ -107,8 +120,13 @@ export function composeTimelineViewModel(input: {
   return {
     hasContent: entries.length > 0,
     entries: filtered,
-    arcOptions: unique(entries.flatMap((entry) => entry.arcIds)),
-    characterOptions: unique(entries.flatMap((entry) => entry.characterIds)),
-    eventTypeOptions: unique(entries.map((entry) => entry.eventType)),
+    // Empty values are dropped rather than offered (ART-94). An event with no arc, or with an
+    // empty `eventType`, produced an `<option></option>` with no value and no text — a choice a
+    // screen reader announces as nothing, and one that filters the list down to zero if taken.
+    // axe does not flag it, because an option with no accessible name is not a rule violation;
+    // it is simply an offer the page should not be making.
+    arcOptions: namedOptions(entries.flatMap((entry) => entry.arcIds)),
+    characterOptions: namedOptions(entries.flatMap((entry) => entry.characterIds)),
+    eventTypeOptions: namedOptions(entries.map((entry) => entry.eventType)),
   };
 }

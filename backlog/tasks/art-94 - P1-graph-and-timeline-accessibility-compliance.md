@@ -1,9 +1,11 @@
 ---
 id: ART-94
 title: P1 graph and timeline accessibility compliance
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-08-02 16:25'
+updated_date: '2026-09-09 12:09'
 labels:
   - prd-1.0
   - epic-k
@@ -86,3 +88,14 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Read NFR-009 verbatim and inventory what the two P1 views already have.
+2. Find why the timeline had no a11y coverage at all: it has no presentational export, so the jsdom suite structurally cannot render it.
+3. Extract TimelineBody and fix the concrete defects that absence had hidden.
+4. Put both P1 views through the same expectAccessible gate the P0 pages pass, plus the keyboard and touch-target lists they were missing from.
+5. Add a browser suite for the three NFR-009 bullets jsdom cannot speak to: real Tab, real reduced-motion, measured touch targets.
+6. Fault injections, npm run check, npm run e2e, docs/accessibility.md §7.
+<!-- SECTION:PLAN:END -->

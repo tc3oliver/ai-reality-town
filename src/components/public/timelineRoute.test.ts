@@ -112,3 +112,62 @@ describe('composeTimelineViewModel', () => {
     expect(vm.arcOptions).toEqual([]);
   });
 });
+
+describe('filter options are offers a viewer can actually take (ART-94 / NFR-009)', () => {
+  const withGaps = {
+    entries: [
+      {
+        eventId: 'e1', worldDay: 1, timeSlot: 'morning', eventType: 'conflict',
+        publicSummary: '有摘要', arcIds: ['arc-mill'], characterIds: ['pei-lan'], episodeNumber: 1,
+      },
+      {
+        eventId: 'e2', worldDay: 2, timeSlot: 'noon', eventType: '',
+        publicSummary: '沒有事件類型', arcIds: [], characterIds: ['  '], episodeNumber: null,
+      },
+    ],
+  };
+
+  it('drops an empty or blank value rather than offering a nameless option', () => {
+    const vm = composeTimelineViewModel({
+      worldId: 'mistwood', projection: withGaps, filter: { arc: null, character: null, eventType: null },
+    });
+    // An `<option></option>` announces as nothing to a screen reader, and taking it filters the
+    // list down to zero — the timeline rendered one for every event with no arc.
+    expect(vm.arcOptions).toEqual(['arc-mill']);
+    expect(vm.eventTypeOptions).toEqual(['conflict']);
+    expect(vm.characterOptions).toEqual(['pei-lan']);
+    for (const option of [...vm.arcOptions, ...vm.characterOptions, ...vm.eventTypeOptions]) {
+      expect(option.trim()).not.toBe('');
+    }
+  });
+
+  it('survives a payload whose value is missing rather than empty', () => {
+    // The published payload reaches the client as unvalidated JSON, so a field that was never set
+    // arrives as `undefined`. Calling `.trim()` on it threw during render and blanked the page.
+    const missing = {
+      entries: [
+        {
+          eventId: 'e1', worldDay: 1, timeSlot: 'morning',
+          eventType: undefined as unknown as string,
+          publicSummary: '沒有事件類型',
+          arcIds: [undefined as unknown as string, 'arc-mill'],
+          characterIds: ['pei-lan'], episodeNumber: null,
+        },
+      ],
+    };
+    const vm = composeTimelineViewModel({
+      worldId: 'mistwood', projection: missing, filter: { arc: null, character: null, eventType: null },
+    });
+    expect(vm.eventTypeOptions).toEqual([]);
+    expect(vm.arcOptions).toEqual(['arc-mill']);
+    expect(vm.entries).toHaveLength(1);
+  });
+
+  it('still reports the events those entries belong to', () => {
+    const vm = composeTimelineViewModel({
+      worldId: 'mistwood', projection: withGaps, filter: { arc: null, character: null, eventType: null },
+    });
+    // Dropping an OPTION must not drop the EVENT: the entry with no arc is still on the timeline.
+    expect(vm.entries.map((entry) => entry.eventId)).toEqual(['e1', 'e2']);
+  });
+});
