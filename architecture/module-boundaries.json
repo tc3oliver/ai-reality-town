@@ -671,6 +671,12 @@
         "name": "resumeDegradation",
         "kind": "mutation",
         "gate": "operator"
+      },
+      {
+        "path": "convex/operations/worldQualityFunctions.ts",
+        "name": "inspectArcHeat",
+        "kind": "query",
+        "gate": "operator"
       }
     ]
   },

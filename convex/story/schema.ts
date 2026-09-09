@@ -131,4 +131,36 @@ export const storyTables = {
   })
     .index('by_world_and_arc', ['worldId', 'arcId'])
     .index('by_world', ['worldId']),
+
+  /**
+   * The composition of each arc's current heat score (FR-F006 AC#1, AC#3 / ART-32).
+   *
+   * ONE ROW PER ARC, patched in place, rather than one per computation. Heat is recomputed on every
+   * accepted event that touches the arc, so an append-only stream would grow with traffic while
+   * answering a question that is only ever asked about NOW — 「這個 Arc 現在為什麼是這個分數」. The
+   * durable history of the score itself is already append-only elsewhere: `heatScore` is a field of
+   * `storyArcProjectionEvents`, whose revisions are never rewritten, so「分數如何隨時間變化」 is
+   * answerable from the projection stream and「分數由什麼組成」 from here.
+   *
+   * `components` is `v.any()` for the reason every other derived payload in this schema is: the
+   * shape is owned and validated by the pure module that writes it (`convex/story/heat.ts`), and a
+   * second validator here would be a second place for the shape to be wrong.
+   *
+   * NO NARRATIVE TEXT. Component evidence carries ids, counts and world days only, so this table
+   * cannot become a route around the publication gate.
+   */
+  storyArcHeatScores: defineTable({
+    schemaVersion: v.literal(1),
+    worldId: v.string(),
+    arcId: v.string(),
+    definitionVersion: v.number(),
+    score: v.number(),
+    measuredWeight: v.number(),
+    components: v.any(),
+    digest: v.string(),
+    sourceEventId: v.string(),
+    recordedAt: v.number(),
+  })
+    .index('by_world_and_arc', ['worldId', 'arcId'])
+    .index('by_world', ['worldId']),
 };

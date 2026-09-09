@@ -110,6 +110,7 @@ import { buildRecapSnapshot, type RecapSnapshot } from '../recaps/model';
 import { classifyPostGeneration } from '../safety/postGeneration';
 import { createArcLifecycle, isActiveArcStatus, transitionArcLifecycle } from '../story/lifecycle';
 import { createArcResolutionDecision, type ArcResolutionDecision } from '../story/resolution';
+import type { ArcHeatScore } from '../story/heat';
 import { deriveConsequenceSummaries, type ConsequenceSummary } from '../story/consequenceSummary';
 import { applyArcPortfolioControl, MAX_MAJOR_ACTIVE_ARCS,
   MAX_MINOR_ACTIVE_ARCS, type ArcPortfolioEntry } from '../story/portfolio';
@@ -895,6 +896,14 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
   const publications = new Map<string, PublicationRecord>();
   const shareFormats = new Map<number, { status: string; reasonCodes: string[] }>();
   const stagnationPrompts: Array<{ arcId: string; stagnantWorldDays: number; status: string }> = [];
+  /**
+   * FR-F006 / ART-32. The heat the pipeline last scored each arc at, keyed by arc.
+   *
+   * Recorded rather than recomputed, for the reason `validations` and `attempts` are on the
+   * world-day side: a report that re-derives what it is reporting on cannot catch the pipeline
+   * scoring something else.
+   */
+  const arcHeat = new Map<string, ArcHeatScore>();
   const recapFormats = new Map<number, { status: 'ready' | 'failed'; episodeNumber: number; deduplicated: boolean; errorCode?: string }>();
   const storedRecapFormats = new Map<number, { formats: RecapFormats; composition: RecapComposition }>();
   /**
@@ -989,6 +998,10 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
           ), 0),
           // ART-163: the newest projection revision's world day is the arc's last real progress.
           lastProgressWorldDay: record.projections[record.projections.length - 1].worldDay,
+          // The harness drives no analytics ingest, so it CANNOT observe viewer interaction. Null
+          // rather than zero: the heat scorer renormalises around an unmeasured signal instead of
+          // scoring every harness arc as one nobody is watching (ART-32).
+          viewerInteractionCount: null,
         })),
         characterIds: mistwoodCharacterSeed.characters.map(({ id }) => id),
         completedWorldDays: completed,
@@ -1069,6 +1082,15 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
       if (!record) throw new Error(`unknown arc ${input.arcId}`);
       record.lifecycle = transitionArcLifecycle(record.lifecycle, { ...input, changedAt: now });
       return Promise.resolve({ status: record.lifecycle.status });
+    },
+
+    /**
+     * The harness records what the pipeline scored, so its own reports can assert on heat without
+     * recomputing it — recomputing would test the test rather than the pipeline.
+     */
+    recordArcHeat(heat) {
+      arcHeat.set(heat.arcId, heat);
+      return Promise.resolve();
     },
 
     updateArcProjection(input) {
@@ -1529,7 +1551,7 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
   };
 
   return {
-    port, arcs, portfolio, episodes, recaps, classifications, stagnationPrompts, recapFormats, storedRecapFormats,
+    port, arcs, portfolio, episodes, recaps, classifications, stagnationPrompts, recapFormats, storedRecapFormats, arcHeat,
     resolutionDecisions, consequenceSummaries, snapshots, coverageReports,
     activeArcsForDirector, activeMajorArcIds, activeMinorArcIds, unresolvedMajorArcIds, arcStatusCounts,
   };
@@ -2513,6 +2535,7 @@ export async function runLongRunSimulation(input: LongRunInput): Promise<LongRun
       status: record.lifecycle.status,
       active: isActiveArcStatus(record.lifecycle.status),
       lastProgressWorldDay: record.projections.reduce((highest, projection) => Math.max(highest, projection.worldDay), 0),
+      viewerInteractionCount: null,
       revisionsInWindow: record.projections.filter((projection) =>
         projection.worldDay >= startWorldDay && projection.worldDay <= finalWorldDay).length,
       reachedTerminal: record.lifecycle.status === 'resolved' || record.lifecycle.status === 'archived',

@@ -308,3 +308,28 @@ export const dayIndexOf = (epochMs: number): number => Math.floor(epochMs / MS_P
  * know the same number in order to exclude a row that can no longer answer.
  */
 export const MAX_RETURN_DAY_OFFSETS = 32;
+
+/**
+ * The analytics events that count as viewer interaction WITH AN ARC (FR-F006 / ART-32).
+ *
+ * Every one of them carries `arcId` in `ANALYTICS_EVENT_PAYLOAD_KEYS`, which is what makes a
+ * per-arc rollup possible without widening what analytics stores: `arcId` is a world identifier,
+ * already public on every Episode page, and is listed here as such.
+ *
+ * `story_arc_followed` counts whether the viewer followed or UNfollowed. Interaction is attention,
+ * and un-following an arc is attention paid to it — a rollup that counted only the positive
+ * direction would report an arc people are actively abandoning as one nobody has an opinion about.
+ *
+ * Declared in `shared` rather than beside the ingest that bumps the counter, because the heat
+ * scorer in `story` and the ingest in `analytics` must agree on the set and may not import each
+ * other.
+ */
+export const ARC_INTERACTION_EVENTS = [
+  'story_arc_viewed',
+  'story_arc_followed',
+  'live_arc_opened',
+] as const;
+export type ArcInteractionEvent = (typeof ARC_INTERACTION_EVENTS)[number];
+
+export const isArcInteractionEvent = (eventName: string): eventName is ArcInteractionEvent =>
+  (ARC_INTERACTION_EVENTS as readonly string[]).includes(eventName);

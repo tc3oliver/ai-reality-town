@@ -188,6 +188,7 @@ const arcArtifact = (): ArcArtifact => ({
   portfolioDecision: null,
   transitions: [],
   deferredTransitions: [],
+  heatScores: [],
   projectionRevisions: [],
   stagnationPromptCount: 0,
   resolutions: [],
