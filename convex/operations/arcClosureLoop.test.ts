@@ -67,7 +67,7 @@ function arcFields(overrides: Partial<ArcProjectionFields> = {}): ArcProjectionF
 function arc(overrides: Partial<LiveArcState> = {}): LiveArcState {
   return {
     arcId: 'arc:1', status: 'active', projectionRevision: 1, tier: 'major',
-    lastTransitionWorldDay: 0, lastProgressWorldDay: 0, fields: arcFields(),
+    lastTransitionWorldDay: 0, lastProgressWorldDay: 0, viewerInteractionCount: null, fields: arcFields(),
     ...overrides,
   };
 }
@@ -127,6 +127,7 @@ function harness(input: { arcs: LiveArcState[]; event?: AcceptedEvent; latestWor
       calls.push({ kind: 'classify' });
       return Promise.resolve({ created: false });
     },
+    recordArcHeat: () => Promise.resolve(),
     updateArcProjection: (args: { arcId: string }) => {
       calls.push({ kind: 'projection', arcId: args.arcId });
       return Promise.resolve({ revision: 2 });

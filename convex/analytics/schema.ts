@@ -143,4 +143,31 @@ export const analyticsTables = {
     viewersCreated: v.number(),
   })
     .index('by_world_and_day', ['worldId', 'dayIndex']),
+
+  /**
+   * Per (world, arc) viewer-interaction total, for FR-F006's 觀眾互動 signal (ART-32).
+   *
+   * MUTABLE BY DESIGN, exactly as `analyticsIngestCounters` is and for the same reason: the heat
+   * scorer reads this once per arc on the post-commit path, and a per-event row would make that
+   * read an unbounded scan of a table that grows with traffic rather than with world time. CLAUDE.md
+   * §9 forbids exactly that.
+   *
+   * WHY A ROLLUP AT ALL. `analyticsEvents` has no index by arc, and adding one would not help: the
+   * count wanted is over the whole life of the arc, so even an indexed read would grow without
+   * bound. The alternative considered and rejected was leaving 觀眾互動 permanently
+   * `no_observations` — which the composite renormalises around correctly, but which would mean
+   * shipping five of FR-F006's six signals and calling the requirement delivered.
+   *
+   * NO VIEWER IDENTITY. A count, an arc id and a world id. Which viewers, which sessions and which
+   * days are all deliberately absent: the heat score needs 「有多少互動」 and nothing else, and a
+   * rollup that could answer more would be a second, weaker copy of the analytics privacy boundary.
+   */
+  arcInteractionCounters: defineTable({
+    schemaVersion: v.literal(1),
+    worldId: v.string(),
+    arcId: v.string(),
+    interactions: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_world_and_arc', ['worldId', 'arcId']),
 };

@@ -49,6 +49,7 @@ import type {
 } from '../story/portfolioFunctions';
 import type { transitionArcLifecycleRecord as transitionArcLifecycleRecordExport } from '../story/functions';
 import type { updateArcProjection as updateArcProjectionExport } from '../story/projectionFunctions';
+import type { recordArcHeat as recordArcHeatExport } from '../story/heatFunctions';
 import type {
   refreshArcStagnationPrompts as refreshArcStagnationPromptsExport,
   recordArcResolutionDecision as recordArcResolutionDecisionExport,
@@ -162,6 +163,9 @@ const syncArcPortfolioEntryRef = internalFunctionRef<typeof syncArcPortfolioEntr
 );
 const transitionArcLifecycleRecordRef = internalFunctionRef<typeof transitionArcLifecycleRecordExport>(
   'story/functions:transitionArcLifecycleRecord',
+);
+const recordArcHeatRef = internalFunctionRef<typeof recordArcHeatExport>(
+  'story/heatFunctions:recordArcHeat',
 );
 const updateArcProjectionRef = internalFunctionRef<typeof updateArcProjectionExport>(
   'story/projectionFunctions:updateArcProjection',
@@ -497,6 +501,18 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
         const row = await eventAtSequence(worldId, sequenceNumber);
         return [sequenceNumber, row?.worldDay] as const;
       })));
+      // One indexed read per arc for FR-F006's 觀眾互動 signal (ART-32). Bounded by the portfolio
+      // caps the world already enforces (≤3 major, ≤6 minor active), and by `unique()` rather than
+      // a scan — CLAUDE.md §9's rule about per-event paths.
+      const interactionByArc = new Map((await Promise.all(lifecycles.map(async (lifecycle) => {
+        const counter = await ctx.db
+          .query('arcInteractionCounters')
+          .withIndex('by_world_and_arc', (q) => q.eq('worldId', worldId).eq('arcId', lifecycle.arcId))
+          .unique();
+        // Absent means "no interaction has ever been recorded", which IS zero: the ingest bumps
+        // this on the first one. `null` is reserved for a caller that cannot observe at all.
+        return [lifecycle.arcId, counter?.interactions ?? 0] as const;
+      }))));
       const arcs: LiveArcState[] = lifecycles.flatMap((lifecycle): LiveArcState[] => {
         const latest = projectionRows
           .filter((row) => row.arcId === lifecycle.arcId)
@@ -516,6 +532,7 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
           // (`replayArcProjection` derives it from the event that appended the revision), so
           // stagnation is measured against real progress rather than against lifecycle churn.
           lastProgressWorldDay: latest.worldDay,
+          viewerInteractionCount: interactionByArc.get(lifecycle.arcId) ?? 0,
         }];
       });
 
@@ -601,6 +618,10 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
       const { status } = await ctx.runMutation(transitionArcLifecycleRecordRef,
         { ...input, changedAt: now });
       return invalidate({ status });
+    },
+
+    async recordArcHeat(heat) {
+      await ctx.runMutation(recordArcHeatRef, { heat, recordedAt: now });
     },
 
     async updateArcProjection(input) {

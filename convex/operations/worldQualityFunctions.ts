@@ -78,6 +78,7 @@ import { policyFor, resumeFromPause } from '../simulation/degradation';
 import { ARC_STAGNATION_WORLD_DAYS } from '../story/resolution';
 import { HIGH_IMPORTANCE_THRESHOLD } from '../editorial/episode';
 import { buildCoverageExclusion, CoverageExclusionError, reconcileCoverageExclusion, type CoverageExclusionRecord } from '../recaps/coverageExclusions';
+import { ARC_HEAT_DEFINITION_VERSION, type ArcHeatScore } from '../story/heat';
 import {
   evaluateOperationalQuality, OPERATIONAL_QUALITY_EVALUATOR,
   type AuthoringAttemptEvidence, type ProposalValidationEvidence, type SceneSafetyEvidence,
@@ -902,5 +903,73 @@ export const resumeDegradation = mutation({
     // A replayed resume wrote nothing, so it did not transition. The copy this replaced discarded
     // `applyDecision`'s answer and reported `transitioned: true` for a resume that changed nothing.
     return { level: decision.state.level, transitioned: decision.transition !== null && !deduplicated };
+  },
+});
+
+
+/**
+ * FR-F006 AC#3 「管理者可查看分數構成」 — the composition behind every arc's heat (ART-32).
+ *
+ * `operator`-gated and never on a public path. What is public is the SCORE, as `heatScore` on the
+ * arc projection every viewer already reads; what is operator-only is the derivation. That split
+ * is the point of the requirement: an operator has to be able to answer 「為什麼這條線在首頁最上面」
+ * without the answer itself becoming something the homepage publishes.
+ *
+ * Reads one row per arc from `storyArcHeatScores`, which the post-commit arc stage upserts. No
+ * recomputation: an inspection that re-derived the score could agree with itself while disagreeing
+ * with what the pipeline actually stored, which is the failure this is meant to detect.
+ *
+ * Component evidence carries ids, counts and world days only — never a summary, a question or a
+ * scene — so an authorized response cannot become a route around the publication gate (NFR-005).
+ */
+export const inspectArcHeat = query({
+  args: { ...credentialArgs, worldId: v.string() },
+  returns: v.object({
+    definitionVersion: v.number(),
+    arcs: v.array(v.object({
+      arcId: v.string(),
+      definitionVersion: v.number(),
+      score: v.number(),
+      measuredWeight: v.number(),
+      components: v.array(v.object({
+        key: v.string(),
+        weight: v.number(),
+        value: v.union(v.number(), v.null()),
+        status: v.string(),
+        evidence: v.any(),
+        unmeasuredReason: v.union(v.string(), v.null()),
+      })),
+      digest: v.string(),
+      sourceEventId: v.string(),
+      recordedAt: v.number(),
+      currentDefinition: v.boolean(),
+    })),
+  }),
+  handler: async (ctx, args) => {
+    await requireOperator(ctx, 'world.inspect', args);
+    const rows = await ctx.db
+      .query('storyArcHeatScores')
+      .withIndex('by_world', (q) => q.eq('worldId', args.worldId))
+      .collect();
+    return {
+      definitionVersion: ARC_HEAT_DEFINITION_VERSION,
+      arcs: rows
+        .map((row) => ({
+          arcId: row.arcId,
+          definitionVersion: row.definitionVersion,
+          score: row.score,
+          measuredWeight: row.measuredWeight,
+          components: row.components as ArcHeatScore['components'],
+          digest: row.digest,
+          sourceEventId: row.sourceEventId,
+          recordedAt: row.recordedAt,
+          // Published rather than filtered: an operator comparing two arcs needs to know when one
+          // was last scored under an older definition.
+          currentDefinition: row.definitionVersion === ARC_HEAT_DEFINITION_VERSION,
+        }))
+        // Hottest first, ties on arc id — the same total order `compareArcsByHeat` gives the
+        // homepage, so an operator reads the arcs in the order a viewer sees them.
+        .sort((left, right) => right.score - left.score || left.arcId.localeCompare(right.arcId)),
+    };
   },
 });
