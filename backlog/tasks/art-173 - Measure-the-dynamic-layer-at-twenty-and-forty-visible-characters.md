@@ -4,6 +4,7 @@ title: Measure the dynamic layer at twenty and forty visible characters
 status: To Do
 assignee: []
 created_date: '2026-09-09 18:50'
+updated_date: '2026-09-09 19:09'
 labels:
   - prd-2.0
   - epic-q
@@ -50,3 +51,23 @@ Out of scope: making the mobile figure conclusive. That needs hardware graphics 
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## The design sketched in the description does not survive contact with the code
+
+I checked before starting, and the "confined to `src/e2e/`" plan cannot be built as written.
+
+`LiveMapPage.tsx:393` passes `spriteKeys: mistwoodCharacterSpriteKeys` — a production constant derived from `MISTWOOD_CHARACTER_VISUALS` — straight into `composeReadOnlyWorldViewModel`, which drops any character the map does not name (`worldViewModel.ts:238`, FR-N004 AC#6). So extra characters injected by the fixture are dropped before they reach the renderer, and the fixture has no way to widen that map without the page reading a different one.
+
+That leaves three options, and they are not equivalent:
+
+1. **Add 28 more production visual bindings.** Rejected: it changes what Mistwood IS to make a number appear, which is the fixture rule (ART-107 §8) exactly.
+2. **Let the live page take its sprite map from somewhere overridable.** This is the smallest code change and the worst one: it puts a benchmark seam in the shipped renderer, which AC#3 of this task forbids for good reason.
+3. **A bench-only surface that mounts the read-only renderer directly with a synthetic sprite map.** Confined to `src/e2e/`, no production branch, and it measures the thing NFR2-002 AC#4 is actually about — renderer capacity with N animated sprites. The cost is that the figure is "the renderer at 40 sprites", not "the live page at 40 characters", and the report would have to say so.
+
+Option 3 is the only one that satisfies this task's own acceptance criteria, and it is an architecture decision about what the benchmark measures — not a defect fix. It is left for a human to confirm rather than taken unilaterally, because the alternative reading (that FR-Q005's three scenarios are a claim about the world, which is what `CHARACTER_COUNT_LIMIT` currently argues) is also defensible and is the position already recorded in the harness.
+
+What is NOT in doubt: recording 20 and 40 as `unreachable` with no task attached was the wrong end state, because FR-Q005 asks for them and the PRD grants no exemption. That part is fixed by this task existing.
+<!-- SECTION:NOTES:END -->
