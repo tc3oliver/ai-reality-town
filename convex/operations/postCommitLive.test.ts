@@ -135,6 +135,7 @@ import {
   SHARE_FORMAT_KINDS,
   type EpisodeShareFormats,
 } from '../editorial/derived/shareFormats';
+import { isViewerServablePublicationStatus } from '../editorial/publicationLifecycle';
 import { CLEARED_RUN_FAILURE } from '../shared/runRecord';
 
 const WORLD_ID = MISTWOOD_PUBLIC_WORLD_ID;
@@ -1062,6 +1063,15 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
           worldDay: row.episode!.worldDay, episodeNumber: row.episode!.episodeNumber, title: row.episode!.title,
           headline: row.episode!.headline, status: row.status, arcIds: row.episode!.arcIds,
           characterIds: row.episode!.characterIds, sourceEventIds: row.episode!.sourceEventIds,
+        })),
+        /**
+         * ART-174. Derived from the harness's OWN publication records, not stubbed to empty.
+         * A harness that passed an empty set would model an index no administrator decision can
+         * reach — which is the class of harness/production drift the long run exists to catch.
+         */
+        withheldWorldDays: new Set<number>([...episodes.keys()].filter((worldDay) => {
+          const status = publications.get(episodeContentRef(worldId, worldDay))?.status;
+          return status !== undefined && !isViewerServablePublicationStatus(status);
         })),
         recommendedEntryWorldDays: new Set<number>(),
         turningPointEventIds: new Set([...arcs.keys()]
