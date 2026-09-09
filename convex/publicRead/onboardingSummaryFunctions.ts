@@ -13,6 +13,7 @@ import { internalMutation } from '../_generated/server';
 import type { AcceptedEvent } from '../canon/model';
 import { rowToAcceptedEvent, type CanonEventRow } from '../canon/serialize';
 import { readWithheldSceneLabels } from '../safety/effectiveSafetyLabels';
+import { readWithheldPublicationWorldDays } from './withheldPublicationDays';
 import { deriveEventId } from '../shared/ids';
 import {
   redactWithheldNarration,
@@ -74,7 +75,8 @@ export const rebuildOnboardingSummary = internalMutation({
   args: { worldId: v.string(), now: v.number() },
   handler: async (ctx, args) => {
     if (args.worldId.trim().length === 0 || !Number.isFinite(args.now)) throw new Error('ONBOARDING_INVALID');
-    const [classificationRows, portfolioRows, entryRows, episodeRows, withheldSceneRecord] = await Promise.all([
+    const [classificationRows, portfolioRows, entryRows, episodeRows, withheldSceneRecord,
+      withheldPublicationDays] = await Promise.all([
       ctx.db.query('storyArcEventClassifications').withIndex('by_world', (q) => q.eq('worldId', args.worldId)).collect(),
       ctx.db.query('storyArcPortfolioEntries').withIndex('by_world_and_arc', (q) => q.eq('worldId', args.worldId)).collect(),
       ctx.db.query('storyArcRecommendedEntries').withIndex('by_world', (q) => q.eq('worldId', args.worldId)).collect(),
@@ -95,6 +97,21 @@ export const rebuildOnboardingSummary = internalMutation({
       // The inverted, history-independent question. See `effectiveSafetyLabels.ts` on why a
       // rebuild must never ask this Scene by Scene.
       readWithheldSceneLabels(ctx.db, args.worldId),
+      /**
+       * The SECOND gate, and this summary had only the first (ART-176).
+       *
+       * `redactWithheldNarration` below answers the SAFETY question — did a classifier or an
+       * operator refuse this Scene's text. It cannot answer the EDITORIAL one: FR-K004's
+       * publication record is what decides whether a day's story has been released, an
+       * administrator moves it independently (reachable since ART-171), and a publication
+       * withhold leaves `dailyEpisodes.status` at `ready` with the body intact.
+       *
+       * Without this the regression was live and immediate: `decideEpisodePublication` calls
+       * `refreshPublicTextModels`, which calls THIS rebuild — so withholding a day withdrew
+       * `episode:<day>` and republished that same Episode's narration onto the homepage and the
+       * ART-125 story overlay in the same transaction.
+       */
+      readWithheldPublicationWorldDays(ctx.db, args.worldId),
     ]);
     const withheldSceneMap = new Map(Object.entries(withheldSceneRecord));
     const importanceBySequence = new Map<number, number>();
@@ -235,7 +252,7 @@ export const rebuildOnboardingSummary = internalMutation({
 
     // `episodeRows` arrives newest-first off the index, so the first row with a body IS the
     // newest one — the sort the old whole-table read needed is now the index's job.
-    const latestEpisode = episodeRows.find((row) => row.episode);
+    const latestEpisode = episodeRows.find((row) => row.episode && !withheldPublicationDays.has(row.worldDay));
     const latestEpisodeScanExhausted =
       latestEpisode === undefined && episodeRows.length === MAX_EPISODE_SCAN;
     const latestEpisodeData = latestEpisode?.episode as { keyScenes?: EpisodeKeyScene[] } | undefined;

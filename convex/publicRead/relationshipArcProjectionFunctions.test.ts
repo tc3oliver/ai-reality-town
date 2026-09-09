@@ -15,6 +15,7 @@
  * assertions red even before the payload assertions could catch it.
  */
 
+import { ESSENTIAL_BACKSTORY_LIMIT } from './relationshipArcProjection';
 import { rebuildArcProjection } from './relationshipArcProjectionFunctions';
 
 const WORLD_ID = 'mistwood';
@@ -167,7 +168,7 @@ function classificationRow(
   };
 }
 
-function canonRow(sequenceNumber: number, fact?: { predicate: string; value: string }): Row {
+function canonRow(sequenceNumber: number, fact?: { predicate: string; value: string }, sceneId?: string): Row {
   return {
     worldId: WORLD_ID,
     sequenceNumber,
@@ -185,6 +186,7 @@ function canonRow(sequenceNumber: number, fact?: { predicate: string; value: str
       participantIds: ['zhao-ming', 'he-jun'],
       causedByEventIds: [],
       publicSummary: `事件 ${sequenceNumber}`,
+      ...(sceneId === undefined ? {} : { metadata: { sceneId } }),
       stateChanges: fact ? [{
         type: 'fact_created', visibility: 'public', subjectType: 'world', subjectId: WORLD_ID,
         factId: `fact-${sequenceNumber}`, predicate: fact.predicate, value: fact.value,
@@ -212,6 +214,8 @@ function baseTables(over: Partial<Tables> = {}): Tables {
     arcConsequenceSummaries: [],
     storyArcEventClassifications: [],
     canonEvents: [],
+    postGenerationSafetyClassifications: [],
+    safetyStatusOverrides: [],
     publishedReadModels: [],
     ...over,
   };
@@ -224,7 +228,11 @@ async function publishedArc(tables: Tables) {
   ) as { modelRef: string; version: number; deduplicated: boolean };
   const row = (tables.publishedReadModels ?? []).at(-1);
   expect(row).toBeDefined();
-  return { result, row: row!, payload: row!.payload as { knownClues: Array<{ predicate: string; sourceEventId: string }>; essentialBackstory: Array<{ predicate: string }> } };
+  return { result, row: row!, payload: row!.payload as {
+    knownClues: Array<{ predicate: string; sourceEventId: string }>;
+    essentialBackstory: Array<{ predicate: string }>;
+    essentialBackstoryOmittedCount: number;
+  } };
 }
 
 describe('rebuildArcProjection — canonEvents reads only this arc\'s known source sequences (ART-100)', () => {
@@ -284,5 +292,105 @@ describe('rebuildArcProjection — canonEvents reads only this arc\'s known sour
     const result = await handler._handler(ctx, { worldId: WORLD_ID, arcId: ARC_ID, now: 5_000 }) as { modelRef: string };
     expect(result.modelRef).toBe(`arc:${ARC_ID}`);
     expect(sequenceNumbersLookedUp).toEqual([]);
+  });
+});
+
+/**
+ * The safety gate this rebuild did not have (ART-176).
+ *
+ * `knownClues` and `essentialBackstory` are LLM-authored `predicate`/`value` pairs off
+ * `fact_created` changes — exactly the changes `characterSourceFrom` skips for a withheld Scene.
+ * Two public surfaces disagreed about whether a fact from a refused Scene is showable, and this
+ * was the permissive one.
+ */
+describe('rebuildArcProjection — a withheld Scene\'s facts never reach the arc page', () => {
+  const CLEAN_SCENE = 'mistwood:1:morning:grouping:scene:1';
+  const REFUSED_SCENE = 'mistwood:1:evening:grouping:scene:2';
+
+  function tablesWithScenes(withheld: boolean): Tables {
+    return baseTables({
+      canonEvents: [
+        canonRow(10, { predicate: '休戰', value: '磨坊前簽署' }, CLEAN_SCENE),
+        canonRow(25, { predicate: '密約', value: 'POISONED: 一段被安全分類器拒絕的線索' }, REFUSED_SCENE),
+      ],
+      storyArcEventClassifications: [
+        classificationRow(10, [{ arcId: ARC_ID, importance: 5 }]),
+        classificationRow(25, [{ arcId: ARC_ID, importance: 5 }]),
+      ],
+      postGenerationSafetyClassifications: withheld
+        ? [{
+          worldId: WORLD_ID, classificationId: 'c1', sourceId: REFUSED_SCENE,
+          label: 'withhold', createdAt: 2_000,
+        }]
+        : [],
+    });
+  }
+
+  it('publishes both facts while no Scene is refused', async () => {
+    const { payload } = await publishedArc(tablesWithScenes(false));
+    expect(payload.knownClues.map((clue) => clue.predicate)).toEqual(['休戰', '密約']);
+  });
+
+  it('drops the refused Scene\'s fact, and only that one', async () => {
+    const { payload } = await publishedArc(tablesWithScenes(true));
+    expect(payload.knownClues.map((clue) => clue.predicate)).toEqual(['休戰']);
+    expect(JSON.stringify(payload)).not.toContain('POISONED');
+  });
+
+  it('brings it back when an operator releases the Scene', async () => {
+    const tables = tablesWithScenes(true);
+    tables.safetyStatusOverrides = [{
+      worldId: WORLD_ID, sourceId: REFUSED_SCENE, label: 'allow', createdAt: 3_000,
+    }];
+    const { payload } = await publishedArc(tables);
+    expect(payload.knownClues.map((clue) => clue.predicate)).toEqual(['休戰', '密約']);
+  });
+
+  it('does NOT withhold a fact from an event with no Scene provenance', async () => {
+    // ART-132's convention: silence from the classifier means "never in scope", not "refused".
+    const tables = baseTables({
+      canonEvents: [canonRow(10, { predicate: '休戰', value: '磨坊前簽署' })],
+      storyArcEventClassifications: [classificationRow(10, [{ arcId: ARC_ID, importance: 5 }])],
+      postGenerationSafetyClassifications: [{
+        worldId: WORLD_ID, classificationId: 'c1', sourceId: REFUSED_SCENE,
+        label: 'withhold', createdAt: 2_000,
+      }],
+    });
+    const { payload } = await publishedArc(tables);
+    expect(payload.knownClues.map((clue) => clue.predicate)).toEqual(['休戰']);
+  });
+});
+
+/**
+ * 「Truncation is never silent」 (CLAUDE.md §9), applied to 必要背景 (ART-176).
+ *
+ * `essentialBackstory` is the first {@link ESSENTIAL_BACKSTORY_LIMIT} of `knownClues` — one list
+ * rendered as two sections — and it used to cut at five and say nothing. The character page has
+ * published its own omission counts since ART-169; this is the same rule, one surface later.
+ */
+describe('rebuildArcProjection — the backstory says what it left out', () => {
+  function tablesWithClues(count: number): Tables {
+    const sequences = Array.from({ length: count }, (_unused, index) => 10 + index);
+    return baseTables({
+      canonEvents: sequences.map((sequenceNumber) =>
+        canonRow(sequenceNumber, { predicate: `線索${sequenceNumber}`, value: `值${sequenceNumber}` })),
+      storyArcEventClassifications: sequences.map((sequenceNumber) =>
+        classificationRow(sequenceNumber, [{ arcId: ARC_ID, importance: 5 }])),
+    });
+  }
+
+  it('publishes every clue and omits nothing when the list fits', async () => {
+    const { payload } = await publishedArc(tablesWithClues(ESSENTIAL_BACKSTORY_LIMIT));
+    expect(payload.essentialBackstory).toHaveLength(ESSENTIAL_BACKSTORY_LIMIT);
+    expect(payload.essentialBackstoryOmittedCount).toBe(0);
+    expect(payload.knownClues).toHaveLength(ESSENTIAL_BACKSTORY_LIMIT);
+  });
+
+  it('caps the backstory and publishes the count it dropped', async () => {
+    const { payload } = await publishedArc(tablesWithClues(ESSENTIAL_BACKSTORY_LIMIT + 3));
+    expect(payload.essentialBackstory).toHaveLength(ESSENTIAL_BACKSTORY_LIMIT);
+    expect(payload.essentialBackstoryOmittedCount).toBe(3);
+    // The clues themselves are NOT lost — the cap is on the summary section, not on the evidence.
+    expect(payload.knownClues).toHaveLength(ESSENTIAL_BACKSTORY_LIMIT + 3);
   });
 });

@@ -164,8 +164,18 @@ function baseTables(over: Partial<Tables> = {}): Tables {
     dailyEpisodes: [],
     postGenerationSafetyClassifications: [],
     safetyStatusOverrides: [],
+    publicationRecords: [],
     publishedReadModels: [],
     ...over,
+  };
+}
+
+/** A current Episode publication record for world day 3, at whatever status the case needs. */
+function publicationRecord(status: string): Row {
+  return {
+    worldId: WORLD_ID, contentRef: `episode:${WORLD_ID}:3`, contentKind: 'episode',
+    publicationId: `pub:episode:${WORLD_ID}:3:1`, status, version: 1, isCurrent: true,
+    schemaVersion: 1, audit: [], createdAt: 1_000, updatedAt: 1_000,
   };
 }
 
@@ -675,5 +685,64 @@ describe('rebuildOnboardingSummary — key-scene redaction reaches outside the t
       }],
     }));
     expect(payload.structured.scene).toEqual({ title: '很久以前', summary: SAFE_NARRATION });
+  });
+});
+
+/**
+ * The EDITORIAL gate, which this summary did not have (ART-176).
+ *
+ * Everything above is about the SAFETY gate — did a classifier or an operator refuse this Scene's
+ * text. That question cannot answer the editorial one, and the difference became reachable at
+ * ART-171: an administrator can withhold a day's publication record independently, which leaves
+ * `dailyEpisodes.status` at `ready` with the body intact.
+ *
+ * The regression was immediate, not theoretical. `decideEpisodePublication` calls
+ * `refreshPublicTextModels`, which calls THIS rebuild — so withholding a day withdrew
+ * `episode:<day>` and republished that Episode's narration onto the homepage and the ART-125
+ * story overlay in the same transaction.
+ */
+describe('an administrator publication withhold reaches the onboarding summary', () => {
+  it('narrates a day whose publication record is servable', async () => {
+    // The episode's FIRST key scene wins when nothing is withheld — `narratedEpisode()` orders the
+    // refused-scene narration first precisely so the safety cases above have something to skip.
+    const summary = await publishedSummary(baseTables({
+      dailyEpisodes: narratedEpisode(),
+      publicationRecords: [publicationRecord('ready')],
+    }));
+    expect(summary.structured.scene?.summary).toBe(REFUSED_NARRATION);
+  });
+
+  it.each(['withheld', 'superseded'])('narrates nothing from a %s day', async (status) => {
+    const summary = await publishedSummary(baseTables({
+      dailyEpisodes: narratedEpisode(),
+      publicationRecords: [publicationRecord(status)],
+    }));
+    expect(summary.structured.scene).toBeNull();
+    // Neither of the day's key scenes is in the payload — the whole Episode is off the surface,
+    // not just the one scene the safety gate would have removed.
+    expect(JSON.stringify(summary)).not.toContain(SAFE_NARRATION);
+    expect(JSON.stringify(summary)).not.toContain(REFUSED_NARRATION);
+  });
+
+  it('still narrates a day that has no publication record at all', async () => {
+    // Silence is not a refusal: an Episode predating FR-K004 has no record, and reading that as a
+    // withhold would blank the homepage for every world older than the lifecycle.
+    const summary = await publishedSummary(baseTables({ dailyEpisodes: narratedEpisode() }));
+    expect(summary.structured.scene?.summary).toBe(REFUSED_NARRATION);
+  });
+
+  it('is a SECOND gate: the safety redaction still applies to a published day', async () => {
+    // The withheld SCENE's narration is dropped even though the DAY is publishable, so the two
+    // gates compose rather than one standing in for the other.
+    const summary = await publishedSummary(baseTables({
+      dailyEpisodes: narratedEpisode(),
+      publicationRecords: [publicationRecord('ready')],
+      postGenerationSafetyClassifications: [{
+        worldId: WORLD_ID, classificationId: 'c1', sourceId: WITHHELD_SCENE,
+        label: 'withhold', createdAt: 2_000,
+      }],
+    }));
+    expect(summary.structured.scene?.summary).toBe(SAFE_NARRATION);
+    expect(JSON.stringify(summary)).not.toContain(REFUSED_NARRATION);
   });
 });

@@ -124,7 +124,19 @@ export type ArcProjection = {
   knownClues: PublicFact[];
   unresolvedQuestions: string[];
   outcome: ArcOutcome | null;
+  /**
+   * How many known clues `essentialBackstory` left out (ART-176).
+   *
+   * `essentialBackstory` is the first {@link ESSENTIAL_BACKSTORY_LIMIT} of `knownClues` — the two
+   * are one list rendered as two sections — and it used to truncate in silence. CLAUDE.md §9:
+   * truncation is never silent, publish what was omitted and why. The sibling character page has
+   * published its own omission counts since ART-169; this is the same rule.
+   */
+  essentialBackstoryOmittedCount: number;
 };
+
+/** How many clues the 「必要背景」 section carries before it starts omitting. */
+export const ESSENTIAL_BACKSTORY_LIMIT = 5;
 
 export class RelationshipArcError extends Error {
   constructor(readonly code: string, message: string) {
@@ -292,7 +304,8 @@ export function buildArcProjection(input: {
     currentQuestion: input.arc.currentQuestion,
     status: input.arc.status,
     coreCharacterIds: [...new Set(input.arc.coreCharacterIds)],
-    essentialBackstory: input.essentialBackstory.map((fact) => ({ ...fact })),
+    essentialBackstory: input.essentialBackstory.slice(0, ESSENTIAL_BACKSTORY_LIMIT).map((fact) => ({ ...fact })),
+    essentialBackstoryOmittedCount: Math.max(0, input.essentialBackstory.length - ESSENTIAL_BACKSTORY_LIMIT),
     incitingEventId: input.arc.incitingEventId,
     latestTurningPointEventId: input.arc.latestTurningPointEventId,
     recommendedEntry: input.recommendedEntry ? { ...input.recommendedEntry } : null,

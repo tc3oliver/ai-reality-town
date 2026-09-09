@@ -138,6 +138,12 @@ function operatorCtx(tables: Tables, rebuildResult: Row = {}) {
       if (target.includes('refreshVoteConsequenceProjections')) {
         return Promise.resolve({ modelRefs: [`voteConsequence:${WORLD_ID}:7`], rebuiltDayCount: 1 });
       }
+      if (target.includes('refreshViewerKnowledgeProjections')) {
+        return Promise.resolve({ modelRefs: [`viewerKnowledge:zhao-ming`], rebuiltCharacterCount: 1 });
+      }
+      if (target.includes('refreshArcPrimers')) {
+        return Promise.resolve({ modelRefs: [`primer:arc-mill`], rebuiltArcCount: 1 });
+      }
       return Promise.resolve({
         modelRef: `live:${WORLD_ID}`,
         version: 7,
@@ -301,8 +307,10 @@ describe('overridePostGenerationSafetyLabel — the ledger is additive and audit
     //
     // EVERY cached public text surface is refreshed, and this list is deliberately exhaustive —
     // it is the check that fails when someone adds a read model carrying Canon text and forgets
-    // the safety path. It has now done that three times: ART-125's onboarding summary, ART-46's
-    // per-day consequence model, and ART-169's per-character viewer-knowledge model. Rebuilding
+    // the safety path. It has now done that four times: ART-125's onboarding summary, ART-46's
+    // per-day consequence model, ART-169's per-character viewer-knowledge model, and ART-176's
+    // arc primer — which had NO safety gate at all and, being rebuilt only when its arc moves,
+    // would have narrated a withheld Scene forever once the arc resolved. Rebuilding
     // only the live projection would leave the others quoting the withheld sentence until the
     // next Canon commit, which on a paused or finished world never comes — and for a past world
     // day, never at all. ART-169's is the sharpest case yet: what it would go on serving is the
@@ -325,6 +333,10 @@ describe('overridePostGenerationSafetyLabel — the ledger is additive and audit
       },
       {
         target: 'publicRead/viewerKnowledgeProjectionFunctions:refreshViewerKnowledgeProjections',
+        worldId: WORLD_ID, now: NOW,
+      },
+      {
+        target: 'publicRead/arcPrimerFunctions:refreshArcPrimers',
         worldId: WORLD_ID, now: NOW,
       },
     ]);
