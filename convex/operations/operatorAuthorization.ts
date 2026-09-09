@@ -135,6 +135,22 @@ export const OPS_CAPABILITIES = [
    */
   'budget.write',
   'budget.inspect',
+  /**
+   * FR-K004 / ART-171. The editorial publication decision an administrator makes: releasing an
+   * Episode to viewers, withholding one, or resuming a withheld one to ready.
+   *
+   * Its own capability rather than folded into `safety.override`, and the reason is the one that
+   * separates every pair above: they answer different questions. `safety.override` revises what a
+   * CLASSIFIER decided about content that may be unsafe; this decides whether content everyone
+   * agrees is safe is READY to be seen. An operator trusted to release a Scene the classifier
+   * over-refused is not thereby trusted to publish a day's story to the world, and the reverse is
+   * equally true.
+   *
+   * `admin`, because FR-K004 already reserves these actions for an administrator inside the pure
+   * lifecycle (`assertAuthorized`). Registering it at a lower role would create a caller the
+   * lifecycle refuses — a console button that always fails — which is worse than not having one.
+   */
+  'publication.decide',
 ] as const;
 export type OpsCapability = (typeof OPS_CAPABILITIES)[number];
 
@@ -183,6 +199,10 @@ const CAPABILITY_MINIMUM_ROLE: Readonly<Record<OpsCapability, OperatorRole>> = {
   // FR-M003. Writing a budget can halt a world's authoring by arithmetic, so `admin`; reading
   // what it may spend and has spent is as read-only as `world.inspect`, so `viewer`.
   'budget.write': 'admin',
+
+  // FR-K004. `admin` because the pure lifecycle reserves these actions for an administrator; a
+  // lower minimum here would only manufacture callers `assertAuthorized` refuses.
+  'publication.decide': 'admin',
   'budget.inspect': 'viewer',
 };
 

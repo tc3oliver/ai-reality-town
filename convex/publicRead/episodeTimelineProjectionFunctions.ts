@@ -11,19 +11,57 @@ import { internalMutation } from '../_generated/server';
 import type { DailyEpisode } from '../editorial/episode';
 import { rowToAcceptedEvent } from '../canon/serialize';
 import { readWithheldSceneLabels } from '../safety/effectiveSafetyLabels';
+import { isViewerServablePublicationStatus } from '../editorial/publicationLifecycle';
+import { episodeContentRefOf } from './visualReplay';
 import { EpisodeTimelineError, buildEpisodeProjection, buildTimelineProjection, EPISODE_MODEL_KIND, TIMELINE_MAJOR_IMPORTANCE, TIMELINE_MODEL_KIND, type TimelineEntryInput } from './episodeTimelineProjection';
 import { sceneEventRows, withheldEventIds } from './liveStateFunctions';
-import { commitReadModelVersion } from './readModel';
+import { commitReadModelVersion, withdrawReadModel } from './readModel';
 import { writeStore } from './readModelFunctions';
 
 type ClassificationMembership = { arcId: string; importance: number };
 
-/** Rebuild and publish the Episode projection for a world-day (AC#1/#3). */
+/**
+ * Rebuild and publish the Episode projection for a world-day (AC#1/#3).
+ *
+ * ## It asks the publication record, and did not use to (ART-171)
+ *
+ * This rebuild read only `dailyEpisodes.status` — a SAFETY decision — and never looked at the
+ * editorial publication record that FR-K004 says governs whether derived content is visible.
+ * That was consistent right up until ART-171, and only by accident: the sole path to a `withheld`
+ * record was the pipeline's own, which fires exactly when the episode row is not `ready`, and
+ * this rebuild is skipped in that case.
+ *
+ * Giving an administrator an INDEPENDENT withhold breaks that coupling. Without the check below,
+ * an operator would withhold an Episode, watch it disappear, and see the next accepted event
+ * republish it — a withhold that withholds for as long as the world happens to be idle.
+ *
+ * A withheld record WITHDRAWS the target rather than publishing an empty payload, and withdraws
+ * its fallbacks with it: serving the last known good version of withheld content is the outcome
+ * the withhold exists to prevent. See {@link withdrawReadModel}.
+ */
 export const rebuildEpisodeProjection = internalMutation({
   args: { worldId: v.string(), worldDay: v.number(), now: v.number() },
   handler: async (ctx, args) => {
     if (args.worldId.trim().length === 0 || !Number.isSafeInteger(args.worldDay) || args.worldDay < 0 || !Number.isFinite(args.now)) {
       throw new EpisodeTimelineError('EPISODE_INVALID', 'worldId, a non-negative worldDay, and a finite now are required');
+    }
+    const modelRef = `episode:${args.worldDay}`;
+    const contentRef = episodeContentRefOf(args.worldId, args.worldDay);
+    // A point read on `by_current`, not a scan: one lookup per rebuild regardless of how many
+    // versions the record has been through.
+    const record = await ctx.db
+      .query('publicationRecords')
+      .withIndex('by_current', (q) => q
+        .eq('worldId', args.worldId).eq('contentRef', contentRef).eq('isCurrent', true))
+      .unique();
+    // NO record is not a refusal. Episodes accepted before the lifecycle existed have none, and
+    // the pipeline creates the record after generating the Episode — treating silence as a
+    // withhold would blank the public episode page for every world that predates FR-K004.
+    if (record && !isViewerServablePublicationStatus(record.status)) {
+      const { withdrawnVersions } = await withdrawReadModel(writeStore(ctx.db), {
+        worldId: args.worldId, modelKind: EPISODE_MODEL_KIND, modelRef, now: args.now,
+      });
+      return { modelRef, version: 0, deduplicated: false, withdrawnVersions, publicationStatus: record.status };
     }
     const row = await ctx.db
       .query('dailyEpisodes')
@@ -34,10 +72,13 @@ export const rebuildEpisodeProjection = internalMutation({
     }
     const payload = buildEpisodeProjection({ worldId: args.worldId, episode: row.episode as DailyEpisode, status: row.status });
     const result = await commitReadModelVersion(writeStore(ctx.db), {
-      worldId: args.worldId, modelKind: EPISODE_MODEL_KIND, modelRef: `episode:${args.worldDay}`,
+      worldId: args.worldId, modelKind: EPISODE_MODEL_KIND, modelRef,
       payload, sourceEventIds: payload.sourceEventIds, status: 'published', now: args.now,
     });
-    return { modelRef: `episode:${args.worldDay}`, version: result.version, deduplicated: result.deduplicated };
+    return {
+      modelRef, version: result.version, deduplicated: result.deduplicated,
+      withdrawnVersions: [] as number[], publicationStatus: record?.status ?? null,
+    };
   },
 });
 

@@ -169,6 +169,10 @@ describe('capability matrix', () => {
       // FR-K005 / ART-52. Two, not one: writing decides which model authors every subsequent
       // scene and what the world costs, while reading is as read-only as `world.inspect`.
       'model_config.inspect', 'model_config.write',
+      // FR-K004 / ART-171. Its own capability rather than folded into `safety.override`: one
+      // revises what a CLASSIFIER decided about possibly-unsafe content, the other decides
+      // whether content everyone agrees is safe is ready to be seen.
+      'publication.decide',
       'run.retry', 'safety.override', 'scene.cancel', 'schedule.inspect', 'slot.advance',
       'snapshot.create', 'world.emergency_resume', 'world.emergency_stop',
       'world.inspect', 'world.pause', 'world.resume', 'world.rollback',
@@ -192,6 +196,15 @@ describe('capability matrix', () => {
 
   it.each(OPERATOR_ROLES)('grants %s exactly its documented capabilities', (role) => {
     expect(capabilitiesForRole(role).sort()).toEqual([...expected[role]].sort());
+  });
+
+  it('reserves the FR-K004 publication decision for an administrator', () => {
+    // The pure lifecycle already reserves `publish`/`withhold`/`resume_to_ready` for an admin
+    // (`assertAuthorized`). Registering the console capability at a lower role would only
+    // manufacture callers the lifecycle refuses — a control that always fails.
+    expect(hasCapability('admin', 'publication.decide')).toBe(true);
+    expect(hasCapability('operator', 'publication.decide')).toBe(false);
+    expect(hasCapability('viewer', 'publication.decide')).toBe(false);
   });
 
   it('reserves snapshot creation for an administrator', () => {

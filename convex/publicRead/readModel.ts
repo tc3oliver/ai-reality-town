@@ -499,6 +499,47 @@ export async function commitReadModelVersion(
  * version. If no fallback exists, subsequent reads return null (the content is
  * genuinely unavailable) — the Canon history is still never touched.
  */
+/**
+ * Take a target OFF the public surface entirely — nothing current, and no fallback (ART-171).
+ *
+ * The difference from {@link invalidateReadModel} is the whole reason this exists, and it is a
+ * difference of intent rather than of degree:
+ *
+ *  - `invalidateReadModel` says **"this version is bad"**. Falling back to the last known good
+ *    one is exactly right for a failed or half-written rebuild: the viewer keeps seeing the
+ *    newest version that WORKED.
+ *  - This says **"this content may not be shown"**. Falling back would then serve an older
+ *    version of the same withheld content, which is the one outcome a withhold exists to
+ *    prevent. FR-K004's `withhold` is not a statement about a version.
+ *
+ * Non-destructive, like every other operation here: rows are demoted, never deleted, so the
+ * withheld versions and their payloads remain in the store for audit and for a later release to
+ * restore. A release republishes through {@link commitReadModelVersion} in the ordinary way.
+ */
+export async function withdrawReadModel(
+  store: PublicReadStore,
+  input: { worldId: string; modelKind: ReadModelKind; modelRef: string; now: number },
+): Promise<{ withdrawnVersions: number[] }> {
+  assertTarget(input.worldId, input.modelKind, input.modelRef);
+  const withdrawn: number[] = [];
+  const current = await store.findCurrent(input.worldId, input.modelKind, input.modelRef);
+  if (current) {
+    await store.markCurrent(current.id, {
+      isCurrent: false, isLastKnownGood: false, status: 'withheld', updatedAt: input.now,
+    });
+    withdrawn.push(current.version);
+  }
+  // The fallbacks too. Demoting only the current row would leave `selectServedVersion` reaching
+  // straight past it to an earlier version of the very same content.
+  for (const fallback of await store.loadLastKnownGood(input.worldId, input.modelKind, input.modelRef)) {
+    await store.markCurrent(fallback.id, {
+      isCurrent: false, isLastKnownGood: false, status: 'withheld', updatedAt: input.now,
+    });
+    withdrawn.push(fallback.version);
+  }
+  return { withdrawnVersions: [...new Set(withdrawn)].sort((left, right) => left - right) };
+}
+
 export async function invalidateReadModel(
   store: PublicReadStore,
   input: {

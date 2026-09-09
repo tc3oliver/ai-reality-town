@@ -84,6 +84,7 @@ import type * as operations_proposalReview from "../operations/proposalReview.js
 import type * as operations_proposalReviewFunctions from "../operations/proposalReviewFunctions.js";
 import type * as operations_proposalReviewStore from "../operations/proposalReviewStore.js";
 import type * as operations_publicTextModelRefresh from "../operations/publicTextModelRefresh.js";
+import type * as operations_publicationControlFunctions from "../operations/publicationControlFunctions.js";
 import type * as operations_safetyOverrideFunctions from "../operations/safetyOverrideFunctions.js";
 import type * as operations_tokenBudgetFunctions from "../operations/tokenBudgetFunctions.js";
 import type * as operations_worldQualityFunctions from "../operations/worldQualityFunctions.js";
@@ -338,6 +339,7 @@ declare const fullApi: ApiFromModules<{
   "operations/proposalReviewFunctions": typeof operations_proposalReviewFunctions;
   "operations/proposalReviewStore": typeof operations_proposalReviewStore;
   "operations/publicTextModelRefresh": typeof operations_publicTextModelRefresh;
+  "operations/publicationControlFunctions": typeof operations_publicationControlFunctions;
   "operations/safetyOverrideFunctions": typeof operations_safetyOverrideFunctions;
   "operations/tokenBudgetFunctions": typeof operations_tokenBudgetFunctions;
   "operations/worldQualityFunctions": typeof operations_worldQualityFunctions;
