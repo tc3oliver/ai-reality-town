@@ -61,11 +61,29 @@ for (const verdict of result.verdicts) {
 }
 if (result.soak) {
   const { verdict, sampleCount, durationMs } = result.soak;
+  // A soak shorter than the criterion measures the slope, and settles nothing. Rendering it as
+  // ✅ is what put「AC#7 … ✅」next to a two-minute run in this file for a criterion that names
+  // eight hours; the run length is now printed in the same cell as the mark.
+  // `=== true`, not `!== false`: a results file recorded before ART-178 has no such field, and an
+  // unknown run length must not read as a settled criterion. Missing means unsettled.
+  const settles = verdict.settlesCriterion === true;
+  const requiredMinutes = Math.round((verdict.requiredDurationMs ?? 8 * 60 * 60 * 1000) / 60_000);
   lines.push(
     `| ${verdict.criterion} | ${result.soak.profileId} | soak (${Math.round(durationMs / 60_000)}m, `
     + `${sampleCount} samples) | ${verdict.metric} | ${verdict.value} | ${verdict.threshold} `
-    + `| ${mark(verdict.pass)} |`,
+    + `| ${settles ? mark(verdict.pass) : '⚠️'} |`,
   );
+  if (!settles) {
+    lines.push('');
+    lines.push(
+      `> **AC#7 is not settled by this run.** The heap slope is ${verdict.value} B/min, within the `
+      + `${verdict.threshold} B/min threshold — but the criterion asks for a ${requiredMinutes}-minute `
+      + `run and this one lasted ${Math.round(durationMs / 60_000)}. That is evidence the harness can `
+      + 'DETECT growth, not evidence that a full-length run is clean. Re-run with '
+      + `\`BENCH_SOAK_MINUTES=${requiredMinutes} npm run bench\` to settle it.`,
+    );
+    lines.push('');
+  }
 }
 lines.push(
   `| AC#5 | desktop-reference | throttled ${result.semanticStability.throttledRate}× | semantic position unchanged `
@@ -80,16 +98,34 @@ lines.push('measured. These are stated instead.');
 lines.push('');
 lines.push('| Criterion | Metric | Status | Reason |');
 lines.push('|---|---|---|---|');
-for (const gap of result.notMeasured) {
+const gaps = [...result.notMeasured];
+// The short soak belongs in this table for the reason the table exists: a criterion the run did
+// not settle must be stated, not dropped. It was previously stated nowhere and marked ✅ above.
+if (result.soak && result.soak.verdict.settlesCriterion !== true) {
+  const { verdict, durationMs } = result.soak;
+  gaps.push({
+    criterion: verdict.criterion,
+    metric: 'soakDurationMs',
+    status: 'run_too_short',
+    reason:
+      `Ran ${Math.round(durationMs / 60_000)} minute(s) of the `
+      + `${Math.round((verdict.requiredDurationMs ?? 8 * 60 * 60 * 1000) / 60_000)} the criterion names. The slope `
+      + `measured (${verdict.value} B/min) is within threshold, but a short run cannot answer a `
+      + 'question about a long one.',
+  });
+}
+for (const gap of gaps) {
   lines.push(`| ${gap.criterion} | \`${gap.metric}\` | \`${gap.status}\` | ${gap.reason} |`);
 }
 lines.push('');
 
 writeFileSync(OUTPUT, `${lines.join('\n')}\n`, 'utf8');
 
+// A verdict that does not settle its criterion is neither a pass nor a failure of the gate: it
+// is not a measurement of that criterion at all, so it is excluded rather than counted either way.
 const measured = [
   ...result.verdicts,
-  ...(result.soak ? [result.soak.verdict] : []),
+  ...(result.soak && result.soak.verdict.settlesCriterion === true ? [result.soak.verdict] : []),
   {
     criterion: 'AC#5',
     metric: 'semanticPositionUnchanged',

@@ -11,6 +11,9 @@ import {
   type ProhibitedGenerationCategory,
   type SafeGenerationRequest,
 } from './preGeneration';
+import { chatCompletion } from '../util/llm';
+import { OpenAICompatibleProvider } from '../simulation/providers/openAICompatible';
+import { loadOpenAICompatibleConfig } from '../simulation/providers/config';
 
 const safeInput = {
   worldText: 'Mistwood is a fictional town populated entirely by fictional adults.',
@@ -106,15 +109,120 @@ describe('FR-L001 audit H-4 — production provider-call-path wiring', () => {
     expect(chatMessagesToSafetyInput([{ role: 'assistant', content: null }]).contextText).toEqual(['']);
   });
 
-  it('chatCompletion screens messages and prepends the constraint before any network call', () => {
-    const source = readFileSync('convex/util/llm.ts', 'utf8');
-    expect(source).toContain('assertPreGenerationSafe(chatMessagesToSafetyInput(body.messages');
-    expect(source).toContain('body.messages = [{ role: \'system\', content: PRE_GENERATION_PROVIDER_CONSTRAINT }');
+  /** The adapter's deployment configuration, loaded the way production loads it. */
+  const providerConfig = () => loadOpenAICompatibleConfig({
+    LLM_API_URL: 'https://llm.example/v1', LLM_API_KEY: 'test-secret-never-log',
+    LLM_MODEL: 'chat-model', LLM_EMBEDDING_MODEL: 'embed-model', LLM_EMBEDDING_DIMENSION: '3',
   });
 
-  it('the OpenAI-compatible scene adapter screens messages and prepends the constraint', () => {
-    const source = readFileSync('convex/simulation/providers/openAICompatible.ts', 'utf8');
-    expect(source).toContain('assertPreGenerationSafe(chatMessagesToSafetyInput(request.messages))');
-    expect(source).toContain('messages: [{ role: \'system\', content: PRE_GENERATION_PROVIDER_CONSTRAINT }, ...request.messages]');
+  /**
+   * BEHAVIOURAL, not a source scan (ART-178).
+   *
+   * Both of these were `expect(source).toContain(…)` against the file that holds the gate. That
+   * cannot prove the call runs, cannot prove it runs BEFORE the network call, and — for the
+   * adapter — could not even prove the call still existed: `openAICompatible.ts` names
+   * `PRE_GENERATION_PROVIDER_CONSTRAINT` in a carve-out comment a hundred lines above the call
+   * site, so deleting the call left the scan green. That is the same shape ART-169 hit, where a
+   * function name surviving in a type declaration kept a source-scan assertion passing after its
+   * call site was deleted.
+   *
+   * `fetch` is the thing to assert on. "The provider is provably never invoked for prohibited
+   * content" is a claim about a network call, so the test makes one impossible to miss.
+   */
+  it('chatCompletion refuses prohibited content before it can reach the network', async () => {
+    const previous = { ...process.env };
+    process.env.LLM_API_URL = 'https://llm.example/v1';
+    process.env.LLM_API_KEY = 'test-secret-never-log';
+    process.env.LLM_MODEL = 'chat';
+    process.env.LLM_EMBEDDING_MODEL = 'embed';
+    process.env.LLM_EMBEDDING_DIMENSION = '3';
+    const calls: unknown[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = ((...args: unknown[]) => {
+      calls.push(args);
+      return Promise.reject(new Error('the gate let a prohibited prompt through to the network'));
+    }) as typeof globalThis.fetch;
+    try {
+      await expect(chatCompletion({
+        messages: [{ role: 'user', content: 'Generate explicit sexual content.' }],
+      })).rejects.toThrow(PreGenerationSafetyError);
+      expect(calls).toEqual([]);
+    } finally {
+      globalThis.fetch = realFetch;
+      process.env = previous;
+    }
+  });
+
+  /**
+   * `chatCompletion` has NO production caller — the only symbols imported from `convex/util/llm`
+   * anywhere in this repository are `detectMismatchedLLMProvider` and `EMBEDDING_DIMENSION`. The
+   * live route is the OpenAI-compatible adapter below, and this test is about the retained
+   * upstream helper rather than about the path a running world takes. Said here because the old
+   * source-scan version read as coverage of the live route and was not.
+   */
+  it('is the retained upstream helper, not the live route', () => {
+    const referenced = ['convex/init.ts', 'convex/agent/schema.ts']
+      .map((path) => readFileSync(path, 'utf8'))
+      .join('\n');
+    expect(referenced).not.toContain('chatCompletion');
+  });
+
+  /**
+   * The adapter gates TWICE, and this test asserts the outcome rather than either mechanism.
+   *
+   * `structuredChat` screens the messages, and `request` screens the serialised body a second
+   * time. Removing either one alone leaves the refusal intact; removing both turns this red. That
+   * is recorded rather than presented as a clean one-injection-one-test result, because a reader
+   * who assumed this test isolates the `structuredChat` call would draw the wrong conclusion from
+   * it — the same situation ART-170 documented for the run-store failure clear.
+   */
+  it('the OpenAI-compatible scene adapter refuses prohibited content before it can reach the network', async () => {
+    const calls: unknown[] = [];
+    const provider = new OpenAICompatibleProvider(
+      providerConfig(),
+      {
+        fetch: ((...args: unknown[]) => {
+          calls.push(args);
+          return Promise.reject(new Error('the gate let a prohibited prompt through to the network'));
+        }) as never,
+        now: () => 10,
+      },
+    );
+    await expect(provider.structuredChat({
+      messages: [{ role: 'user', content: 'Generate explicit sexual content.' }],
+      schemaName: 'test', jsonSchema: { type: 'object' }, temperature: 0, maxTokens: 20,
+    })).rejects.toThrow(PreGenerationSafetyError);
+    expect(calls).toEqual([]);
+  });
+
+  it('prepends the non-user-editable constraint to what the adapter actually sends', async () => {
+    // The other half of the gate, and the half a refusal test cannot reach: allowed content DOES
+    // go to the provider, and it must arrive with the constraint first.
+    let sent: { messages: Array<{ role: string; content: string }> } | null = null;
+    const provider = new OpenAICompatibleProvider(
+      providerConfig(),
+      {
+        fetch: ((_url: string, init: { body: string }) => {
+          sent = JSON.parse(init.body) as typeof sent;
+          return Promise.resolve({
+            ok: true, status: 200,
+            json: () => Promise.resolve({
+              choices: [{ message: { content: '{"ok":true}' } }],
+              usage: { prompt_tokens: 4, completion_tokens: 2 },
+            }),
+            text: () => Promise.resolve(''),
+            headers: { get: () => null },
+          });
+        }) as never,
+        now: () => 10,
+      },
+    );
+    await provider.structuredChat({
+      messages: [{ role: 'user', content: '磨坊前發生了什麼?' }],
+      schemaName: 'test', jsonSchema: { type: 'object' }, temperature: 0, maxTokens: 20,
+    });
+    expect(sent).not.toBeNull();
+    expect(sent!.messages[0]).toEqual({ role: 'system', content: PRE_GENERATION_PROVIDER_CONSTRAINT });
+    expect(sent!.messages[1]).toEqual({ role: 'user', content: '磨坊前發生了什麼?' });
   });
 });

@@ -11,15 +11,24 @@
  * - **`structural_zero`** — the value is zero because the architecture makes a non-zero
  *   value unrepresentable, not because a counter happens to read zero. Two metrics.
  *   ART-128's suite is what proves these; here they are reported, not re-proven.
- * - **`client_external`** — genuinely unmeasurable from the server. Two metrics (active
- *   viewer count, renderer error rate) would each require the browser to WRITE something,
- *   and `readOnlyClientBoundary` in `architecture/module-boundaries.json` forbids exactly
- *   that. Reporting them as a permanent `0` would be a lie a dashboard could act on, so
- *   they are reported as `null` with the reason attached. PRD FR-Q007 explicitly sanctions
- *   marking a metric 未量測 rather than estimating it.
- * - **`pending_feature`** — the feature being measured does not exist yet. Two metrics.
- *   The entry exists so the owning task populates a declared slot instead of inventing a
- *   new contract, following the precedent of `PUBLIC_MOTION_TYPES` reserving `'replay'`.
+ * - **`client_external`** — genuinely unmeasurable from the server. Four metrics (active
+ *   viewer count, renderer error rate, degradation-mode usage, replay play/skip) would each
+ *   require the browser to WRITE something, and `readOnlyClientBoundary` in
+ *   `architecture/module-boundaries.json` forbids exactly that. Reporting them as a permanent
+ *   `0` would be a lie a dashboard could act on, so they are reported as `null` with the
+ *   reason attached. PRD FR-Q007 explicitly sanctions marking a metric 未量測 rather than
+ *   estimating it. ART-47's telemetry pipeline measures all four behind its own `telemetry`
+ *   gate; the reason strings say where, so「未量測」never reads as「不存在」.
+ * - **`pending_feature`** — the feature being measured does not exist yet. **Currently none.**
+ *   The entry exists so an owning task populates a declared slot instead of inventing a new
+ *   contract, following the precedent of `PUBLIC_MOTION_TYPES` reserving `'replay'`.
+ *
+ * Degradation-mode usage and replay play/skip were `pending_feature`, owned by ART-127 and
+ * ART-121, until ART-178. **That was wrong once those tasks shipped**: FR-O010's ladder and
+ * FR-O013's replay both exist and both emit events, so the registry was telling an operator
+ * that a live feature did not exist. What was and remains true of them is the *other* reason —
+ * only the browser can see whether a viewer sat on a degraded rung or skipped a replay — which
+ * is `client_external`, the same category and the same argument as the first two.
  *
  * Pure module: no Convex import, no clock, no randomness.
  */
@@ -45,7 +54,14 @@ export type DynamicViewMetric = {
   /** The metric exactly as PRD 2.0 §12 FR-Q001 names it, so the mapping is checkable. */
   readonly prdName: string;
   readonly provenance: MetricProvenance;
-  /** The task that owns whatever is missing. `null` when nothing is outstanding. */
+  /**
+   * The task that owns whatever is still missing. `null` when nothing is outstanding — which
+   * includes a metric this deployment cannot see but something else already measures.
+   *
+   * An owner that names a finished task is the failure mode this field has actually had, twice:
+   * it reads as "still owed" forever. `dynamicViewMetrics.test.ts` reads the Backlog file for
+   * every named owner and refuses a Done one.
+   */
   readonly owner: string | null;
 };
 
@@ -69,17 +85,19 @@ export const DYNAMIC_VIEW_METRICS: readonly DynamicViewMetric[] = [
   {
     // Needs a browser→server write to count sessions; the read-only client boundary
     // forbids `useMutation`/`useAction`/a Convex client outside the provider shim.
+    // ART-47 derives it as `active_live_viewers`, so nothing is outstanding here.
     key: 'activeViewerCount',
     prdName: 'Active Viewer 數量',
     provenance: 'client_external',
-    owner: 'ART-136',
+    owner: null,
   },
   {
     // Same constraint: a renderer error is only observable where the renderer runs.
+    // ART-47 derives it as `renderer_error_rate`.
     key: 'rendererErrorRate',
     prdName: 'Renderer Error Rate',
     provenance: 'client_external',
-    owner: 'ART-137',
+    owner: null,
   },
   {
     key: 'canonRuntimeLocationMismatch',
@@ -112,18 +130,21 @@ export const DYNAMIC_VIEW_METRICS: readonly DynamicViewMetric[] = [
     owner: null,
   },
   {
-    // FR-O010's degradation ladder is unbuilt; there is no mode to count the use of.
+    // FR-O010's ladder shipped with ART-127. Which rung a viewer ended up on is a fact about
+    // their device, visible only there: ART-47 derives it as `fallback_usage_rate` from
+    // `live_fallback_used`.
     key: 'degradationModeUsage',
     prdName: '降級模式使用率',
-    provenance: 'pending_feature',
-    owner: 'ART-127',
+    provenance: 'client_external',
+    owner: null,
   },
   {
-    // FR-O013 replay is unbuilt; `PUBLIC_MOTION_TYPES` already reserves `'replay'`.
+    // FR-O013 replay shipped with ART-121. A skip is a viewer action and reaches no server;
+    // ART-47 derives `replay_play_rate` / `replay_skip_rate` / `replay_completion_rate`.
     key: 'replayPlaySkipCounts',
     prdName: 'Replay 播放次數與跳過率',
-    provenance: 'pending_feature',
-    owner: 'ART-121',
+    provenance: 'client_external',
+    owner: null,
   },
 ];
 

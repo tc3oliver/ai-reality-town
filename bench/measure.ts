@@ -188,15 +188,40 @@ export function verdictsFor(
   ];
 }
 
+/**
+ * AC#7's verdict — and, separately, whether the run was long enough to be that verdict.
+ *
+ * A short soak measures the slope perfectly well. What it cannot do is settle 「an eight hour run
+ * shows no sustained memory growth」, because the leak classes that criterion exists to catch are
+ * the slow ones. Until ART-178 this returned `pass: true` for a two-minute run and the report
+ * printed `AC#7 … ✅` next to it, so `docs/benchmarks/dynamic-view-latest.md` recorded a
+ * criterion as met by 1/240th of the run it names.
+ *
+ * `pass` therefore keeps meaning "the heap did not grow" — turning it `false` for a clean short
+ * run would be the opposite lie — and `settlesCriterion` says whether that answers AC#7 at all.
+ * The report renders the two separately, and a caller that ignores `settlesCriterion` gets a
+ * measurement, not a criterion.
+ */
 export function soakVerdict(
   soak: BenchSoak,
   thresholdBytesPerMinute: number,
-): { criterion: string; metric: string; value: number; threshold: number; pass: boolean } {
+  requiredDurationMs: number,
+): {
+  criterion: string;
+  metric: string;
+  value: number;
+  threshold: number;
+  pass: boolean;
+  settlesCriterion: boolean;
+  requiredDurationMs: number;
+} {
   return {
     criterion: 'AC#7',
     metric: 'heapGrowthBytesPerMinute',
     value: soak.heapGrowthBytesPerMinute,
     threshold: thresholdBytesPerMinute,
     pass: soak.heapGrowthBytesPerMinute <= thresholdBytesPerMinute,
+    settlesCriterion: soak.durationMs >= requiredDurationMs,
+    requiredDurationMs,
   };
 }

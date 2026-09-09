@@ -342,17 +342,32 @@ describe('the read is operator-gated, and gated before it reads', () => {
         expect(metric.provenance).toBe('client_external');
         expect(metric.value).toBeNull();
         expect(metric.reason).toContain('read-only client boundary');
-        expect(metric.owner).toMatch(/^ART-13[67]$/);
+        expect(metric.owner).toBeNull();
       }
     });
 
-    it('declares the two metrics whose feature does not exist yet', async () => {
-      for (const [key, owner] of [['degradationModeUsage', 'ART-127'], ['replayPlaySkipCounts', 'ART-121']]) {
+    it('tells an operator where an unmeasured metric IS measured, rather than only that it is not', async () => {
+      /**
+       * This block asserted that `degradationModeUsage` and `replayPlaySkipCounts` were
+       * `pending_feature` and that their reason contained "does not exist yet" (ART-178).
+       *
+       * **That expectation was wrong and had been wrong since ART-127 and ART-121 shipped.** The
+       * degradation ladder and Visual Replay both exist and both emit events; the console was
+       * telling an operator that a live feature was unbuilt. The test held it in place because it
+       * asserted the STRING, and the string never changed.
+       *
+       * All four browser-observed metrics are still `null` here — that part was never the defect,
+       * and `readOnlyClientBoundary` still forbids the write that would change it. What they now
+       * carry is the true reason plus the place the number actually lives.
+       */
+      for (const key of ['degradationModeUsage', 'replayPlaySkipCounts']) {
         const metric = metricOf(await inspect(emptyTables()), key);
-        expect(metric.provenance).toBe('pending_feature');
+        expect(metric.provenance).toBe('client_external');
         expect(metric.value).toBeNull();
-        expect(metric.owner).toBe(owner);
-        expect(metric.reason).toContain('does not exist yet');
+        expect(metric.owner).toBeNull();
+        expect(metric.reason).toContain('docs/product-analytics.md');
+        // The specific false claim, named so it cannot come back by paraphrase.
+        expect(metric.reason).not.toContain('does not exist yet');
       }
     });
 

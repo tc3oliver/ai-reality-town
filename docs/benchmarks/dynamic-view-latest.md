@@ -41,7 +41,10 @@ The machine-readable record is `dynamic-view-latest.json`; this is a rendering o
 | AC#4 | mid-tier-mobile | snapshot | averageFps | 37.35 | 30 | ✅ |
 | AC#1 | mid-tier-mobile | degraded | timeToInteractiveMs | 649 | 6000 | ✅ |
 | AC#4 | mid-tier-mobile | degraded | averageFps | 60 | 30 | ✅ |
-| AC#7 | desktop-reference | soak (2m, 12 samples) | heapGrowthBytesPerMinute | 0 | 524288 | ✅ |
+| AC#7 | desktop-reference | soak (2m, 12 samples) | heapGrowthBytesPerMinute | 0 | 524288 | ⚠️ |
+
+> **AC#7 is not settled by this run.** The heap slope is 0 B/min, within the 524288 B/min threshold — but the criterion asks for a 480-minute run and this one lasted 2. That is evidence the harness can DETECT growth, not evidence that a full-length run is clean. Re-run with `BENCH_SOAK_MINUTES=480 npm run bench` to settle it.
+
 | AC#5 | desktop-reference | throttled 6× | semantic position unchanged | true | true | ✅ |
 
 ## Not measured here, and why
@@ -56,4 +59,5 @@ measured. These are stated instead.
 | AC#4 (mobile) | `averageFps` | `measured_but_inconclusive` | AC#4 mobile. This host has no usable GPU: Chromium reports an ANGLE/SwiftShader device even with the GPU blocklist ignored, so the mobile profile software-rasterises a 1080x2340 backing store (2.5 Mpx, roughly twice the desktop profile) while also under 4x CPU throttling. The recorded figure is real and is reported as a FAIL against the 30fps threshold — it is not exempted — but it cannot settle the criterion either way for a device with hardware graphics. An authoritative mobile figure needs a real device, which is the release gate (ART-138). Re-running on a GPU host, or with BENCH_SOFTWARE_GL unset on a machine that has one, produces the comparable number. |
 | AC#6/AC#9 | `visibleCharacters=20` | `unreachable` | Mistwood has twelve bound residents. FR-N004 AC#6 makes the view model drop unbound characters, and the roster is pinned against the production visual bindings, so 20 and 40 visible characters cannot be produced without breaking one of those guarantees. |
 | AC#6/AC#9 | `visibleCharacters=40` | `unreachable` | Mistwood has twelve bound residents. FR-N004 AC#6 makes the view model drop unbound characters, and the roster is pinned against the production visual bindings, so 20 and 40 visible characters cannot be produced without breaking one of those guarantees. |
+| AC#7 | `soakDurationMs` | `run_too_short` | Ran 2 minute(s) of the 480 the criterion names. The slope measured (0 B/min) is within threshold, but a short run cannot answer a question about a long one. |
 

@@ -74,6 +74,17 @@ export const BENCH_THRESHOLDS = {
    * flip, and a run that happened to end just after a collection would pass while leaking.
    */
   heapGrowthBytesPerMinute: 512 * 1024,
+  /**
+   * AC#7's other half, and the one that was missing until ART-178: 「An eight hour run shows no
+   * sustained memory growth」 is a claim about a RUN LENGTH as much as about a slope.
+   *
+   * `npm run bench` defaults to a two-minute soak so it stays usable, and the recorded results
+   * file reported that two-minute run as `AC#7 … ✅` — a criterion demanding eight hours,
+   * marked satisfied by 1/240th of it. The slope was measured correctly; what was wrong was the
+   * label on it. {@link soakVerdict} now refuses the criterion below this length and says how
+   * far short it fell.
+   */
+  soakDurationMs: 8 * 60 * 60 * 1000,
 } as const;
 
 /**

@@ -21,15 +21,15 @@ through `inspectDynamicViewMetrics`.
 |---|---|---|---|---|
 | 1 | Runtime Projection 更新延遲 | `runtimeProjectionLatency` | `server_measured` | — |
 | 2 | Snapshot 年齡 | `snapshotAge` | `server_measured` | — |
-| 3 | Active Viewer 數量 | `activeViewerCount` | `client_external` | ART-136 |
-| 4 | Renderer Error Rate | `rendererErrorRate` | `client_external` | ART-137 |
+| 3 | Active Viewer 數量 | `activeViewerCount` | `client_external` | — |
+| 4 | Renderer Error Rate | `rendererErrorRate` | `client_external` | — |
 | 5 | Canon／Runtime Location Mismatch | `canonRuntimeLocationMismatch` | `server_measured` | — |
 | 6 | Missing Character Binding | `missingCharacterBinding` | `server_measured` | — |
 | 7 | Missing Location Binding | `missingLocationBinding` | `server_measured` | — |
 | 8 | Public Mutation Attempt | `publicMutationAttempts` | `structural_zero` | — |
 | 9 | Viewer-triggered LLM Call Count | `viewerTriggeredLlmCalls` | `structural_zero` | — |
-| 10 | 降級模式使用率 | `degradationModeUsage` | `pending_feature` | ART-127 |
-| 11 | Replay 播放次數與跳過率 | `replayPlaySkipCounts` | `pending_feature` | ART-121 |
+| 10 | 降級模式使用率 | `degradationModeUsage` | `client_external` | — |
+| 11 | Replay 播放次數與跳過率 | `replayPlaySkipCounts` | `client_external` | — |
 
 Eleven, not twelve: the PRD's final item is one metric carrying two counters
 ("播放次數與跳過率"), not two metrics.
@@ -40,17 +40,40 @@ Eleven, not twelve: the PRD's final item is one metric carrying two counters
 - **`structural_zero`** — the value is zero because the architecture makes a non-zero value
   unrepresentable, not because a counter happens to read zero.
 - **`client_external`** — genuinely unmeasurable from the server. Returns `null` and a
-  `reason`, plus the task that owns closing the gap.
+  `reason` that says both why this deployment cannot see it and where the number is
+  measured instead.
 - **`pending_feature`** — the feature being measured does not exist yet. Returns `null`,
   a `reason`, and the owning task. No table column, no counter, no logic — the registry
   entry exists so the owning task populates a declared slot instead of inventing a new
   contract, the same way `PUBLIC_MOTION_TYPES` already reserves `'replay'`.
+  **Currently no metric carries it.**
 
-## Why two metrics are `client_external` — and how ART-47 closed the gap
+### Rows 10 and 11 were `pending_feature` until ART-178, and that was wrong
 
-Active viewer count and renderer error rate both require the **browser to report**: a
-session is only observable where the session is, and a renderer error is only observable
-where the renderer runs. Any such reporting is a write from the client.
+They were registered as「功能尚未存在」and owned by ART-127 (the FR-O010 degradation
+ladder) and ART-121 (FR-O013 Visual Replay). **Both shipped.** The ladder runs, replay
+plays, and `LiveMapPage.tsx` emits `live_fallback_used`, `live_replay_started`,
+`live_replay_skipped` and `live_replay_completed` for them. From then until ART-178 this
+registry — and `inspectDynamicViewMetrics`, in the reason string an operator reads —
+reported two live features as unbuilt.
+
+What is still true of them is the *other* constraint, the one rows 3 and 4 already carry:
+only the browser can see which rung a viewer ended up on, or whether they skipped a replay.
+So they are `client_external`, measured by ART-47 exactly like the first two, and the owner
+column is empty because nothing is outstanding.
+
+The owner column is now checked rather than asserted: `dynamicViewMetrics.test.ts` reads
+the Backlog file behind every named owner and refuses one whose status is `Done`. Pinning
+the owners as a literal list is what let this drift — a list notices the owner changing,
+never the owner finishing, and finishing is the event that makes the entry false.
+
+## Why four metrics are `client_external` — and how ART-47 closed the gap
+
+Active viewer count, renderer error rate, degraded-mode usage and replay play/skip all
+require the **browser to report**: a session is only observable where the session is, a
+renderer error is only observable where the renderer runs, and which rung a viewer sat on
+or whether they skipped a replay never reaches a server at all. Any such reporting is a
+write from the client.
 
 `readOnlyClientBoundary` in `architecture/module-boundaries.json` forbids every client
 write primitive — `useMutation`, `useAction`, `useConvex`, and every Convex client class
@@ -75,6 +98,8 @@ So the numbers exist, and they are read from
 |---|---|---|
 | `activeViewerCount` | `active_live_viewers` | distinct viewer keys with `live_view_opened` |
 | `rendererErrorRate` | `renderer_error_rate` | `live_map_failed` ÷ `live_view_opened` |
+| `degradationModeUsage` | `fallback_usage_rate` | `live_fallback_used` ÷ `live_view_opened` |
+| `replayPlaySkipCounts` | `replay_play_rate` / `replay_skip_rate` / `replay_completion_rate` | `live_replay_started` ÷ `live_view_opened`, and skips and completions ÷ *starts* |
 
 They are deliberately NOT folded into this registry. That would put a privacy surface into
 an operational read path and make one registry answer two questions with two different
@@ -247,9 +272,11 @@ observability at all.
 - No product analytics (`live_*` events) — ART-140 / FR-Q007 emitted them; ART-47 / §15
   built the transport, the store and the metrics over them.
 - No new operator capability, and no operator *control* — ART-134 / FR-Q002.
-- No client-side write path for the two `client_external` metrics — ART-47 built one,
-  behind its own gate. See above.
-- No logic behind the two `pending_feature` metrics — the features do not exist.
+- No client-side write path for the `client_external` metrics — ART-47 built one, behind
+  its own gate. See above.
+- No logic behind rows 10 and 11, which at the time were genuinely unbuilt features. They
+  are built now, and ART-178 reclassified them; the registry still measures neither,
+  because neither is server-visible.
 - No new call site writing `outcome: 'refused'`; only a count of what already exists.
 
 ## Related
@@ -259,4 +286,4 @@ observability at all.
 - `docs/canon-runtime-synchronization.md` — why the runtime is re-derived, not synced
 - `docs/public-read-only-guarantee.md` — what makes the two zeros structural
 - `docs/simulation-operations-console.md` — the audit log and the denial-recording constraint
-- `docs/product-analytics.md` — the telemetry path that closed the two `client_external` gaps
+- `docs/product-analytics.md` — the telemetry path that measures all four `client_external` metrics
