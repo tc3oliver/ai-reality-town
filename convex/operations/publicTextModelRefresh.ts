@@ -29,6 +29,7 @@ import { internalFunctionRef } from '../shared/internalFunctionRef';
 import type { rebuildLiveProjection as rebuildLiveProjectionExport } from '../publicRead/liveStateFunctions';
 import type { rebuildOnboardingSummary as rebuildOnboardingSummaryExport } from '../publicRead/onboardingSummaryFunctions';
 import type { refreshVoteConsequenceProjections as refreshVoteConsequenceProjectionsExport } from '../publicRead/voteConsequenceProjectionFunctions';
+import type { refreshViewerKnowledgeProjections as refreshViewerKnowledgeProjectionsExport } from '../publicRead/viewerKnowledgeProjectionFunctions';
 
 const rebuildLiveProjectionRef = internalFunctionRef<typeof rebuildLiveProjectionExport>(
   'publicRead/liveStateFunctions:rebuildLiveProjection',
@@ -40,6 +41,10 @@ const refreshVoteConsequenceProjectionsRef =
   internalFunctionRef<typeof refreshVoteConsequenceProjectionsExport>(
     'publicRead/voteConsequenceProjectionFunctions:refreshVoteConsequenceProjections',
   );
+const refreshViewerKnowledgeProjectionsRef =
+  internalFunctionRef<typeof refreshViewerKnowledgeProjectionsExport>(
+    'publicRead/viewerKnowledgeProjectionFunctions:refreshViewerKnowledgeProjections',
+  );
 
 export type PublicTextModelRefreshResult = {
   /** How many accepted events the decision actually reached. Zero is a real answer. */
@@ -48,6 +53,16 @@ export type PublicTextModelRefreshResult = {
   onboarding: { modelRef: string; version: number };
   /** Which `voteConsequence` world days were re-derived. Empty when the world published none. */
   voteConsequenceModelRefs: string[];
+  /**
+   * Which `viewerKnowledge` characters were re-derived (ART-169). Empty when the world published
+   * none.
+   *
+   * This model carries Canon text — a secret's own words — so it belongs to the list this helper
+   * exists to be. It is also the only one here whose contents depend on the editorial publication
+   * lifecycle, which is why a withhold has to reach it: an operator refusing a Scene must not
+   * leave the secret that Scene revealed sitting on a character page.
+   */
+  viewerKnowledgeModelRefs: string[];
 };
 
 /**
@@ -72,10 +87,16 @@ export async function refreshPublicTextModels(
   // `refreshVoteConsequenceProjections` on why the day set comes from the read-model store.
   const consequence = await ctx.runMutation(
     refreshVoteConsequenceProjectionsRef, { worldId: args.worldId, now: args.now });
+  // Per character, and derived from the read-model store rather than from the world's character
+  // list — see `refreshViewerKnowledgeProjections` on why a model nobody published has nothing
+  // to withdraw.
+  const viewerKnowledge = await ctx.runMutation(
+    refreshViewerKnowledgeProjectionsRef, { worldId: args.worldId, now: args.now });
   return {
     correlatedEventCount: live.correlatedEventCount ?? 0,
     live: { modelRef: live.modelRef, version: live.version },
     onboarding: { modelRef: onboarding.modelRef, version: onboarding.version },
     voteConsequenceModelRefs: consequence.modelRefs,
+    viewerKnowledgeModelRefs: viewerKnowledge.modelRefs,
   };
 }

@@ -14,6 +14,7 @@ import {
   type CharacterProjection,
   type CharacterRecentEvent,
   type CharacterRelationshipGraphInput,
+  type CharacterViewerKnowledgeInput,
 } from './characterRoute';
 
 function character(overrides: Partial<CharacterProjection> = {}): CharacterProjection {
@@ -237,5 +238,120 @@ describe('the fields ART-43 AC#1 could not deliver at the time', () => {
       locations: [{ locationId: 'mistwood-market', name: '晨霧市集' }],
     });
     expect(forbiddenKeysInViewModel(vm)).toEqual([]);
+  });
+});
+
+/**
+ * FR-I005's last two fields (ART-169).
+ *
+ * The page layer's job here is narrow and worth stating: it does NOT decide what a viewer may
+ * know. That decision is made server-side, per row, against the editorial publication lifecycle
+ * (`convex/publicRead/viewerKnowledgeProjection.ts`), and an unrevealed secret never reaches this
+ * payload. What these cases pin is that the mapping is built from NAMED fields, that a row the
+ * page cannot fully account for is dropped rather than rendered with a placeholder, and that the
+ * scope and the omissions arrive on the view model instead of being silently dropped.
+ */
+describe('viewer-known secrets and dramatic irony', () => {
+  const payload: CharacterViewerKnowledgeInput = {
+    viewerKnownSecrets: [{
+      secretId: 'secret-ledger',
+      content: '他在水車停轉那晚把舊帳本搬離了磨坊。',
+      revealedOnWorldDay: 6,
+    }],
+    dramaticIronyFacts: [{
+      factId: 'e42:fact:0',
+      subjectType: 'world',
+      subjectId: 'mistwood',
+      predicate: '聽證會日期',
+      value: '第九日上午',
+      revealedOnWorldDay: 7,
+    }],
+    omittedSecretCount: 2,
+    omittedIronyFactCount: 3,
+    oldestConsideredWorldDay: 5,
+  };
+
+  const vmWith = (input: CharacterViewerKnowledgeInput | null) => composeCharacterViewModel({
+    worldId: 'mistwood', character: character(), recentEvents: null, viewerKnowledge: input,
+  });
+
+  it('renders a secret with a link to the day that revealed it', () => {
+    expect(vmWith(payload).viewerKnownSecrets).toEqual([{
+      secretId: 'secret-ledger',
+      content: '他在水車停轉那晚把舊帳本搬離了磨坊。',
+      revealedOnWorldDay: 6,
+      episodeHref: '#episode/mistwood/6',
+    }]);
+  });
+
+  it('renders an irony fact as a sentence the page owns', () => {
+    expect(vmWith(payload).dramaticIronyFacts).toEqual([{
+      factId: 'e42:fact:0',
+      label: 'mistwood 的 聽證會日期:第九日上午',
+      revealedOnWorldDay: 7,
+      episodeHref: '#episode/mistwood/7',
+    }]);
+  });
+
+  it('carries the omission counts and the window, so neither is silent', () => {
+    const vm = vmWith(payload);
+    expect(vm.viewerKnowledgeOmissions).toEqual({ secrets: 2, facts: 3 });
+    expect(vm.viewerKnowledgeFromWorldDay).toBe(5);
+  });
+
+  it('is empty, not broken, when the model has not been read', () => {
+    const vm = vmWith(null);
+    expect(vm.viewerKnownSecrets).toEqual([]);
+    expect(vm.dramaticIronyFacts).toEqual([]);
+    expect(vm.viewerKnowledgeOmissions).toEqual({ secrets: 0, facts: 0 });
+    expect(vm.viewerKnowledgeFromWorldDay).toBeNull();
+  });
+
+  it('drops a secret row it cannot fully account for rather than rendering a placeholder', () => {
+    // The one section on this page whose rows ASSERT that something was already released. A row
+    // with no day behind it cannot make that assertion, so it must not appear under the heading —
+    // unlike 「所屬 Arc」, where falling back to the id is the honest answer.
+    const vm = vmWith({
+      viewerKnownSecrets: [
+        { secretId: 'ok', content: '已公開的事', revealedOnWorldDay: 6 },
+        { secretId: 'no-day', content: '沒有來源的事' },
+        { secretId: 'no-content', revealedOnWorldDay: 6 },
+        { content: '沒有編號的事', revealedOnWorldDay: 6 },
+      ],
+    });
+    expect(vm.viewerKnownSecrets.map((secret) => secret.secretId)).toEqual(['ok']);
+    expect(JSON.stringify(vm)).not.toContain('沒有來源的事');
+  });
+
+  it('survives a payload field of the wrong type instead of blanking the page', () => {
+    // ART-94's timeline crashed the whole page by calling `.trim()` on a field that arrived
+    // `undefined`. Every field here is read through a typed guard for that reason.
+    const vm = vmWith({
+      viewerKnownSecrets: [{ secretId: 7, content: null, revealedOnWorldDay: '6' }],
+      dramaticIronyFacts: [{ factId: 'f', predicate: 'p', value: { nested: true }, revealedOnWorldDay: 3 }],
+      omittedSecretCount: 'many',
+      oldestConsideredWorldDay: -1,
+    } as unknown as CharacterViewerKnowledgeInput);
+    expect(vm.viewerKnownSecrets).toEqual([]);
+    expect(vm.dramaticIronyFacts).toEqual([]);
+    expect(vm.viewerKnowledgeOmissions.secrets).toBe(0);
+    expect(vm.viewerKnowledgeFromWorldDay).toBeNull();
+  });
+
+  it('renders a boolean or numeric fact value rather than dropping it', () => {
+    const vm = vmWith({
+      dramaticIronyFacts: [
+        { factId: 'f1', predicate: '水位', value: 3, revealedOnWorldDay: 7 },
+        { factId: 'f2', predicate: '磨坊開放', value: false, revealedOnWorldDay: 7 },
+      ],
+    });
+    expect(vm.dramaticIronyFacts.map((fact) => fact.label)).toEqual(['水位:3', '磨坊開放:false']);
+  });
+
+  it('adds no forbidden key by way of the two new fields', () => {
+    // `CHARACTER_FORBIDDEN_KEYS` includes `secret`, and the guard matches WHOLE quoted keys —
+    // so `viewerKnownSecrets` and `secretId` are not false positives, and a payload that
+    // introduced a bare `secret` key still would be.
+    expect(forbiddenKeysInViewModel(vmWith(payload))).toEqual([]);
   });
 });

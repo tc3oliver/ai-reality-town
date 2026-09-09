@@ -140,7 +140,12 @@ import {
   groupPublicRelationships,
   RELATIONSHIP_GRAPH_MODEL_KIND,
 } from '../publicRead/relationshipGraphProjection';
+import {
+  buildViewerKnowledgeProjection,
+  VIEWER_KNOWLEDGE_MODEL_KIND,
+} from '../publicRead/viewerKnowledgeProjection';
 import { relationshipGraphModelRef } from '../shared/relationshipGraphRef';
+import { viewerKnowledgeModelRef } from '../shared/viewerKnowledgeRef';
 import { CLEARED_RUN_FAILURE } from '../shared/runRecord';
 import { buildLiveProjection, LIVE_MODEL_KIND, liveSourceEventIds } from '../publicRead/liveState';
 import {
@@ -1463,6 +1468,57 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
         payload,
         payload.sourceEventIds,
       );
+    },
+
+    /**
+     * FR-I005 / ART-169, over the REAL builder — not a stub that returns refs.
+     *
+     * The harness has every input the deployment joins: the seeded secrets, the accepted events'
+     * facts and knowledge ledger, the Episodes with their `sourceEventIds`, and the publication
+     * records the pipeline actually walked. Running the same function over them is what makes the
+     * long run able to say something about this field at all.
+     *
+     * What it says today is that `viewerKnownSecrets` is EMPTY for the whole run, and that is the
+     * finding rather than a defect in this binding: FR-K004 reserves `publish` for an
+     * administrator, the harness has no administrator, so every Episode stops at `ready` exactly
+     * as it does in the deployment. A binding that had quietly treated `ready` as released would
+     * have reported the opposite and looked healthier.
+     */
+    async rebuildViewerKnowledgeProjections(worldId, characterIds) {
+      const projection = worldProjection(worldId);
+      const citedEvents = episodeRefs().flatMap(({ worldDay, sourceEventIds }) => {
+        const publicationRef = episodeContentRef(worldId, worldDay);
+        const publicationStatus = publications.get(publicationRef)?.status ?? 'absent';
+        return sourceEventIds.map((eventId) => ({
+          eventId, worldDay, publicationRef, publicationStatus, sceneId: null,
+        }));
+      });
+      const secrets = mistwoodCharacterSeed.secrets.map(({ id, content, initialKnowerCharacterIds }) => ({
+        secretId: id, content, holderCharacterIds: initialKnowerCharacterIds,
+      }));
+      const refs: string[] = [];
+      for (const characterId of [...new Set(characterIds)].sort((left, right) => left.localeCompare(right))) {
+        const { projection: payload } = buildViewerKnowledgeProjection({
+          worldId,
+          characterId,
+          secrets,
+          facts: projection.facts,
+          citedEvents,
+          // The harness has no operator override path, so nothing is withheld by a Scene
+          // decision. An Episode the safety classifier refused is still excluded, through its
+          // publication record's `withheld` status above.
+          withheldSceneIds: new Set<string>(),
+          characterKnownFactIds: new Set(
+            (projection.characterKnowledge[characterId] ?? []).map((record) => record.factId)),
+        });
+        refs.push(await publish(
+          VIEWER_KNOWLEDGE_MODEL_KIND,
+          viewerKnowledgeModelRef(characterId),
+          payload,
+          payload.viewerKnownSecrets.map((secret) => secret.revealingEventId),
+        ));
+      }
+      return refs;
     },
 
     rebuildArcReadModel(worldId, arcId) {

@@ -115,6 +115,8 @@ import type * as publicRead_relationshipGraphProjectionFunctions from "../public
 import type * as publicRead_runtimeSnapshot from "../publicRead/runtimeSnapshot.js";
 import type * as publicRead_runtimeSnapshotFunctions from "../publicRead/runtimeSnapshotFunctions.js";
 import type * as publicRead_runtimeSnapshotValidators from "../publicRead/runtimeSnapshotValidators.js";
+import type * as publicRead_viewerKnowledgeProjection from "../publicRead/viewerKnowledgeProjection.js";
+import type * as publicRead_viewerKnowledgeProjectionFunctions from "../publicRead/viewerKnowledgeProjectionFunctions.js";
 import type * as publicRead_visualReplay from "../publicRead/visualReplay.js";
 import type * as publicRead_visualReplayFunctions from "../publicRead/visualReplayFunctions.js";
 import type * as publicRead_visualReplayValidators from "../publicRead/visualReplayValidators.js";
@@ -156,7 +158,9 @@ import type * as shared_publicText from "../shared/publicText.js";
 import type * as shared_publicationGate from "../shared/publicationGate.js";
 import type * as shared_relationshipGraphRef from "../shared/relationshipGraphRef.js";
 import type * as shared_runRecord from "../shared/runRecord.js";
+import type * as shared_secretText from "../shared/secretText.js";
 import type * as shared_tokenBudget from "../shared/tokenBudget.js";
+import type * as shared_viewerKnowledgeRef from "../shared/viewerKnowledgeRef.js";
 import type * as simulation_characterIntent from "../simulation/characterIntent.js";
 import type * as simulation_characterIntentFunctions from "../simulation/characterIntentFunctions.js";
 import type * as simulation_degradation from "../simulation/degradation.js";
@@ -365,6 +369,8 @@ declare const fullApi: ApiFromModules<{
   "publicRead/runtimeSnapshot": typeof publicRead_runtimeSnapshot;
   "publicRead/runtimeSnapshotFunctions": typeof publicRead_runtimeSnapshotFunctions;
   "publicRead/runtimeSnapshotValidators": typeof publicRead_runtimeSnapshotValidators;
+  "publicRead/viewerKnowledgeProjection": typeof publicRead_viewerKnowledgeProjection;
+  "publicRead/viewerKnowledgeProjectionFunctions": typeof publicRead_viewerKnowledgeProjectionFunctions;
   "publicRead/visualReplay": typeof publicRead_visualReplay;
   "publicRead/visualReplayFunctions": typeof publicRead_visualReplayFunctions;
   "publicRead/visualReplayValidators": typeof publicRead_visualReplayValidators;
@@ -406,7 +412,9 @@ declare const fullApi: ApiFromModules<{
   "shared/publicationGate": typeof shared_publicationGate;
   "shared/relationshipGraphRef": typeof shared_relationshipGraphRef;
   "shared/runRecord": typeof shared_runRecord;
+  "shared/secretText": typeof shared_secretText;
   "shared/tokenBudget": typeof shared_tokenBudget;
+  "shared/viewerKnowledgeRef": typeof shared_viewerKnowledgeRef;
   "simulation/characterIntent": typeof simulation_characterIntent;
   "simulation/characterIntentFunctions": typeof simulation_characterIntentFunctions;
   "simulation/degradation": typeof simulation_degradation;

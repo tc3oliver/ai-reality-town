@@ -901,7 +901,11 @@ describe('private data never survives a public read', () => {
     // Defence in depth: a row persisted under an older contract cannot leak on read.
     expect(sanitizeForPublic({ prompt: 'x', ok: 1 } as unknown as JsonValue)).toEqual({ ok: 1 });
     const readModelSource = readFileSync(join(ROOT, 'convex/publicRead/readModel.ts'), 'utf8');
-    expect(readModelSource).toContain('payload: sanitizeForPublic(served.payload)');
+    // The read side must pass the SAME per-kind allowlist the write side did (ART-169). Pinning
+    // the bare call would now pass for a read that used the default and stripped a lawfully
+    // published field straight back out — stored correctly, served empty.
+    expect(readModelSource).toContain(
+      'payload: sanitizeForPublic(served.payload, allowedPrivateKeysFor(modelKind))');
   });
 
   test('the dynamic projection forbids dialogue and private character interiority', () => {

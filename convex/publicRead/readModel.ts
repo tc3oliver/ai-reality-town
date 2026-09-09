@@ -55,6 +55,14 @@ export const READ_MODEL_KINDS = [
   // while that day is current and then never again, against a live projection rebuilt on every
   // commit — so sharing a `contentHash` would defeat dedup for both.
   'relationshipGraph',
+  // FR-I005 / ART-169. One character's viewer-known secrets and dramatic-irony facts. A kind of
+  // its own rather than fields on `character`, for a reason the three above do not have: this is
+  // the only public payload in the deployment whose contents depend on the EDITORIAL PUBLICATION
+  // lifecycle rather than on Canon alone, so it changes on a different trigger from every other
+  // model (an administrator publishing an Episode moves it while no event has been accepted).
+  // Folding it into `character` would also make a secret-projection defect able to take a
+  // character's name and location off the page.
+  'viewerKnowledge',
 ] as const;
 export type ReadModelKind = (typeof READ_MODEL_KINDS)[number];
 
@@ -99,7 +107,43 @@ const PRIVATE_KEY_PATTERNS: readonly RegExp[] = [
   /private/i,
 ];
 
-function isPrivateKey(key: string): boolean {
+/**
+ * The one carve-out: keys a NAMED model kind may carry despite matching a pattern above.
+ *
+ * ART-169 needed it. FR-I005 lists 「觀眾已知秘密」 as a PUBLIC character-page field, so exactly
+ * one payload in this deployment lawfully carries the text of a Canon secret — and
+ * {@link PRIVATE_KEY_PATTERNS}'s `/secret/i` stripped it silently, leaving the page with a field
+ * that was built, published and then deleted on the way into the row.
+ *
+ * ## Why an exception rather than a rename
+ *
+ * Renaming the field to something the pattern misses would have worked with no change here, and
+ * that is precisely the argument against it: this filter matches KEY NAMES, so a payload can
+ * always dodge it by not naming what it carries. A carve-out that is written down, scoped to one
+ * kind and pinned by a test is auditable; a payload that quietly avoided the rule is not.
+ *
+ * ## What still protects the viewer
+ *
+ * Not this filter, and it never did — it strips honest keys, not secret CONTENT. The rule that a
+ * secret may only be published once a `published` Episode revealed it lives in
+ * `./viewerKnowledgeProjection.ts`, which proves it per row and redacts anything it cannot. This
+ * exception is scoped to that kind so no other projection inherits it: a `character` or `episode`
+ * payload naming a key `secret…` is still stripped, which is what `readModel.test.ts` pins.
+ */
+export const KIND_ALLOWED_PRIVATE_KEYS: Partial<Record<ReadModelKind, readonly string[]>> = {
+  viewerKnowledge: ['viewerKnownSecrets', 'secretId', 'omittedSecretCount'],
+};
+
+const NO_ALLOWED_KEYS: ReadonlySet<string> = new Set();
+
+/** The allowlist for one kind, as a set. Empty for every kind that has no carve-out. */
+export function allowedPrivateKeysFor(modelKind: ReadModelKind): ReadonlySet<string> {
+  const allowed = KIND_ALLOWED_PRIVATE_KEYS[modelKind];
+  return allowed === undefined ? NO_ALLOWED_KEYS : new Set(allowed);
+}
+
+function isPrivateKey(key: string, allowed: ReadonlySet<string>): boolean {
+  if (allowed.has(key)) return false;
   return PRIVATE_KEY_PATTERNS.some((pattern) => pattern.test(key));
 }
 
@@ -110,13 +154,16 @@ function isPrivateKey(key: string): boolean {
  * responsible for pre-filtering domain-private entries (e.g. Canon
  * `visibility: 'private'` state changes); this is the defence-in-depth layer.
  */
-export function sanitizeForPublic(value: JsonValue): JsonValue {
-  if (Array.isArray(value)) return value.map((item) => sanitizeForPublic(item));
+export function sanitizeForPublic(
+  value: JsonValue,
+  allowed: ReadonlySet<string> = NO_ALLOWED_KEYS,
+): JsonValue {
+  if (Array.isArray(value)) return value.map((item) => sanitizeForPublic(item, allowed));
   if (value !== null && typeof value === 'object') {
     const out: Record<string, JsonValue> = {};
     for (const [key, entry] of Object.entries(value)) {
-      if (isPrivateKey(key)) continue;
-      out[key] = sanitizeForPublic(entry);
+      if (isPrivateKey(key, allowed)) continue;
+      out[key] = sanitizeForPublic(entry, allowed);
     }
     return out;
   }
@@ -264,7 +311,7 @@ export function createReadModelVersion(input: {
   if (sourceEventIds.some((id) => typeof id !== 'string' || id.length === 0)) {
     throw new ReadModelError('READ_MODEL_INVALID_SHAPE', 'sourceEventIds must be non-empty strings');
   }
-  const payload = sanitizeForPublic(input.payload);
+  const payload = sanitizeForPublic(input.payload, allowedPrivateKeysFor(input.modelKind));
   return {
     schemaVersion: READ_MODEL_SCHEMA_VERSION,
     worldId: input.worldId,
@@ -310,7 +357,10 @@ export async function serveReadModel(
   const versions = await store.loadTargetVersions(worldId, modelKind, modelRef);
   const served = selectServedVersion(versions);
   if (!served) return null;
-  return { ...served, payload: sanitizeForPublic(served.payload) };
+  // The same allowlist the write side applied. A read that used the default would strip the
+  // viewer-known secrets back out on the way to the page — the payload would be stored correctly
+  // and served empty, which is the harder version of this bug to find.
+  return { ...served, payload: sanitizeForPublic(served.payload, allowedPrivateKeysFor(modelKind)) };
 }
 
 export type CommitReadModelResult = {
