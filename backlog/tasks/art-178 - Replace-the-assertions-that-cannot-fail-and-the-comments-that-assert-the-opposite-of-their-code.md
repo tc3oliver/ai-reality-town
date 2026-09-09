@@ -3,11 +3,11 @@ id: ART-178
 title: >-
   Replace the assertions that cannot fail, and the comments that assert the
   opposite of their code
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-09-09 22:11'
-updated_date: '2026-09-09 22:42'
+updated_date: '2026-09-09 23:09'
 labels:
   - prd-2.0
   - epic-q
