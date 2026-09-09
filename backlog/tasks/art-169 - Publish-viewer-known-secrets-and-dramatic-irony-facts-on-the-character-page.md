@@ -1,11 +1,11 @@
 ---
 id: ART-169
 title: Publish viewer-known secrets and dramatic-irony facts on the character page
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-09-09 11:44'
-updated_date: '2026-09-09 17:22'
+updated_date: '2026-09-09 17:39'
 labels:
   - prd-1.0
   - epic-i
@@ -28,28 +28,28 @@ See docs/public-character-page.md §4 for the assessment ART-151 recorded. Block
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A published read model carries, per character, the secrets a viewer already knows, each traceable to the published event that revealed it
-- [ ] #2 A published read model carries, per character, the facts the viewer can see and the character's knowledge ledger does not hold
-- [ ] #3 A fault injection proves an unrevealed secret cannot reach either payload: removing the published-event check turns a named test red
-- [ ] #4 The character page renders both fields, and ART-43 AC#1 is then checked with evidence
+- [x] #1 A published read model carries, per character, the secrets a viewer already knows, each traceable to the published event that revealed it
+- [x] #2 A published read model carries, per character, the facts the viewer can see and the character's knowledge ledger does not hold
+- [x] #3 A fault injection proves an unrevealed secret cannot reach either payload: removing the published-event check turns a named test red
+- [x] #4 The character page renders both fields, and ART-43 AC#1 is then checked with evidence
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -96,3 +96,26 @@ That is the right behaviour for the rule — admitting `ready` would make essent
 
 The first version of the "the pipeline calls this" evidence was a source scan for the function name. Removing the stage call left the name behind in the port interface declaration in the same file, so the scan passed against a pipeline that had stopped calling it. Replaced with a behavioural assertion in `postCommitLive.test.ts` over the published `modelRefs` — including that the viewer-knowledge refs come AFTER `live:<world>`, which is the ordering the un-isolated stage requires. The same weak pattern was removed for the safety half; `safetyOverrideFunctions.test.ts` already pins that list exhaustively by running the handler.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+FR-I005's last two public fields now have a published source: `viewerKnowledge:<characterId>`, joining `worldSecrets` × Canon's public facts × the editorial publication lifecycle × the safety gate. No new store of truth was added — a secret is a JOIN, and the rule for 「does this text quote this secret」 moved to `convex/shared/secretText.ts` so the leak detector in `quality/continuity.ts` and the character page cannot drift apart.
+
+A secret is viewer-known exactly when a PUBLIC Canon fact quotes it, the event that created that fact was cited by an Episode whose CURRENT publication record is `published`, and that event's Scene is not withheld. Dramatic irony is the same published facts minus the fact ids the character's ledger holds; the builder has no rumor input at all.
+
+**Both fields are empty in Mistwood today, and that is correct.** FR-K004 reserves `publish` for an administrator and nothing in the deployment can invoke it, so every Episode stops at `ready`. Confirmed against the live deployment: all 3 current `publicationRecords` are `ready`, none `published`. That is a reachability gap in FR-K004, raised as ART-171, not a caveat on this projection.
+
+AC#1 — `viewerKnowledgeProjection.test.ts` 「reports a secret a PUBLISHED event said out loud, traceable to that event」; `…Functions.test.ts` 「joins the world secret to the published event that revealed it」.
+AC#2 — 「reports a published public fact the character does not hold」 and 「drops the fact the moment the character learns it」.
+AC#3 — nine injections, each turning a NAMED test red (table in PR #266). Dropping the published-event check reddens 14 tests; admitting `ready` reddens 7.
+AC#4 — `e2e/characterViewerKnowledge.spec.ts`, 10 tests on desktop + mobile: both sections render from the read model, each row links to the day that published it, the empty case says so, and the page is axe-clean. `publicPages.a11y.test.tsx` adds three markup cases.
+
+ART-43's AC#1 is now checkable: all ten FR-I005 fields have a published source and the page renders every one (`docs/public-character-page.md` §1).
+
+One injection did not bite first time and was replaced rather than reported: the 「pipeline calls this」 evidence was a source scan, and the port interface declaration in the same file kept the function name alive after the call site was deleted. It is now an assertion over stage 19's published `modelRefs`, including their order relative to `live:<world>`.
+
+Also fixed: `sanitizeForPublic`'s `/secret/i` pattern silently deleted `viewerKnownSecrets` on the way into the row — built, stripped, served empty. Now a per-kind allowlist, applied on read as well as write, with a test that every other kind still strips those same keys.
+
+Verification: `npm run check` exit 0 (4348 passed, 31 skipped, 250 suites); `npm run e2e` 124 passed; PR #266 merged with all three CI checks green.
+<!-- SECTION:FINAL_SUMMARY:END -->
