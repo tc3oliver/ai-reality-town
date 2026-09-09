@@ -3,11 +3,11 @@ id: ART-167
 title: >-
   Key the FR-M004 ladder on the attempt, and make the harness model the driver's
   retry
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-09-08 22:31'
-updated_date: '2026-09-08 23:57'
+updated_date: '2026-09-09 00:09'
 labels:
   - prd-1.0
   - epic-p
