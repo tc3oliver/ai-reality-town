@@ -11,6 +11,7 @@ import { internalMutation } from '../_generated/server';
 import type { DailyEpisode } from '../editorial/episode';
 import { rowToAcceptedEvent } from '../canon/serialize';
 import { readWithheldSceneLabels } from '../safety/effectiveSafetyLabels';
+import { episodeSafetySourceId } from '../editorial/episode';
 import { isViewerServablePublicationStatus } from '../editorial/publicationLifecycle';
 import { episodeContentRefOf } from './visualReplay';
 import { EpisodeTimelineError, buildEpisodeProjection, buildTimelineProjection, EPISODE_MODEL_KIND, TIMELINE_MAJOR_IMPORTANCE, TIMELINE_MODEL_KIND, type TimelineEntryInput } from './episodeTimelineProjection';
@@ -69,6 +70,25 @@ export const rebuildEpisodeProjection = internalMutation({
       .unique();
     if (!row || !row.episode) {
       throw new EpisodeTimelineError('EPISODE_NOT_ELIGIBLE', 'no published episode for this world-day');
+    }
+    /**
+     * The EFFECTIVE safety label, not the frozen one (ART-177).
+     *
+     * `dailyEpisodes.status` records the classifier's verdict at generation and is never rewritten
+     * — which is the point of the ledger design, and the reason it cannot be the answer here. An
+     * operator override lands in `safetyStatusOverrides`, and until ART-177 this rebuild had no
+     * way to see one: recording the classification without reading it back would have given an
+     * operator a control that reported success and changed nothing.
+     */
+    const withheldSources = await readWithheldSceneLabels(ctx.db, args.worldId);
+    const effectiveStatus = withheldSources[episodeSafetySourceId(row.episodeNumber)] !== undefined
+      ? 'withheld'
+      : row.status;
+    if (effectiveStatus !== row.status) {
+      const { withdrawnVersions } = await withdrawReadModel(writeStore(ctx.db), {
+        worldId: args.worldId, modelKind: EPISODE_MODEL_KIND, modelRef, now: args.now,
+      });
+      return { modelRef, version: 0, deduplicated: false, withdrawnVersions, publicationStatus: record?.status ?? null };
     }
     const payload = buildEpisodeProjection({ worldId: args.worldId, episode: row.episode as DailyEpisode, status: row.status });
     const result = await commitReadModelVersion(writeStore(ctx.db), {

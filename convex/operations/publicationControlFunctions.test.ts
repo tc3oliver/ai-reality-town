@@ -567,3 +567,76 @@ describe('an administrator withhold reaches the episode index as well', () => {
     expect(indexPayload(tables)?.episodes?.map((entry) => entry.worldDay)).toEqual([WORLD_DAY]);
   });
 });
+
+/**
+ * The operator override of an EPISODE-level safety decision, end to end (ART-177).
+ *
+ * Two things had to be true and neither was. The classification had to be in the ledger at all —
+ * `generateAcceptedEventEpisode` stored an id and inserted nothing, so `overridePostGenerationSafetyLabel`
+ * threw `SAFETY_CLASSIFICATION_NOT_FOUND` for every Episode in every world. And the read models had
+ * to consult the EFFECTIVE label rather than the frozen `dailyEpisodes.status`, or the override
+ * would have succeeded and changed nothing.
+ *
+ * Driven through the real `rebuildEpisodeProjection` and `rebuildEpisodeIndexProjection` handlers,
+ * because "the ledger row exists" and "the viewer stops seeing it" are different claims.
+ */
+describe('AC#2 — an override of an episode decision changes what the surface serves', () => {
+  const EPISODE_SOURCE_ID = `episode:${WORLD_DAY}`;
+
+  function withOverride(tables: Tables, label: string, at: number) {
+    (tables.postGenerationSafetyClassifications ??= []).push({
+      _id: 'postGenerationSafetyClassifications:0',
+      worldId: WORLD_ID, classificationId: `episode:${WORLD_ID}:${WORLD_DAY}`,
+      sourceId: EPISODE_SOURCE_ID, kind: 'public_artifact', label: 'allow',
+      reasonCodes: [], warningCodes: [], classifiedTextHash: 'fnv1a32:deadbeef', createdAt: 1_000,
+    });
+    (tables.safetyStatusOverrides ??= []).push({
+      _id: `safetyStatusOverrides:${(tables.safetyStatusOverrides ?? []).length}`,
+      worldId: WORLD_ID, sourceId: EPISODE_SOURCE_ID, classificationId: `episode:${WORLD_ID}:${WORLD_DAY}`,
+      label, reason: 'a viewer report was upheld', actor: 'op-admin', createdAt: at,
+    });
+    return tables;
+  }
+
+  const episodeVersions = (tables: Tables): number[] => (tables.publishedReadModels ?? [])
+    .filter((row) => row.modelRef === `episode:${WORLD_DAY}` && (row.isCurrent || row.isLastKnownGood))
+    .map((row) => Number(row.version));
+
+  const indexDays = (tables: Tables): number[] => (((tables.publishedReadModels ?? [])
+    .filter((row) => row.isCurrent && row.modelRef === `episodes:${WORLD_ID}`)
+    .at(-1)?.payload as { episodes?: Array<{ worldDay: number }> } | undefined)?.episodes ?? [])
+    .map((entry) => entry.worldDay);
+
+  it('serves the Episode while the effective label allows it', async () => {
+    const tables = baseTables('ready');
+    const rebuild = rebuildEpisodeProjection as unknown as Registered;
+    const rebuildIndex = rebuildEpisodeIndexProjection as unknown as Registered;
+    await rebuild._handler(realCtx(tables), { worldId: WORLD_ID, worldDay: WORLD_DAY, now: NOW });
+    await rebuildIndex._handler(realCtx(tables), { worldId: WORLD_ID, now: NOW });
+    expect(episodeVersions(tables)).toEqual([1]);
+    expect(indexDays(tables)).toEqual([WORLD_DAY]);
+  });
+
+  it('withdraws the Episode and drops it from the index once an override refuses it', async () => {
+    const tables = withOverride(baseTables('ready'), 'withhold', 2_000);
+    const rebuild = rebuildEpisodeProjection as unknown as Registered;
+    const rebuildIndex = rebuildEpisodeIndexProjection as unknown as Registered;
+    await rebuild._handler(realCtx(tables), { worldId: WORLD_ID, worldDay: WORLD_DAY, now: NOW });
+    await rebuildIndex._handler(realCtx(tables), { worldId: WORLD_ID, now: NOW });
+
+    expect(episodeVersions(tables)).toEqual([]);
+    expect(indexDays(tables)).toEqual([]);
+    // `dailyEpisodes.status` is untouched — the classifier's verdict is a record, not a switch.
+    expect(tables.dailyEpisodes[0].status).toBe('ready');
+  });
+
+  it('brings both back when a later override releases it', async () => {
+    const tables = withOverride(withOverride(baseTables('ready'), 'withhold', 2_000), 'allow', 3_000);
+    const rebuild = rebuildEpisodeProjection as unknown as Registered;
+    const rebuildIndex = rebuildEpisodeIndexProjection as unknown as Registered;
+    await rebuild._handler(realCtx(tables), { worldId: WORLD_ID, worldDay: WORLD_DAY, now: NOW });
+    await rebuildIndex._handler(realCtx(tables), { worldId: WORLD_ID, now: NOW });
+    expect(episodeVersions(tables)).toEqual([1]);
+    expect(indexDays(tables)).toEqual([WORLD_DAY]);
+  });
+});

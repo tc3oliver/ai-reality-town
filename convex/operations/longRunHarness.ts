@@ -107,7 +107,7 @@ import {
   type CoverageSourceEvent,
 } from '../recaps/coverageValidation';
 import { buildRecapSnapshot, type RecapSnapshot } from '../recaps/model';
-import { classifyPostGeneration } from '../safety/postGeneration';
+import { classifyPostGeneration, isPubliclyShowable } from '../safety/postGeneration';
 import { createArcLifecycle, isActiveArcStatus, transitionArcLifecycle } from '../story/lifecycle';
 import { createArcResolutionDecision, type ArcResolutionDecision } from '../story/resolution';
 import { initialArcHeat, type ArcHeatScore } from '../story/heat';
@@ -1179,7 +1179,10 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
         classificationId: `episode:${worldId}:${worldDay}`, worldId, sourceId: `episode:${episodeNumber}`,
         kind: 'public_artifact', text: dailyEpisodePublicText(episode), coreFactIds: episode.sourceEventIds,
       });
-      const safe = safety.label === 'allow' || safety.label === 'allow_with_warning';
+      // The one definition, imported rather than restated (ART-177). A harness that decided the
+      // publish/withhold line for itself would report a different episode-withhold rate from the
+      // deployment the moment the line moved.
+      const safe = isPubliclyShowable(safety.label);
       const status = safe ? 'ready' : 'withheld';
       episodes.set(worldDay, { status, episodeNumber, episode: safe ? episode : undefined, safetyClassificationId: safety.classificationId });
       return Promise.resolve({ status, episodeNumber, deduplicated: false });
