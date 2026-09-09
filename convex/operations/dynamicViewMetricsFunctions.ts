@@ -56,11 +56,18 @@ const MAX_INCIDENT_LIMIT = 200;
 const SCAN_LIMIT = 1000;
 
 /** The reason strings are part of the contract: an unmeasured metric must say why. */
+/**
+ * Every `client_external` metric fails for the same reason and is answered in the same place, so
+ * it is said once. The second sentence is not decoration: without it「未量測」reads as「這個數字
+ * 不存在」, and an operator goes looking for a measurement that has been running since ART-47.
+ */
 const CLIENT_EXTERNAL_REASON =
-  'Not measurable server-side. Counting viewers or renderer errors requires the browser to '
-  + 'report, and the read-only client boundary (ART-128 / FR-O009) forbids every client write '
-  + 'primitive — useMutation, useAction and any Convex client outside the provider shim. '
-  + 'Reporting 0 would be indistinguishable from a healthy measurement of zero.';
+  'Not measurable server-side. Counting viewers, renderer errors, degraded-mode sessions or '
+  + 'replay skips requires the browser to report, and the read-only client boundary '
+  + '(ART-128 / FR-O009) forbids every client write primitive — useMutation, useAction and any '
+  + 'Convex client outside the provider shim. Reporting 0 would be indistinguishable from a '
+  + 'healthy measurement of zero. Measured instead by the ART-47 telemetry pipeline behind its '
+  + 'own gate: see convex/operations/productAnalyticsFunctions.ts and docs/product-analytics.md.';
 
 const ANONYMOUS_DENIAL_REASON =
   'Anonymous denials are not durably recorded. A Convex mutation is transactional, so a row '
@@ -264,14 +271,11 @@ export const inspectDynamicViewMetrics = query({
         },
         reason: STRUCTURAL_ZERO_REASON,
       },
-      degradationModeUsage: {
-        value: null,
-        reason: 'The FR-O010 degradation ladder does not exist yet; there is no mode whose use could be counted.',
-      },
-      replayPlaySkipCounts: {
-        value: null,
-        reason: 'FR-O013 replay does not exist yet; PUBLIC_MOTION_TYPES reserves the motion type but nothing produces it.',
-      },
+      // These two said "the FR-O010 degradation ladder does not exist yet" and "FR-O013 replay
+      // does not exist yet" until ART-178. Both shipped — ART-127 and ART-121 — and an ops console
+      // reporting a live feature as unbuilt is a worse failure than reporting no number at all.
+      degradationModeUsage: { value: null, reason: CLIENT_EXTERNAL_REASON },
+      replayPlaySkipCounts: { value: null, reason: CLIENT_EXTERNAL_REASON },
     };
 
     return {

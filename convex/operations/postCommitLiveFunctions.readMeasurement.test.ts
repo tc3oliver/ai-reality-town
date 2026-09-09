@@ -734,8 +734,16 @@ describe('ART-100 Slice 0 — post-commit document-read measurement harness', ()
   });
 
   /**
-   * AC#1 — KNOWN RED, and now red for exactly three measured reasons rather than a list of
-   * suspects.
+   * AC#1 — GREEN, and green because the three growers were closed, not because the assertion was
+   * weakened.
+   *
+   * This docblock used to open "KNOWN RED" and list three remaining growers. **That claim is
+   * wrong and is corrected here** (ART-178): grower 1 was closed by ART-100's
+   * `perf(ART-100): resume the Live rebuild from a checkpoint instead of the whole log`, grower 3
+   * by `perf(ART-100): read the episode numbers a timeline names, not the world's`, and the
+   * assertion below has not moved. A comment that tells a reader a passing test is failing is
+   * worse than no comment: the next person to touch this either weakens a gate they think is
+   * already broken, or spends an afternoon proving it is not.
    *
    * ## What this test asserts, and why it is not a ratio any more
    *
@@ -756,36 +764,36 @@ describe('ART-100 Slice 0 — post-commit document-read measurement harness', ()
    * any world past day one has something to resume from. Measuring AC#1 against a fixture that
    * structurally cannot benefit from the fix would be measuring the harness, not the system.
    *
-   * ## The three remaining growers, measured by stack attribution rather than inferred
+   * ## What the two scale points actually measure, as of ART-178
    *
-   * At `MULTI_DAY_SMALL`/`MULTI_DAY_LARGE` with a snapshot (30 / 60 total events), `canonEvents`
-   * reads are 152 / 218. The whole 66-row gap is these three, and nothing else:
+   * `AC1_SMALL`/`AC1_LARGE` are 41 and 81 completed days at five events each — 210 and 410 total
+   * accepted events. Measured:
    *
-   *   1. `publicRead/liveStateFunctions.ts` `rebuildLiveProjection` — 30 -> 60. A full-log collect,
-   *      DELIBERATELY, and the largest single term. See that file's docblock: `buildVisualReplay`
-   *      ranks scenes for importance across the whole accepted history before taking the top few,
-   *      and `locations` is a last-write-wins fold over a field that IS one of
-   *      `SEED_BASELINE_FIELDS` — so a snapshot would publish seeded locations that today's
-   *      replay-from-empty never shows, breaking AC#3. Fixing it needs a NEW incrementally
-   *      maintained non-seeded location/character cache plus a per-scene location-fold cache; that
-   *      is a design, not an index binding, and it is the one piece of work still standing between
-   *      this task and AC#1.
-   *   2. `publicRead/onboardingSummaryFunctions.ts` — 30 -> 60 here, but now CAPPED at
-   *      `MAX_SCANNED_EVENTS` (200). This fixture is smaller than the cap, so the cap does not
-   *      engage and the term still scales inside it; above 200 events it is flat. Pinned
-   *      independently, at sizes either side of the cap, in that file's own test.
-   *   3. `operations/postCommitLiveFunctions.ts` `completedWorldDaysBounded` — 6 -> 12. One probe
-   *      per world day, so it is O(days), not O(events). It no longer pays twice (see the
-   *      preceding test), but making it flat needs a maintained completed-day summary, which is a
-   *      schema change this task did not take.
+   * | | small | large |
+   * |---|---|---|
+   * | total accepted events | 210 | 410 |
+   * | `canonEvents` rows read | 319 | 319 |
+   * | ...of which `by_world_and_sequence` | 297 | 297 |
+   * | ...of which `by_world_and_day` | 22 | 22 |
+   * | `dailyEpisodes` rows read | 79 | 119 |
+   * | total `docsRead` | 472 | 512 |
    *
-   * Everything else in the trace is already flat across both scale points: `rebuildWorldProjection`
-   * and `rebuildCharacterProjection` (40 and 10, snapshot fast path), `readProjectionViaSnapshot`
-   * (15), `rebuildVoteConsequenceProjection` (10), `loadWorldState`'s point lookups and day reads
-   * (8), and the recap window (2). `rebuildTimelineProjection` and `rebuildEpisodeIndexProjection`
-   * make ZERO canon reads.
+   * Canon reads are flat across a doubling of history. The whole 40-row `docsRead` gap is
+   * `dailyEpisodes`, one row per extra world day, which the assertion below pins to
+   * `extraWorldDays` EXACTLY rather than allowing — see its own comment for why that one is
+   * payload-bound and not a read to optimise away.
    *
-   * Do not weaken the assertion to make this pass — land item 1 and it turns green on its own.
+   * ## The one bound that is a cap, not a constant, and is honest about it
+   *
+   * `publicRead/onboardingSummaryFunctions.ts` scans at most `MAX_SCANNED_EVENTS` (200) rows.
+   * Both fixtures above sit past that cap, so it is engaged at both points and contributes
+   * identically here. Below 200 events the term still scales — bounded, but not flat. That is not
+   * hidden by choosing these sizes: it is pinned directly, at sizes either side of the cap, by
+   * `onboardingSummaryFunctions.test.ts`, which is where a bound belongs. AC#1 is about growth
+   * with total accepted-event count, and a read that never exceeds 200 rows however large the
+   * world gets satisfies it.
+   *
+   * Do not weaken the assertion. If it goes red, a read was re-bound to history.
    */
   it('AC#1 — a post-commit run\'s canon reads do not grow with total accepted-event count', async () => {
     const small = await measureMultiDay(AC1_SMALL);
@@ -827,6 +835,58 @@ describe('ART-100 Slice 0 — post-commit document-read measurement harness', ()
  * collecting EVERY accepted event and EVERY post-commit run to work out what was left to do —
  * inside the very transaction whose byte budget the batch size existed to protect.
  */
+/**
+ * The Live rebuild's operator-facing result, which nothing had ever read (ART-178).
+ *
+ * It lives in this file because this is the only harness in the repository that runs the REAL
+ * `rebuildLiveProjection` handler — every other suite transcribes it. That was enough to keep a
+ * whole class of finding invisible: none of `dynamicCharacterCount`, `withheldSceneCount`,
+ * `withheldEventCount` or `publishedEpisodeScanExhausted` was asserted anywhere, and the last of
+ * them was computed and then dropped on the floor while two docblocks said the rebuild
+ * "reports" it.
+ */
+describe('ART-178 — the Live rebuild reports what it could not find', () => {
+  const NOW = 10_000_000;
+
+  /** `status: 'ready'` with NO `episode` body — the anomaly the scan bound exists for. */
+  const bodylessReadyEpisode = (worldId: string, worldDay: number): Row => ({
+    worldId, worldDay, schemaVersion: 1, episodeNumber: worldDay + 1, status: 'ready',
+    sourceEventIds: [] as string[], createdAt: NOW,
+  });
+
+  const rebuildWith = async (worldId: string, episodeDays: number) => {
+    const tables = emptyTables();
+    tables.canonEvents.push(canonRow(worldId, 0, 0, 'morning'));
+    for (let day = 0; day < episodeDays; day += 1) {
+      tables.dailyEpisodes.push(bodylessReadyEpisode(worldId, day));
+    }
+    const ctx = makeCtx(tables, freshReadStats());
+    const outcome = await (rebuildLiveProjection as unknown as Registered)
+      ._handler(ctx, { worldId, now: NOW });
+    return outcome as { publishedEpisodeScanExhausted: boolean };
+  };
+
+  it('says so when the bounded scan gave up rather than finding nothing', async () => {
+    // Eight bodyless `ready` days is the bound reached with no match: the editorial pipeline has
+    // stopped writing episode bodies. The public payload cannot express this — it publishes
+    // `publishedEpisodeStatus: 'none'`, identical to a world nobody has narrated yet.
+    const exhausted = await rebuildWith('scan-exhausted', 8);
+    expect(exhausted.publishedEpisodeScanExhausted).toBe(true);
+  });
+
+  it('does not say so for a world that simply has no episodes yet', async () => {
+    // The other side, and the one that makes the flag mean something. A young world reads false,
+    // so an operator seeing `true` learns a fact rather than a default.
+    const young = await rebuildWith('young-world', 0);
+    expect(young.publishedEpisodeScanExhausted).toBe(false);
+
+    // ...and so does one below the bound: three bodyless days is an anomaly the scan CAN see past
+    // if a fourth day is narrated, so it is not yet "gave up".
+    const belowBound = await rebuildWith('below-bound', 3);
+    expect(belowBound.publishedEpisodeScanExhausted).toBe(false);
+  });
+});
+
 describe('ART-100 AC#2 — runLiveWorldDayCycle over a whole time slot', () => {
   const HUNDREDS = 400;
 

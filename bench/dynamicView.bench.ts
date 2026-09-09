@@ -359,7 +359,11 @@ test.describe('dynamic viewing benchmark (FR-Q005 / ART-136)', () => {
         durationMs,
         sampleCount: samples.length,
         heapGrowthBytesPerMinute: growth,
-        verdict: soakVerdict(soak, BENCH_THRESHOLDS.heapGrowthBytesPerMinute),
+        verdict: soakVerdict(
+          soak,
+          BENCH_THRESHOLDS.heapGrowthBytesPerMinute,
+          BENCH_THRESHOLDS.soakDurationMs,
+        ),
       };
 
       // `performance.memory` is Chromium-only and returns 0 elsewhere. A run of zeroes would

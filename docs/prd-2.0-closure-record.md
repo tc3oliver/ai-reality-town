@@ -89,7 +89,7 @@ product failure, or a product pass read as an environment one.
 | 27 | Every V2 P0 requirement has a task and objective evidence | PASS | Every PRD 2.0 Dynamic Viewing task (ART-113 … ART-137, ART-140) is `Done`; the board's only remaining items are this gate and ART-136. Per-requirement evidence is in `docs/prd-2.0-requirement-matrix.md` §3. See §5 below for the one thing this does **not** claim. |
 | 28 | The closure record does not claim MVP completion from backend completion | PASS | This document. §2 records the MVP as **not complete**, and the reason is a browser-measured frame rate — the failure mode §22.28 exists to prevent. |
 | 29 | ART-139 fixed; the real provider produces Accepted Events, with a regression test | PASS | `convex/simulation/sceneSimulation.test.ts` (`ART-139 real-provider schemaVersion contract`) and `convex/canon/proposedEvent.test.ts`. The accepted-event chain was verified live against the configured gateway during ART-141: 2/2 runs took a real provider `ProposedEvent` carrying `character_location_changed` through `parseWholeSceneOutput → normalizeProposedEventOutput → validateEventStructure → validateCanon → appendCommit`. ART-157 then fixed the prompt so a movement proposal names a legal destination, and ART-159/ART-160 wired the real adapter into the scheduled live path. See §5 for what the CURRENT deployment can and cannot corroborate. |
-| 30 | The dynamic-layer benchmark is established **and actually passed** | **FAIL** | `docs/benchmarks/dynamic-view-latest.md`, recorded 2026-08-24. Desktop passes everything. **Mid-tier mobile averages 28.4 fps (stream) and 28.38 fps (delayed) against NFR2-002's 30 fps.** The harness exists, is repeatable (`npm run bench`) and is honest about what it could not measure. §6.1 states why the figure cannot settle the criterion either way and what would. |
+| 30 | The dynamic-layer benchmark is established **and actually passed** | **FAIL** | `docs/benchmarks/dynamic-view-latest.md`, recorded 2026-08-24. Desktop passes every criterion the run settles — see §6.1 on AC#7, which it does not. **Mid-tier mobile averages 28.4 fps (stream) and 28.38 fps (delayed) against NFR2-002's 30 fps.** The harness exists, is repeatable (`npm run bench`) and is honest about what it could not measure. §6.1 states why the figure cannot settle the criterion either way and what would. |
 | 31 | Visual Replay references only published identifiers and versions, and invalidates on withhold/supersede | PASS | `convex/publicRead/visualReplay.test.ts` + `convex/publicRead/visualReplayFunctions.test.ts` — the read-time gate requires a matching `publicationVersion` AND a servable status, so a withheld or superseded record stops resolving without a rebuild. Since ART-171 the status list has one definition, `VIEWER_SERVABLE_PUBLICATION_STATUSES`; `convex/publicRead/visualReplay.boundary.test.ts` pins the builder's whole import closure. |
 
 ---
@@ -234,6 +234,33 @@ fixture and measuring them there would record ~0 ms for a path that was never ex
 ART-136 **AC#6** (measure at 12, 20 and 40 visible characters) is *not* external — the benchmark
 records it as `unreachable` because Mistwood has twelve bound residents — and is tracked as
 repository work rather than accepted as a limitation.
+
+**AC#7 (an eight-hour run shows no sustained memory growth) is not settled either, and an earlier
+version of this section did not say so.** It listed AC#2, AC#3 and AC#6 and stopped. The
+2026-08-24 record showed `AC#7 … ✅` and this document read that as part of「Desktop passes
+everything」— but the run behind it lasted **two minutes**, `npm run bench`'s default, against a
+criterion that names eight hours. The heap slope measured over those two minutes is 0 B/min and is
+genuinely clean; what it cannot be is an answer about eight hours, because slow leaks are the
+entire reason the criterion is long.
+
+ART-178 made the harness say this itself rather than leaving it to a reader: `soakVerdict` now
+carries `settlesCriterion`, the record renders `⚠️` with the shortfall instead of `✅`, the run is
+listed in that file's「Not measured here, and why」table as `run_too_short`, and the summary line
+counts 15/17 rather than 16/18. A results file recorded before that change has no such field and
+is treated as unsettled, not as settled.
+
+This one is **not external** in the way the mobile frame rate is — it needs no device this project
+lacks, only eight hours of wall clock on the host that already runs the benchmark:
+
+```bash
+BENCH_SOAK_MINUTES=480 npm run bench
+```
+
+**PASS means:** the `AC#7` row reads `✅` rather than `⚠️` — i.e. `settlesCriterion` is true AND
+`heapGrowthBytesPerMinute` is at or below 524288 — with `soak (480m, …)` in the same row. It is
+listed here rather than in §3 because until that run happens, §22.30's benchmark has one criterion
+recorded as unmeasured, and calling it passed would be the same substitution §6.1 refuses for the
+frame rate.
 
 ### 6.2 §22.29 / FR-O002 production acceptance — a deployment of current `main`
 

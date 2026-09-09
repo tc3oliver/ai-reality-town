@@ -84,7 +84,6 @@ import { commitReadModelVersion, serveReadModel } from './readModel';
 import { readStore, writeStore } from './readModelFunctions';
 import {
   buildPublicDynamicProjectionResult,
-  excludedCharacterIds,
   seedPlacementsFromCharacterRows,
   selectPublicDynamicProjection,
   type AttributedRuntimeProblem,
@@ -119,10 +118,8 @@ import {
 
 type ArcLifecycleRow = { arcId: string; status: string };
 type ArcProjectionEventRow = { arcId: string; revision: number; fields: unknown };
-type ArcClassificationRow = { sourceEventSequenceNumber: number; memberships?: unknown };
 /** `memberships` is `v.any()` in the schema, so it is read as untyped storage. */
 type ClassificationMembership = { arcId?: unknown; importance?: unknown };
-type PublicationRecordRow = { contentRef: string; status: string; version: number; isCurrent: boolean };
 type DailyEpisodeRow = {
   status: string;
   worldDay: number;
@@ -366,6 +363,10 @@ const CLASSIFICATION_SWEEP_THRESHOLD = 32;
  * until you find one" is unbounded by construction — and when the bound is REACHED without a
  * match, the rebuild reports `publishedEpisodeScanExhausted` rather than quietly publishing
  * "no episode". Truncation is never silent.
+ *
+ * That last sentence was aspirational until ART-178: the flag was computed and returned by
+ * nothing, so the truncation WAS silent and this docblock asserted the opposite of its own code.
+ * It is in the mutation's result now, beside the other operator-facing counts.
  */
 const READY_EPISODE_SCAN_LIMIT = 8;
 
@@ -1040,6 +1041,19 @@ export const rebuildLiveProjection = internalMutation({
       // indistinguishable from outside, and the difference is the whole point of the gate.
       withheldSceneCount: presentation.scenes.filter((scene) => scene.publicationStatus === 'withheld').length,
       withheldEventCount: withheldEvents.size,
+      /**
+       * Whether the narrated-episode scan hit `READY_EPISODE_SCAN_LIMIT` without a match.
+       *
+       * Computed since the bound was introduced and **returned by nothing** until ART-178, while
+       * two docblocks above claimed the rebuild "reports" it. "No day has been narrated" and
+       * "eight `ready` days in a row carry no body" are different facts — the first is a young
+       * world, the second is an editorial pipeline that has stopped writing episodes — and the
+       * public payload renders them identically as `publishedEpisodeStatus: 'none'`.
+       *
+       * It belongs here rather than on the payload for the reason every field around it does:
+       * it is an operational fact about the rebuild, not something a viewer is owed.
+       */
+      publishedEpisodeScanExhausted,
       /**
        * How many accepted events `correlateSceneId` actually governs.
        *

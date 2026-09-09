@@ -1,11 +1,10 @@
 ---
 id: ART-177
 title: Record episode safety classifications in the ledger that governs them
-status: In Progress
-assignee:
-  - '@claude'
+status: Done
+assignee: []
 created_date: '2026-09-09 21:35'
-updated_date: '2026-09-09 22:09'
+updated_date: '2026-09-09 22:29'
 labels:
   - prd-1.0
   - epic-p
@@ -42,42 +41,57 @@ Out of scope: whether `shareFormatFunctions` should also route through the confl
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [x] #1 All acceptance criteria are satisfied
-- [x] #2 Relevant automated tests are added or updated
-- [x] #3 Typecheck passes
-- [x] #4 Lint passes
-- [x] #5 Relevant tests pass
-- [x] #6 Build passes when applicable
-- [x] #7 No known regression is introduced
-- [x] #8 No secret or credential is committed
-- [x] #9 Documentation is updated
-- [x] #10 PRD traceability is updated when applicable
-- [x] #11 Implementation notes are complete
-- [x] #12 Final summary includes verification evidence
-- [x] #13 Changes are committed and pushed
+- [ ] #1 All acceptance criteria are satisfied
+- [ ] #2 Relevant automated tests are added or updated
+- [ ] #3 Typecheck passes
+- [ ] #4 Lint passes
+- [ ] #5 Relevant tests pass
+- [ ] #6 Build passes when applicable
+- [ ] #7 No known regression is introduced
+- [ ] #8 No secret or credential is committed
+- [ ] #9 Documentation is updated
+- [ ] #10 PRD traceability is updated when applicable
+- [ ] #11 Implementation notes are complete
+- [ ] #12 Final summary includes verification evidence
+- [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
+`generateAcceptedEventEpisode` classified each Episode, stored `safetyClassificationId` on the `dailyEpisodes` row, and inserted the classification nowhere. Every Episode in every world carried an id that resolved to nothing, and `overridePostGenerationSafetyLabel` — which looks it up by exactly that id — threw `SAFETY_CLASSIFICATION_NOT_FOUND` for all of them. FR-P004 gives an operator the authority to revise an episode-level safety decision; the deployment did not have it.
+
 ## Recording the row was not enough, and stopping there would have been worse
 
-The obvious fix — insert the classification — makes `overridePostGenerationSafetyLabel` succeed. It does not make the override DO anything: `dailyEpisodes.status` is the generation-time verdict and is never rewritten, so both episode read models would have gone on serving the Episode. That is a control that reports success and changes nothing, which is the exact failure the override command guards against on its own path by re-reading the ledger before returning. So the read models resolve the EFFECTIVE label.
+`dailyEpisodes.status` is the classifier's verdict at generation and is never rewritten — that immutability is the ledger design's point. So the read models could not see an override, and the operator would have got a control that reported success and changed nothing: precisely the failure `overridePostGenerationSafetyLabel` guards against on its own path by re-reading the ledger before returning.
 
-The result is three independent decisions, any one of which takes an Episode off the surface: the classifier at generation, an operator override afterwards, and an administrator's publication withhold (ART-171/174/176). Each is tested alone, so none can silently stand in for another.
+`episode:<day>` and `episodes:<worldId>` therefore resolve the **effective** label. An Episode is off the public surface if any of three independent decisions says so — the classifier at generation, an operator override afterwards, or an administrator's publication withhold (ART-171/174/176). Each is tested alone, so none can silently stand in for another.
 
-## The injection that did not bite, and what it exposed
+## Two adjacent findings, same subsystem
 
-Narrowing `isPubliclyShowable` to `label === 'allow'` left EVERY suite in the repository green. Consolidating its three hand-written copies into one call site made that function the place a change to the publish line takes effect — and nothing pinned it. Rather than report three-for-three, I added a test over all four labels, exhaustive against `POST_GENERATION_LABELS` so a fifth label cannot default to showable. Both directions then bite.
+- **`recordPostGenerationClassification`** — the conflict check `convex/safety/schema.ts` states as a table *invariant* had zero callers, while the ledger's one production writer used a bare insert. An invariant only one entry point enforces is not one. It is now a plain function over `ctx.db` that both the mutation and the episode generator call.
+- **`isPubliclyShowable`** — the named gate predicate had one production caller while three sites wrote `label === 'allow' || label === 'allow_with_warning'` by hand, one of them this very decision. Both remaining copies now call it.
 
-## Two files that did not exist
+`episodeSafetySourceId` gives the classification's `sourceId` one definition too — the generator mints it and two rebuilds ask about it, from three modules.
 
-`convex/editorial/episodeFunctions.test.ts` — the handler that decides an Episode's safety status and writes its row had never been run by a test; `episode.test.ts` covers only the pure builder. That is how the missing ledger write survived. And the end-to-end override cases in `publicationControlFunctions.test.ts`, because "the ledger row exists" and "the viewer stops seeing it" are different claims.
+## The injection that did not bite, reported rather than counted
 
-One test in the new file was initially a second copy of the `ready` case: my "the classifier refuses it" fixture used violent zh-Hant prose that the classifier does not match. The precondition assertion caught it. The fixture now uses text `CATEGORY_PATTERNS.EXTREME_VIOLENCE_DETAIL` really matches, and the case says out loud that the classifier's patterns are English — a limitation of the classifier, worth seeing stated beside a zh-Hant world.
+Narrowing `isPubliclyShowable` to `label === 'allow'` left **every suite in the repository green**. Consolidating its three copies made that function the place a change to the publish line takes effect, and nothing pinned it. Rather than report three-for-three, a test over all four labels was added, exhaustive against `POST_GENERATION_LABELS` so a fifth cannot default to showable. Both directions then bite.
+
+One new test was also initially a second copy of the `ready` case: the "classifier refuses it" fixture used violent zh-Hant prose the classifier does not match. A precondition assertion caught it; the fixture now uses text `CATEGORY_PATTERNS.EXTREME_VIOLENCE_DETAIL` really matches, and says out loud that the classifier's patterns are English.
 
 ## Evidence
 
-Six injections, each turning a named test red: the ledger write removed (6 tests), the index reading the frozen status (1), the episode read model reading the frozen status (1), the predicate narrowed to `allow` (2), and the predicate widened to admit `human_review_required` (2). `npm run check` exit 0 — 4415 passed, 31 skipped, 253 suites. `npm run e2e` — 124 passed.
+| Injection | Tests that went red |
+| --- | --- |
+| ledger write removed | all 6 in `episodeFunctions.test.ts` |
+| index reads the frozen status | `withdraws the Episode and drops it from the index once an override refuses it` |
+| episode read model reads the frozen status | same |
+| predicate narrowed to `allow` | `shows allow and allow_with_warning` (+1) |
+| predicate admits `human_review_required` | `withholds withhold and human_review_required` (+1) |
+
+Two files that did not exist before this: `convex/editorial/episodeFunctions.test.ts` — the handler that decides an Episode's safety status had never been run by a test, which is how the missing ledger write survived — and the end-to-end override cases in `publicationControlFunctions.test.ts`, because "the ledger row exists" and "the viewer stops seeing it" are different claims.
+
+Gate: `npm run check` — 4415 passed, 31 skipped, 253 suites. `npm run e2e` — 124 passed. Merged as PR #275.
 <!-- SECTION:NOTES:END -->

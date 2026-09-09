@@ -14,6 +14,9 @@
  * make them. Fakes are local to this suite, per the repo's convention.
  */
 
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+
 import type { AcceptedEvent } from '../canon/model';
 import { MISTWOOD_PUBLIC_WORLD_ID } from '../canon/mistwoodSeed';
 import { rowToAcceptedEvent, type CanonEventRow } from '../canon/serialize';
@@ -323,6 +326,26 @@ describe('AC#1 — the registry covers every FR-Q001 metric exactly once', () =>
     expect(DYNAMIC_VIEW_METRICS).toHaveLength(11);
   });
 
+  /** The Backlog status of a task id, read from the file Backlog.md keeps it in. */
+  const backlogStatusOf = (taskId: string): string => {
+    const roots = ['backlog/tasks', 'backlog/completed', 'backlog/archive/tasks'];
+    const prefix = `${taskId.toLowerCase()} - `;
+    for (const root of roots) {
+      let names: string[];
+      try {
+        names = readdirSync(join(process.cwd(), root));
+      } catch {
+        continue;
+      }
+      const file = names.find((name) => name.toLowerCase().startsWith(prefix));
+      if (!file) continue;
+      const front = readFileSync(join(process.cwd(), root, file), 'utf8');
+      return /^status:\s*(.+)$/mu.exec(front)?.[1].trim() ?? 'UNPARSEABLE';
+    }
+    // A named owner that has no task file at all is its own defect, and must not read as "open".
+    return 'MISSING';
+  };
+
   it('gives every metric a unique key and a declared provenance', () => {
     expect(new Set(DYNAMIC_VIEW_METRIC_KEYS).size).toBe(DYNAMIC_VIEW_METRICS.length);
     for (const metric of DYNAMIC_VIEW_METRICS) {
@@ -330,18 +353,43 @@ describe('AC#1 — the registry covers every FR-Q001 metric exactly once', () =>
     }
   });
 
-  it('names an owning task for exactly the metrics that are not measured here', () => {
-    // The point of the registry: an unmeasured metric is visibly assigned, not silently
-    // missing. A measured one has nothing outstanding and must not name an owner, or the
-    // list of "what is still owed" stops meaning anything.
-    for (const metric of DYNAMIC_VIEW_METRICS) {
-      const unmeasured = metric.provenance === 'client_external' || metric.provenance === 'pending_feature';
-      expect({ key: metric.key, hasOwner: metric.owner !== null }).toEqual({ key: metric.key, hasOwner: unmeasured });
+  it('never names an owning task that has already finished', () => {
+    /**
+     * The registry's whole claim is that an unmeasured metric is visibly assigned rather than
+     * silently missing. An owner that finished long ago inverts that: the slot reads「還欠」
+     * forever, and the dashboard keeps pointing at a task nobody will reopen.
+     *
+     * This test used to pin the owners as a literal list — `['ART-127', 'ART-121']` — which is
+     * why the drift survived. A list only notices the owner CHANGING; it cannot notice the owner
+     * finishing, and finishing is the event that makes the entry wrong. So the Backlog file is
+     * read instead: an independent artifact, and the one the project treats as the source of
+     * truth (CLAUDE.md §1).
+     */
+    // Non-vacuity, and it is needed: the registry currently names no owner at all, so without
+    // this the loop below proves only that an empty list is empty. These assert the READER works,
+    // which is what makes the gate bite the day an owner is added.
+    expect(backlogStatusOf('ART-121')).toBe('Done');
+    expect(backlogStatusOf('ART-99999')).toBe('MISSING');
+
+    const named = DYNAMIC_VIEW_METRICS.filter((metric) => metric.owner !== null);
+    for (const metric of named) {
+      const status = backlogStatusOf(metric.owner as string);
+      // Reported as a triple so a failure names the metric and its owner, not just "Done".
+      expect({ key: metric.key, owner: metric.owner, ownerIsDone: status === 'Done' })
+        .toEqual({ key: metric.key, owner: metric.owner, ownerIsDone: false });
     }
-    expect(DYNAMIC_VIEW_METRICS.filter((metric) => metric.provenance === 'client_external').map((m) => m.owner))
-      .toEqual(['ART-136', 'ART-137']);
-    expect(DYNAMIC_VIEW_METRICS.filter((metric) => metric.provenance === 'pending_feature').map((m) => m.owner))
-      .toEqual(['ART-127', 'ART-121']);
+  });
+
+  it('leaves nothing outstanding: every metric is measured here or by the telemetry pipeline', () => {
+    // Not a vacuity escape for the test above — it is the current, checkable state, and if a
+    // twelfth metric arrives unowned and unmeasured this is what refuses it.
+    expect(DYNAMIC_VIEW_METRICS.filter((metric) => metric.owner !== null)).toEqual([]);
+    // The four the server cannot see. Each is derived by ART-47 and mapped in
+    // `docs/dynamic-view-observability.md`; `pending_feature` currently has no members, because
+    // both features it once described shipped (ART-127, ART-121).
+    expect(DYNAMIC_VIEW_METRICS.filter((m) => m.provenance === 'client_external').map((m) => m.key))
+      .toEqual(['activeViewerCount', 'rendererErrorRate', 'degradationModeUsage', 'replayPlaySkipCounts']);
+    expect(DYNAMIC_VIEW_METRICS.filter((m) => m.provenance === 'pending_feature')).toEqual([]);
   });
 
   it('derives the incident codes from the runtime rather than restating them', () => {

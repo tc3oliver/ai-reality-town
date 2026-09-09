@@ -143,10 +143,48 @@ describe('verdicts point at requirements, not at numbers', () => {
     expect(verdicts.every((verdict) => verdict.pass)).toBe(true);
   });
 
+  const EIGHT_HOURS_MS = 8 * 60 * 60 * 1000;
+  const soakOf = (durationMs: number, heapGrowthBytesPerMinute: number) =>
+    ({ profileId: 'desktop-reference', durationMs, samples: [], heapGrowthBytesPerMinute });
+
   test('the soak verdict is an upper bound on growth', () => {
-    const soak = { profileId: 'desktop-reference', durationMs: 60_000, samples: [], heapGrowthBytesPerMinute: 0 };
-    expect(soakVerdict({ ...soak, heapGrowthBytesPerMinute: 10 }, 1_000).pass).toBe(true);
-    expect(soakVerdict({ ...soak, heapGrowthBytesPerMinute: 5_000 }, 1_000).pass).toBe(false);
+    expect(soakVerdict(soakOf(60_000, 10), 1_000, EIGHT_HOURS_MS).pass).toBe(true);
+    expect(soakVerdict(soakOf(60_000, 5_000), 1_000, EIGHT_HOURS_MS).pass).toBe(false);
+  });
+
+  test('a soak shorter than the criterion measures the slope and settles nothing', () => {
+    /**
+     * The defect this closes (ART-178): `npm run bench` defaults to a two-minute soak, and the
+     * recorded results file printed `AC#7 … ✅` beside it — a criterion that names EIGHT HOURS,
+     * reported as met by 1/240th of one. The slope was measured correctly; the label was false.
+     *
+     * `pass` still means "the heap did not grow", because turning it false for a clean short run
+     * would be the opposite lie. `settlesCriterion` is what carries the run-length claim.
+     */
+    const short = soakVerdict(soakOf(2 * 60_000, 10), 1_000, EIGHT_HOURS_MS);
+    expect(short.pass).toBe(true);
+    expect(short.settlesCriterion).toBe(false);
+
+    // At exactly the required length it settles: the boundary belongs to the criterion, or an
+    // eight-hour run would report as too short by a millisecond of clock drift.
+    expect(soakVerdict(soakOf(EIGHT_HOURS_MS, 10), 1_000, EIGHT_HOURS_MS).settlesCriterion).toBe(true);
+    expect(soakVerdict(soakOf(EIGHT_HOURS_MS - 1, 10), 1_000, EIGHT_HOURS_MS).settlesCriterion).toBe(false);
+
+    // A full-length run that leaks settles the criterion and fails it. The two facts are
+    // independent, and a verdict that folded them together could not say this.
+    const long = soakVerdict(soakOf(EIGHT_HOURS_MS, 5_000), 1_000, EIGHT_HOURS_MS);
+    expect({ pass: long.pass, settles: long.settlesCriterion }).toEqual({ pass: false, settles: true });
+
+    // The required length is published in the verdict, so the report can say how far short a run
+    // fell without re-deriving the number from a second place.
+    expect(short.requiredDurationMs).toBe(EIGHT_HOURS_MS);
+  });
+
+  test('the shipped threshold really is the eight hours the criterion names', () => {
+    // Independent of the fixtures above, which pass their own required length in. ART-136 AC#7 is
+    // 「An eight hour run shows no sustained memory growth」, so 8h is typed out here rather than
+    // imported from the value under test.
+    expect(BENCH_THRESHOLDS.soakDurationMs).toBe(8 * 60 * 60 * 1000);
   });
 });
 
