@@ -1,11 +1,11 @@
 ---
 id: ART-170
 title: Close the ART-32 heat integration gaps the post-merge audit found
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-09-09 14:45'
-updated_date: '2026-09-09 14:56'
+updated_date: '2026-09-09 15:17'
 labels:
   - prd-1.0
   - epic-h
@@ -28,28 +28,28 @@ An audit that reported after ART-32 merged found three things ART-32 left, all o
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 heatScore is the six-signal composite everywhere it is written, including at arc creation
-- [ ] #2 The heat ordering has exactly one definition, and it has a production caller
-- [ ] #3 The documentation states what heat actually orders today, and names what would have to change for it to order a public surface
-- [ ] #4 A fault injection proves each: reverting the creation-path change and re-inlining the comparator each turn a named test red
+- [x] #1 heatScore is the six-signal composite everywhere it is written, including at arc creation
+- [x] #2 The heat ordering has exactly one definition, and it has a production caller
+- [x] #3 The documentation states what heat actually orders today, and names what would have to change for it to order a public surface
+- [x] #4 A fault injection proves each: reverting the creation-path change and re-inlining the comparator each turn a named test red
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -62,3 +62,15 @@ An audit that reported after ART-32 merged found three things ART-32 left, all o
 5. Fix the two shipped assertions that could not fail: worldDayLive's toMatchObject and the api checker's missing content rule.
 6. Fault injections; npm run check; npm run e2e.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Closed after PR #264 merged; npm run check and npm run e2e green on the merged branch.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Closed the three gaps an audit found after ART-32 merged. (1) heatScore was still the Math.round(importance*100) stand-in at all three arc CREATION sites, so a new arc carried the pre-ART-32 score until its first revision; initialArcHeat now states a new arc's facts and defers to computeArcHeat. (2) compareArcsByHeat had zero production callers while candidateArcs wrote the identical comparator inline — two definitions of one rule, one unreachable; both candidateArcs and selectHomepageArc now call it. (3) ART-32's PR body implied heat orders the homepage; it does not — pickPrimaryArc ranks by status then arcId, liveState.activeArcs sorts alphabetically, selectHomepageArc has had no caller since ART-41, and heatScore is published in no read model. AC#2 holds because the ordering is deterministic, not because heat drives it, and docs/arc-heat-score.md §6 now says so and names what wiring it would cost. Also repaired two shipped assertions that could not fail: worldDayLive's toMatchObject (which passed with a stale errorCode — the very defect ART-150 fixed) and the ART-153 api checker's missing top-level-import/export rule. Verified: 4 injections turning named tests red; removing only ONE run-store clear does not, and that is recorded rather than hidden, because the property is guaranteed twice. npm run check exit 0 (4279 passed, 31 skipped, 248 suites); npm run e2e 114 passed; PR #264.
+<!-- SECTION:FINAL_SUMMARY:END -->
