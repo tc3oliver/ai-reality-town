@@ -77,13 +77,19 @@ See `docs/architecture/adr/` and `docs/DEVELOPMENT.md`.
 
 `npm run check` is the gate. It runs, in order: `check:architecture` → `test:architecture` →
 `check:asset-licenses` → `test:asset-licenses` → `check:closure-matrix` → `test:closure-matrix` →
-`typecheck` → `lint` → `test` → `build`.
+`check:generated-api` → `test:generated-api` → `typecheck` → `lint` → `test` → `build`.
 `npm run check:offline` is the same with `test:foundation` instead of the full suite.
 
 `check:closure-matrix` holds `docs/prd-1.0-closure-matrix.md`'s summary totals equal to the rows
 they summarise (ART-152). Its `Classification` column is a **closed vocabulary** — exactly one token
 per row, no prose or emphasis — so reclassifying a clause means updating the summary count in the
 same commit or the gate fails. Put the nuance in the verification column.
+
+`check:generated-api` holds `convex/_generated/api.d.ts` equal to the Convex modules in the tree
+(ART-153). **Adding or deleting a file under `convex/` means running `npm run codegen:api`**, which
+regenerates it offline — `npx convex codegen` contacts a deployment and is not usable as a gate. Two
+skip rules explain most surprises: a file named `schema.ts` is excluded at ANY depth, and a basename
+with more than one dot is excluded, which is what keeps `*.test.ts` and `auth.config.ts` out.
 
 **`npm run e2e` is NOT part of `check`, and is not a required CI status check.** Run it
 separately (`build:e2e` → Playwright) before claiming a change is verified — especially for
