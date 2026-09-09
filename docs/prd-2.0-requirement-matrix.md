@@ -447,7 +447,7 @@ Mutation」。ART-128 當時把後者實作成 repo 級的「禁止任何匿名 
 | Mistwood 世界種子（12 角色／8 地點） | `convex/canon/mistwoodSeed.ts` | FR-N004／N005 綁定來源 |
 | Canon 事件存儲與驗證 | `convex/canon/commit.ts`, `validators.ts`, `continuity.ts` | 唯一語意權威 |
 | Deterministic Reducer／Replay／Snapshot | `convex/canon/reducer.ts`, `replay.ts`, `snapshotManager.ts` | FR-N007 概念基礎；ART-99 修復對象 |
-| 地點投影 | `convex/canon/locationProjection.ts` | FR-N006 語意位置來源 |
+| 地點投影 | `convex/canon/reducer.ts`（`locations` / `locationOccupancy` fold；測試在 `convex/canon/locationProjection.test.ts`） | FR-N006 語意位置來源 |
 | 位置變更事件 | `character_location_changed`（含 `fromLocationId`／`toLocationId`） | ART-114 軌跡規劃輸入 |
 | 決定性抵達產生器 | `convex/simulation/worldDayLive.ts` `withArrivalStateChanges` | ART-117 同步來源（非 LLM 產出） |
 | 世界排程（5 時段／日） | `convex/simulation/scheduler.ts` | §9.1 混合動態模型前提，**不得加速** |
