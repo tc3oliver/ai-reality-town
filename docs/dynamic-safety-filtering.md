@@ -399,6 +399,40 @@ join (`convex/publicRead/withheldPublicationDays.ts`) rather than a copy each. A
 refusal: a day with no publication record at all is still shown, because Episodes predating FR-K004
 have none.
 
+## 4e. Episode-level decisions are in the ledger, and overridable (ART-177)
+
+Everything above is about SCENE classifications. Episodes are classified too — `generateAcceptedEventEpisode`
+runs `classifyPostGeneration` over the assembled public text — and the result was stored as an id
+on the `dailyEpisodes` row and **inserted nowhere**. The id resolved to nothing, so
+`overridePostGenerationSafetyLabel` threw `SAFETY_CLASSIFICATION_NOT_FOUND` for every Episode in
+every world. FR-P004 gives an operator the authority to revise that decision; the deployment did
+not have it.
+
+Three things changed, and the third is what makes the first two mean anything:
+
+1. The classification is recorded, through the conflict-checked writer
+   (`recordPostGenerationClassification`) rather than a bare insert — which is what makes
+   `convex/safety/schema.ts`'s "written exactly once per classification" a real invariant, and
+   what lets `safetyStatusOverrides` stay append-only.
+2. Its `sourceId` has one definition, `episodeSafetySourceId(episodeNumber)`, because the generator
+   mints it and two read-model rebuilds ask about it, from three different modules.
+3. **`episode:<day>` and `episodes:<worldId>` read the EFFECTIVE label, not `dailyEpisodes.status`.**
+   That column records the classifier's verdict at generation and is never rewritten — the
+   immutability is the ledger design's point — so it cannot see an override. Reading it would have
+   left an operator with a control that reported success and changed nothing, which is precisely
+   the failure `overridePostGenerationSafetyLabel` guards against on its own path by re-reading the
+   ledger before returning.
+
+So an Episode is off the public surface if ANY of three independent decisions says so: the
+classifier at generation, an operator override afterwards, or an administrator's publication
+withhold (§4d). Each is tested alone.
+
+`isPubliclyShowable` is the one definition of the publish/withhold line, and the episode decision
+now calls it instead of writing `label === 'allow' || label === 'allow_with_warning'` by hand. It
+had one production caller and three hand-written copies, one of which was this decision. Its own
+behaviour is pinned over all four labels — an injection narrowing it to `allow` left every suite in
+the repository green before that pin existed.
+
 ## 8. Known limitations
 
 - The override is per **classification**, which for a simulated scene is per **Scene**. There is

@@ -3,6 +3,8 @@ import {
   assertSanitizedSummaryFidelity,
   classifyPostGeneration,
   gatePostGenerationPublication,
+  isPubliclyShowable,
+  POST_GENERATION_LABELS,
   type PostGenerationCandidate,
 } from './postGeneration';
 
@@ -73,5 +75,43 @@ describe('FR-L002 post-generation safety classification and gating', () => {
     expect(source).toContain('internalMutation({');
     expect(source).toContain('internalQuery({');
     expect(source).not.toMatch(/\bmutation\(\{|\bquery\(\{/);
+  });
+});
+
+/**
+ * The gate predicate itself (ART-177).
+ *
+ * `isPubliclyShowable` is the one definition of the publish/withhold line, and until ART-177 it had
+ * a single production caller while three sites wrote its body out by hand — one of them the
+ * decision that publishes an Episode. Consolidating them made this the place a change to the line
+ * takes effect, and nothing here pinned it: narrowing it to `label === 'allow'` left every suite in
+ * the repository green, which an injection found.
+ *
+ * All four labels, named, so moving one across the line is a deliberate edit to a red test.
+ */
+describe('isPubliclyShowable is the one definition of the publish line', () => {
+  it('shows allow and allow_with_warning', () => {
+    expect(isPubliclyShowable('allow')).toBe(true);
+    // The one an injection silently removed. A warning is an annotation on showable content, not
+    // a refusal — `allow_with_warning` publishes with its warning codes attached.
+    expect(isPubliclyShowable('allow_with_warning')).toBe(true);
+  });
+
+  it('withholds withhold and human_review_required', () => {
+    expect(isPubliclyShowable('withhold')).toBe(false);
+    // Pending human review is NOT provisionally showable. Treating "nobody has looked yet" as
+    // permission is the whole failure mode a post-generation gate exists to prevent.
+    expect(isPubliclyShowable('human_review_required')).toBe(false);
+  });
+
+  it('classifies every label in the vocabulary, so a new one cannot default to showable', () => {
+    // Exhaustive over POST_GENERATION_LABELS rather than over a list written here: a fifth label
+    // added to the vocabulary and forgotten here fails this test instead of landing on whichever
+    // side the predicate's shape happens to give it.
+    const showable = POST_GENERATION_LABELS.filter((label) => isPubliclyShowable(label));
+    const withheld = POST_GENERATION_LABELS.filter((label) => !isPubliclyShowable(label));
+    expect(showable).toEqual(['allow', 'allow_with_warning']);
+    expect(withheld).toEqual(['withhold', 'human_review_required']);
+    expect(showable.length + withheld.length).toBe(POST_GENERATION_LABELS.length);
   });
 });

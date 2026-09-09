@@ -2,8 +2,9 @@ import { v } from 'convex/values';
 import { internalMutation, internalQuery } from '../_generated/server';
 import { rowToAcceptedEvent } from '../canon/serialize';
 import { deriveEventId } from '../shared/ids';
-import { classifyPostGeneration } from '../safety/postGeneration';
-import { buildDailyEpisode, dailyEpisodePublicText, EpisodeError, validateDailyEpisode, type EpisodeSourceEvent } from './episode';
+import { classifyPostGeneration, isPubliclyShowable } from '../safety/postGeneration';
+import { recordPostGenerationClassification } from '../safety/postGenerationFunctions';
+import { buildDailyEpisode, dailyEpisodePublicText, EpisodeError, episodeSafetySourceId, validateDailyEpisode, type EpisodeSourceEvent } from './episode';
 import { parseArcEventClassification } from '../story/classification';
 import type { ArcEventClassification } from '../story/model';
 
@@ -59,10 +60,26 @@ export const generateAcceptedEventEpisode = internalMutation({
     try {
       const episode = validateDailyEpisode(buildDailyEpisode(args.worldId, args.worldDay, args.episodeNumber, sources), sources, secretValues);
       const safety = classifyPostGeneration({ classificationId: `episode:${args.worldId}:${args.worldDay}`,
-        worldId: args.worldId, sourceId: `episode:${args.episodeNumber}`, kind: 'public_artifact',
+        worldId: args.worldId, sourceId: episodeSafetySourceId(args.episodeNumber), kind: 'public_artifact',
         text: dailyEpisodePublicText(episode),
         coreFactIds: episode.sourceEventIds });
-      const safe = safety.label === 'allow' || safety.label === 'allow_with_warning';
+      /**
+       * Recorded in the LEDGER, not only referenced from the Episode row (ART-177).
+       *
+       * This stored `safetyClassificationId` and inserted the classification nowhere, so the id
+       * on every Episode row resolved to nothing — and `overridePostGenerationSafetyLabel`, which
+       * looks the classification up by that id, threw `SAFETY_CLASSIFICATION_NOT_FOUND` for every
+       * Episode in every world. FR-P004 gives an operator the authority to revise this decision;
+       * the deployment did not.
+       *
+       * Written through the conflict-checked path rather than a bare insert, which is what makes
+       * `convex/safety/schema.ts`'s "written exactly once per classification" a real invariant and
+       * what lets the override ledger stay append-only.
+       */
+      await recordPostGenerationClassification(ctx.db, safety, args.createdAt);
+      // The one definition of the publish/withhold line. Written out by hand here until ART-177 —
+      // one of three copies, and the one that decided whether an Episode is published at all.
+      const safe = isPubliclyShowable(safety.label);
       await ctx.db.insert('dailyEpisodes', { schemaVersion: 1, worldId: args.worldId, worldDay: args.worldDay,
         episodeNumber: args.episodeNumber, status: safe ? 'ready' : 'withheld', ...(safe ? { episode } : {}),
         safetyClassificationId: safety.classificationId, sourceEventIds: episode.sourceEventIds, createdAt: args.createdAt });

@@ -203,3 +203,47 @@ describe('an administrator withhold reaches the index too', () => {
     expect(result.episodes.map((entry) => entry.worldDay)).toEqual([1, 2]);
   });
 });
+
+/**
+ * The THIRD gate, and the one that decides what an operator's override actually does (ART-177).
+ *
+ * `status` here is now the EFFECTIVE safety label, not the frozen `dailyEpisodes.status`. The row
+ * records the classifier's verdict at generation and is never rewritten — that immutability is the
+ * ledger design's whole point — so it cannot see an override. Passing the frozen value would have
+ * left an operator with a control that reported success and changed nothing, which is the exact
+ * failure `safetyOverrideFunctions` guards against on its own path by re-reading the ledger.
+ */
+describe('an operator override of an episode-level decision reaches the index', () => {
+  it('drops a day whose effective label is withheld, whatever the row says', () => {
+    const result = buildEpisodeIndex({
+      worldId: WORLD_ID,
+      episodes: [
+        ep({ worldDay: 1, title: '第一日', headline: '磨坊停工' }),
+        // The caller resolves the effective label; from the builder's side an overridden Episode
+        // is indistinguishable from one the classifier refused at generation, which is correct.
+        ep({ worldDay: 2, title: '第二日', headline: '帳本消失了', status: 'withheld' }),
+      ],
+      recommendedEntryWorldDays: new Set(),
+      turningPointEventIds: new Set(),
+      withheldWorldDays: new Set(),
+    });
+    expect(result.episodes.map((entry) => entry.worldDay)).toEqual([1]);
+    expect(JSON.stringify(result)).not.toContain('帳本消失了');
+  });
+
+  it('keeps the three gates independent', () => {
+    // Safety-at-generation, safety-by-override and editorial publication are three different
+    // decisions. Each alone removes the day; none stands in for another.
+    const one = (over: { status?: string; withheld?: boolean }) => buildEpisodeIndex({
+      worldId: WORLD_ID,
+      episodes: [ep({ worldDay: 1, status: over.status ?? 'ready' })],
+      recommendedEntryWorldDays: new Set(),
+      turningPointEventIds: new Set(),
+      withheldWorldDays: over.withheld === true ? new Set([1]) : new Set(),
+    }).episodes.length;
+
+    expect(one({})).toBe(1);
+    expect(one({ status: 'withheld' })).toBe(0);
+    expect(one({ withheld: true })).toBe(0);
+  });
+});

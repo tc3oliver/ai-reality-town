@@ -15,6 +15,8 @@ import { internalMutation } from '../_generated/server';
 import type { DailyEpisode } from '../editorial/episode';
 import { parseArcProjectionFields } from '../story/projection';
 import { commitReadModelVersion } from './readModel';
+import { readWithheldSceneLabels } from '../safety/effectiveSafetyLabels';
+import { episodeSafetySourceId } from '../editorial/episode';
 import { readWithheldPublicationWorldDays } from './withheldPublicationDays';
 import { writeStore } from './readModelFunctions';
 import {
@@ -43,7 +45,8 @@ export const rebuildEpisodeIndexProjection = internalMutation({
       throw new EpisodeIndexError('EPISODE_INDEX_INVALID', 'worldId and a finite now are required');
     }
 
-    const [episodeRows, recommendedRows, projectionRows, withheldWorldDays] = await Promise.all([
+    const [episodeRows, recommendedRows, projectionRows, withheldWorldDays,
+      withheldSources] = await Promise.all([
       ctx.db.query('dailyEpisodes').withIndex('by_world_and_day', (q) => q.eq('worldId', args.worldId)).collect(),
       ctx.db.query('storyArcRecommendedEntries').withIndex('by_world', (q) => q.eq('worldId', args.worldId)).collect(),
       ctx.db.query('storyArcProjectionEvents').withIndex('by_world_arc_and_revision', (q) => q.eq('worldId', args.worldId)).collect(),
@@ -53,6 +56,15 @@ export const rebuildEpisodeIndexProjection = internalMutation({
        * `withheldPublicationDays.ts` on why that is the direction that stays small.
        */
       readWithheldPublicationWorldDays(ctx.db, args.worldId),
+      /**
+       * The EFFECTIVE safety label per Episode (ART-177).
+       *
+       * `dailyEpisodes.status` is the classifier's verdict at generation and is never rewritten,
+       * so it cannot see an operator override. Reading the refused set here is what lets an
+       * override of an episode-level decision actually remove the day from the index — otherwise
+       * the operator gets a control that reports success and changes nothing.
+       */
+      readWithheldSceneLabels(ctx.db, args.worldId),
     ]);
 
     const episodes: EpisodeIndexEntryInput[] = (episodeRows as DailyEpisodeRow[])
@@ -64,7 +76,11 @@ export const rebuildEpisodeIndexProjection = internalMutation({
           episodeNumber: episode.episodeNumber,
           title: episode.title,
           headline: episode.headline,
-          status: row.status,
+          // EFFECTIVE, not frozen: an override refusing this Episode makes it ineligible here
+          // exactly as a generation-time refusal would.
+          status: withheldSources[episodeSafetySourceId(episode.episodeNumber)] !== undefined
+            ? 'withheld'
+            : row.status,
           arcIds: episode.arcIds,
           characterIds: episode.characterIds,
           sourceEventIds: episode.sourceEventIds,

@@ -33,6 +33,23 @@ export type DailyEpisode = {
   sourceEventIds: string[];
 };
 
+/**
+ * The `sourceId` an Episode's post-generation classification is recorded against (ART-177).
+ *
+ * One definition, because three places have to agree on it and they are in different modules: the
+ * generator that mints it, and the two read-model rebuilds that ask whether this Episode is
+ * currently refused. It is keyed on the EPISODE NUMBER rather than the world day because that is
+ * what `classifyPostGeneration` was already given, and changing it would orphan every
+ * classification already in the ledger.
+ *
+ * Deliberately distinct from a Scene id, which is what every other entry in that ledger is. The
+ * two never collide: a Scene id carries the world day and time slot, and nothing matches an
+ * accepted event's `metadata.sceneId` against this.
+ */
+export function episodeSafetySourceId(episodeNumber: number): string {
+  return `episode:${episodeNumber}`;
+}
+
 export class EpisodeError extends Error {
   constructor(readonly code: string, message: string, readonly path?: string) {
     super(`[${code}] ${message}`);
