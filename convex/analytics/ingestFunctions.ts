@@ -44,7 +44,7 @@ import type { GenericMutationCtx } from 'convex/server';
 
 import { mutation } from '../_generated/server';
 import type { DataModel, Doc } from '../_generated/dataModel';
-import { ALLOWED_PAYLOAD_KEYS, MAX_ANALYTICS_BATCH_SIZE } from '../shared/analyticsContract';
+import { ALLOWED_PAYLOAD_KEYS, isArcInteractionEvent, MAX_ANALYTICS_BATCH_SIZE } from '../shared/analyticsContract';
 import {
   ANALYTICS_SCHEMA_VERSION,
   foldSession,
@@ -170,6 +170,7 @@ export const recordAnalyticsEvents = mutation({
         sessionElapsedMs: measurement.sessionElapsedMs,
       } as never);
       recorded += 1;
+      await bumpArcInteraction(ctx, prepared.worldId, measurement, now);
     }
 
     const sessionRow = await ctx.db
@@ -247,6 +248,41 @@ type CounterDelta = Partial<Record<
  * does not exist yet and therefore from zero. Nothing runs at midnight, and nothing reads a clock
  * to decide which budget applies.
  */
+/**
+ * Count one viewer interaction against the arc it names (FR-F006 / ART-32).
+ *
+ * Bumped from inside the dedupe loop rather than from a second pass, so the counter and
+ * `analyticsEvents` can never disagree about how many interactions were recorded: a duplicate
+ * `continue`s above and reaches neither.
+ *
+ * Reads and writes exactly one row, by index. This runs per accepted event on the ingest path, so
+ * anything unbounded here would be paid on every batch a viewer sends.
+ */
+export async function bumpArcInteraction(
+  ctx: { db: GenericMutationCtx<DataModel>['db'] },
+  worldId: string,
+  measurement: { eventName: string; payload: Record<string, unknown> },
+  now: number,
+): Promise<void> {
+  if (!isArcInteractionEvent(measurement.eventName)) return;
+  const arcId = measurement.payload.arcId;
+  // The payload is validated against `ANALYTICS_EVENT_PAYLOAD_KEYS` before it gets here, so a
+  // missing `arcId` is not reachable — but a rollup that silently counted `undefined` as an arc
+  // would be worse than one that skips a row it cannot attribute.
+  if (typeof arcId !== 'string' || arcId.length === 0) return;
+  const existing = await ctx.db
+    .query('arcInteractionCounters')
+    .withIndex('by_world_and_arc', (q) => q.eq('worldId', worldId).eq('arcId', arcId))
+    .unique();
+  if (existing === null) {
+    await ctx.db.insert('arcInteractionCounters', {
+      schemaVersion: 1, worldId, arcId, interactions: 1, updatedAt: now,
+    });
+    return;
+  }
+  await ctx.db.patch(existing._id, { interactions: existing.interactions + 1, updatedAt: now });
+}
+
 async function bumpCounter(
   ctx: GenericMutationCtx<DataModel>,
   existing: Doc<'analyticsIngestCounters'> | null,

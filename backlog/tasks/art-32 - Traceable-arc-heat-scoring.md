@@ -1,10 +1,11 @@
 ---
 id: ART-32
 title: Traceable arc heat scoring
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-08-02 15:32'
-updated_date: '2026-08-02 16:24'
+updated_date: '2026-09-09 12:59'
 labels:
   - prd-1.0
   - epic-h
@@ -88,3 +89,14 @@ Project-level Backlog Definition of Done applies; include verification evidence 
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Audit whether heatScore already exists — it does, and it already orders the homepage, which changes the task from 'add a score' to 'replace a stand-in that is already load-bearing'.
+2. Write the six-signal composite as a pure, versioned module with per-component evidence and measured-weight renormalisation.
+3. Supply the one signal the deployment could not observe (觀眾互動) with an ingest-maintained rollup, rather than shipping five of six.
+4. Persist the breakdown and expose it operator-gated (AC#3); pin the ordering comparator (AC#2).
+5. Fault injections; remove any guard that cannot fire rather than keeping it.
+6. npm run check, npm run e2e, closure matrix reclassification, docs/arc-heat-score.md.
+<!-- SECTION:PLAN:END -->

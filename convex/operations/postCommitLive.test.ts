@@ -166,7 +166,7 @@ function acceptedEventFixture(overrides: Partial<AcceptedEvent> = {}): AcceptedE
 function arcStateFixture(overrides: Partial<LiveArcState> = {}): LiveArcState {
   return {
     arcId: 'arc:1', status: 'active', projectionRevision: 2, tier: 'major', lastTransitionWorldDay: 0,
-    lastProgressWorldDay: 0,
+    lastProgressWorldDay: 0, viewerInteractionCount: null,
     fields: {
       title: 'The mill', premise: 'The mill is failing', currentQuestion: 'Who saves the mill?',
       coreCharacterIds: ['he-jun', 'zhao-ming'], incitingEventId: `${WORLD_ID}#event#0`,
@@ -269,32 +269,42 @@ describe('FR-F002 lifecycle targets and FR-F003 overflow remediation', () => {
 
 describe('nextArcProjectionFields (FR-F004 arc read model advances with canon)', () => {
   it('records a turning point and the event public facts', () => {
-    const current = arcStateFixture().fields;
-    const next = nextArcProjectionFields(current, acceptedEventFixture(), {
+    const { fields } = nextArcProjectionFields(arcStateFixture(), acceptedEventFixture(), {
       arcId: 'arc:1', primary: true, importance: 0.8, role: 'turning_point',
       coreCharacterIdsAdded: [], coreCharacterIdsRemoved: [],
-    });
-    expect(next?.latestTurningPointEventId).toBe(`${WORLD_ID}#event#1`);
-    expect(next?.essentialFactIds).toEqual([`${WORLD_ID}#event#1:fact:2`]);
-    expect(next?.heatScore).toBe(80);
+    }, WORLD_ID);
+    expect(fields?.latestTurningPointEventId).toBe(`${WORLD_ID}#event#1`);
+    expect(fields?.essentialFactIds).toEqual([`${WORLD_ID}#event#1:fact:2`]);
   });
 
   it('moves the current question to resolved on a resolution event', () => {
-    const next = nextArcProjectionFields(arcStateFixture().fields, acceptedEventFixture(), {
+    const { fields } = nextArcProjectionFields(arcStateFixture(), acceptedEventFixture(), {
       arcId: 'arc:1', primary: true, importance: 0.8, role: 'resolution',
       coreCharacterIdsAdded: [], coreCharacterIdsRemoved: [],
-    });
-    expect(next?.resolvedQuestions).toContain('Who saves the mill?');
-    expect(next?.unresolvedQuestions).not.toContain('Who saves the mill?');
+    }, WORLD_ID);
+    expect(fields?.resolvedQuestions).toContain('Who saves the mill?');
+    expect(fields?.unresolvedQuestions).not.toContain('Who saves the mill?');
   });
 
-  it('returns null when nothing would change, so no empty revision is appended', () => {
+  it('returns null fields when nothing would change, so no empty revision is appended', () => {
     const event = acceptedEventFixture({ stateChanges: [] } as Partial<AcceptedEvent>);
-    const current = { ...arcStateFixture().fields, heatScore: 60 };
-    expect(nextArcProjectionFields(current, event, {
-      arcId: 'arc:1', primary: false, importance: 0.6, role: 'development',
+    const membership = {
+      arcId: 'arc:1', primary: false, importance: 0.6, role: 'development' as const,
       coreCharacterIdsAdded: [], coreCharacterIdsRemoved: [],
-    })).toBeNull();
+    };
+    // The heat is computed first and seeded into `current`, because ART-32 made `heatScore` a
+    // composite of six signals rather than the event's importance alone: an arc whose OTHER fields
+    // are unchanged can still be a different temperature, and the old fixture's `heatScore: 60`
+    // held only because the score used to be `round(importance * 100)`.
+    const seeded = nextArcProjectionFields(arcStateFixture(), event, membership, WORLD_ID);
+    const unchanged = nextArcProjectionFields(
+      { ...arcStateFixture(), fields: { ...arcStateFixture().fields, heatScore: seeded.heat.score } },
+      event, membership, WORLD_ID,
+    );
+    expect(unchanged.fields).toBeNull();
+    // The heat is still returned, so the caller can record a score that moved without appending a
+    // revision that says nothing.
+    expect(unchanged.heat.score).toBe(seeded.heat.score);
   });
 });
 
@@ -661,6 +671,8 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
     }));
 
   const port: PostCommitLivePort = {
+    recordArcHeat() { return Promise.resolve(); },
+
     loadWorldState(source: PostCommitSource): Promise<PostCommitWorldState> {
       const all = events();
       const event = all.find(({ sequenceNumber }) => sequenceNumber === source.sourceEventSequenceNumber);
@@ -677,6 +689,7 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
         arcs: [...arcs.values()].map((record): LiveArcState => ({
           arcId: record.lifecycle.arcId,
           status: record.lifecycle.status,
+          viewerInteractionCount: null,
           projectionRevision: record.projections.length - 1,
           fields: record.projections[record.projections.length - 1].fields,
           tier: portfolio.find(({ projection }) => projection.arcId === record.lifecycle.arcId)?.tier ?? null,

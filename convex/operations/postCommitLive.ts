@@ -36,6 +36,7 @@ import {
 import { ALLOWED_ARC_TRANSITIONS, isActiveArcStatus } from '../story/lifecycle';
 import type { RecapType } from '../recaps/model';
 import { VOTE_CONSEQUENCE_LOOKAHEAD_DAYS } from '../publicRead/voteConsequenceProjection';
+import { computeArcHeat, type ArcHeatScore } from '../story/heat';
 import {
   MAX_MAJOR_ACTIVE_ARCS,
   MAX_MAJOR_CORE_CHARACTERS,
@@ -144,6 +145,16 @@ export type LiveArcState = {
    * genuinely different numbers — an arc can transition without progressing.
    */
   lastProgressWorldDay: number;
+  /**
+   * Viewer interactions recorded against this arc, or `null` when the deployment cannot observe
+   * them (ART-32).
+   *
+   * `null` is not zero, and the heat scorer renormalises rather than conflating the two — see
+   * `convex/story/heat.ts`. The long-run harness supplies `null` because it drives no analytics
+   * ingest, so its arcs are scored on the other five signals rather than on five plus a fabricated
+   * zero.
+   */
+  viewerInteractionCount: number | null;
 };
 
 /** Everything the stage handlers need to read once per stage, in one shape. */
@@ -230,6 +241,17 @@ export interface PostCommitLivePort {
     sourceEventId: string; sourceEventSequenceNumber: number; reason: string;
   }): Promise<{ status: StoryArcStatus }>;
   /** ART-29 arc projection append boundary. */
+  /**
+   * Persist one arc's heat breakdown (FR-F006 AC#1/AC#3).
+   *
+   * A separate port method rather than a field on the projection revision, for two reasons. The
+   * breakdown is operator-facing evidence and does not belong in a payload that every public arc
+   * read model hashes — widening `ArcProjectionFields` would change every arc's `contentHash` and
+   * republish the world. And heat moves when no field does (新鮮度 and 是否接近高潮 track the world,
+   * not the arc's fields), so it must be recordable without appending a revision.
+   */
+  recordArcHeat(heat: ArcHeatScore): Promise<void>;
+
   updateArcProjection(input: {
     worldId: string; arcId: string; fields: ArcProjectionFields;
     sourceEventId: string; sourceEventSequenceNumber: number; expectedRevision: number;
@@ -702,11 +724,41 @@ export function stagnationTargetStatus(
 }
 
 /** Arc projection fields after an event, or null when nothing changed. */
+/**
+ * The arc's next projection revision, and the heat score that produced its `heatScore`.
+ *
+ * `heatScore` used to be `Math.round(membership.importance * 100)` — one of FR-F006's six signals,
+ * read off the single event being folded. It is now {@link computeArcHeat}, whose breakdown is
+ * returned alongside the fields so the caller can persist it: a score an operator cannot take apart
+ * does not satisfy AC#1 「Score 計算可追蹤」 or AC#3 「管理者可查看分數構成」, and a number with no
+ * stored derivation cannot be re-checked after the fact.
+ *
+ * The heat is computed even when no field changed. That is deliberate: 新鮮度 and 是否接近高潮 move
+ * with the world rather than with this arc's own fields, so an arc whose fields are identical can
+ * still be a different temperature — and returning `null` for the fields while returning the heat
+ * lets the caller record the new score without appending a revision that says nothing.
+ */
 export function nextArcProjectionFields(
-  current: ArcProjectionFields,
+  arc: Pick<LiveArcState, 'arcId' | 'status' | 'fields' | 'lastProgressWorldDay' | 'viewerInteractionCount'>,
   event: AcceptedEvent,
   membership: ArcEventMembership,
-): ArcProjectionFields | null {
+  worldId: string,
+): { fields: ArcProjectionFields | null; heat: ArcHeatScore } {
+  const current = arc.fields;
+  const heat = computeArcHeat({
+    worldId,
+    arcId: arc.arcId,
+    status: arc.status,
+    currentWorldDay: event.worldDay,
+    lastProgressWorldDay: arc.lastProgressWorldDay,
+    eventImportance: membership.importance,
+    sourceEventId: event.eventId,
+    coreCharacterIds: current.coreCharacterIds,
+    eventParticipantIds: event.participantIds,
+    unresolvedQuestionCount: current.unresolvedQuestions.length,
+    viewerInteractionCount: arc.viewerInteractionCount,
+  });
+
   const marksTurningPoint = membership.role === 'turning_point' || membership.role === 'climax' || membership.role === 'resolution';
   const resolves = membership.role === 'resolution';
   const facts = [...new Set([...current.essentialFactIds, ...publicFactIds(event)])].slice(0, MAX_ARC_ESSENTIAL_FACTS);
@@ -722,9 +774,12 @@ export function nextArcProjectionFields(
     essentialFactIds: facts,
     resolvedQuestions,
     unresolvedQuestions,
-    heatScore: Math.round(membership.importance * 100),
+    heatScore: heat.score,
   };
-  return JSON.stringify(next) === JSON.stringify(current) ? null : next;
+  return {
+    fields: JSON.stringify(next) === JSON.stringify(current) ? null : next,
+    heat,
+  };
 }
 
 /**
@@ -868,6 +923,8 @@ export type ArcArtifact = {
   transitions: ArcTransitionRecord[];
   deferredTransitions: Array<{ arcId: string; toStatus: StoryArcStatus; reason: string }>;
   projectionRevisions: Array<{ arcId: string; revision: number }>;
+  /** The heat each touched arc was scored at, so the stage's own result carries what it decided. */
+  heatScores: Array<{ arcId: string; score: number }>;
   stagnationPromptCount: number;
   /** ART-163: every resolution this run recorded, classified or stagnation-driven. */
   resolutions: ArcResolutionRecord[];
@@ -1001,7 +1058,7 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
       const state = await port.loadWorldState(sourceOf(context));
       const empty: ArcArtifact = {
         classifiedArcIds: [], createdArcId: null, portfolioDecision: null, transitions: [],
-        deferredTransitions: [], projectionRevisions: [], stagnationPromptCount: 0,
+        deferredTransitions: [], projectionRevisions: [], heatScores: [], stagnationPromptCount: 0,
         resolutions: [],
       };
       /**
@@ -1149,7 +1206,9 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
       for (const membership of classification.memberships) {
         const arc = state.arcs.find(({ arcId }) => arcId === membership.arcId);
         if (!arc) continue;
-        const fields = nextArcProjectionFields(arc.fields, state.event, membership);
+        const { fields, heat } = nextArcProjectionFields(arc, state.event, membership, context.worldId);
+        await port.recordArcHeat(heat);
+        result.heatScores.push({ arcId: arc.arcId, score: heat.score });
         if (fields) {
           const { revision } = await port.updateArcProjection({
             worldId: context.worldId, arcId: arc.arcId, fields,
