@@ -30,6 +30,8 @@ import { truncateForPublic } from '../../../convex/shared/publicText';
 import type { PublicAnimationState, PublicMotionType } from '../world/worldViewModel';
 import {
   CHARACTER_FORBIDDEN_KEYS,
+  characterCurrentArcs,
+  type CharacterArcMembership,
   type CharacterProjection,
   type CharacterRecentEvent,
 } from '../public/characterRoute';
@@ -69,11 +71,15 @@ export interface CharacterCardMotionInput {
   motionType: PublicMotionType;
 }
 
-export interface CharacterCardArc {
-  arcId: string;
-  /** The scene that puts the character in this arc right now, for context. */
-  sceneTitle: string;
-}
+/**
+ * One arc the character is in right now (AC#3).
+ *
+ * An alias rather than a second declaration: ART-151 moved the membership rule itself to
+ * `../public/characterRoute` so the card and the public character page answer
+ * 「這個角色現在在哪些 Arc 裡」 with one function, and a shape declared twice is the first step
+ * back to two answers.
+ */
+export type CharacterCardArc = CharacterArcMembership;
 
 /**
  * Whether the card has something to show, is waiting, or has nothing to wait for.
@@ -252,7 +258,7 @@ export function composeCharacterCardViewModel(input: {
     conversationHint: conversationHintFor(input.characterId, input.scenes ?? []),
     emotionalState: character?.emotionalState ?? EM_DASH,
     publicGoal: character?.publicGoal ?? '',
-    activeArcs: activeArcsFor(input.characterId, input.scenes ?? []),
+    activeArcs: characterCurrentArcs(input.characterId, input.scenes ?? []),
     // Newest last in the timeline payload, so the tail is the recent end.
     recentEvents: (input.recentEvents ?? [])
       .slice(-CHARACTER_CARD_RECENT_EVENT_LIMIT)
@@ -267,29 +273,6 @@ export function composeCharacterCardViewModel(input: {
   };
 }
 
-/**
- * The arcs this character is in RIGHT NOW (AC#3).
- *
- * Scoped to scenes that are still `active` and that name the character as a participant. An
- * `ended` scene's arcs are history, and the card claims the present tense; a scene the character
- * is not in says nothing about them whatever arcs it carries. Deduplicated by arc id, first
- * scene winning, so an arc running through two concurrent scenes is listed once.
- */
-function activeArcsFor(
-  characterId: string,
-  scenes: readonly CharacterCardSceneInput[],
-): CharacterCardArc[] {
-  const byArcId = new Map<string, CharacterCardArc>();
-  for (const scene of scenes) {
-    if (scene.status !== 'active') continue;
-    if (!(scene.participantCharacterIds ?? []).includes(characterId)) continue;
-    for (const arcId of scene.arcIds ?? []) {
-      if (arcId.length === 0 || byArcId.has(arcId)) continue;
-      byArcId.set(arcId, { arcId, sceneTitle: scene.title ?? '' });
-    }
-  }
-  return [...byArcId.values()];
-}
 
 /**
  * TEST TOOLING, not a runtime guard — and deliberately so.

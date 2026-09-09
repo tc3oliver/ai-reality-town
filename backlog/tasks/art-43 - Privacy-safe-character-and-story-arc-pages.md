@@ -5,7 +5,7 @@ status: Done
 assignee:
   - '@tc3oliver'
 created_date: '2026-08-02 15:33'
-updated_date: '2026-08-04 05:08'
+updated_date: '2026-09-09 11:44'
 labels:
   - prd-1.0
   - epic-k
@@ -106,13 +106,5 @@ Reads via getPublishedReadModel (no generation). VALIDATE: npm run check; privac
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-Implementation: src/components/public/characterRoute.ts (pure parseCharacterRoute + composeCharacterViewModel + forbiddenKeysInViewModel) + characterRoute.test.ts (7 cases) + CharacterPage.tsx (thin render layer), mounted at #character/<worldId>/<characterId> in App.tsx.
-
-PRIVACY (AC#2/#3 — the core): the view model is constructed from NAMED allowlisted fields only; it never spreads/copies the input payload. Headline test smuggles privateProfile, privateGoal, knowledge, memory, prompt, rawModelOutput, adminNotes, secret, token into the payload and asserts forbiddenKeysInViewModel(vm) === [] AND that none of the forbidden VALUES appear in the serialised model. This is page-layer defence-in-depth on top of the server-side allowlist (ART-84 buildCharacterProjection excludes forbidden fields) + sanitizeForPublic re-sanitisation on read (ART-40).
-
-DATA: character/character:<id> projection + timeline/timeline:<worldId> filtered to this character for recent major events. Reads via getPublishedReadModel — no generation on read.
-
-AC#1 SCOPE CAVEAT (why not checked): the published character projection carries name/age/occupation/publicProfile/publicGoal/personality/values/health-emotional-financial state — all rendered — plus recent major events from the timeline. It does NOT yet carry: character image, primary relationships, arc memberships, viewer-known secrets, or dramatic-irony facts. Those need projection-side work (relationship projection exists per-pair as relationship:<pairKey> but there is no per-character relationship index; no image/secret/irony fields exist in any published model). Page renders honest absent states for them rather than faking data. Follow-up task needed to extend the character projection before AC#1 can be fully satisfied.
-
-Focused test: NODE_OPTIONS=--experimental-vm-modules npx jest --testPathPattern=characterRoute -> 7 passed, 7 total. Full: npm run check -> exit 0 (architecture 11 modules + typecheck + lint + full jest + vite build).
+ART-151 re-checked AC#1 field by field against what is actually published today. Eight of the ten FR-I005 fields are now on the page: image (CharacterSprite over the same visual binding the map uses), current-state LOCATION (currentLocationId had been in the payload since this task and was simply never rendered), 所屬 Arc (the published Live projection, through the same characterCurrentArcs the live card calls), and 主要關係 (the published FR-I007 graph for the current world day, with its scope stated on the page). AC#1 stays UNCHECKED: 觀眾已知秘密 and 角色不知道但觀眾知道的資訊 have no published source anywhere in the deployment, and marking the criterion done with eight of ten would make it say something untrue about the other two. They are owned by ART-169. The field-by-field record is docs/public-character-page.md.
 <!-- SECTION:NOTES:END -->

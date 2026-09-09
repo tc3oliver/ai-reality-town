@@ -1,13 +1,19 @@
 import { useEffect } from 'react';
 import { useQuery } from 'convex/react';
+import { relationshipGraphModelRef } from '../../../convex/shared/relationshipGraphRef';
+import { MISTWOOD_CHARACTER_VISUALS } from '../../../data/mistwoodCharacters';
 import { emitCharacterViewed } from '../../analytics/productEvents';
 import { getPublishedReadModelRef } from './publicReadModelRef';
+import { CharacterSprite } from './CharacterSprite';
 import { PublicPageFrame } from './PublicPageFrame';
 import {
   composeCharacterViewModel,
   parseCharacterRoute,
+  type CharacterArcInput,
   type CharacterProjection,
   type CharacterRecentEvent,
+  type CharacterRelationshipGraphInput,
+  type CharacterSceneInput,
   type CharacterViewModel,
 } from './characterRoute';
 
@@ -34,6 +40,21 @@ type TimelinePayload = {
   }>;
 };
 
+/**
+ * The published Live projection, as far as this page reads it (ART-151).
+ *
+ * Three of FR-I005's fields are already published here and were simply not being read: the
+ * location NAME behind `currentLocationId`, and the arcs a character is in right now, which the
+ * live map's character card has derived from `activeScenes` since ART-124. Reading the same
+ * published row is what keeps the two surfaces from answering 「所屬 Arc」 differently.
+ */
+type LivePayload = {
+  worldTime: { worldDay: number } | null;
+  locations: Array<{ locationId: string; name: string }>;
+  activeArcs: CharacterArcInput[];
+  activeScenes: CharacterSceneInput[];
+};
+
 export default function CharacterPage() {
   const route = typeof window === 'undefined' ? null : parseCharacterRoute(window.location.hash);
   const worldId = route?.worldId ?? null;
@@ -55,6 +76,25 @@ export default function CharacterPage() {
   const timelineResult = useQuery(
     getPublishedReadModelRef,
     enabled ? { worldId: worldId as string, modelKind: 'timeline', modelRef: `timeline:${worldId}` } : 'skip',
+  );
+  const liveResult = useQuery(
+    getPublishedReadModelRef,
+    enabled ? { worldId: worldId as string, modelKind: 'liveState', modelRef: `live:${worldId}` } : 'skip',
+  );
+  const live = (liveResult?.payload ?? null) as LivePayload | null;
+  // The graph is published per world DAY, so the current day has to come from somewhere published
+  // — the Live projection's own world time. Until it arrives the graph read is skipped rather
+  // than guessed at, because a guessed day resolves to a different target that may well exist.
+  const graphWorldDay = live?.worldTime?.worldDay ?? null;
+  const graphResult = useQuery(
+    getPublishedReadModelRef,
+    enabled && graphWorldDay !== null
+      ? {
+        worldId: worldId as string,
+        modelKind: 'relationshipGraph',
+        modelRef: relationshipGraphModelRef(worldId as string, graphWorldDay),
+      }
+      : 'skip',
   );
 
   if (!enabled) {
@@ -90,6 +130,14 @@ export default function CharacterPage() {
     worldId: worldId as string,
     character: (characterResult?.payload ?? null) as CharacterProjection | null,
     recentEvents,
+    // The binding's own sprite key, exactly as the homepage and the live map resolve it, so one
+    // character never draws with two different figures across surfaces (FR-N004).
+    spriteKey: MISTWOOD_CHARACTER_VISUALS
+      .find((visual) => visual.characterId === characterId)?.spriteKey,
+    locations: live?.locations ?? null,
+    activeScenes: live?.activeScenes ?? null,
+    activeArcs: live?.activeArcs ?? null,
+    relationshipGraph: (graphResult?.payload ?? null) as CharacterRelationshipGraphInput | null,
   });
 
   return <CharacterPageView worldId={worldId as string} vm={vm} />;
@@ -103,9 +151,14 @@ export default function CharacterPage() {
 export function CharacterPageView({ worldId, vm }: { worldId: string; vm: CharacterViewModel }) {
   return (
     <PublicPageFrame worldId={worldId}>
-      <header>
-        <h1 className="text-3xl font-bold">{vm.name}</h1>
-        <p className="text-sm public-muted">{vm.occupation} · {vm.age}歲{vm.alive ? '' : ' · 已歿'}{vm.active ? '' : ' · 暫離'}</p>
+      <header className="character-identity">
+        {/* Decorative: the name is right beside it as real text, so announcing the sprite
+            again would announce the same information twice. */}
+        <CharacterSprite characterId={vm.characterId} spriteKey={vm.spriteKey} />
+        <div>
+          <h1 className="text-3xl font-bold">{vm.name}</h1>
+          <p className="text-sm public-muted">{vm.occupation} · {vm.age}歲{vm.alive ? '' : ' · 已歿'}{vm.active ? '' : ' · 暫離'}</p>
+        </div>
       </header>
 
       {vm.publicProfile && (
@@ -118,6 +171,7 @@ export function CharacterPageView({ worldId, vm }: { worldId: string; vm: Charac
       <section className="character-state mt-4" aria-labelledby="character-state">
         <h2 id="character-state" className="text-xl font-semibold">目前狀態</h2>
         <ul className="public-rows text-sm">
+          <li>所在地:{vm.locationName}</li>
           <li>健康:{vm.healthState}</li>
           <li>情緒:{vm.emotionalState}</li>
           <li>財務:{vm.financialState}</li>
@@ -137,6 +191,44 @@ export function CharacterPageView({ worldId, vm }: { worldId: string; vm: Charac
           <p className="text-sm">{[vm.personality, vm.values].filter(Boolean).join(' · ')}</p>
         </section>
       )}
+
+      <section className="character-arcs mt-4" aria-labelledby="character-arcs">
+        <h2 id="character-arcs" className="text-xl font-semibold">所屬 Arc</h2>
+        {vm.arcs.length > 0 ? (
+          <ul className="public-rows">
+            {vm.arcs.map((arc) => (
+              <li key={arc.arcId} className="text-sm">
+                <a href={arc.href}>{arc.title}</a>
+                {arc.status && <span className="public-muted">({arc.status})</span>}
+              </li>
+            ))}
+          </ul>
+        ) : <p className="public-muted">此角色目前不在任何進行中的場景裡。</p>}
+      </section>
+
+      <section className="character-relationships mt-4" aria-labelledby="character-relationships">
+        <h2 id="character-relationships" className="text-xl font-semibold">主要關係</h2>
+        {vm.relationships.length > 0 ? (
+          <ul className="public-rows">
+            {vm.relationships.map((relationship) => (
+              <li key={relationship.otherCharacterId} className="text-sm">
+                <a href={relationship.href}>{relationship.otherCharacterId}</a>
+                <span className="public-muted">
+                  {relationship.relationshipType} · 強度 {relationship.strength}
+                </span>
+                {relationship.reasons.length > 0 && <span>{relationship.reasons.join('、')}</span>}
+              </li>
+            ))}
+          </ul>
+        ) : <p className="public-muted">目前的關係圖範圍內沒有此角色的公開關係。</p>}
+        {/* The scope is stated, not implied: an empty list above means "none within the
+            published FR-I007 scope", which is a different claim from "none". */}
+        {vm.relationshipsAsOfWorldDay !== null && (
+          <p className="public-muted text-sm">
+            以第 {vm.relationshipsAsOfWorldDay} 日的關係圖為準,範圍限於當前 Arc 的關係網與近七日的變化。
+          </p>
+        )}
+      </section>
 
       <section className="character-recent mt-4" aria-labelledby="character-recent">
         <h2 id="character-recent" className="text-xl font-semibold">近期大事</h2>
