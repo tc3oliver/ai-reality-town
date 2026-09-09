@@ -540,6 +540,12 @@
         "kind": "mutation",
         "gate": "operator"
       },
+    {
+      "path": "convex/operations/publicationControlFunctions.ts",
+      "name": "decideEpisodePublication",
+      "kind": "mutation",
+      "gate": "operator"
+    },
       {
         "path": "convex/operations/dynamicViewControlFunctions.ts",
         "name": "setDynamicUpdatesPaused",

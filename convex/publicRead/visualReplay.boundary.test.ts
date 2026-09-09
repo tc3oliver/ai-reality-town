@@ -112,6 +112,15 @@ describe('FR-O013 AC#4 — the replay builder cannot reach a generator or a writ
     // `publicDynamicProjection.ts`, whose own closure already reaches the trajectory planner
     // and the collision grid. Every one of them is a pure function over its arguments.
     expect(executed).toEqual([
+      /**
+       * ART-171. The publication-record vocabulary — `VIEWER_SERVABLE_PUBLICATION_STATUSES` —
+       * which this module used to keep a second copy of as `REPLAY_PUBLISHED_RECORD_STATUSES`.
+       * Admitted deliberately: `publicationLifecycle.ts` is a pure module (no Convex, no clock,
+       * no I/O, and its own header says so), the closure gains no path into `convex/canon/` or
+       * any writer, and the alternative was two lists of the same statuses that would drift the
+       * moment an administrator could move a record independently of the pipeline.
+       */
+      'convex/editorial/publicationLifecycle.ts',
       'convex/publicRead/activeScenePresentation.ts',
       // FR-O004 / ART-123. Pure, no imports of its own beyond a type, and reached because the
       // projection builder now derives conversation state. Named deliberately: this pin exists

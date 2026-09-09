@@ -25,6 +25,31 @@ export type PublicationStatus = (typeof PUBLICATION_STATUSES)[number];
 
 export const PUBLICATION_TERMINAL_STATUSES: readonly PublicationStatus[] = ['superseded'];
 
+/**
+ * The statuses under which derived public content governed by a record may be SERVED.
+ *
+ * `ready` is included and that is deliberate: FR-K004 reserves `publish` for an administrator, so
+ * `ready` is where the automated pipeline stops and is what a viewer of this deployment actually
+ * sees. `published` is the administrator's own step on top of it.
+ *
+ * The complement is what matters — `withheld` and `superseded` must not be served — and that is
+ * why this is one exported constant rather than an inline check in each reader. It already had
+ * two copies (`REPLAY_PUBLISHED_RECORD_STATUSES` in `convex/publicRead/visualReplay.ts` and an
+ * implicit one in the Episode read model, which simply never asked), and ART-171 needed a third
+ * the moment an administrator could withhold a record independently of the safety gate.
+ *
+ * NOT the same vocabulary as `ELIGIBLE_EPISODE_STATUSES` in
+ * `convex/publicRead/episodeTimelineProjection.ts`, which reads `dailyEpisodes.status` — a
+ * different column whose values happen to share two of these tokens. Merging them would couple a
+ * safety decision to an editorial one because their strings collide.
+ */
+export const VIEWER_SERVABLE_PUBLICATION_STATUSES: readonly PublicationStatus[] = ['ready', 'published'];
+
+/** Whether a publication record's status permits serving the content it governs. */
+export function isViewerServablePublicationStatus(status: string): boolean {
+  return (VIEWER_SERVABLE_PUBLICATION_STATUSES as readonly string[]).includes(status);
+}
+
 export function isPublicationStatus(value: unknown): value is PublicationStatus {
   return typeof value === 'string' && (PUBLICATION_STATUSES as readonly string[]).includes(value);
 }

@@ -7,6 +7,7 @@ import {
   sanitizeForPublic,
   selectServedVersion,
   serveReadModel,
+  withdrawReadModel,
   ReadModelError,
   SERVABLE_STATUS,
   type JsonValue,
@@ -355,5 +356,71 @@ describe('serveReadModel (AC#1/#3/#4 — isolation, no-LLM, allowlist)', () => {
     // The pure selection path is O(versions) here; the Convex-backed query is an
     // indexed O(1)-ish lookup. Assert the pure path is far under the 500ms target.
     expect(p95Estimate).toBeLessThan(500);
+  });
+});
+
+/**
+ * `withdrawReadModel` — taking content OFF the surface, as distinct from marking a version bad
+ * (ART-171).
+ *
+ * The distinction is the reason it exists. `invalidateReadModel` says "this version is broken"
+ * and lets the last known good one keep serving, which is right for a failed rebuild. A FR-K004
+ * withhold says "this content may not be shown", and falling back would serve an older copy of
+ * exactly the content being withheld.
+ */
+describe('withdrawReadModel (ART-171 — FR-K004 withhold)', () => {
+  const EPISODE = { worldId: 'w1', modelKind: 'episode' as const, modelRef: 'episode:5' };
+
+  async function withTwoVersions() {
+    const store = new MemoryReadStore();
+    await commitReadModelVersion(store, {
+      ...EPISODE, payload: { headline: 'first' } as unknown as JsonValue,
+      sourceEventIds: ['e1'], status: SERVABLE_STATUS, now: 1_000,
+    });
+    await commitReadModelVersion(store, {
+      ...EPISODE, payload: { headline: 'second' } as unknown as JsonValue,
+      sourceEventIds: ['e2'], status: SERVABLE_STATUS, now: 2_000,
+    });
+    return store;
+  }
+
+  it('leaves nothing servable, including the last-known-good fallback', async () => {
+    const store = await withTwoVersions();
+    // The precondition that makes this test mean something: there IS a fallback to reach past.
+    expect(await serveReadModel(store, EPISODE.worldId, EPISODE.modelKind, EPISODE.modelRef)).not.toBeNull();
+    expect(store.rows.some((row) => row.isLastKnownGood)).toBe(true);
+
+    const { withdrawnVersions } = await withdrawReadModel(store, { ...EPISODE, now: 3_000 });
+    expect(withdrawnVersions).toEqual([1, 2]);
+    expect(await serveReadModel(store, EPISODE.worldId, EPISODE.modelKind, EPISODE.modelRef)).toBeNull();
+  });
+
+  it('differs from invalidateReadModel, which deliberately keeps serving the fallback', async () => {
+    // Stated as a contrast rather than in prose alone: the two are one word apart at the call
+    // site and mean opposite things about whether a viewer still sees the content.
+    const store = await withTwoVersions();
+    await invalidateReadModel(store, { ...EPISODE, status: 'withheld', now: 3_000 });
+    const served = await serveReadModel(store, EPISODE.worldId, EPISODE.modelKind, EPISODE.modelRef);
+    expect((served?.payload as Record<string, unknown> | undefined)?.headline).toBe('first');
+  });
+
+  it('is non-destructive: the rows and their payloads survive for audit and for a later release', async () => {
+    const store = await withTwoVersions();
+    await withdrawReadModel(store, { ...EPISODE, now: 3_000 });
+    expect(store.rows).toHaveLength(2);
+    expect(store.rows.every((row) => row.status === 'withheld')).toBe(true);
+
+    // A release republishes in the ordinary way, and the target serves again.
+    await commitReadModelVersion(store, {
+      ...EPISODE, payload: { headline: 'third' } as unknown as JsonValue,
+      sourceEventIds: ['e3'], status: SERVABLE_STATUS, now: 4_000,
+    });
+    const served = await serveReadModel(store, EPISODE.worldId, EPISODE.modelKind, EPISODE.modelRef);
+    expect((served?.payload as Record<string, unknown> | undefined)?.headline).toBe('third');
+  });
+
+  it('reports nothing withdrawn for a target that was never published', async () => {
+    const store = new MemoryReadStore();
+    expect(await withdrawReadModel(store, { ...EPISODE, now: 3_000 })).toEqual({ withdrawnVersions: [] });
   });
 });

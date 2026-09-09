@@ -35,6 +35,37 @@ Writing is `admin` for the reason `snapshot.create` is: it takes effect on every
 subsequent scene in the world and a wrong value is not visible until scenes have
 already been authored with it. See `docs/model-configuration.md`.
 
+FR-K004 (ART-171) adds one, and it is the one that had been missing longest:
+
+| PRD control (FR-K004) | Capability | Function | Minimum role |
+| --- | --- | --- | --- |
+| 發布 / 撤下 / 恢復一日的 Episode | `publication.decide` | `decideEpisodePublication` (mutation) | `admin` |
+
+FR-K004 reserved `publish`, `withhold`, `resume_to_ready` and `regenerate` for an administrator
+from the start, and `assertAuthorized` enforced it — but nothing could invoke them.
+`advancePublication` is an internal mutation whose only caller was the post-commit pipeline, and
+that call site is typed to the four actions a SYSTEM actor may take. Every Episode in every world
+therefore walked to `ready` and stopped: no record had ever reached `published`, and the
+administrator half of the lifecycle was a rule with no way to exercise it. That is also why
+FR-I005's 觀眾已知秘密 was empty on every character page — a secret becomes viewer-known when a
+`published` Episode reveals it.
+
+Three notes on the shape of the command:
+
+- **`regenerate` is not exposed.** It supersedes the current record and mints a fresh `generated`
+  one, which is a content operation rather than a visibility decision. It does not belong behind a
+  control labelled "publish".
+- **The decision is not just a status change.** The command rebuilds the Episode read model — which
+  since ART-171 reads the publication record and WITHDRAWS `episode:<day>`, fallbacks included,
+  when the record is withheld — and runs `refreshPublicTextModels`, so the Live projection, the
+  onboarding summary, the per-day consequence models and ART-169's per-character viewer-knowledge
+  models all follow in the same transaction. A withhold that left the Episode on the public page
+  would not be a withhold.
+- **An administrator cannot override a suppressed world.** ART-162's publication gate
+  (`worldSchedules.publishEnabled`) still refuses `publish`, by hand as well as automatically.
+  `withhold` is never gated, for the reason the gate's own docblock gives: refusing to record a
+  withhold because publication is paused would make a world less safe while claiming otherwise.
+
 Supporting queries: `listOperatorAudit` (the audit trail for a world) and
 `describeOperatorSession` (what the calling operator may do). Both require
 `schedule.inspect`, so the console cannot be enumerated anonymously.

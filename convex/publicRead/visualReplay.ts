@@ -45,6 +45,7 @@ import {
   type SceneEventLike,
   type SceneGroup,
 } from './activeScenePresentation';
+import { VIEWER_SERVABLE_PUBLICATION_STATUSES } from '../editorial/publicationLifecycle';
 import { PUBLIC_DYNAMIC_FORBIDDEN_FIELDS } from './publicDynamicProjection';
 import { travelDurationMs } from '../visualRuntime/motion';
 import { bootstrapAnchor } from '../visualRuntime/seedBootstrap';
@@ -84,7 +85,13 @@ export type ReplayTextRefKind = (typeof REPLAY_TEXT_REF_KINDS)[number];
  * `withheld` and `superseded` are deliberately absent, and so is every pre-approval state:
  * a reference is only emitted for text that has already cleared editorial safety.
  */
-export const REPLAY_PUBLISHED_RECORD_STATUSES: readonly string[] = ['ready', 'published'];
+/**
+ * Kept as a name because this module's readers know it, but it is no longer a second list:
+ * since ART-171 the publication-record vocabulary has ONE definition, in
+ * `convex/editorial/publicationLifecycle.ts`. Two copies would have drifted the moment an
+ * administrator could move a record independently of the pipeline.
+ */
+export const REPLAY_PUBLISHED_RECORD_STATUSES: readonly string[] = VIEWER_SERVABLE_PUBLICATION_STATUSES;
 
 /**
  * The `publicationVersion` of a `canonEventSummary` reference, always 1.

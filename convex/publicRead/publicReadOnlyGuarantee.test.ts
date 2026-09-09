@@ -39,6 +39,7 @@ import { join } from 'node:path';
 
 import * as canonCorrectionFunctions from '../operations/canonCorrectionFunctions';
 import * as safetyOverrideFunctions from '../operations/safetyOverrideFunctions';
+import * as publicationControlFunctions from '../operations/publicationControlFunctions';
 import * as dynamicViewMetricsFunctions from '../operations/dynamicViewMetricsFunctions';
 // FR-Q002 / ART-134. Six new operator-gated functions over the public dynamic view. Named here
 // deliberately: this suite refused the branch until they were, which is exactly what an
@@ -118,6 +119,7 @@ const MODULES: Readonly<Record<string, Record<string, unknown>>> = {
   'convex/operations/emergencyStopFunctions.ts': emergencyStopFunctions,
   'convex/operations/canonCorrectionFunctions.ts': canonCorrectionFunctions,
   'convex/operations/safetyOverrideFunctions.ts': safetyOverrideFunctions,
+  'convex/operations/publicationControlFunctions.ts': publicationControlFunctions,
   'convex/operations/dynamicViewMetricsFunctions.ts': dynamicViewMetricsFunctions,
   'convex/operations/dynamicViewControlFunctions.ts': dynamicViewControlFunctions,
   'convex/operations/proposalReviewFunctions.ts': proposalReviewFunctions,
