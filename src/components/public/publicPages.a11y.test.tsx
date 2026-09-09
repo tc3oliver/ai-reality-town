@@ -289,7 +289,6 @@ function characterViewModel() {
       personality: '謹慎',
       values: '重視信譽',
       publicGoal: '讓磨坊重新運轉。',
-      fear: null,
       currentLocationId: 'mill',
       healthState: '良好',
       emotionalState: '緊繃',

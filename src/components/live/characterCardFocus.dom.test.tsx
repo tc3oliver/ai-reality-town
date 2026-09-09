@@ -62,7 +62,7 @@ const motion: PublicCharacterMotion = {
 const character: CharacterProjection = {
   id: CHARACTER_ID, worldId: WORLD_ID, name: '何俊', age: 38, occupation: '磨坊工',
   publicProfile: '北水磨坊的工頭。', personality: '沉穩', values: '守信',
-  publicGoal: '修好水車', fear: '洪水', currentLocationId: 'mistwood-mill',
+  publicGoal: '修好水車', currentLocationId: 'mistwood-mill',
   healthState: '健康', emotionalState: '平靜', financialState: '拮据', alive: true, active: true,
 };
 

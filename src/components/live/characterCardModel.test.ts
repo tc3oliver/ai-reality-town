@@ -41,7 +41,7 @@ function character(overrides: Partial<CharacterProjection> = {}): CharacterProje
   return {
     id: CHARACTER_ID, worldId: WORLD_ID, name: '趙銘', age: 41, occupation: '磨坊工',
     publicProfile: '北水磨坊的常客。', personality: '寡言', values: '守信',
-    publicGoal: '修好水車', fear: '洪水', currentLocationId: 'mistwood-square',
+    publicGoal: '修好水車', currentLocationId: 'mistwood-square',
     healthState: '健康', emotionalState: '平靜', financialState: '拮据', alive: true, active: true,
     ...overrides,
   };

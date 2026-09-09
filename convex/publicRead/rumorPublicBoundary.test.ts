@@ -124,8 +124,10 @@ describe('the projection-sourced public builders never carry a rumor', () => {
      * This does mean the claim's predicate is absent too: an arbitrary `fact_created` predicate
      * is not published by this builder at all, canon-visible or not.
      */
+    // ART-175 removed `behaviorRules` and `fear`: the allowlist answers to FR-I005's public list,
+    // not to §13.2 minus the obviously-private fields.
     expect(Object.keys(payload).sort()).toEqual([
-      'active', 'age', 'alive', 'behaviorRules', 'currentLocationId', 'emotionalState', 'fear',
+      'active', 'age', 'alive', 'currentLocationId', 'emotionalState',
       'financialState', 'healthState', 'id', 'name', 'occupation', 'personality', 'publicGoal',
       'publicProfile', 'schemaVersion', 'values', 'worldId',
     ]);

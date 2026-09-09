@@ -27,7 +27,9 @@ import { viewerKnowledgeModelRef } from '../../convex/shared/viewerKnowledgeRef'
  *
  * ## What is deliberately NOT here
  *
- * No private field of any kind: no `privateProfile`, `privateGoal` or `fear`. The payloads below
+ * No private field of any kind: no `privateProfile` and no `privateGoal`. Since ART-175 the
+ * character projection no longer carries `fear` or `behaviorRules` either, so the fixture cannot
+ * mirror them. The payloads below
  * are shaped like the PUBLISHED projections, which are already field-allowlisted server-side — so
  * this fixture cannot put on screen something the real surface would not.
  *
