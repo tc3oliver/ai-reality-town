@@ -1,11 +1,11 @@
 ---
 id: ART-71
 title: Authenticated viewer follows and progress
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-08-02 15:43'
-updated_date: '2026-09-09 13:27'
+updated_date: '2026-09-09 14:30'
 labels:
   - prd-1.0
   - epic-l
@@ -66,29 +66,29 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 FR-J003: Authenticated viewers can follow characters and Story Arcs.
-- [ ] #2 FR-J003: Viewing progress persists across devices.
-- [ ] #3 FR-J003: Personalized return recap uses followed characters/arcs and saved progress.
-- [ ] #4 Authorization prevents one viewer from reading or modifying another viewer’s progress.
-- [ ] #5 Following a character or Story Arc emits the corresponding privacy-safe character_followed or story_arc_followed analytics event through ART-47 without exposing private progress data.
+- [x] #1 FR-J003: Authenticated viewers can follow characters and Story Arcs.
+- [x] #2 FR-J003: Viewing progress persists across devices.
+- [x] #3 FR-J003: Personalized return recap uses followed characters/arcs and saved progress.
+- [x] #4 Authorization prevents one viewer from reading or modifying another viewer’s progress.
+- [x] #5 Following a character or Story Arc emits the corresponding privacy-safe character_followed or story_arc_followed analytics event through ART-47 without exposing private progress data.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -101,3 +101,15 @@ Project Backlog Definition of Done applies; verification evidence and merged PR 
 5. Fault injections at both layers; state the evidence boundary (no live Clerk credential) rather than simulating one.
 6. npm run check, npm run e2e, closure matrix, docs/authenticated-viewer-progress.md.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Closed after PR merged; npm run check and npm run e2e green on the merged branch.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+ART-39 delivered the anonymous half and refused to simulate this one, because 「已登入進度」 was a provably empty set; ART-104 configured the identity provider and VIEWER_KEY_NAMESPACES has carried an unreachable 'auth' namespace since ART-39 for exactly this task. Delivered as ONE new write surface, not three: getViewerProgress and recordViewerProgress now prefer a VERIFIED identity over the presented token — folding rather than adding is smaller and safer, since two endpoints would let a signed-in client reach the anonymous row by calling the wrong one. Only the merge is new, because FR-H004 AC#7 requires it to be explicit rather than a side effect of signing in. No handler accepts a subject; the key comes from ctx.auth.getUserIdentity() and is stored as a digest. The merge is AC#7's three words as three properties: 明確 (its own operation), 經授權 (both a verified identity and the device token), 無損 (a union whose position takes the further of the two, with everything the caps cannot keep RETURNED — mergeWasLossless is computed, not asserted). The device row is left untouched, so a merge that went wrong has lost nothing. viewerWriteBoundary.maxViewerMutations moved 2 to 3, declared in the four places the policy requires to agree; no new client root. Verified: 7 injections each turning named tests red, with two attempts recorded as rejected (one changed nothing observable, one failed to compile). npm run check exit 0 (4251 passed, 247 suites); npm run e2e 114 passed. NOT proven: Convex's JWT verification — no live Clerk credential exists here, and that code is Convex's; docs/authenticated-viewer-progress.md §6 states the boundary. PR #261 merged.
+<!-- SECTION:FINAL_SUMMARY:END -->
