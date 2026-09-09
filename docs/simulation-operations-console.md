@@ -39,6 +39,29 @@ Supporting queries: `listOperatorAudit` (the audit trail for a world) and
 `describeOperatorSession` (what the calling operator may do). Both require
 `schedule.inspect`, so the console cannot be enumerated anonymously.
 
+### Reading a retried slot (ART-150)
+
+`inspectScheduleAndQueue` answers two different questions about a slot, and they are
+deliberately kept in different fields.
+
+`queue[].errorCode` is the CURRENT state of the slot. It is cleared the moment the slot is
+claimed or requeued, so a slot that failed and was then retried to success reports **no**
+error code. That is the point: before ART-150, a recovered slot still carried the code its
+failed attempt wrote, so a successful run was indistinguishable from a failed one and any
+failure rate built on the field over-counted.
+
+`attemptHistory[]` is where the earlier attempts survive — one entry per retried slot, each
+listing `{ attempt, stage, errorCode, errorMessage }` oldest first. It is read from
+`worldDayCheckpoints`, which already records one row per `(runId, stage, attempt)` and is
+never patched across attempts; the run id is derived from the slot's
+`(worldId, worldDay, timeSlot)`, so nothing has to be stored to link them. Copying those
+failures onto the slot row would give one fact two homes that could disagree.
+
+The read is bounded to `ATTEMPT_HISTORY_SLOT_LIMIT` (25) slots, newest in world time, and
+`attemptHistoryOmittedSlots` reports how many retried slots were left out. A slot that ran
+at FR-M004 rung 4 or 5 writes no checkpoints, so it contributes no history — its failure is
+a defect in a pure derivation and is reported on the slot row itself.
+
 Snapshot creation is reserved for `admin` because it writes a durable recovery
 artifact, mirroring the admin-only reservation already used by the publication
 lifecycle (FR-K004).

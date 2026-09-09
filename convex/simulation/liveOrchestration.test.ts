@@ -59,6 +59,7 @@ import {
   type WorldDayRunStore,
   type WorldDayStage,
 } from './worldDayOrchestration';
+import { CLEARED_RUN_FAILURE } from '../shared/runRecord';
 
 type Row = Record<string, unknown>;
 
@@ -240,7 +241,7 @@ class MemoryRunStore implements WorldDayRunStore {
   }
   resumeRun(runId: string, attempt: number) {
     const run = this.runs.get(runId);
-    if (run) this.runs.set(runId, { ...run, status: 'running', attemptCount: attempt });
+    if (run) this.runs.set(runId, { ...run, status: 'running', attemptCount: attempt, ...CLEARED_RUN_FAILURE });
     return Promise.resolve();
   }
   failRun(runId: string, stage: WorldDayStage, error: { code: string; message: string }) {
@@ -252,7 +253,7 @@ class MemoryRunStore implements WorldDayRunStore {
   }
   completeRun(runId: string, committedEventIds: string[]) {
     const run = this.runs.get(runId);
-    if (run) this.runs.set(runId, { ...run, status: 'completed', committedEventIds });
+    if (run) this.runs.set(runId, { ...run, status: 'completed', committedEventIds, ...CLEARED_RUN_FAILURE });
     return Promise.resolve();
   }
 }

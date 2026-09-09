@@ -10,6 +10,7 @@ import {
   type WorldDayStage,
   type WorldDayStageHandlers,
 } from './worldDayOrchestration';
+import { CLEARED_RUN_FAILURE } from '../shared/runRecord';
 
 class MemoryRunStore implements WorldDayRunStore {
   run: WorldDayRun | null = null;
@@ -31,13 +32,13 @@ class MemoryRunStore implements WorldDayRunStore {
     Object.assign(this.find(runId, stage, attempt), { status: 'failed', errorCode: error.code, errorMessage: error.message }); return Promise.resolve();
   }
   resumeRun(_runId: string, attempt: number): Promise<void> {
-    Object.assign(this.requiredRun(), { status: 'running', attemptCount: attempt, failureStage: undefined, errorCode: undefined, errorMessage: undefined }); return Promise.resolve();
+    Object.assign(this.requiredRun(), { status: 'running', attemptCount: attempt, ...CLEARED_RUN_FAILURE }); return Promise.resolve();
   }
   failRun(_runId: string, stage: WorldDayStage, error: RunFailure): Promise<void> {
     Object.assign(this.requiredRun(), { status: 'failed', failureStage: stage, errorCode: error.code, errorMessage: error.message }); return Promise.resolve();
   }
   completeRun(_runId: string, committedEventIds: string[]): Promise<void> {
-    Object.assign(this.requiredRun(), { status: 'completed', committedEventIds }); return Promise.resolve();
+    Object.assign(this.requiredRun(), { status: 'completed', committedEventIds, ...CLEARED_RUN_FAILURE }); return Promise.resolve();
   }
   private requiredRun(): WorldDayRun { if (!this.run) throw new Error('missing run'); return this.run; }
   private find(runId: string, stage: WorldDayStage, attempt: number): WorldDayCheckpoint {

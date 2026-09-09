@@ -89,8 +89,16 @@ export interface PostCommitRunStore {
   startCheckpoint(runId: string, stage: PostCommitStage, attempt: number): Promise<void>;
   completeCheckpoint(runId: string, stage: PostCommitStage, attempt: number, artifact: unknown): Promise<void>;
   failCheckpoint(runId: string, stage: PostCommitStage, attempt: number, error: RunFailure): Promise<void>;
+  /**
+   * Open attempt `attempt` on an existing run.
+   *
+   * MUST clear `failureStage`, `errorCode` and `errorMessage` by spreading `CLEARED_RUN_FAILURE`
+   * (ART-150), exactly as the world-day store must: they describe the attempt that failed, not this
+   * one. The per-attempt history lives in the checkpoints and is not cleared.
+   */
   resumeRun(runId: string, attempt: number): Promise<void>;
   failRun(runId: string, stage: PostCommitStage, error: RunFailure): Promise<void>;
+  /** MUST leave no failure standing, for the same reason {@link PostCommitRunStore.resumeRun} must not. */
   completeRun(runId: string, metricsTraceId: string): Promise<void>;
 }
 

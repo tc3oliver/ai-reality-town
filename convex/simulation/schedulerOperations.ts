@@ -14,6 +14,7 @@ import {
   type SlotTrigger,
   type WorldScheduleState,
 } from './scheduler';
+import { worldDayRunId } from './worldDayLive';
 
 type MutationDb = GenericMutationCtx<import('../_generated/dataModel').DataModel>['db'];
 
@@ -99,6 +100,81 @@ export async function readScheduleInspection(
     schedule,
     runs: runs.sort((a, b) => a.worldDay - b.worldDay || TIME_SLOTS.indexOf(a.timeSlot) - TIME_SLOTS.indexOf(b.timeSlot)),
   };
+}
+
+/** One earlier attempt at a slot that failed, as an operator reads it. */
+export type SlotAttemptFailure = {
+  attempt: number;
+  stage: string;
+  errorCode: string;
+  errorMessage: string;
+};
+
+export type SlotAttemptHistory = {
+  slotKey: string;
+  worldDay: number;
+  timeSlot: TimeSlot;
+  /** Oldest attempt first, so the sequence reads in the order it happened. */
+  failures: SlotAttemptFailure[];
+};
+
+/**
+ * How many slots one inspection will read attempt history for.
+ *
+ * The queue itself is already collected in full, but each slot's history costs its own index scan,
+ * so this is bounded and the caller is told what was left out. A world that is thrashing has far
+ * more than this many retried slots and the newest ones are the ones an operator is looking at.
+ */
+export const ATTEMPT_HISTORY_SLOT_LIMIT = 25;
+
+/**
+ * Why a retried slot's earlier failures are read from `worldDayCheckpoints` rather than kept on the
+ * slot row (ART-150).
+ *
+ * The slot row holds ONE `errorCode`, and it is cleared the moment the slot is claimed again —
+ * correctly, because a claimed slot has no failure yet, and leaving the old code there is exactly
+ * what made a recovered slot read as a broken one. But clearing it is also what discards the
+ * history, and an operator deciding whether to retry a slot a third time needs to know what the
+ * first two attempts failed with.
+ *
+ * `worldDayCheckpoints` already holds precisely that: one row per `(runId, stage, attempt)`, never
+ * patched across attempts, carrying the stable code and message. The run id is DERIVED from the
+ * slot's `(worldId, worldDay, timeSlot)`, so no link has to be stored to find it. Copying those
+ * failures onto the slot row would give the same fact two homes that could disagree; reading them
+ * here gives it one.
+ *
+ * Slots that never ran through the world-day orchestrator — a rules-only slot at FR-M004 rung 4 or
+ * 5 — write no checkpoints, so they contribute no history. Their failure is a defect in a pure
+ * derivation rather than an attempt against a model, and it is reported on the slot row itself.
+ */
+export async function readSlotAttemptHistory(
+  db: GenericQueryCtx<import('../_generated/dataModel').DataModel>['db'],
+  worldId: string,
+  slots: readonly Doc<'scheduledSlots'>[],
+): Promise<{ history: SlotAttemptHistory[]; omittedSlots: number }> {
+  // Only slots that have actually been attempted more than once can have a prior failure to show.
+  const retried = slots.filter((slot) => slot.attemptCount > 1);
+  const considered = retried.slice(-ATTEMPT_HISTORY_SLOT_LIMIT);
+  const history: SlotAttemptHistory[] = [];
+  for (const slot of considered) {
+    // Derived, not stored: `worldDayRunId` is the one definition of a slot's run identity, and the
+    // executor derives it from the same three fields when it opens the run.
+    const runId = worldDayRunId({ worldId, worldDay: slot.worldDay, timeSlot: slot.timeSlot });
+    const rows = await db.query('worldDayCheckpoints')
+      .withIndex('by_run_and_stage', (q) => q.eq('runId', runId)).collect();
+    const failures = rows
+      .filter((row): row is typeof row & { errorCode: string } =>
+        row.status === 'failed' && typeof row.errorCode === 'string')
+      .map((row): SlotAttemptFailure => ({
+        attempt: row.attempt, stage: row.stage,
+        errorCode: row.errorCode, errorMessage: row.errorMessage ?? '',
+      }))
+      .sort((left, right) => left.attempt - right.attempt);
+    if (failures.length > 0) {
+      history.push({ slotKey: slot.slotKey, worldDay: slot.worldDay, timeSlot: slot.timeSlot, failures });
+    }
+  }
+  return { history, omittedSlots: retried.length - considered.length };
 }
 
 async function reserve(

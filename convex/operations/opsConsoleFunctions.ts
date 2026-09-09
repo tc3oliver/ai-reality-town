@@ -40,6 +40,7 @@ import {
   loadScheduleRow,
   pauseWorldSchedule,
   readScheduleInspection,
+  readSlotAttemptHistory,
   reserveSlots,
   resumeWorldSchedule,
   retrySlotRun,
@@ -318,13 +319,25 @@ export const inspectWorldState = query({
   },
 });
 
-/** Schedule cursor plus the full slot queue and its status counts. */
+/**
+ * Schedule cursor plus the full slot queue, its status counts, and the failures of earlier attempts.
+ *
+ * `queue[].errorCode` describes the CURRENT state of a slot and is cleared the moment the slot is
+ * claimed again, so a slot that failed and was retried to success reports no code — which is the
+ * point (ART-150 AC#1). `attemptHistory` is where the earlier attempts survive, read from the
+ * per-attempt checkpoint rows rather than kept a second time on the slot (AC#2). A slot appears
+ * there only if it has been attempted more than once AND an attempt recorded a failure.
+ */
 export const inspectScheduleAndQueue = query({
   args: { ...credentialArgs, worldId: v.string() },
   handler: async (ctx, args) => {
     await requireOperator(ctx, 'schedule.inspect', args);
     const { schedule, runs } = await readScheduleInspection(ctx.db, args.worldId);
+    const attempts = await readSlotAttemptHistory(ctx.db, args.worldId, runs);
     return {
+      attemptHistory: attempts.history,
+      /** Retried slots whose history this response did not read. Never silently dropped. */
+      attemptHistoryOmittedSlots: attempts.omittedSlots,
       schedule: schedule
         ? {
           worldId: schedule.worldId, mode: schedule.mode, status: schedule.status,

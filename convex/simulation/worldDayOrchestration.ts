@@ -48,8 +48,17 @@ export interface WorldDayRunStore {
   startCheckpoint(runId: string, stage: WorldDayStage, attempt: number): Promise<void>;
   completeCheckpoint(runId: string, stage: WorldDayStage, attempt: number, artifact: unknown): Promise<void>;
   failCheckpoint(runId: string, stage: WorldDayStage, attempt: number, error: RunFailure): Promise<void>;
+  /**
+   * Open attempt `attempt` on an existing run.
+   *
+   * MUST clear `failureStage`, `errorCode` and `errorMessage` (ART-150): they describe the attempt
+   * that failed, and this is a different one. Leaving them makes a run that later completes
+   * indistinguishable from one that failed. Spread `CLEARED_RUN_FAILURE` — the per-attempt history
+   * lives in the checkpoints, which are keyed by attempt and are NOT cleared.
+   */
   resumeRun(runId: string, attempt: number): Promise<void>;
   failRun(runId: string, stage: WorldDayStage, error: RunFailure): Promise<void>;
+  /** MUST leave no failure standing, for the same reason {@link WorldDayRunStore.resumeRun} must not. */
   completeRun(runId: string, committedEventIds: string[]): Promise<void>;
 }
 

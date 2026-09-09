@@ -128,6 +128,7 @@ import {
   SHARE_FORMAT_KINDS,
   type EpisodeShareFormats,
 } from '../editorial/derived/shareFormats';
+import { CLEARED_RUN_FAILURE } from '../shared/runRecord';
 
 const WORLD_ID = MISTWOOD_PUBLIC_WORLD_ID;
 const OPERATOR = { type: 'operations' as const, operatorId: 'test' };
@@ -423,7 +424,7 @@ class MemoryPostCommitStore implements PostCommitRunStore {
     return Promise.resolve();
   }
   resumeRun(runId: string, attempt: number): Promise<void> {
-    Object.assign(this.required(runId), { status: 'running', attemptCount: attempt, failureStage: undefined, errorCode: undefined, errorMessage: undefined });
+    Object.assign(this.required(runId), { status: 'running', attemptCount: attempt, ...CLEARED_RUN_FAILURE });
     return Promise.resolve();
   }
   failRun(runId: string, stage: PostCommitStage, error: RunFailure): Promise<void> {
@@ -431,7 +432,7 @@ class MemoryPostCommitStore implements PostCommitRunStore {
     return Promise.resolve();
   }
   completeRun(runId: string, metricsTraceId: string): Promise<void> {
-    Object.assign(this.required(runId), { status: 'completed', metricsTraceId });
+    Object.assign(this.required(runId), { status: 'completed', metricsTraceId, ...CLEARED_RUN_FAILURE });
     return Promise.resolve();
   }
   artifact<T>(runId: string, stage: PostCommitStage): T {
@@ -516,7 +517,7 @@ class MemoryWorldDayRunStore implements WorldDayRunStore {
     return Promise.resolve();
   }
   resumeRun(runId: string, attempt: number): Promise<void> {
-    Object.assign(this.required(runId), { status: 'running', attemptCount: attempt });
+    Object.assign(this.required(runId), { status: 'running', attemptCount: attempt, ...CLEARED_RUN_FAILURE });
     return Promise.resolve();
   }
   failRun(runId: string, stage: WorldDayStage, error: WorldDayRunFailure): Promise<void> {
@@ -524,7 +525,7 @@ class MemoryWorldDayRunStore implements WorldDayRunStore {
     return Promise.resolve();
   }
   completeRun(runId: string, committedEventIds: string[]): Promise<void> {
-    Object.assign(this.required(runId), { status: 'completed', committedEventIds });
+    Object.assign(this.required(runId), { status: 'completed', committedEventIds, ...CLEARED_RUN_FAILURE });
     return Promise.resolve();
   }
   private required(runId: string): WorldDayRun {
