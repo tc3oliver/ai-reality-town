@@ -231,9 +231,16 @@ const runQueuedWorldDaySlotRef = internalFunctionRef<typeof runQueuedWorldDaySlo
 );
 
 /**
- * A world day counts as finished once it is no longer the newest day, or once it has
- * produced an event in the final time slot. Only finished days get an episode, a recap
- * close-out, or a daily snapshot.
+ * A world day counts as finished once the world has moved past it — once a LATER day has an
+ * accepted event. Nothing else finishes it. Only finished days get an episode, a recap close-out,
+ * or a daily snapshot.
+ *
+ * This note used to add "or once it has produced an event in the final time slot", and that clause
+ * was wrong: it was the ART-89 defect written down as though it were the rule. A day treated as
+ * complete the moment its night slot BEGAN had its Episode assembled from a partial slot, and the
+ * rest of that slot reached no Episode, no recap and no publication — 14 of 96 high-importance
+ * events permanently uncovered over seven days, and §16.2's coverage clause at 85.4%. The clause
+ * is gone from the body; it is named here so nobody restores it as a fix.
  */
 export function completedWorldDays(events: readonly AcceptedEvent[]): number[] {
   const days = [...new Set(events.map(({ worldDay }) => worldDay))].sort((left, right) => left - right);

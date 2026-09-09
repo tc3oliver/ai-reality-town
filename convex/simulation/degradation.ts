@@ -387,9 +387,14 @@ export function advanceDegradation(state: DegradationState, signal: SlotOutcomeS
  * Returns to `rules_only`, not to `normal`. A world reaches `paused` only after every automatic
  * response has failed, and handing it the full model budget again on one click would put it
  * straight back into the outage it just descended through — with the ladder's own counter reset,
- * so it would take another twelve failures to get back here. Rules-only keeps the world advancing
- * on deterministic events while the next successful authored slot climbs it back one rung at a
- * time, on evidence rather than on optimism.
+ * so it would take another TEN provider failures to get back here, five rungs at
+ * {@link FAILURES_BEFORE_ESCALATION} each. An earlier version of this note said twelve; ten is what
+ * `degradation.test.ts` pins. Since ART-165 those ten are also spread across roughly thirty slots,
+ * because the two lowest rungs ask the provider only once per {@link SLOTS_BETWEEN_PROVIDER_PROBES}
+ * slots — so an over-eager resume costs a world days of deterministic events, not minutes.
+ *
+ * Rules-only keeps the world advancing on deterministic events while the next successful authored
+ * slot climbs it back one rung at a time, on evidence rather than on optimism.
  */
 export function resumeFromPause(state: DegradationState, at: number, operatorId: string): DegradationDecision {
   if (state.level !== 'paused') {
