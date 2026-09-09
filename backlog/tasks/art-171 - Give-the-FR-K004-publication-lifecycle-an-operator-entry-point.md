@@ -5,7 +5,7 @@ status: Done
 assignee:
   - '@claude'
 created_date: '2026-09-09 17:18'
-updated_date: '2026-09-09 18:22'
+updated_date: '2026-09-09 19:23'
 labels:
   - prd-1.0
   - epic-k
@@ -90,6 +90,16 @@ Not a UI. `advancePublication` was reachable only from `postCommitLiveFunctions.
 ## Live reading that motivated this
 
 Read from the running deployment with bounded queries: all three current `publicationRecords` in `mistwood` are `ready`, none `published`; 12 character read models are current; 83 accepted events across world days 0–4 name all twelve seeded characters and all eight locations.
+
+## Correction (ART-174): three tests in this task's suite passed for the wrong reason
+
+Found while auditing which read-model builders apply which visibility gate. `publicationControlFunctions.test.ts`'s `baseTables` seeded its rows WITHOUT `_id`. `advancePublication` patches by id, the memory `db.patch` searches every table for a matching `_id`, and `undefined === undefined` — so a patch aimed at the publication record landed on whatever row came first and rewrote it. The `dailyEpisodes` row was being turned `withheld` by accident, which excluded the day through the SAFETY filter while the publication gate under test did nothing.
+
+The three affected tests were `takes it straight back off when the administrator withholds the day`, `withdraws the Episode read model itself, fallbacks included`, and `does not let the next accepted event republish a withheld Episode`.
+
+**The code was right; the evidence was not.** With `_id`s seeded, all twenty tests still pass, and re-running ART-171's own injection — `rebuildEpisodeProjection` never consulting the record — now reddens `withdraws the Episode read model itself, fallbacks included` and `does not let the next accepted event republish a withheld Episode`, which is what it should have done the first time.
+
+Fixed in ART-174 along with the defect that audit turned up.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

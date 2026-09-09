@@ -82,6 +82,22 @@ export function buildEpisodeIndex(input: {
   recommendedEntryWorldDays: ReadonlySet<number>;
   /** Event ids that are some arc's latest turning point. */
   turningPointEventIds: ReadonlySet<string>;
+  /**
+   * World days an administrator's publication decision has taken off the surface (ART-174).
+   *
+   * A SECOND gate, and it is not the one `status` already applies. `status` is the safety verdict
+   * `dailyEpisodes` recorded when the Episode was generated; this is the editorial publication
+   * record, which an administrator moves independently (FR-K004, reachable since ART-171). The two
+   * were indistinguishable until then — the only path to a withheld record fired exactly when the
+   * row was not `ready`, so `isEligible` already excluded the day — which is why this parameter did
+   * not exist and why its absence was a live leak the moment the administrator control shipped:
+   * `episode:<day>` was withdrawn while this index went on quoting the same day's title and
+   * headline.
+   *
+   * REQUIRED rather than defaulted. The empty set is the fail-open value, and a caller that
+   * forgets it is the bug this exists to prevent.
+   */
+  withheldWorldDays: ReadonlySet<number>;
 }): EpisodeIndexProjection {
   if (input.worldId.trim().length === 0) {
     throw new EpisodeIndexError('EPISODE_INDEX_INVALID', 'worldId must be non-empty');
@@ -90,6 +106,7 @@ export function buildEpisodeIndex(input: {
   const entries: EpisodeIndexEntry[] = [];
   for (const episode of input.episodes) {
     if (!isEligible(episode.status)) continue;
+    if (input.withheldWorldDays.has(episode.worldDay)) continue;
     const isTurningPoint = episode.sourceEventIds.some((eventId) => input.turningPointEventIds.has(eventId));
     entries.push({
       worldDay: episode.worldDay,

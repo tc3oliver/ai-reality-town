@@ -50,6 +50,7 @@ import { v } from 'convex/values';
 import { internalFunctionRef } from '../shared/internalFunctionRef';
 import type { advancePublication as advancePublicationExport } from '../editorial/publicationLifecycleFunctions';
 import type { rebuildEpisodeProjection as rebuildEpisodeProjectionExport } from '../publicRead/episodeTimelineProjectionFunctions';
+import type { rebuildEpisodeIndexProjection as rebuildEpisodeIndexProjectionExport } from '../publicRead/episodeIndexProjectionFunctions';
 import { episodeContentRefOf } from '../publicRead/visualReplay';
 import { commandArgs, operatorNow, recordAudit, requireOperator } from './opsConsoleFunctions';
 import { refreshPublicTextModels } from './publicTextModelRefresh';
@@ -59,6 +60,9 @@ const advancePublicationRef = internalFunctionRef<typeof advancePublicationExpor
 );
 const rebuildEpisodeProjectionRef = internalFunctionRef<typeof rebuildEpisodeProjectionExport>(
   'publicRead/episodeTimelineProjectionFunctions:rebuildEpisodeProjection',
+);
+const rebuildEpisodeIndexProjectionRef = internalFunctionRef<typeof rebuildEpisodeIndexProjectionExport>(
+  'publicRead/episodeIndexProjectionFunctions:rebuildEpisodeIndexProjection',
 );
 
 export class PublicationControlError extends Error {
@@ -91,6 +95,14 @@ export type PublicationDecisionResult = {
   /** The Episode read model after the decision: republished, or withdrawn with its fallbacks. */
   episodeModelRef: string;
   episodeWithdrawnVersions: number[];
+  /**
+   * The Episode INDEX, rebuilt beside it (ART-174).
+   *
+   * Separate from `episodeModelRef` because they are two models and the first version of this
+   * command rebuilt only one: withdrawing `episode:<day>` while `episodes:<world>` went on
+   * listing the same day's title and headline is a withhold that withholds half the content.
+   */
+  episodeIndexModelRef: string;
   /** The cached public text surfaces re-derived in the same transaction. */
   liveRefresh: { modelRef: string; version: number };
   onboardingRefresh: { modelRef: string; version: number };
@@ -168,6 +180,12 @@ export const decideEpisodePublication = mutation({
     const episode = await ctx.runMutation(rebuildEpisodeProjectionRef, {
       worldId: args.worldId, worldDay: args.worldDay, now: at,
     });
+    // ...and the INDEX, which lists the same day's title and headline (ART-174). The two are
+    // rebuilt together because a viewer who cannot open the episode but can still read its
+    // headline in the list has not had it withheld.
+    const episodeIndex = await ctx.runMutation(rebuildEpisodeIndexProjectionRef, {
+      worldId: args.worldId, now: at,
+    });
 
     // Every other cached public text surface, through the helper named for the invariant so the
     // next read model that quotes Canon is picked up here without a second edit.
@@ -195,6 +213,7 @@ export const decideEpisodePublication = mutation({
       publicationId: transition.publicationId,
       episodeModelRef: episode.modelRef,
       episodeWithdrawnVersions: episode.withdrawnVersions,
+      episodeIndexModelRef: episodeIndex.modelRef,
       liveRefresh: refresh.live,
       onboardingRefresh: refresh.onboarding,
       voteConsequenceRefresh: refresh.voteConsequenceModelRefs,

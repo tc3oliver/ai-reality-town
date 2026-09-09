@@ -23,6 +23,7 @@ import { getFunctionName } from 'convex/server';
 import { composeCharacterViewModel, type CharacterViewerKnowledgeInput } from '../../src/components/public/characterRoute';
 import type { StateChange } from '../canon/model';
 import { rebuildEpisodeProjection } from '../publicRead/episodeTimelineProjectionFunctions';
+import { rebuildEpisodeIndexProjection } from '../publicRead/episodeIndexProjectionFunctions';
 import { refreshViewerKnowledgeProjections } from '../publicRead/viewerKnowledgeProjectionFunctions';
 import { advancePublication } from '../editorial/publicationLifecycleFunctions';
 import { rebuildViewerKnowledgeProjections } from '../publicRead/viewerKnowledgeProjectionFunctions';
@@ -125,8 +126,25 @@ const revealingFact: StateChange = {
   predicate: 'ledgerFinding', value: SECRET_CONTENT, visibility: 'public',
 } as StateChange;
 
+/**
+ * Seed every row with an `_id`, and mean it.
+ *
+ * The first version of this fixture left `_id` off the literals. `advancePublication` patches by
+ * id, `memoryDb.patch` searches every table for a matching `_id`, and `undefined === undefined` —
+ * so a patch aimed at the publication record landed on whatever row came first and rewrote it.
+ * Three tests in this file passed for that reason rather than for the reason they claimed: the
+ * Episode row was being turned `withheld` by accident, which excluded it from the index through
+ * the SAFETY filter while the publication gate under test was doing nothing at all.
+ */
+function withIds(tables: Tables): Tables {
+  for (const [table, rows] of Object.entries(tables)) {
+    rows.forEach((row, index) => { row._id = `${table}:${index}`; });
+  }
+  return tables;
+}
+
 function baseTables(publicationStatus = 'ready'): Tables {
-  return {
+  return withIds({
     canonEvents: [canonRow(0, [revealingFact])],
     canonSnapshots: [],
     worldSecrets: [{
@@ -151,11 +169,13 @@ function baseTables(publicationStatus = 'ready'): Tables {
       schemaVersion: 1, audit: [], createdAt: 1_000, updatedAt: 1_000,
     }],
     publishedReadModels: [],
+    storyArcRecommendedEntries: [],
+    storyArcProjectionEvents: [],
     postGenerationSafetyClassifications: [],
     safetyStatusOverrides: [],
     worldSchedules: [{ worldId: WORLD_ID, mode: 'live', status: 'running', publishEnabled: true }],
     operatorAuditLog: [],
-  };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -187,6 +207,9 @@ function recordingCtx(tables: Tables) {
       }
       if (target.includes('refreshViewerKnowledgeProjections')) {
         return Promise.resolve({ modelRefs: [viewerKnowledgeModelRef(CHARACTER_ID)], rebuiltCharacterCount: 1 });
+      }
+      if (target.includes('rebuildEpisodeIndexProjection')) {
+        return Promise.resolve({ modelRef: `episodes:${WORLD_ID}`, version: 2, deduplicated: false });
       }
       throw new Error(`undispatched mutation ${target}`);
     },
@@ -267,6 +290,7 @@ describe('decideEpisodePublication — the surface follows the decision', () => 
     expect(dispatched.map(({ target }) => target)).toEqual([
       'editorial/publicationLifecycleFunctions:advancePublication',
       'publicRead/episodeTimelineProjectionFunctions:rebuildEpisodeProjection',
+      'publicRead/episodeIndexProjectionFunctions:rebuildEpisodeIndexProjection',
       'publicRead/liveStateFunctions:rebuildLiveProjection',
       'publicRead/onboardingSummaryFunctions:rebuildOnboardingSummary',
       'publicRead/voteConsequenceProjectionFunctions:refreshVoteConsequenceProjections',
@@ -323,6 +347,7 @@ const REAL_DISPATCH: Record<string, Registered> = {
   'editorial/publicationLifecycleFunctions:advancePublication': advancePublication as unknown as Registered,
   'publicRead/episodeTimelineProjectionFunctions:rebuildEpisodeProjection': rebuildEpisodeProjection as unknown as Registered,
   'publicRead/viewerKnowledgeProjectionFunctions:refreshViewerKnowledgeProjections': refreshViewerKnowledgeProjections as unknown as Registered,
+  'publicRead/episodeIndexProjectionFunctions:rebuildEpisodeIndexProjection': rebuildEpisodeIndexProjection as unknown as Registered,
 };
 
 function realCtx(tables: Tables) {
@@ -466,5 +491,74 @@ describe('AC#5 — releasing an Episode puts its secret on the character page', 
     // (`writeStore(...).publicationEnabled`), which is why the seed above wrote no row either.
     expect(viewerKnowledgePayload(tables)).toBeNull();
     expect(JSON.stringify(tables.publishedReadModels)).not.toContain(SECRET_CONTENT);
+  });
+});
+
+/**
+ * The index, which the first version of this command forgot (ART-174).
+ *
+ * Withdrawing `episode:<day>` while `episodes:<world>` goes on listing the same day's title and
+ * headline is a withhold that withholds half the content — and it is the half a viewer meets
+ * first, because the index is the episode list.
+ */
+describe('an administrator withhold reaches the episode index as well', () => {
+  const previous = process.env.SIMULATION_OPS_OPERATORS;
+  beforeEach(() => { process.env.SIMULATION_OPS_OPERATORS = REGISTRY; });
+  afterAll(() => { process.env.SIMULATION_OPS_OPERATORS = previous; });
+
+  const indexPayload = (tables: Tables) => (tables.publishedReadModels ?? [])
+    .filter((row) => row.isCurrent && row.modelRef === `episodes:${WORLD_ID}`)
+    .at(-1)?.payload as { episodes?: Array<{ worldDay: number }> } | undefined;
+
+  it('lists the day while it is publishable, and drops it once it is withheld', async () => {
+    const tables = baseTables('ready');
+    await handler._handler(realCtx(tables), args({ decision: 'publish' }));
+    expect(indexPayload(tables)?.episodes?.map((entry) => entry.worldDay)).toEqual([WORLD_DAY]);
+    expect(JSON.stringify(indexPayload(tables))).toContain('帳本離開了磨坊');
+
+    await handler._handler(realCtx(tables), args({ decision: 'withhold', now: NOW + 1 }));
+    expect(indexPayload(tables)?.episodes).toEqual([]);
+    // The headline is gone from the payload entirely, not merely unlinked.
+    expect(JSON.stringify(indexPayload(tables))).not.toContain('帳本離開了磨坊');
+  });
+
+  it('brings it back when the administrator resumes the day', async () => {
+    const tables = baseTables('ready');
+    await handler._handler(realCtx(tables), args({ decision: 'withhold' }));
+    expect(indexPayload(tables)?.episodes).toEqual([]);
+
+    await handler._handler(realCtx(tables), args({ decision: 'resume_to_ready', now: NOW + 1 }));
+    expect(indexPayload(tables)?.episodes?.map((entry) => entry.worldDay)).toEqual([WORLD_DAY]);
+  });
+
+  it('keeps indexing a day that has no publication record at all', async () => {
+    // Silence is not a refusal, here as in the Episode read model: a world predating FR-K004
+    // must not lose its episode list.
+    const tables = baseTables('ready');
+    tables.publicationRecords = [];
+    const rebuild = rebuildEpisodeIndexProjection as unknown as Registered;
+    await rebuild._handler(realCtx(tables), { worldId: WORLD_ID, now: NOW });
+    expect(indexPayload(tables)?.episodes?.map((entry) => entry.worldDay)).toEqual([WORLD_DAY]);
+  });
+
+  it('ignores a superseded record for a day that was later republished', async () => {
+    // `by_world_and_status` finds every record, live or not. Only `isCurrent` decides, or a day
+    // that was regenerated once could never be indexed again.
+    const tables = baseTables('ready');
+    tables.publicationRecords = [
+      {
+        worldId: WORLD_ID, contentRef: CONTENT_REF, contentKind: 'episode',
+        publicationId: `pub:${CONTENT_REF}:1`, status: 'superseded', version: 1, isCurrent: false,
+        schemaVersion: 1, audit: [], createdAt: 1_000, updatedAt: 1_000,
+      },
+      {
+        worldId: WORLD_ID, contentRef: CONTENT_REF, contentKind: 'episode',
+        publicationId: `pub:${CONTENT_REF}:2`, status: 'ready', version: 2, isCurrent: true,
+        schemaVersion: 1, audit: [], createdAt: 2_000, updatedAt: 2_000,
+      },
+    ];
+    const rebuild = rebuildEpisodeIndexProjection as unknown as Registered;
+    await rebuild._handler(realCtx(tables), { worldId: WORLD_ID, now: NOW });
+    expect(indexPayload(tables)?.episodes?.map((entry) => entry.worldDay)).toEqual([WORLD_DAY]);
   });
 });
