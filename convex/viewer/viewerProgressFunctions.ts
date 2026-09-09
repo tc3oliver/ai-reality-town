@@ -37,10 +37,15 @@
  */
 
 import { v } from 'convex/values';
-import type { GenericQueryCtx } from 'convex/server';
+import type { GenericMutationCtx, GenericQueryCtx } from 'convex/server';
 
 import { mutation, query } from '../_generated/server';
 import type { DataModel } from '../_generated/dataModel';
+import {
+  mergeWasLossless,
+  planProgressMerge,
+  resolveAuthViewerKey,
+} from './authenticatedProgress';
 import { serveReadModel } from '../publicRead/readModel';
 import { readStore } from '../publicRead/readModelFunctions';
 import {
@@ -135,11 +140,24 @@ export const getViewerProgress = query({
   args: { worldId: v.string(), deviceKey: v.string() },
   returns: v.union(progressValidator, v.null()),
   handler: async (ctx, args) => {
+    /**
+     * A VERIFIED IDENTITY WINS OVER THE PRESENTED TOKEN (FR-J003 / ART-71).
+     *
+     * Folded into this query rather than added beside it, and not only to stay under
+     * `viewerWriteBoundary`'s cap. Two endpoints would mean a signed-in client could read the
+     * device row by calling the wrong one — a bug that looks like nothing and quietly reports the
+     * wrong history. With one endpoint the choice is not the caller's to get wrong.
+     *
+     * The identity is never taken from `args`. `ctx.auth.getUserIdentity()` returns a value only
+     * after Convex has verified the JWT against the issuer in `convex/auth.config.ts`; a `subject`
+     * parameter would turn a verified identity back into a claim.
+     */
+    const authenticated = resolveAuthViewerKey(await verifiedIdentity(ctx));
     // Before any row access, as the note above claims. Digesting garbage yields a perfectly
     // well-formed digest, so without this the read would go looking for a row that cannot exist
     // -- and the claim would describe a code path that was not there.
-    if (!isProgressDeviceKey(args.deviceKey)) return null;
-    const viewerKey = deviceViewerKey(args.deviceKey);
+    if (!authenticated.ok && !isProgressDeviceKey(args.deviceKey)) return null;
+    const viewerKey = authenticated.ok ? authenticated.viewerKey : deviceViewerKey(args.deviceKey);
     const row = await loadProgressRow(ctx.db, args.worldId, viewerKey);
     if (!row) return null;
     try {
@@ -189,8 +207,52 @@ export const recordViewerProgress = mutation({
   },
   returns: progressResultValidator,
   handler: async (ctx, args) => {
+    // A verified identity wins over the presented token, for the reason `getViewerProgress` gives.
+    // The write therefore lands on the account's row while signed in and on the device's while
+    // signed out — which is FR-H004 AC#7's first clause holding in both directions rather than
+    // only for anonymous callers.
+    const authenticated = resolveAuthViewerKey(await verifiedIdentity(ctx));
+    return applyProgressSubmission(ctx, {
+    worldId: args.worldId,
+    viewerKey: authenticated.ok ? authenticated.viewerKey : deviceViewerKey(args.deviceKey),
+    deviceKey: args.deviceKey,
+    // The device-key shape check does not apply to a caller who supplied no token. Passing the
+    // flag rather than inventing a synthetic token that satisfies the pattern: a fabricated value
+    // would make the check pass while describing nothing.
+    identityVerified: authenticated.ok,
+    lastViewedEpisodeId: args.lastViewedEpisodeId,
+    followedCharacterIds: args.followedCharacterIds,
+    followedArcIds: args.followedArcIds,
+    spoilerMode: args.spoilerMode,
+    });
+  },
+});
+
+/**
+ * Apply one progress submission to one viewer's row (ART-71).
+ *
+ * Extracted from `recordViewerProgress` so the anonymous and authenticated surfaces share ONE
+ * definition of what recording progress does. They differ in how the viewer key is derived and in
+ * nothing else, and two copies of the budget, the allocation refusals and the row-writing rules
+ * would be two places for those to drift.
+ */
+async function applyProgressSubmission(
+  ctx: GenericMutationCtx<DataModel>,
+  input: {
+    worldId: string;
+    viewerKey: string;
+    deviceKey: string;
+    lastViewedEpisodeId: string | null;
+    followedCharacterIds: string[];
+    followedArcIds: string[];
+    spoilerMode: string;
+    identityVerified?: boolean;
+  },
+): Promise<{ accepted: boolean; code: string | null }> {
+  {
+    const args = input;
     const now = Date.now();
-    const viewerKey = deviceViewerKey(args.deviceKey);
+    const viewerKey = input.viewerKey;
     const existing = await loadProgressRow(ctx.db, args.worldId, viewerKey);
     const counter = await ctx.db
       .query('viewerProgressCounters')
@@ -210,6 +272,7 @@ export const recordViewerProgress = mutation({
       published: await publishedWorldContent(ctx.db, args.worldId),
       rowCount: counter?.rowCount ?? 0,
       hasExistingRow: existing !== null,
+      identityVerified: input.identityVerified,
     });
 
     // Derived from {@link NON_WRITING_REJECTION_CODES} rather than from a code named here, so the
@@ -265,5 +328,142 @@ export const recordViewerProgress = mutation({
     }
 
     return { accepted: decision.accepted, code: decision.accepted ? null : decision.code };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// FR-J003 — the authenticated viewer (ART-71).
+//
+// Three functions, and the split between them is the whole of FR-H004 AC#7's second clause:
+// reading and writing an account's own progress are ordinary operations on a different viewer key,
+// and MERGING an anonymous history into it is a third operation that happens only when asked.
+//
+// Nothing here accepts a subject as an argument. The only source of a viewer's identity is
+// `ctx.auth.getUserIdentity()`, which Convex populates after verifying the JWT against the issuer
+// in `convex/auth.config.ts`. A `subject` parameter would turn a verified identity into a claim.
+// ---------------------------------------------------------------------------
+
+/** The verified identity, reduced to what the pure layer uses. `null` when unauthenticated. */
+async function verifiedIdentity(
+  ctx: { auth: { getUserIdentity: () => Promise<{ subject: string } | null> } },
+): Promise<{ subject: string } | null> {
+  const identity = await ctx.auth.getUserIdentity();
+  return identity === null ? null : { subject: identity.subject };
+}
+
+const mergeResultValidator = v.object({
+  merged: v.boolean(),
+  code: v.union(v.string(), v.null()),
+  lossless: v.boolean(),
+  addedCharacterIds: v.array(v.string()),
+  addedArcIds: v.array(v.string()),
+  droppedCharacterIds: v.array(v.string()),
+  droppedArcIds: v.array(v.string()),
+  spoilerModeConflict: v.boolean(),
+});
+
+/**
+ * Claim an anonymous device history for this account (FR-H004 AC#7's second clause).
+ *
+ * **明確.** Its own operation. Nothing merges as a side effect of signing in — a viewer who signs
+ * in on a shared machine has not asked for that machine's history.
+ *
+ * **經授權.** The caller must present a verified identity AND the device token itself. Holding the
+ * token is the only evidence the anonymous history is theirs to claim; the identity is the only
+ * thing that says which account claims it. Neither alone is enough, and the token is never
+ * accepted as a substitute for the identity.
+ *
+ * **無損.** A union, with anything the caps could not keep RETURNED rather than dropped silently —
+ * and the device row is left exactly as it was. Deleting it would make a merge that went wrong
+ * unrecoverable, and the namespace exists so both operands can coexist.
+ */
+export const mergeDeviceProgressIntoAccount = mutation({
+  args: { worldId: v.string(), deviceKey: v.string() },
+  returns: mergeResultValidator,
+  handler: async (ctx, args) => {
+    const empty = {
+      addedCharacterIds: [], addedArcIds: [], droppedCharacterIds: [], droppedArcIds: [],
+      spoilerModeConflict: false,
+    };
+    const resolved = resolveAuthViewerKey(await verifiedIdentity(ctx));
+    if (!resolved.ok) return { merged: false, code: resolved.code, lossless: false, ...empty };
+    if (!isProgressDeviceKey(args.deviceKey)) {
+      return { merged: false, code: 'MERGE_DEVICE_KEY_INVALID', lossless: false, ...empty };
+    }
+
+    const deviceRow = await loadProgressRow(ctx.db, args.worldId, deviceViewerKey(args.deviceKey));
+    if (!deviceRow) return { merged: false, code: 'MERGE_SOURCE_ABSENT', lossless: false, ...empty };
+
+    let device;
+    try {
+      device = validateViewerProgressRecord(deviceRow);
+    } catch {
+      // An unreadable source is nothing to claim, and reporting it as absent avoids telling a
+      // caller anything about a row they have already proven they hold the token for.
+      return { merged: false, code: 'MERGE_SOURCE_ABSENT', lossless: false, ...empty };
+    }
+
+    const accountRow = await loadProgressRow(ctx.db, args.worldId, resolved.viewerKey);
+    let account = null;
+    if (accountRow) {
+      try {
+        account = validateViewerProgressRecord(accountRow);
+      } catch {
+        account = null;
+      }
+    }
+
+    const plan = planProgressMerge({ account, device });
+    const now = Date.now();
+    if (accountRow) {
+      await ctx.db.patch(accountRow._id, {
+        ...(plan.merged.lastViewedEpisodeId !== null
+          ? { lastViewedEpisodeId: plan.merged.lastViewedEpisodeId }
+          : {}),
+        followedCharacterIds: plan.merged.followedCharacterIds,
+        followedArcIds: plan.merged.followedArcIds,
+        spoilerMode: plan.merged.spoilerMode,
+        attempts: accountRow.attempts + 1,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.insert('viewerProgress', {
+        schemaVersion: VIEWER_PROGRESS_SCHEMA_VERSION,
+        worldId: args.worldId,
+        viewerKey: resolved.viewerKey,
+        ...(plan.merged.lastViewedEpisodeId !== null
+          ? { lastViewedEpisodeId: plan.merged.lastViewedEpisodeId }
+          : {}),
+        followedCharacterIds: plan.merged.followedCharacterIds,
+        followedArcIds: plan.merged.followedArcIds,
+        spoilerMode: plan.merged.spoilerMode,
+        attempts: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const counter = await ctx.db
+        .query('viewerProgressCounters')
+        .withIndex('by_world', (q) => q.eq('worldId', args.worldId))
+        .unique();
+      if (counter) await ctx.db.patch(counter._id, { rowCount: counter.rowCount + 1, updatedAt: now });
+      else {
+        await ctx.db.insert('viewerProgressCounters', {
+          schemaVersion: 1, worldId: args.worldId, rowCount: 1, updatedAt: now,
+        });
+      }
+    }
+
+    // The device row is DELIBERATELY untouched. See the docblock: a merge that consumed its source
+    // could not be undone, and both namespaces exist so that it never has to be.
+    return {
+      merged: true,
+      code: null,
+      lossless: mergeWasLossless(plan.summary),
+      addedCharacterIds: plan.summary.addedCharacterIds,
+      addedArcIds: plan.summary.addedArcIds,
+      droppedCharacterIds: plan.summary.droppedCharacterIds,
+      droppedArcIds: plan.summary.droppedArcIds,
+      spoilerModeConflict: plan.summary.spoilerModeConflict,
+    };
   },
 });

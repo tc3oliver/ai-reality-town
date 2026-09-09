@@ -403,6 +403,12 @@
         "gate": "viewer"
       },
       {
+        "path": "convex/viewer/viewerProgressFunctions.ts",
+        "name": "mergeDeviceProgressIntoAccount",
+        "kind": "mutation",
+        "gate": "viewer"
+      },
+      {
         "path": "convex/operations/opsConsoleFunctions.ts",
         "name": "inspectWorldState",
         "kind": "query",
@@ -688,11 +694,12 @@
       "src/components/vote",
       "src/components/recap"
     ],
-    "maxViewerMutations": 2,
+    "maxViewerMutations": 3,
     "requiredSymbols": [
       "classifyViewerInput",
       "evaluateVoteSubmission",
-      "evaluateViewerProgressSubmission"
+      "evaluateViewerProgressSubmission",
+      "planProgressMerge"
     ],
     "forbiddenSymbols": [
       "canonEvents",
@@ -715,6 +722,10 @@
       {
         "path": "convex/viewer/viewerProgressFunctions.ts",
         "name": "recordViewerProgress"
+      },
+      {
+        "path": "convex/viewer/viewerProgressFunctions.ts",
+        "name": "mergeDeviceProgressIntoAccount"
       }
     ]
   },

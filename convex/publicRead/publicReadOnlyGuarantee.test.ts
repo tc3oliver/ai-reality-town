@@ -376,9 +376,15 @@ describe('AC#1 — the client-reachable surface is exactly what policy declares'
     // silently, and the point of an exhaustive pin is that each addition is argued for. §13.12
     // defines Viewer Progress as a persisted per-viewer record, so device-level progress without
     // login (AC#3) cannot be delivered by a read alone.
+    //
+    // ART-71 (FR-J003) is the third, and the cap moved 2 -> 3. It added ONE surface rather than
+    // three: authenticated read and write fold into the two above, which prefer a verified
+    // identity over the presented token. Only the MERGE is new, because FR-H004 AC#7 requires it
+    // to be explicit rather than a side effect of signing in.
     expect(VIEWER_MUTATIONS.map((entry) => `${entry.path}:${entry.name}`)).toEqual([
       'convex/viewer/environmentVoteFunctions.ts:submitEnvironmentVote',
       'convex/viewer/viewerProgressFunctions.ts:recordViewerProgress',
+      'convex/viewer/viewerProgressFunctions.ts:mergeDeviceProgressIntoAccount',
     ]);
     // No action is reachable by anyone but an operator, viewer gate included. An action can
     // reach a provider, and "public reads never trigger LLM generation" depends on that.
@@ -971,9 +977,16 @@ describe('the deployment routes zero public HTTP endpoints', () => {
  * `docs/device-return-recap.md` §3: PRD §13.12 defines Viewer Progress as a persisted per-viewer
  * record, and FR-H004 AC#3 requires an unauthenticated viewer to have one, so the capability
  * cannot be delivered by a read. The cap moved from 1 to 2 rather than the gate becoming
- * uncapped, and every rule below applies to both.
+ * uncapped, and every rule below applies to all of them.
+ *
+ * ART-71 is the third, and it is ONE mutation rather than three. FR-J003 needs an authenticated
+ * viewer to read, write and merge progress; the first two did not need surfaces of their own,
+ * because `getViewerProgress` and `recordViewerProgress` prefer a verified identity over the
+ * presented token — fewer endpoints, and safer, since two would let a signed-in client reach the
+ * anonymous row by calling the wrong one. Only the MERGE is genuinely new, because FR-H004 AC#7
+ * requires it to be explicit rather than a side effect of signing in. The cap moved from 2 to 3.
  */
-describe('the declared viewer writes are exactly two bounded surfaces', () => {
+describe('the declared viewer writes are exactly three bounded surfaces', () => {
   /** Every argument each write accepts. Exhaustive: an added field fails here. */
   const DECLARED_ARGS: Readonly<Record<string, readonly string[]>> = {
     submitEnvironmentVote: ['candidateId', 'deviceKey', 'worldId'],
@@ -981,9 +994,13 @@ describe('the declared viewer writes are exactly two bounded surfaces', () => {
       'deviceKey', 'followedArcIds', 'followedCharacterIds',
       'lastViewedEpisodeId', 'spoilerMode', 'worldId',
     ],
+    // The merge names the DEVICE it claims and nothing else. The account is not an argument: it
+    // comes from `ctx.auth.getUserIdentity()`, so there is no field through which one account
+    // could name another's row (ART-71).
+    mergeDeviceProgressIntoAccount: ['deviceKey', 'worldId'],
   };
-  test('there are exactly two, both mutations, both in the viewer module', () => {
-    expect(VIEWER_MUTATIONS).toHaveLength(2);
+  test('there are exactly three, all mutations, all in the viewer module', () => {
+    expect(VIEWER_MUTATIONS).toHaveLength(3);
     for (const entry of VIEWER_MUTATIONS) {
       expect(entry.path.startsWith('convex/viewer/')).toBe(true);
       const fn = registered(entry);
@@ -993,7 +1010,7 @@ describe('the declared viewer writes are exactly two bounded surfaces', () => {
     }
   });
 
-  test('neither accepts an argument that can name a character or a world change', () => {
+  test('none accepts an argument that can name a character or a world change', () => {
     // The stronger half of AC#7 applied to the writes: these are not rejected inputs, they are
     // not inputs. Convex validates against `exportArgs()` before the handler runs.
     //
@@ -1058,15 +1075,17 @@ describe('the declared viewer writes are exactly two bounded surfaces', () => {
     const boundary = (JSON.parse(readFileSync(join(ROOT, 'architecture/module-boundaries.json'), 'utf8')) as {
       viewerWriteBoundary: { maxViewerMutations: number; allowed: Array<{ path: string; name: string }> };
     }).viewerWriteBoundary;
-    // ART-39 raised the cap 1 -> 2 for FR-H004's progress record. The cap is asserted alongside
-    // the exhaustive list on purpose: the list is what stops a third write, and the number is
-    // what makes raising it a deliberate edit to a file a reviewer reads. `getViewerProgress` is
-    // viewer-gated too but is a QUERY, so it appears in `allowed` and spends none of the cap.
-    expect(boundary.maxViewerMutations).toBe(2);
+    // ART-39 raised the cap 1 -> 2 for FR-H004's progress record; ART-71 raised it 2 -> 3 for
+    // FR-J003's merge. The cap is asserted alongside the exhaustive list on purpose: the list is
+    // what stops a further write, and the number is what makes raising it a deliberate edit to a
+    // file a reviewer reads. `getViewerProgress` is viewer-gated too but is a QUERY, so it appears
+    // in `allowed` and spends none of the cap.
+    expect(boundary.maxViewerMutations).toBe(3);
     expect(boundary.allowed).toEqual([
       { path: 'convex/viewer/environmentVoteFunctions.ts', name: 'submitEnvironmentVote' },
       { path: 'convex/viewer/viewerProgressFunctions.ts', name: 'getViewerProgress' },
       { path: 'convex/viewer/viewerProgressFunctions.ts', name: 'recordViewerProgress' },
+      { path: 'convex/viewer/viewerProgressFunctions.ts', name: 'mergeDeviceProgressIntoAccount' },
     ]);
   });
 });

@@ -23,7 +23,12 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { getViewerProgress, recordViewerProgress } from './viewerProgressFunctions';
+import {
+  getViewerProgress,
+  mergeDeviceProgressIntoAccount,
+  recordViewerProgress,
+} from './viewerProgressFunctions';
+import { authViewerKey } from './authenticatedProgress';
 import {
   deviceViewerKey,
   MAX_ATTEMPTS_PER_DEVICE_PER_WORLD,
@@ -46,6 +51,7 @@ type Tables = Record<string, Row[]>;
 type Registered = { _handler: (ctx: unknown, args: unknown) => Promise<unknown> };
 const readHandler = getViewerProgress as unknown as Registered;
 const writeHandler = recordViewerProgress as unknown as Registered;
+const mergeHandler = mergeDeviceProgressIntoAccount as unknown as Registered;
 
 /**
  * The slice of Convex these handlers use. Index constraints are `eq` chains, so filtering by the
@@ -53,7 +59,7 @@ const writeHandler = recordViewerProgress as unknown as Registered;
  * meaningful: a handler that looked a row up by anything other than its index constraints would
  * find nothing here.
  */
-function memoryCtx(tables: Tables) {
+function memoryCtx(tables: Tables, identity: { subject: string } | null = null) {
   const db = {
     query(table: string) {
       return {
@@ -94,7 +100,11 @@ function memoryCtx(tables: Tables) {
       return Promise.resolve();
     },
   };
-  return { db } as Parameters<typeof writeHandler._handler>[0];
+  // `auth` is part of the slice these handlers use since ART-71. Null by default, so every
+  // pre-existing case still describes an unauthenticated caller — which is what they were written
+  // about.
+  const auth = { getUserIdentity: () => Promise.resolve(identity) };
+  return { db, auth } as Parameters<typeof writeHandler._handler>[0];
 }
 
 /** A published `episodes:<worldId>` row, in the real `publishedReadModels` shape. */
@@ -433,7 +443,13 @@ describe('the read is a read', () => {
     // The docblock claims this; without the check it was a comment describing a path that was not
     // there. A `db` whose every property access throws is what makes "before any row access" a
     // checkable fact rather than a description of intent.
-    const exploding = { db: new Proxy({}, { get() { throw new Error('reached the database'); } }) };
+    // `auth` resolves to no identity: an unauthenticated caller presenting a malformed token is
+    // the case this asserts, and since ART-71 the identity is consulted BEFORE the database — so
+    // the proxy still proves that no row was reached.
+    const exploding = {
+      db: new Proxy({}, { get() { throw new Error('reached the database'); } }),
+      auth: { getUserIdentity: () => Promise.resolve(null) },
+    };
     await expect(
       readHandler._handler(exploding as Parameters<typeof readHandler._handler>[0], {
         worldId: WORLD_ID,
@@ -456,5 +472,152 @@ describe('the increment-only counter is safe only while the table is never vacuu
       .replace(/\/\/.*$/gm, '');
     expect(list).not.toContain('viewerProgress');
     expect(list).not.toContain('viewerProgressCounters');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FR-J003 / FR-H004 AC#7 second clause — the authenticated viewer (ART-71).
+//
+// `authenticatedProgress.test.ts` settles the merge ARITHMETIC as a pure function. What only a
+// handler-level suite can settle is which ROW each call lands on, and that is the whole of AC#7's
+// first clause holding in the direction ART-39 could not test: a signed-in caller must not be able
+// to read or write the anonymous row, and vice versa.
+// ---------------------------------------------------------------------------
+
+const SUBJECT = 'clerk|user_alpha';
+const OTHER_SUBJECT = 'clerk|user_beta';
+
+const submitAs = (tables: Tables, identity: { subject: string } | null, args: Record<string, unknown>) =>
+  writeHandler._handler(memoryCtx(tables, identity), {
+    worldId: WORLD_ID,
+    deviceKey: DEVICE_A,
+    lastViewedEpisodeId: null,
+    followedCharacterIds: [],
+    followedArcIds: [],
+    spoilerMode: 'publicOnly',
+    ...args,
+  }) as Promise<{ accepted: boolean; code: string | null }>;
+
+const readAs = (tables: Tables, identity: { subject: string } | null, deviceKey: string) =>
+  readHandler._handler(memoryCtx(tables, identity), { worldId: WORLD_ID, deviceKey });
+
+const merge = (tables: Tables, identity: { subject: string } | null, deviceKey: string) =>
+  mergeHandler._handler(memoryCtx(tables, identity), { worldId: WORLD_ID, deviceKey }) as Promise<{
+    merged: boolean; code: string | null; lossless: boolean;
+    addedCharacterIds: string[]; droppedCharacterIds: string[]; spoilerModeConflict: boolean;
+  }>;
+
+describe('FR-J003 — a verified identity owns its own row', () => {
+  test('a signed-in write lands on the account row and leaves the device row alone', async () => {
+    const tables = seeded();
+    await submitAs(tables, null, { followedCharacterIds: [CHARACTER_A] });
+    await submitAs(tables, { subject: SUBJECT }, { followedCharacterIds: [CHARACTER_B] });
+
+    const keys = progressRows(tables).map((row) => row.viewerKey);
+    expect(keys).toContain(deviceViewerKey(DEVICE_A));
+    expect(keys).toContain(authViewerKey(SUBJECT));
+    // Two rows, not one rewritten: the account's follows are its own and the device's are still
+    // there to be claimed later.
+    expect(progressRows(tables)).toHaveLength(2);
+    const device = progressRows(tables).find((row) => row.viewerKey === deviceViewerKey(DEVICE_A));
+    expect(device?.followedCharacterIds).toEqual([CHARACTER_A]);
+  });
+
+  test('the identity wins over whatever device token the caller presents', async () => {
+    const tables = seeded();
+    // Same call, same token, different credential: the row it reaches is decided by the verified
+    // identity, so a signed-in client cannot write the device row by passing its token along.
+    await submitAs(tables, { subject: SUBJECT }, { deviceKey: DEVICE_B, followedCharacterIds: [CHARACTER_A] });
+    expect(progressRows(tables).map((row) => row.viewerKey)).toEqual([authViewerKey(SUBJECT)]);
+  });
+
+  test('two accounts cannot see each other, and neither can see the device row', async () => {
+    const tables = seeded();
+    await submitAs(tables, { subject: SUBJECT }, { followedCharacterIds: [CHARACTER_A] });
+    await submitAs(tables, null, { followedCharacterIds: [CHARACTER_B] });
+
+    expect(await readAs(tables, { subject: SUBJECT }, DEVICE_A))
+      .toMatchObject({ followedCharacterIds: [CHARACTER_A] });
+    // A different account presenting the SAME device token still reads nothing: the identity is
+    // what names the row, and there is no argument through which one account names another's.
+    expect(await readAs(tables, { subject: OTHER_SUBJECT }, DEVICE_A)).toBeNull();
+    // Signed out, the same token reads the device row and not the account's.
+    expect(await readAs(tables, null, DEVICE_A))
+      .toMatchObject({ followedCharacterIds: [CHARACTER_B] });
+  });
+});
+
+describe('AC#7 second clause — merging is explicit, authorized and lossless', () => {
+  test('an unauthenticated caller cannot merge, however good the token is', async () => {
+    const tables = seeded();
+    await submitAs(tables, null, { followedCharacterIds: [CHARACTER_A] });
+    const result = await merge(tables, null, DEVICE_A);
+    expect(result).toMatchObject({ merged: false, code: 'VIEWER_NOT_AUTHENTICATED' });
+    // 經授權: holding the token is not enough. Nothing was written.
+    expect(progressRows(tables)).toHaveLength(1);
+  });
+
+  test('an authenticated caller cannot merge a token they did not present correctly', async () => {
+    const tables = seeded();
+    await submitAs(tables, null, { followedCharacterIds: [CHARACTER_A] });
+    expect(await merge(tables, { subject: SUBJECT }, 'NOT A VALID KEY'))
+      .toMatchObject({ merged: false, code: 'MERGE_DEVICE_KEY_INVALID' });
+    // A well-formed token with no row behind it is nothing to claim.
+    expect(await merge(tables, { subject: SUBJECT }, DEVICE_B))
+      .toMatchObject({ merged: false, code: 'MERGE_SOURCE_ABSENT' });
+  });
+
+  test('nothing merges as a side effect of signing in and writing', async () => {
+    const tables = seeded();
+    await submitAs(tables, null, { followedCharacterIds: [CHARACTER_A] });
+    await submitAs(tables, { subject: SUBJECT }, { followedCharacterIds: [CHARACTER_B] });
+    // 明確: the account's row carries only what the account wrote. A viewer who signs in on a
+    // shared machine has not asked for that machine's history.
+    const account = progressRows(tables).find((row) => row.viewerKey === authViewerKey(SUBJECT));
+    expect(account?.followedCharacterIds).toEqual([CHARACTER_B]);
+  });
+
+  test('a merge unions both rows and leaves the device row intact', async () => {
+    const tables = seeded();
+    await submitAs(tables, null, {
+      followedCharacterIds: [CHARACTER_A], lastViewedEpisodeId: viewerProgressEpisodeId(WORLD_ID, 7),
+    });
+    await submitAs(tables, { subject: SUBJECT }, { followedCharacterIds: [CHARACTER_B] });
+
+    const result = await merge(tables, { subject: SUBJECT }, DEVICE_A);
+    expect(result).toMatchObject({ merged: true, code: null, lossless: true });
+    expect(result.addedCharacterIds).toEqual([CHARACTER_A]);
+
+    const account = progressRows(tables).find((row) => row.viewerKey === authViewerKey(SUBJECT));
+    expect(account?.followedCharacterIds).toEqual([CHARACTER_B, CHARACTER_A]);
+    expect(account?.lastViewedEpisodeId).toBe(viewerProgressEpisodeId(WORLD_ID, 7));
+
+    // 無損, and recoverable: the source row is untouched, so a merge that went wrong has lost
+    // nothing. That is what the two namespaces are for.
+    const device = progressRows(tables).find((row) => row.viewerKey === deviceViewerKey(DEVICE_A));
+    expect(device?.followedCharacterIds).toEqual([CHARACTER_A]);
+  });
+
+  test('a first-sign-in merge adopts the device history into a new account row', async () => {
+    const tables = seeded();
+    await submitAs(tables, null, { followedCharacterIds: [CHARACTER_A], followedArcIds: [ARC_MILL] });
+    const result = await merge(tables, { subject: SUBJECT }, DEVICE_A);
+    expect(result).toMatchObject({ merged: true, lossless: true });
+
+    const account = progressRows(tables).find((row) => row.viewerKey === authViewerKey(SUBJECT));
+    expect(account?.followedCharacterIds).toEqual([CHARACTER_A]);
+    expect(account?.followedArcIds).toEqual([ARC_MILL]);
+    // The row counter tracks the new row, so the world's row ceiling still means something.
+    expect(tables.viewerProgressCounters?.[0]?.rowCount).toBe(2);
+  });
+
+  test('merging twice is idempotent', async () => {
+    const tables = seeded();
+    await submitAs(tables, null, { followedCharacterIds: [CHARACTER_A] });
+    await merge(tables, { subject: SUBJECT }, DEVICE_A);
+    const second = await merge(tables, { subject: SUBJECT }, DEVICE_A);
+    expect(second).toMatchObject({ merged: true, lossless: true });
+    expect(second.addedCharacterIds).toEqual([]);
+    expect(progressRows(tables)).toHaveLength(2);
   });
 });
