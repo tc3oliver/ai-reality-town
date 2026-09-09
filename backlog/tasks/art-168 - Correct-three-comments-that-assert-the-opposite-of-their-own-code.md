@@ -1,11 +1,11 @@
 ---
 id: ART-168
 title: Correct three comments that assert the opposite of their own code
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-09-09 00:12'
-updated_date: '2026-09-09 00:14'
+updated_date: '2026-09-09 00:33'
 labels:
   - prd-1.0
 dependencies: []
