@@ -1,9 +1,11 @@
 ---
 id: ART-153
 title: Regenerate convex/_generated/api.d.ts and keep it from going stale
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-08-29 05:42'
+updated_date: '2026-09-09 13:56'
 labels: []
 dependencies: []
 priority: medium
@@ -41,3 +43,14 @@ convex/_generated/api.d.ts was last generated on 2026-08-10 and is missing every
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Measure the real drift rather than trusting the task text.
+2. Establish whether `convex codegen` can run offline — it cannot; it downloads deployment state and uploads functions, which AC#3 forbids.
+3. Reimplement the CLI's entryPoints() skip rules narrowly, from its own source, and pin each rule so a wrong copy fails legibly.
+4. Share one definition between the writer (--write) and the checker, so regeneration and verification cannot disagree.
+5. Fault-inject against the real file; strengthen the checker wherever an injection does not bite.
+6. Wire check:generated-api + test:generated-api into the gate; document the regeneration command in CLAUDE.md §7.
+<!-- SECTION:PLAN:END -->
