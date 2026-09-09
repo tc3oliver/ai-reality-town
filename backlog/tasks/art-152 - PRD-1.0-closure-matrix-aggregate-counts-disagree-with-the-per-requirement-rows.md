@@ -1,9 +1,11 @@
 ---
 id: ART-152
 title: PRD 1.0 closure matrix aggregate counts disagree with the per-requirement rows
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-08-29 05:42'
+updated_date: '2026-09-09 11:31'
 labels:
   - prd-1.0
 dependencies: []
@@ -42,3 +44,14 @@ docs/prd-1.0-closure-matrix.md carries summary totals that do not add up to the 
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Count the classification cells and compare against the stated summary totals; identify why they drifted rather than just correcting them.
+2. Make the Classification column a closed vocabulary so counting is possible at all; move the nuance to the verification column.
+3. Add the missing summary bucket (P1/P2 delivered) — its absence is what made the drift structural.
+4. scripts/docs/check-closure-matrix.mjs + node:test suite, following the check-asset-licenses house pattern.
+5. Wire check:closure-matrix and test:closure-matrix into npm run check and check:offline; update CLAUDE.md §7.
+6. Fault-inject against the real document.
+<!-- SECTION:PLAN:END -->
