@@ -32,7 +32,7 @@ import {
 } from '../simulation/provider';
 import { executeWorldDay, type WorldDayRun } from '../simulation/worldDayOrchestration';
 import { worldDayRunId, type WorldDaySlotIdentity } from '../simulation/worldDayLive';
-import { invalidateReadModel, serveReadModel, commitReadModelVersion, SERVABLE_STATUS } from '../publicRead/readModel';
+import { serveReadModel, commitReadModelVersion, SERVABLE_STATUS } from '../publicRead/readModel';
 import { LIVE_MODEL_KIND } from '../publicRead/liveState';
 import { submitRemediation, type RemediationPorts, type RemediationRequest } from './canonCorrection';
 import type { OperatorAuditEntry, OperatorPrincipal } from './operatorAuthorization';
@@ -369,25 +369,40 @@ describe('ART-74 AC#5 — simulation failure leaves last-known-good content read
     expect(servedAfter?.servedFrom).toBe('current');
   });
 
-  it('when the current version is invalidated, reads fall back to last-known-good', async () => {
+  it('a re-publication keeps the prior version as the retained fallback, and keeps serving the new one', async () => {
+    /**
+     * This test used to call `invalidateReadModel` to mark the new version failed and then assert
+     * the fallback served. ART-180 deleted that function — no production code called it — so the
+     * test was proving a recovery no deployment could perform, in a file whose whole subject is
+     * what happens during a REAL failure.
+     *
+     * What it asserts now is the part of the arrangement production does build: a second
+     * publication demotes the first to last-known-good rather than destroying it, so the content
+     * that was readable before is still in the store. What makes it still READABLE during an
+     * outage is one line further down in this file — a rebuild that throws commits nothing, so
+     * the version in front of the public never changes.
+     */
     const fixture = createLongRunFixture();
     const processed = { value: 0 };
     await driveWorldDay(fixture, 0, processed);
 
     const liveRef = `live:${WORLD_ID}`;
-    // Simulate a re-publication: a second published version demotes the first to last-known-good.
+    const before = await serveReadModel(fixture.readStore, WORLD_ID, LIVE_MODEL_KIND, liveRef);
+    expect(before).not.toBeNull();
+
     await commitReadModelVersion(fixture.readStore, {
       worldId: WORLD_ID, modelKind: LIVE_MODEL_KIND, modelRef: liveRef,
       payload: { marker: 'art74-v2' }, sourceEventIds: ['art74:marker'],
       status: SERVABLE_STATUS, now: AT,
     });
-    // Invalidate the current version (e.g. the latest publication failed a safety gate).
-    await invalidateReadModel(fixture.readStore, {
-      worldId: WORLD_ID, modelKind: LIVE_MODEL_KIND, modelRef: liveRef, status: 'failed', now: AT + 1,
-    });
 
     const served = await serveReadModel(fixture.readStore, WORLD_ID, LIVE_MODEL_KIND, liveRef);
-    expect(served).not.toBeNull();
-    expect(served?.servedFrom).toBe('last_known_good'); // prior good content still readable
+    expect(served?.servedFrom).toBe('current');
+    expect((served?.payload as Record<string, unknown>).marker).toBe('art74-v2');
+    // The prior version is retained, not overwritten: it is still in the store, still flagged as
+    // the fallback, and still carries its own payload.
+    const versions = await fixture.readStore.loadLastKnownGood(WORLD_ID, LIVE_MODEL_KIND, liveRef);
+    expect(versions).toHaveLength(1);
+    expect(versions[0]?.version).toBe(before?.version);
   });
 });

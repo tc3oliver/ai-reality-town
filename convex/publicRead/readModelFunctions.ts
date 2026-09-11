@@ -17,7 +17,6 @@ import type { JsonValue } from '../canon/model';
 import { isPublicationEnabled } from '../shared/publicationGate';
 import {
   commitReadModelVersion,
-  invalidateReadModel,
   isReadModelKind,
   isReadModelStatus,
   ReadModelError,
@@ -199,32 +198,24 @@ export const writePublishedReadModel = internalMutation({
   },
 });
 
-/**
- * Invalidate (withhold or fail) the current version while preserving the
- * last-known-good fallback (AC#5). Reads then fall back to the retained prior
- * published version. The Canon history is never touched.
+/*
+ * There was an `invalidateReadModelVersion` internal mutation here, and it is gone (ART-180).
+ *
+ * It marked the current version withheld or failed and let the last-known-good keep serving. It
+ * had **no caller anywhere in the repository** — not a projection, not the editorial pipeline,
+ * not an operator control, not a cron. It was built as a hook for FR-P004 invalidation, and
+ * `docs/prd-2.0-requirement-matrix.md` said so; ART-132 then shipped read-time
+ * `publicationVersion` + servable-status gating, which needs no rebuild and no new version, and
+ * that is the mechanism `docs/prd-2.0-closure-record.md` row 31 actually cites as evidence.
+ *
+ * So it was not "not wired up yet" — it was the design that lost, still registered and still
+ * described in two documents as the one a future task would use. A registered function with no
+ * caller is a claim, not a capability. If read-model invalidation is ever genuinely needed it
+ * should arrive with the thing that calls it.
+ *
+ * `withdrawReadModel` (ART-171) is the surviving removal path and is called in production, from
+ * `episodeTimelineProjectionFunctions.ts` when an episode is withheld.
  */
-export const invalidateReadModelVersion = internalMutation({
-  args: {
-    worldId: v.string(),
-    modelKind: modelKindValidator,
-    modelRef: v.string(),
-    status: v.union(v.literal('withheld'), v.literal('failed')),
-    now: v.number(),
-  },
-  handler: async (ctx, args) => {
-    if (!Number.isFinite(args.now)) {
-      throw new ReadModelError('READ_MODEL_INVALID_SHAPE', 'now must be finite');
-    }
-    return invalidateReadModel(writeStore(ctx.db), {
-      worldId: args.worldId,
-      modelKind: args.modelKind,
-      modelRef: args.modelRef,
-      status: args.status,
-      now: args.now,
-    });
-  },
-});
 
 /** Operations-only: version history (newest first) for a target. */
 export const listReadModelVersions = internalQuery({

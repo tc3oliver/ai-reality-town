@@ -330,14 +330,36 @@ export function createReadModelVersion(input: {
 }
 
 /**
- * Select the version to serve. Prefers the current `published` version; falls
- * back to the retained last-known-good when the current is withheld/failed or
- * still publishing; returns null only if nothing was ever published (AC#1/#5).
+ * Select the version to serve. Prefers the current `published` version; falls back to the
+ * retained last-known-good when the current is not servable; returns null only if nothing
+ * servable was ever published (AC#1/#5).
+ *
+ * **The fallback branch has no production producer today, and saying so is the point** (ART-180).
+ * Every production commit passes `status: 'published'` — `readModel.test.ts` asserts that over
+ * the call sites, not as a convention — so a current version is always servable; and
+ * `withdrawReadModel`, the one production path that takes content off the surface, deliberately
+ * clears `isLastKnownGood` on the fallbacks too, because FR-K004's withhold is a statement about
+ * CONTENT and serving an older copy of withheld content is the outcome it exists to prevent.
+ *
+ * What makes "existing public content stays readable when a rebuild fails" true is not this
+ * branch: a Convex mutation that throws commits nothing, so the prior version simply stays
+ * current. That is what `AC#7: stays available when a later projection write fails (LKG keeps
+ * serving)` exercises, and it asserts `servedFrom: 'current'`.
+ *
+ * The branch is kept as a read-side guard rather than deleted — it costs one `find` and it is the
+ * correct behaviour the day a non-`published` commit exists. An earlier version of this docblock
+ * described it as the mechanism protecting production, which was a claim about a path nothing
+ * could reach.
+ *
+ * The fallback must itself be servable. A row flagged last-known-good while withheld is not a
+ * state any current writer produces, but serving one would put withheld content back on the
+ * public surface, and a read guard that trusts a flag another function maintains is exactly the
+ * kind of assumption that stops being true later.
  */
 export function selectServedVersion(versions: readonly StoredReadModel[]): ServedReadModel | null {
   const current = versions.find((row) => row.isCurrent && row.status === SERVABLE_STATUS);
   if (current) return toServed(current, 'current');
-  const lastKnownGood = versions.find((row) => row.isLastKnownGood);
+  const lastKnownGood = versions.find((row) => row.isLastKnownGood && row.status === SERVABLE_STATUS);
   if (lastKnownGood) return toServed(lastKnownGood, 'last_known_good');
   return null;
 }
@@ -493,24 +515,19 @@ export async function commitReadModelVersion(
 }
 
 /**
- * Invalidate (withhold or fail) the current version while preserving the
- * last-known-good fallback (AC#5). The current version is marked non-current
- * and non-servable; reads then fall back to the retained prior published
- * version. If no fallback exists, subsequent reads return null (the content is
- * genuinely unavailable) — the Canon history is still never touched.
- */
-/**
  * Take a target OFF the public surface entirely — nothing current, and no fallback (ART-171).
  *
- * The difference from {@link invalidateReadModel} is the whole reason this exists, and it is a
- * difference of intent rather than of degree:
+ * This is the ONLY way content leaves the public surface, and until ART-180 it was documented as
+ * one of two. Its sibling was `invalidateReadModel`, which said **"this version is bad"** and let
+ * the last known good one keep serving. That function had no caller anywhere in the repository,
+ * and the task it was built as a hook for — FR-P004 / ART-132 — shipped read-time
+ * `publicationVersion` gating instead, so it was deleted rather than left standing as a second
+ * design a reader could take for an available one.
  *
- *  - `invalidateReadModel` says **"this version is bad"**. Falling back to the last known good
- *    one is exactly right for a failed or half-written rebuild: the viewer keeps seeing the
- *    newest version that WORKED.
- *  - This says **"this content may not be shown"**. Falling back would then serve an older
- *    version of the same withheld content, which is the one outcome a withhold exists to
- *    prevent. FR-K004's `withhold` is not a statement about a version.
+ * What this one means, and why it is not that one: **"this content may not be shown"**. Falling
+ * back would serve an older version of the same withheld content, which is the one outcome a
+ * withhold exists to prevent. FR-K004's `withhold` is not a statement about a version, which is
+ * why the fallbacks are demoted here too.
  *
  * Non-destructive, like every other operation here: rows are demoted, never deleted, so the
  * withheld versions and their payloads remain in the store for audit and for a later release to
@@ -540,27 +557,3 @@ export async function withdrawReadModel(
   return { withdrawnVersions: [...new Set(withdrawn)].sort((left, right) => left - right) };
 }
 
-export async function invalidateReadModel(
-  store: PublicReadStore,
-  input: {
-    worldId: string;
-    modelKind: ReadModelKind;
-    modelRef: string;
-    status: Exclude<ReadModelStatus, 'published' | 'publishing'>;
-    now: number;
-  },
-): Promise<{ invalidatedVersion: number | null }> {
-  assertTarget(input.worldId, input.modelKind, input.modelRef);
-  if (input.status !== 'withheld' && input.status !== 'failed') {
-    throw new ReadModelError('READ_MODEL_INVALID_SHAPE', 'invalidation status must be withheld or failed');
-  }
-  const current = await store.findCurrent(input.worldId, input.modelKind, input.modelRef);
-  if (!current) return { invalidatedVersion: null };
-  await store.markCurrent(current.id, {
-    isCurrent: false,
-    isLastKnownGood: false,
-    status: input.status,
-    updatedAt: input.now,
-  });
-  return { invalidatedVersion: current.version };
-}
