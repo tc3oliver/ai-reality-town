@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Sprite load probe — benchmark only</title>
+  </head>
+  <body>
+    <!--
+      The dynamic-view benchmark's sprite load probe (ART-173).
+
+      NOT a product page and NOT part of any shipped build: `vite.config.ts` adds this input
+      only when `VITE_E2E_FIXTURE === '1'`, which `npm run build` never sets. `benchEntry.test.ts`
+      pins both halves of that.
+
+      It renders the read-only world renderer alone, with N synthetic sprites, so NFR2-002 AC#4's
+      renderer-capacity threshold can be measured at the twenty and forty visible characters
+      FR-Q005 asks for. Mistwood has twelve residents; that is a fact about the world, not a limit
+      on what the renderer must sustain.
+    -->
+    <div id="root"></div>
+    <script type="module" src="/src/e2e/benchEntry.tsx"></script>
+  </body>
+</html>

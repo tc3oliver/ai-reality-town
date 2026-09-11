@@ -136,6 +136,15 @@ export const BENCH_CHARACTER_COUNTS = [12, 20, 40] as const;
  */
 export const CHARACTER_COUNT_LIMIT = {
   available: 12,
+  /**
+   * ART-173 measures the higher counts anyway, and the paragraph above is why it took a probe to
+   * do it. The argument was right about the WORLD and wrong about the MEASUREMENT: NFR2-002 AC#4
+   * is a renderer-capacity threshold, not a claim about how many people live in the town.
+   *
+   * What is still unreachable is the other half of AC#9 — a fixed map ZOOM at those counts —
+   * because zoom is the live page's camera and the probe mounts the renderer alone.
+   */
+  probedBy: 'src/e2e/spriteLoadWorld.ts',
   reason:
     'Mistwood has twelve bound residents. FR-N004 AC#6 makes the view model drop unbound '
     + 'characters, and the roster is pinned against the production visual bindings, so 20 and '
@@ -150,6 +159,16 @@ export type BenchSample = {
   profileId: string;
   mode: BenchMode;
   characterCount: number;
+  /**
+   * True for a synthetic sprite LOAD PROBE rather than a sample of the live page (ART-173).
+   *
+   * Carried on the sample so the label travels with the figure. A row a reader could take as
+   *「Mistwood has forty residents」would be worse than the gap the probe closes, and a results
+   * file is read long after the run that produced it.
+   *
+   * Optional so every sample recorded before ART-173 stays valid; absent means the live page.
+   */
+  loadProbe?: boolean;
   timeToInteractiveMs: number;
   averageFps: number;
   /** The 5th percentile — sustained choppiness, as against a one-off. */

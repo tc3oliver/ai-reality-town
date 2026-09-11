@@ -105,19 +105,45 @@ file with a status and a reason.
   server half as the `runtimeProjectionLatency` metric; the end-to-end figure belongs to
   ART-138.
 
-### `unreachable` — twenty and forty visible characters (AC#6 / AC#9)
+### The sprite load probe — twenty and forty visible characters (AC#6)
 
-Mistwood has exactly twelve residents. `MISTWOOD_CHARACTER_VISUALS` holds twelve,
-`mistwoodCharacterSpriteKeys` is derived from it, `mistwoodCharacters.test.ts` pins the roster
-against `buildMistwoodCharacterVisualBindings()`, and `composeReadOnlyWorldViewModel` **drops**
-any character with no visual binding because FR-N004 AC#6 requires an unbound character to be
-rejected rather than silently reskinned.
+This section used to say twenty and forty were `unreachable`. **That was wrong, and ART-173
+fixed it.** The argument it made was:
 
-So twenty and forty are not "not yet measured" — they are not representable in this world
-without breaking one of those two guarantees. The harness takes the count as a parameter, so
-the criterion becomes measurable the day a world has more residents. Inventing twelve extra
-bindings to make a number appear would be measuring a world that does not exist, which is
-exactly what the fixture rule (ART-107 §8) forbids.
+> Mistwood has exactly twelve residents. `MISTWOOD_CHARACTER_VISUALS` holds twelve,
+> `mistwoodCharacterSpriteKeys` is derived from it, `mistwoodCharacters.test.ts` pins the roster
+> against `buildMistwoodCharacterVisualBindings()`, and `composeReadOnlyWorldViewModel` **drops**
+> any character with no visual binding (FR-N004 AC#6) — so twenty and forty are not representable
+> in this world.
+
+Every sentence of that is true about the **world** and none of it is true about the
+**measurement**. NFR2-002 AC#4 is a renderer-capacity threshold — can the dynamic layer sustain
+its frame rate with N animated sprites — not a claim that the town has forty residents. Recording
+the criterion as unreachable reported a limitation the requirement does not grant.
+
+What measures it is a **synthetic load probe** (`src/e2e/spriteLoadWorld.ts`,
+`src/e2e/benchEntry.tsx`): a second Vite input, `bench.html`, that `vite.config.ts` adds only when
+`VITE_E2E_FIXTURE === '1'` — which only `build:e2e` sets. It mounts `ReadOnlyWorld` directly with
+N synthetic walking characters mapped round-robin onto the twelve **real** sprite sheets, so the
+renderer draws from the same textures the live page does. Nothing is added to
+`MISTWOOD_CHARACTER_VISUALS`, the roster pin is untouched, and no production module gains a
+benchmark branch.
+
+Three things are deliberately true of it, and the report says each one where the figure appears:
+
+- **The samples are labelled `load probe`**, with their own criterion rows (`AC#4 (load probe,
+  20)` and `… 40`). A figure a reader could take as「Mistwood has forty residents」would be worse
+  than the gap it closes.
+- **It publishes no time-to-interactive.** A bare renderer mount has no page shell, no queries and
+  no camera, so a TTI from it would be a number about nothing. AC#1 stays the live page's.
+- **`stream` only.** `delayed` and `snapshot` are facts about what the SERVER returned, and the
+  probe has no server; at a `degraded` rung `LiveMapView` does not mount `ReadOnlyWorld` at all
+  (it renders `StaticMapView` instead), so "forty sprites, degraded" would be a figure about zero
+  sprites. Both exclusions are recorded as `not_applicable` rows in the report rather than left
+  implicit.
+
+What is **still** unreachable is the other half of **AC#9**: a fixed map zoom at those counts. The
+probe mounts the renderer without the camera controller that owns zoom, so it cannot set one.
 
 ### `measured_but_inconclusive` — mobile frame rate
 
@@ -134,6 +160,13 @@ Both halves are recorded: the number stands as a fail, and the reason it is inco
 beside it. An authoritative mobile figure needs a device, which is ART-138's job. Notably the
 `degraded` rung reaches 60 fps on the same profile, which locates the cost in the Pixi stage
 rather than anywhere else on the page.
+
+The load probe inherits this exactly, and is recorded as inheriting it. On desktop the probe
+clears AC#4's threshold at both twenty and forty; on mobile it fails at both, on the same
+software rasteriser, for the same reason — so `AC#4 (load probe, mobile)` carries its own
+`measured_but_inconclusive` row. **A probe fail on this host is evidence that twenty and forty are
+now measurable, not evidence about a phone**, and the desktop probe figures are not offered as a
+substitute for the mobile ones.
 
 ## 7. The eight-hour soak
 

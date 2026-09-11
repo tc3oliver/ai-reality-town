@@ -39,13 +39,31 @@ lines.push(`- Soak length: ${result.soakMinutes} minute(s)`);
 lines.push('');
 lines.push('## Samples');
 lines.push('');
-lines.push('| Profile | Mode | Visible characters | TTI (ms) | Avg FPS | P5 FPS | Worst FPS | Frames sampled |');
-lines.push('|---|---|---:|---:|---:|---:|---:|---:|');
+lines.push('| Profile | Mode | Source | Visible characters | TTI (ms) | Avg FPS | P5 FPS | Worst FPS | Frames sampled |');
+lines.push('|---|---|---|---:|---:|---:|---:|---:|---:|');
 for (const sample of result.samples) {
+  // ART-173. The label travels with the figure: a row a reader could take as「Mistwood has forty
+  // residents」would be worse than the gap the probe closes, and this file is read long after the
+  // run that produced it. `-1` TTI means "not measured", not "instant" — the probe is a bare
+  // renderer mount with no shell to become interactive.
+  const source = sample.loadProbe === true ? '**load probe**' : 'live page';
+  const tti = sample.timeToInteractiveMs < 0 ? '—' : sample.timeToInteractiveMs;
   lines.push(
-    `| ${sample.profileId} | ${sample.mode} | ${sample.characterCount} | ${sample.timeToInteractiveMs} `
+    `| ${sample.profileId} | ${sample.mode} | ${source} | ${sample.characterCount} | ${tti} `
     + `| ${sample.averageFps} | ${sample.p5Fps} | ${sample.worstFps} | ${sample.frameSamples} |`,
   );
+}
+if (result.samples.some((sample) => sample.loadProbe === true)) {
+  lines.push('');
+  lines.push(
+    '> Rows marked **load probe** are `src/e2e/spriteLoadWorld.ts`: N synthetic animated sprites '
+    + 'driving the same renderer, the same sheets and the same motion clock as the live map, with '
+    + 'no page shell, no queries and no camera. They measure NFR2-002 AC#4 renderer capacity at '
+    + 'the twenty and forty visible characters FR-Q005 asks for. **They are not a claim about how '
+    + 'many residents Mistwood has** — it has twelve — and they carry no time-to-interactive, '
+    + 'because a bare renderer mount has no shell to become interactive.',
+  );
+  lines.push('');
 }
 
 lines.push('');

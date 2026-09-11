@@ -236,6 +236,18 @@
         "shared"
       ]
     },
+    "clientBenchProbe": {
+      "roots": [
+        "src/e2e/benchEntry.tsx",
+        "src/e2e/spriteLoadWorld.ts"
+      ],
+      "mayDependOn": [
+        "clientLive",
+        "clientWorldReadOnly",
+        "publicRead",
+        "shared"
+      ]
+    },
     "clientShell": {
       "roots": [
         "src"

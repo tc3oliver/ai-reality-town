@@ -5,6 +5,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { FIXTURE_CHARACTER_IDS } from '../src/e2e/fixtureWorld';
 import { FIXTURE_SCENARIO_GLOBAL } from '../src/e2e/fixtureScenario';
+import { PROBE_CENSUS_GLOBAL, PROBE_CHARACTER_COUNTS } from '../src/e2e/spriteLoadWorld';
 import {
   BENCH_CHARACTER_COUNTS,
   BENCH_MODES,
@@ -120,16 +121,53 @@ const result: Result = {
       status: 'measured_but_inconclusive',
       reason: REQUIRES_DEPLOYMENT.mobileFpsRenderer,
     },
+    {
+      // Same host, same rasteriser, same caveat — recorded separately so a reader who scans for
+      // the probe's own criterion finds it rather than inferring it from the row above.
+      criterion: 'AC#4 (load probe, mobile)',
+      metric: 'averageFps',
+      status: 'measured_but_inconclusive',
+      reason:
+        'The load probe drives the SAME renderer on the SAME host as AC#4 (mobile), so a mobile '
+        + 'probe figure recorded against a software rasteriser is inconclusive for exactly the '
+        + 'reason that one is. A probe FAIL on this host is evidence that twenty and forty sprites '
+        + 'are now measurable, not evidence about a phone. The desktop probe figures are '
+        + 'comparable to the desktop page figures beside them, because both ran here.',
+    },
+    /**
+     * AC#6's two higher counts are MEASURED now, by the sprite load probe (ART-173) — but only
+     * for the renderer-capacity half of the pair. AC#9 also asks for a fixed map zoom, which is a
+     * property of the live page's camera and not of a bare renderer mount, so the two criteria
+     * part company here and the gap that remains is stated rather than folded into the pass.
+     */
     ...BENCH_CHARACTER_COUNTS.filter((count) => count > CHARACTER_COUNT_LIMIT.available).map(
       (count) => ({
-        criterion: 'AC#6/AC#9',
-        metric: `visibleCharacters=${count}`,
+        criterion: 'AC#9',
+        metric: `livePageZoomAt=${count}`,
         status: 'unreachable',
         reason: CHARACTER_COUNT_LIMIT.reason,
       }),
     ),
+    {
+      criterion: 'AC#6 (degraded)',
+      metric: 'loadProbeDegraded',
+      status: 'not_applicable',
+      reason:
+        'At a degraded rung LiveMapView does not mount ReadOnlyWorld at all — the static and '
+        + 'informational rungs draw a DOM floor plan instead — so sprite count is not the load in '
+        + 'that mode and a "forty sprites, degraded" figure would be a figure about zero sprites. '
+        + 'The degraded-mode frame rate is recorded from the live page, at its own twelve.',
+    },
   ],
 };
+
+/**
+ * The sprite load probe's URL (ART-173).
+ *
+ * A separate Vite input, not a route: see `src/e2e/spriteLoadWorld.ts` for why the live page
+ * could not be driven above twelve without inventing a world or seaming the shipped renderer.
+ */
+const PROBE = (characters: number) => `${BASE}/bench.html?characters=${characters}`;
 
 /** Deny WebGL the way a browser without it does — no product flag, no query parameter. */
 async function denyWebGL(page: Page) {
@@ -282,6 +320,100 @@ test.describe('dynamic viewing benchmark (FR-Q005 / ART-136)', () => {
           await context.close();
         }
       });
+    }
+  }
+
+  /**
+   * AC#6 at twenty and forty, through the sprite load probe (ART-173).
+   *
+   * NFR2-002 AC#4 is a renderer-capacity threshold: can the dynamic layer sustain its frame rate
+   * with N animated sprites. It is not a claim that the town has forty residents, and recording
+   * these counts as `unreachable` because Mistwood has twelve reported a limitation the
+   * requirement does not grant.
+   *
+   * **One mode, not four, and each exclusion is a different reason.**
+   *
+   * `delayed` and `snapshot` are facts about what the SERVER returned. A probe with no server has
+   * no such state to be in, and recording a figure under those labels would file one measurement
+   * three times under three names.
+   *
+   * `degraded` is excluded for a stronger reason than "not applicable": **at a degraded rung the
+   * renderer is not mounted at all.** `LiveMapView` renders `ReadOnlyWorld` only when
+   * `showCanvas`; the static and informational rungs draw a DOM floor plan instead. So sprite
+   * count is not the load in that mode, and "forty sprites, degraded" would be a figure about
+   * zero sprites. The first version of this block measured it anyway and the probe simply failed
+   * to mount — which is the honest behaviour of a bare renderer with no WebGL, and exactly why
+   * the live page wraps it in a `RendererErrorBoundary` that the probe deliberately does not
+   * reproduce.
+   *
+   * The degraded-mode figure the requirement wants is already recorded, from the live page, in
+   * the samples above.
+   *
+   * No time-to-interactive either. The probe is a bare renderer mount with no page shell, so a
+   * TTI from it would be a number about this file rather than about the product.
+   */
+  for (const profile of BENCH_PROFILES) {
+    for (const mode of ['stream'] as const) {
+      for (const characters of PROBE_CHARACTER_COUNTS) {
+        test(`${profile.id} / ${mode} / load probe ${characters}`, async ({ browser }) => {
+          const context = await browser.newContext({
+            viewport: profile.viewport,
+            deviceScaleFactor: profile.deviceScaleFactor,
+            hasTouch: profile.hasTouch,
+            isMobile: profile.hasTouch,
+          });
+          const page = await context.newPage();
+          try {
+            await throttleCpu(page, profile.cpuThrottling);
+            await page.goto(PROBE(characters));
+            await expect(page.locator('main')).toBeVisible();
+
+            /**
+             * The load was actually applied — read from the COMPOSED view model, not from the
+             * query string.
+             *
+             * `composeReadOnlyWorldViewModel` drops any character with no sprite binding, so a
+             * probe whose synthetic sprite map was wrong would draw twelve and report a
+             * flattering frame rate against a load that never existed. This is the assertion that
+             * makes the figure below mean what its label says.
+             */
+            const census = await page.evaluate((key) =>
+              (window as unknown as Record<string, { requested: number; drawn: number }>)[key],
+            PROBE_CENSUS_GLOBAL);
+            expect(census).toEqual({ requested: characters, drawn: characters });
+
+            const intervals = await sampleFrameIntervals(page, FPS_SAMPLE_MS);
+            result.samples.push({
+              profileId: profile.id,
+              mode,
+              characterCount: census.drawn,
+              // Not measured here, and recorded as such rather than as a zero somebody could read
+              // as a fast page: a bare renderer mount has no shell to become interactive.
+              timeToInteractiveMs: -1,
+              averageFps: averageFps(intervals),
+              p5Fps: p5Fps(intervals),
+              worstFps: worstFps(intervals),
+              frameSamples: intervals.length,
+              loadProbe: true,
+            });
+            // AC#4's own threshold, applied to the probe's frame rate and to nothing else it
+            // produces. `verdictsFor` is not reused, because it also judges TTI and this sample
+            // has none — a criterion answered from a number that was never measured is worse
+            // than one left open.
+            const threshold = BENCH_THRESHOLDS.averageFps[profile.id as 'desktop-reference'];
+            const value = averageFps(intervals);
+            result.verdicts.push({
+              profileId: profile.id, mode,
+              // The count is IN the criterion label, so two probe rows in the results table are
+              // not two indistinguishable lines that differ only by their value.
+              criterion: `AC#4 (load probe, ${characters})`, metric: 'averageFps',
+              value, threshold, pass: value >= threshold,
+            });
+          } finally {
+            await context.close();
+          }
+        });
+      }
     }
   }
 
