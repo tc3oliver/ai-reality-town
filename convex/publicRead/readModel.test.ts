@@ -1,9 +1,11 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import {
   commitReadModelVersion,
   createReadModelVersion,
   hashPayload,
   allowedPrivateKeysFor,
-  invalidateReadModel,
   sanitizeForPublic,
   selectServedVersion,
   serveReadModel,
@@ -272,29 +274,107 @@ describe('commitReadModelVersion (AC#5 — LKG preservation; idempotency)', () =
   });
 });
 
-describe('invalidateReadModel (AC#5 — non-destructive version switch)', () => {
-  it('withholds the current version while the last-known-good keeps serving', async () => {
-    const store = new MemoryReadStore();
-    await commitPublished(store, { headline: 'v1' } as unknown as JsonValue, ['e1']);
-    await commitPublished(store, { headline: 'v2' } as unknown as JsonValue, ['e1', 'e2']);
-    const result = await invalidateReadModel(store, { ...target, status: 'withheld', now: 9_000 });
-    expect(result.invalidatedVersion).toBe(2);
-    const served = await serveReadModel(store, target.worldId, target.modelKind, target.modelRef);
+/**
+ * The last-known-good fallback (ART-180).
+ *
+ * This used to be `describe('invalidateReadModel (AC#5 — non-destructive version switch)')`, and
+ * it drove `invalidateReadModel` — a helper **no production code called**, whose registered
+ * mutation `invalidateReadModelVersion` had no caller either. Deleting it is what this block
+ * records; keeping the tests but pointing them at the deleted function would have been keeping
+ * the claim and losing the code.
+ *
+ * So the fallback is now tested where it actually lives: `selectServedVersion`, a pure rule over
+ * rows. That is a downgrade in what the tests prove and it is stated rather than glossed — these
+ * assert the SELECTION, not a path production can take. The test that proves the availability
+ * guarantee against a real mechanism is `AC#7: stays available when a later projection write
+ * fails (LKG keeps serving)`, further down, which throws from the store and asserts
+ * `servedFrom: 'current'` — a Convex mutation that throws commits nothing, so the prior version
+ * is still current and no fallback is involved.
+ */
+describe('selectServedVersion (AC#1/#5 — the last-known-good rule)', () => {
+  const baseRow = (version: number, patch: Partial<StoredReadModel>): StoredReadModel => ({
+    id: `row-${version}`,
+    ...target,
+    version,
+    payload: { headline: `v${version}` } as unknown as JsonValue,
+    sourceEventIds: [],
+    contentHash: `hash-${version}`,
+    status: SERVABLE_STATUS,
+    isCurrent: false,
+    isLastKnownGood: false,
+    createdAt: version * 1_000,
+    publishedAt: version * 1_000,
+    updatedAt: version * 1_000,
+    ...patch,
+  } as StoredReadModel);
+
+  it('prefers the current published version over any retained fallback', () => {
+    const served = selectServedVersion([
+      baseRow(1, { isLastKnownGood: true }),
+      baseRow(2, { isCurrent: true }),
+    ]);
+    expect(served?.version).toBe(2);
+    expect(served?.servedFrom).toBe('current');
+  });
+
+  it('reaches the retained fallback when the current version is not servable', () => {
+    const served = selectServedVersion([
+      baseRow(1, { isLastKnownGood: true }),
+      baseRow(2, { isCurrent: true, status: 'failed' }),
+    ]);
     expect(served?.version).toBe(1);
     expect(served?.servedFrom).toBe('last_known_good');
   });
 
-  it('leaves nothing servable when no fallback exists', async () => {
-    const store = new MemoryReadStore();
-    await commitPublished(store, { headline: 'v1' } as unknown as JsonValue, ['e1']);
-    await invalidateReadModel(store, { ...target, status: 'failed', now: 9_000 });
-    const served = await serveReadModel(store, target.worldId, target.modelKind, target.modelRef);
+  it('refuses a fallback that is itself not servable, rather than trusting the flag', () => {
+    // Not a state any current writer produces — `withdrawReadModel` clears the flag as it
+    // withholds. The guard is here because serving it would put withheld content back on the
+    // public surface, and a read that trusts a flag another function maintains is the kind of
+    // assumption that stops being true later.
+    const served = selectServedVersion([
+      baseRow(1, { isLastKnownGood: true, status: 'withheld' }),
+      baseRow(2, { isCurrent: true, status: 'failed' }),
+    ]);
     expect(served).toBeNull();
   });
 
-  it('rejects an invalid invalidation status', async () => {
-    const store = new MemoryReadStore();
-    await expect(invalidateReadModel(store, { ...target, status: 'published', now: 9 } as never)).rejects.toThrow(ReadModelError);
+  it('returns null when nothing servable was ever published', () => {
+    expect(selectServedVersion([])).toBeNull();
+    expect(selectServedVersion([baseRow(1, { isCurrent: true, status: 'publishing' })])).toBeNull();
+  });
+});
+
+/**
+ * ART-180: the invalidation path is gone, and stays gone.
+ *
+ * Two halves, and the second is what makes the first more than a spelling rule. Asserting only
+ * that a name is absent would be satisfied by renaming it. Asserting that every production commit
+ * publishes is what makes an invalidation function unreachable if one comes back without a
+ * caller — because there would be no unservable current version for it to act on.
+ */
+describe('the read-model surface has no invalidation entry point', () => {
+  const modulesDir = join(process.cwd(), 'convex/publicRead');
+
+  it('exports no invalidation function from the pure module or the function module', () => {
+    for (const file of ['readModel.ts', 'readModelFunctions.ts']) {
+      const source = readFileSync(join(modulesDir, file), 'utf8');
+      expect(source).not.toMatch(/export (?:async )?(?:function|const) invalidateReadModel/u);
+      expect(source).not.toMatch(/export const invalidateReadModelVersion/u);
+    }
+  });
+
+  it('commits every production read-model version as published, so nothing is left unservable', () => {
+    // Read off the call sites rather than transcribed: a new projection that committed
+    // `withheld` or `failed` would land here as a failure instead of as a quietly dark model.
+    const offenders: { file: string; status: string }[] = [];
+    for (const file of readdirSync(modulesDir)) {
+      if (!file.endsWith('Functions.ts')) continue;
+      const source = readFileSync(join(modulesDir, file), 'utf8');
+      for (const match of source.matchAll(/status:\s*'(publishing|published|withheld|failed)'/gu)) {
+        if (match[1] !== 'published') offenders.push({ file, status: match[1] });
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });
 
@@ -360,13 +440,14 @@ describe('serveReadModel (AC#1/#3/#4 — isolation, no-LLM, allowlist)', () => {
 });
 
 /**
- * `withdrawReadModel` — taking content OFF the surface, as distinct from marking a version bad
- * (ART-171).
+ * `withdrawReadModel` — taking content OFF the surface (ART-171).
  *
- * The distinction is the reason it exists. `invalidateReadModel` says "this version is broken"
- * and lets the last known good one keep serving, which is right for a failed rebuild. A FR-K004
- * withhold says "this content may not be shown", and falling back would serve an older copy of
- * exactly the content being withheld.
+ * It was introduced as the distinction from `invalidateReadModel`, which said "this version is
+ * broken" and let the last known good one keep serving. ART-180 deleted that one: it had no
+ * caller. `withdrawReadModel` is now the only removal path, and it is called in production, from
+ * `episodeTimelineProjectionFunctions.ts`. What it means is unchanged — "this content may not be
+ * shown" — and so is the reason it demotes the fallbacks too: falling back would serve an older
+ * copy of exactly the content being withheld.
  */
 describe('withdrawReadModel (ART-171 — FR-K004 withhold)', () => {
   const EPISODE = { worldId: 'w1', modelKind: 'episode' as const, modelRef: 'episode:5' };
@@ -395,13 +476,19 @@ describe('withdrawReadModel (ART-171 — FR-K004 withhold)', () => {
     expect(await serveReadModel(store, EPISODE.worldId, EPISODE.modelKind, EPISODE.modelRef)).toBeNull();
   });
 
-  it('differs from invalidateReadModel, which deliberately keeps serving the fallback', async () => {
-    // Stated as a contrast rather than in prose alone: the two are one word apart at the call
-    // site and mean opposite things about whether a viewer still sees the content.
+  it('clears the fallback flag, which is the whole difference from marking a version bad', async () => {
+    /**
+     * Stated as a property rather than as a contrast with a sibling function, because ART-180
+     * deleted the sibling. What survives is the part that mattered: a withhold demotes the
+     * last-known-good rows as well, so `selectServedVersion` has nothing to reach past the
+     * withdrawn current to. Demoting only the current row would serve an older copy of exactly
+     * the content being withheld.
+     */
     const store = await withTwoVersions();
-    await invalidateReadModel(store, { ...EPISODE, status: 'withheld', now: 3_000 });
-    const served = await serveReadModel(store, EPISODE.worldId, EPISODE.modelKind, EPISODE.modelRef);
-    expect((served?.payload as Record<string, unknown> | undefined)?.headline).toBe('first');
+    expect(store.rows.some((row) => row.isLastKnownGood)).toBe(true);
+    await withdrawReadModel(store, { ...EPISODE, now: 3_000 });
+    expect(store.rows.some((row) => row.isLastKnownGood)).toBe(false);
+    expect(store.rows.every((row) => row.status === 'withheld')).toBe(true);
   });
 
   it('is non-destructive: the rows and their payloads survive for audit and for a later release', async () => {

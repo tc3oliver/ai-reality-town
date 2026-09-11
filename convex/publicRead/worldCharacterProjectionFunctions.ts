@@ -97,7 +97,20 @@ function publicFactsFrom(events: readonly AcceptedEvent[]): PublicFact[] {
   return facts;
 }
 
-function worldSourceFrom(events: readonly AcceptedEvent[], schedule: { mode: string; status: string } | null): Record<string, unknown> {
+/**
+ * `createdAt` comes from the world's SCHEDULE row, not from the first accepted event (ART-180).
+ *
+ * It was published as an unconditional `null` while the handler already held the schedule row and
+ * discarded everything but `mode` and `status` — a field naming a time the caller had in hand.
+ *
+ * The schedule is the right source rather than `events[0].acceptedAt` because the two rebuild
+ * paths have to agree and only one of them can see the first event: since ART-100 the resumed
+ * path reads a trailing window of events plus a snapshot, so `events[0]` does not exist there.
+ * The schedule row does, on both paths, and `worldSchedules.createdAt` is a required `v.number()`.
+ */
+type WorldScheduleSource = { mode: string; status: string; createdAt: number };
+
+function worldSourceFrom(events: readonly AcceptedEvent[], schedule: WorldScheduleSource | null): Record<string, unknown> {
   const latest = events[events.length - 1];
   const worldFacts = publicFactsFrom(events).filter((fact) => fact.subjectType === 'world');
   const byPredicate = new Map(worldFacts.map((fact) => [fact.predicate, fact.value]));
@@ -109,7 +122,7 @@ function worldSourceFrom(events: readonly AcceptedEvent[], schedule: { mode: str
     currentTimeSlot: latest ? latest.timeSlot : null,
     simulationMode: schedule?.mode ?? null,
     publicLaunchDay: byPredicate.get('publicLaunchDay') ?? null,
-    createdAt: null,
+    createdAt: schedule?.createdAt ?? null,
     updatedAt: latest ? latest.acceptedAt : null,
   };
 }
@@ -156,7 +169,7 @@ function publicFactsFromProjection(
 function worldSourceFromProjection(
   worldFacts: readonly PublicFact[],
   latest: AcceptedEvent | null,
-  schedule: { mode: string; status: string } | null,
+  schedule: WorldScheduleSource | null,
 ): Record<string, unknown> {
   const byPredicate = new Map(worldFacts.map((fact) => [fact.predicate, fact.value]));
   return {
@@ -167,7 +180,7 @@ function worldSourceFromProjection(
     currentTimeSlot: latest ? latest.timeSlot : null,
     simulationMode: schedule?.mode ?? null,
     publicLaunchDay: byPredicate.get('publicLaunchDay') ?? null,
-    createdAt: null,
+    createdAt: schedule?.createdAt ?? null,
     updatedAt: latest ? latest.acceptedAt : null,
   };
 }
@@ -382,7 +395,9 @@ export const rebuildWorldProjection = internalMutation({
       readLatestSnapshot(ctx.db, args.worldId),
       ctx.db.query('worldSchedules').withIndex('by_world_id', (q) => q.eq('worldId', args.worldId)).unique(),
     ]);
-    const schedule = scheduleRow ? { mode: scheduleRow.mode, status: scheduleRow.status } : null;
+    const schedule = scheduleRow
+      ? { mode: scheduleRow.mode, status: scheduleRow.status, createdAt: scheduleRow.createdAt }
+      : null;
 
     let source: Record<string, unknown>;
     let publicFacts: PublicFact[];

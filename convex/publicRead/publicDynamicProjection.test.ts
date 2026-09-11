@@ -20,7 +20,6 @@ import type { MovementTrajectory } from '../visualRuntime/motion';
 import type { AcceptedEventLike, VisualRuntimeInput } from '../visualRuntime/visualSyncPlanner';
 import {
   commitReadModelVersion,
-  invalidateReadModel,
   sanitizeForPublic,
   serveReadModel,
   SERVABLE_STATUS,
@@ -408,23 +407,21 @@ describe('AC#5 / AC#8 — the read path cannot write, and carries no authorizati
   });
 });
 
+/**
+ * AC#6 — a failed update retains the last valid published version.
+ *
+ * This block used to open with a test that called `invalidateReadModel` to mark the current
+ * version failed and then asserted the fallback served. ART-180 deleted that function: nothing in
+ * production called it, so the test was demonstrating a recovery no deployment could perform.
+ *
+ * What remains is the mechanism that actually delivers the criterion — a projection write that
+ * throws. A Convex mutation that throws commits nothing, so the previously published version is
+ * still CURRENT, which is both a stronger guarantee than falling back and the one a real outage
+ * produces. The pure fallback rule is covered in `readModel.test.ts`
+ * (`selectServedVersion (AC#1/#5 — the last-known-good rule)`), labelled there as a property of
+ * the selector rather than of a production path.
+ */
 describe('AC#6 — a failed update retains the last valid published version', () => {
-  it('serves the previous projection after the current version is marked failed', async () => {
-    const store = new MemoryReadStore();
-    await commitLive(store, project(createZeroEventFixture()));
-    await commitLive(store, project(createSingleMoveFixture()), 2_000);
-    await invalidateReadModel(store, {
-      worldId: WORLD_ID, modelKind: LIVE_KIND, modelRef: LIVE_REF, status: 'failed', now: 3_000,
-    });
-
-    const served = await serveReadModel(store, WORLD_ID, LIVE_KIND, LIVE_REF);
-    expect(served?.servedFrom).toBe('last_known_good');
-    const dynamic = selectPublicDynamicProjection(served?.payload);
-    expect(dynamic?.characters).toHaveLength(12);
-    // The retained fallback is the zero-event projection, so nobody is mid-walk.
-    expect(dynamic?.characters.every((motion) => motion.motionType === 'idle')).toBe(true);
-  });
-
   it('leaves the serving version untouched when the projection write itself throws', async () => {
     const store = new MemoryReadStore();
     await commitLive(store, project(createZeroEventFixture()));

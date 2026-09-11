@@ -419,7 +419,7 @@ function baseTables(over: Partial<Tables> = {}): Tables {
   return {
     canonEvents: [],
     canonSnapshots: [],
-    worldSchedules: [{ worldId: WORLD_ID, mode: 'live', status: 'running' }],
+    worldSchedules: [{ worldId: WORLD_ID, mode: 'live', status: 'running', createdAt: SCHEDULE_CREATED_AT }],
     publishedReadModels: [],
     postGenerationSafetyClassifications: [],
     safetyStatusOverrides: [],
@@ -540,6 +540,47 @@ function worldHistory(totalEvents: number): Row[] {
   }));
   return rows;
 }
+
+/**
+ * The world's `createdAt`, taken from its schedule row (ART-180).
+ *
+ * Deliberately far from any event timestamp in these fixtures, so an implementation that went
+ * back to reading an event's `acceptedAt` — or to the hard-coded `null` this replaced — produces
+ * a different number rather than a coincidentally equal one.
+ */
+const SCHEDULE_CREATED_AT = 1_600_000_000_000;
+
+describe('ART-180: the published world carries the schedule\'s createdAt, on both rebuild paths', () => {
+  it('publishes the schedule row\'s createdAt rather than null', async () => {
+    const tables = baseTables({ canonEvents: worldHistory(20) });
+    await rebuildWorld(tables);
+    const payload = publishedPayload(tables, `world:${WORLD_ID}`);
+    expect(payload.createdAt).toBe(SCHEDULE_CREATED_AT);
+    // It is the SCHEDULE's value, not an event's. The fixture's events are nowhere near it.
+    const acceptedAts = tables.canonEvents.map((row) => row.acceptedAt as number);
+    expect(acceptedAts).not.toContain(SCHEDULE_CREATED_AT);
+  });
+
+  it('agrees across the full-replay and the snapshot-resumed path', async () => {
+    // The two `worldSource*` builders are separate functions with the same contract, which is
+    // exactly the shape in which one of them keeps a stale rule. `createdAt` was `null` in both
+    // for the same reason: the resumed path cannot see the first event, so an event timestamp was
+    // never available to either — and the schedule row always was.
+    const events = worldHistory(60);
+    const resumed = baseTables({ canonEvents: events, canonSnapshots: [snapshotRow(events, 49, 5)] });
+    await rebuildWorld(resumed);
+    const replayed = baseTables({ canonEvents: worldHistory(60) });
+    await rebuildWorld(replayed);
+    expect(publishedPayload(resumed, `world:${WORLD_ID}`).createdAt).toBe(SCHEDULE_CREATED_AT);
+    expect(publishedPayload(replayed, `world:${WORLD_ID}`).createdAt).toBe(SCHEDULE_CREATED_AT);
+  });
+
+  it('stays null for a world with no schedule row, rather than inventing a time', async () => {
+    const tables = baseTables({ canonEvents: worldHistory(20), worldSchedules: [] });
+    await rebuildWorld(tables);
+    expect(publishedPayload(tables, `world:${WORLD_ID}`).createdAt).toBeNull();
+  });
+});
 
 describe('ART-100: rebuildWorldProjection resumes from a snapshot instead of replaying the whole log', () => {
   /** Snapshot covers everything up to (but not including) the 10-event tail. */
