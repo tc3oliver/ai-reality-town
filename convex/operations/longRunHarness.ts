@@ -2016,6 +2016,19 @@ export async function runDegradationLadderDays(
       status = settled.errorCode === null ? 'completed' : 'failed';
       errorCode = settled.errorCode;
       committedEventIds = settled.committedEventIds;
+      /**
+       * Settle the run record this slot INHERITED, exactly as `runRulesOnlySlot` does (ART-181).
+       *
+       * The harness keeps a `MemoryWorldDayRunStore` for the authored branch below, so without
+       * this the harness reproduces the very defect ART-181 fixed: a slot that failed while
+       * authoring, dropped to rung 4 and then succeeded would leave a run record still saying
+       * `failed`. A harness that diverges from the production contract is worse than one that
+       * omits the behaviour, because the divergence is invisible in its findings.
+       *
+       * Like production, it creates nothing: a run record means a world-day run executed the
+       * pipeline, and a rules-only slot did not.
+       */
+      await settleInheritedRunRecord(fixture, slot, status, committedEventIds, errorCode);
       // No model was called, and that is the whole content of this rung.
       usedProvider = false;
     } else {
@@ -2086,6 +2099,31 @@ export async function runDegradationLadderDays(
     worldDay, timeSlot: TIME_SLOTS[slotIndex],
     worldDaysAdvanced: worldDay - startWorldDay,
   };
+}
+
+/**
+ * The harness half of ART-181: bring an inherited run record into agreement with a rules-only
+ * outcome. Mirrors `settleRunRecordForRulesOnlySlot` in `worldDayLiveFunctions.ts`, including its
+ * two refusals — never create a record, never move a completed one.
+ */
+async function settleInheritedRunRecord(
+  fixture: LongRunFixture,
+  slot: WorldDaySlotIdentity,
+  status: 'completed' | 'failed',
+  committedEventIds: readonly string[],
+  errorCode: string | null,
+): Promise<void> {
+  const runId = worldDayRunId(slot);
+  const existing = await fixture.worldDayRunStore.loadRun(runId);
+  if (!existing || existing.status === 'completed') return;
+  if (status === 'completed') {
+    await fixture.worldDayRunStore.completeRun(runId, [...committedEventIds]);
+  } else {
+    await fixture.worldDayRunStore.failRun(runId, 'commit_accepted_events', {
+      code: errorCode ?? 'RULES_ONLY_COMMIT_FAILED',
+      message: `rules-only slot refused at ${runId}`,
+    });
+  }
 }
 
 /**
