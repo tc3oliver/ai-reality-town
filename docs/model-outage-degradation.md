@@ -139,6 +139,31 @@ Rules-only runs in the **transactional** pass, before authoring is considered, b
 nothing to author and routing it through the action would put an empty network call between the
 same two mutations.
 
+### It settles the run record it inherits, and creates none (ART-181)
+
+A rules-only slot executes no world-day pipeline, so it writes no `worldDayRuns` row — and
+deliberately still does not, because a run record asserts that a world-day run ran the ten stages.
+
+What it must not do is leave a **previous** attempt's record standing. `worldDayRunId` is derived
+from the slot identity, so a retry reuses the same id, and the ladder's own recovery walks straight
+into the disagreement: a slot fails while authoring (`worldDayRuns` → `failed`, carrying the
+provider's `failureStage` and `errorCode`), `FAILURES_BEFORE_ESCALATION` is reached, the world drops
+to rung 4, and the retry succeeds as a rules-only slot. Before ART-181 `scheduledSlots` then said
+`completed` while `worldDayRuns` still said `failed` for the same slot — and `inspectRun`, the
+operations console's `runsForSlot` and the proposal-review surface (which maps
+`worldDayRuns.errorCode` + `failureStage` to a rejection reason) all read that row.
+
+This is the same symptom ART-150 fixed for the authored path, and ART-150's fix could not reach it:
+that one gave the run-store CONTRACT one rule about the failure fields, and this path never called
+the store. It does now — `completeRun` on success, `failRun` at `commit_accepted_events` on a
+refusal — with two refusals of its own: it never creates a record, and it never moves a completed
+one (`patchRun` treats a completed run as terminal). The per-attempt `worldDayCheckpoints` rows are
+untouched, which is what keeps ART-150 AC#2's attempt history intact.
+
+**The long-run harness carries the same rule.** It keeps its own `MemoryWorldDayRunStore` for the
+authored branch, so a harness that omitted this would reproduce the defect invisibly inside the
+evidence the 30- and 90-day gates rest on.
+
 ## 6. Rung 5: which summaries are deferred, and why `episode` is not
 
 `DEFERRABLE_RECAP_TYPES` is `scene`, `arc`, `season` and `viewer_context`. `episode` is not in it,

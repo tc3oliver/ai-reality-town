@@ -539,12 +539,64 @@ async function runRulesOnlySlot(
   } else {
     await ctx.runMutation(failScheduledSlotRef, { slotId: row._id, errorCode, now });
   }
+  await settleRunRecordForRulesOnlySlot(ctx, slot, now, committedEventIds, errorCode);
   return {
     slotKey: row.slotKey, worldDay: row.worldDay, timeSlot: row.timeSlot,
     status: errorCode === undefined ? 'completed' : 'failed',
     attemptCount: row.attemptCount, committedEventIds,
     ...(errorCode === undefined ? {} : { errorCode }),
   };
+}
+
+/**
+ * Bring the slot's world-day RUN record into agreement with what just happened (ART-181).
+ *
+ * A rules-only slot does not execute the ten-stage pipeline, so it creates no run record and this
+ * function deliberately does not create one either: a `worldDayRuns` row means a world-day run
+ * ran, and minting one for a rules-only slot would replace a stale claim with a false one.
+ *
+ * What it must not leave standing is a record from a PREVIOUS attempt. `worldDayRunId` is derived
+ * from the slot identity, so a retry reuses the same id, and the ladder's own recovery path walks
+ * straight into the disagreement: a slot fails while authoring (`failRun` writes `failed` plus the
+ * provider's `failureStage`/`errorCode`), `FAILURES_BEFORE_ESCALATION` is reached, the world drops
+ * to rung 4, and the retry succeeds HERE — leaving `scheduledSlots` saying completed and
+ * `worldDayRuns` saying failed for the same slot. `inspectRun`, the operations console's
+ * `runsForSlot`, and the proposal-review surface (which maps `worldDayRuns.errorCode` +
+ * `failureStage` to a rejection reason) all read that row.
+ *
+ * This is the same symptom ART-150 fixed for the authored path, and that fix cannot reach it:
+ * ART-150 gave the run-store CONTRACT one rule about the failure fields, and this path never
+ * called the store at all. It calls it now, which is also why the prior attempt's history is not
+ * lost — the per-attempt `worldDayCheckpoints` rows are untouched, exactly as ART-150's AC#2
+ * requires.
+ */
+async function settleRunRecordForRulesOnlySlot(
+  ctx: MutationCtx,
+  slot: WorldDaySlotIdentity,
+  now: number,
+  committedEventIds: readonly string[],
+  errorCode: string | undefined,
+): Promise<void> {
+  const store = createConvexWorldDayRunStore(ctx.db, now);
+  const runId = worldDayRunId(slot);
+  const existing = await store.loadRun(runId);
+  if (!existing) return;
+  // A completed run is terminal — `patchRun` refuses to move it — and a rules-only retry of a slot
+  // whose run already completed should not try to. Nothing is stale in that case anyway.
+  if (existing.status === 'completed') return;
+  if (errorCode === undefined) {
+    await store.completeRun(runId, [...committedEventIds]);
+  } else {
+    /**
+     * The stage is `commit_accepted_events` because that is the stage a rules-only proposal
+     * actually fails at: `deriveRulesOnlyEvents` produces Proposed Events that travel
+     * `validate_structured_output` → `validate_canon` → `commit_accepted_events` like any other,
+     * and the loop above breaks on the first refusal from either validator or the commit.
+     */
+    await store.failRun(runId, 'commit_accepted_events', {
+      code: errorCode, message: `rules-only slot refused at ${runId}`,
+    });
+  }
 }
 
 /** What `prepareQueuedWorldDaySlot` found, for the action that has to decide what to do next. */
