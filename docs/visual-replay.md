@@ -249,8 +249,16 @@ shape and the version gate that make invalidation *possible*. It deliberately do
 - **Replay invalidation or rebuild triggered by a safety/publication status change.** The stored
   replay payload itself is not touched when an episode is withheld — only the *text resolution* for
   that step goes silent. A per-scene rebuild that drops the now-unresolvable scene entirely, or
-  that proactively refreshes the whole replay, is ART-132's to build on top of the
-  `invalidateReadModel` hook the `visualReplay` read-model kind already exposes.
+  that proactively refreshes the whole replay, was left to ART-132.
+
+  **This bullet used to say ART-132 would build it「on top of the `invalidateReadModel` hook the
+  `visualReplay` read-model kind already exposes」. There is no such hook** (ART-180). ART-132
+  shipped the read-time gate instead — `visualReplayFunctions.ts` resolves each step's text
+  against the CURRENT `publicationRecords` row and refuses to resolve on a version mismatch or a
+  non-servable status — which needs no rebuild, no new version, and no invalidation call at all;
+  that is the mechanism `docs/prd-2.0-closure-record.md` row 31 cites. `invalidateReadModel` was
+  never called by anything and has been deleted. If a proactive rebuild is ever wanted, it should
+  arrive with its trigger rather than with a hook waiting for one.
 - **Per-canon-event-summary withholding.** `CANON_EVENT_SUMMARY_VERSION` being a hardcoded `1` is
   the concrete limitation ART-132 would need to lift if an individual canon-event summary ever
   needs to be withheld independently of the event itself.
