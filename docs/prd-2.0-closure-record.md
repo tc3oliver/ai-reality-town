@@ -89,7 +89,7 @@ product failure, or a product pass read as an environment one.
 | 27 | Every V2 P0 requirement has a task and objective evidence | PASS | Every PRD 2.0 Dynamic Viewing task (ART-113 … ART-137, ART-140) is `Done`; the board's only remaining items are this gate and ART-136. Per-requirement evidence is in `docs/prd-2.0-requirement-matrix.md` §3. See §5 below for the one thing this does **not** claim. |
 | 28 | The closure record does not claim MVP completion from backend completion | PASS | This document. §2 records the MVP as **not complete**, and the reason is a browser-measured frame rate — the failure mode §22.28 exists to prevent. |
 | 29 | ART-139 fixed; the real provider produces Accepted Events, with a regression test | PASS | `convex/simulation/sceneSimulation.test.ts` (`ART-139 real-provider schemaVersion contract`) and `convex/canon/proposedEvent.test.ts`. The accepted-event chain was verified live against the configured gateway during ART-141: 2/2 runs took a real provider `ProposedEvent` carrying `character_location_changed` through `parseWholeSceneOutput → normalizeProposedEventOutput → validateEventStructure → validateCanon → appendCommit`. ART-157 then fixed the prompt so a movement proposal names a legal destination, and ART-159/ART-160 wired the real adapter into the scheduled live path. See §5 for what the CURRENT deployment can and cannot corroborate. |
-| 30 | The dynamic-layer benchmark is established **and actually passed** | **FAIL** | `docs/benchmarks/dynamic-view-latest.md`, recorded 2026-08-24. Desktop passes every criterion the run settles — see §6.1 on AC#7, which it does not. **Mid-tier mobile averages 28.4 fps (stream) and 28.38 fps (delayed) against NFR2-002's 30 fps.** The harness exists, is repeatable (`npm run bench`) and is honest about what it could not measure. §6.1 states why the figure cannot settle the criterion either way and what would. |
+| 30 | The dynamic-layer benchmark is established **and actually passed** | **FAIL** | `docs/benchmarks/dynamic-view-latest.md`, re-recorded 2026-09-09 with ART-173's load probe. Desktop passes every criterion the run settles — see §6.1 on AC#7, which it does not. **Mid-tier mobile averages 29.26 fps (stream) and 29.13 fps (delayed) against NFR2-002's 30 fps**, and 18.03 / 17.63 fps on the twenty- and forty-sprite load probe. The harness exists, is repeatable (`npm run bench`) and is honest about what it could not measure. §6.1 states why none of those figures can settle the criterion either way, and what would. |
 | 31 | Visual Replay references only published identifiers and versions, and invalidates on withhold/supersede | PASS | `convex/publicRead/visualReplay.test.ts` + `convex/publicRead/visualReplayFunctions.test.ts` — the read-time gate requires a matching `publicationVersion` AND a servable status, so a withheld or superseded record stops resolving without a rebuild. Since ART-171 the status list has one definition, `VIEWER_SERVABLE_PUBLICATION_STATUSES`; `convex/publicRead/visualReplay.boundary.test.ts` pins the builder's whole import closure. |
 
 ---
@@ -108,7 +108,7 @@ product failure, or a product pass read as an environment one.
 | 8 | Typecheck, lint, tests, build and CI pass | PASS | §3 #26. |
 | 9 | The matrix and closure record are updated and no longer claim completion from backend completion alone | PASS | This document; `docs/prd-2.0-requirement-matrix.md` §0 corrected in the same change (§5). |
 | 10 | Public acceptance environment seeded, scheduler producing accepted events, twelve characters verified against real Canon | **EXTERNAL_BLOCKED** | The twelve-character half IS satisfied against real Canon (§4). The world is `development`. The "no registered function can change a world's mode" half of this blocker is CLOSED by ART-172; what remains is an owner deploying current `main` and running the command. §6.3. |
-| 11 | The ART-136 benchmark confirmed executed AND passed before release | **EXTERNAL_BLOCKED** | Executed and recorded; mid-tier mobile FAILS at 28.4 fps on a host with no GPU. §6.1. |
+| 11 | The ART-136 benchmark confirmed executed AND passed before release | **EXTERNAL_BLOCKED** | Executed and recorded; mid-tier mobile FAILS at 29.26 fps on a host with no GPU, and the ART-173 load probe FAILS there too. §6.1. |
 | 12 | Visual Replay references only published identifiers and versions, invalidating on withhold or supersede | PASS | §3 #31. |
 | 13 | Every §18.1 metric not yet measurable is reported as not measured rather than estimated | PASS | §7. |
 
@@ -188,7 +188,7 @@ Two things this record deliberately does **not** claim:
 
 **Verdict:** FAIL, and the failure is **not** conclusive about real hardware.
 
-The recorded figure is real and is reported as a failure rather than exempted: 28.4 fps against a
+The recorded figure is real and is reported as a failure rather than exempted: 29.26 fps against a
 30 fps threshold, in `stream` and `delayed` modes, at 12 visible characters. But the host that
 produced it has no usable GPU — Chromium reports
 `ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device …))` even with the GPU blocklist ignored — so the
@@ -196,11 +196,21 @@ mobile profile software-rasterises a 1080×2340 backing store (about twice the d
 pixel count) while also under 4× CPU throttling. A software rasteriser missing 30 fps says nothing
 about a phone with hardware graphics.
 
-Nothing in this repository can settle it. There is no newer benchmark record than
-2026-08-24, no GPU-capable runner in CI (the E2E job installs Chromium on a standard hosted
-runner), and substituting the desktop figure, the `degraded`-mode figure (60 fps) or the
-`snapshot`-mode figure (37.35 fps) for the normal-mode mobile requirement would be reporting a
-different measurement under the same name.
+Nothing in this repository can settle it. There is no GPU-capable runner in CI (the E2E job
+installs Chromium on a standard hosted runner), and substituting the desktop figure, the
+`degraded`-mode figure (60 fps) or the `snapshot`-mode figure (39.09 fps) for the normal-mode
+mobile requirement would be reporting a different measurement under the same name. Re-running the
+benchmark on this machine — which ART-173 did, on 2026-09-09 — moves the number by a few tenths
+and changes nothing about why it cannot settle the criterion.
+
+**ART-173's load probe does not change this verdict, and is not offered as evidence against it.**
+It closes a different gap — AC#6's twenty and forty visible characters, previously recorded as
+`unreachable` — by driving the renderer with synthetic sprites. Its mobile figures (18.03 fps at
+twenty, 17.63 at forty) come off the SAME software rasteriser, so they are inconclusive for
+exactly the reason the twelve-character figure is, and the results file records them as
+`measured_but_inconclusive`. Its DESKTOP figures are conclusive on this host and pass: 54 fps at
+twenty and 53 at forty, against a 45 fps threshold. That is the honest reading — the criterion
+became measurable, and on the one profile this host can speak for, it passes.
 
 **EXTERNAL_BLOCKED: requires a real mid-tier mobile device, or a GPU-capable representative
 runner.**
@@ -231,9 +241,17 @@ lost: **AC#2** (`publicDynamicQueryP95Ms < 500ms`) and **AC#3** (runtime-to-scre
 both require a real deployment, because the E2E build replaces the transport with an in-process
 fixture and measuring them there would record ~0 ms for a path that was never exercised.
 
-ART-136 **AC#6** (measure at 12, 20 and 40 visible characters) is *not* external — the benchmark
-records it as `unreachable` because Mistwood has twelve bound residents — and is tracked as
-repository work rather than accepted as a limitation.
+ART-136 **AC#6** (measure at 12, 20 and 40 visible characters) was recorded as `unreachable`
+because Mistwood has twelve bound residents. **ART-173 closed it.** That argument was right about
+the world and wrong about the measurement: NFR2-002 AC#4 is a renderer-capacity threshold, not a
+claim that the town has forty residents, so recording the counts as unreachable reported a
+limitation the requirement does not grant. A synthetic load probe — a second Vite input that only
+`build:e2e` adds, reaching no production module — now drives the real renderer at both counts.
+
+What is still `unreachable` is the other half of **AC#9**: a fixed map ZOOM at those counts. Zoom
+belongs to the live page's camera, and the live page cannot be driven above twelve without
+inventing twenty-eight visual bindings or putting a benchmark seam in the shipped renderer. That
+remainder is recorded in the results file rather than folded into the pass.
 
 **AC#7 (an eight-hour run shows no sustained memory growth) is not settled either, and an earlier
 version of this section did not say so.** It listed AC#2, AC#3 and AC#6 and stopped. The
@@ -364,7 +382,7 @@ Reported as **not measured**, never estimated, per §22.13.
 | `publicDynamicQueryP95Ms` | not measured | `requires_deployment` — see §6.1. |
 | Runtime-to-screen latency (end to end) | not measured | `requires_deployment`. The server half is published as `runtimeProjectionLatency` (ART-133) and is `server_measured`; the end-to-end figure is not. |
 | Mid-tier mobile average FPS | measured, inconclusive | See §6.1. The number exists and fails; it cannot settle the criterion either way. |
-| Visible characters at 20 and 40 | not measured | The world has twelve bound residents; the benchmark records this as `unreachable` rather than passing it silently. Tracked as repository work on ART-136 AC#6. |
+| Visible characters at 20 and 40 | **measured** (desktop); inconclusive (mobile) | Was `not measured` on the argument that Mistwood has twelve bound residents. ART-173 closed it: a synthetic load probe on its own Vite input drives the real renderer at both counts without touching the roster. Desktop passes AC#4's threshold at 20 and 40; the mobile probe fails on the same software rasteriser as the row above and is recorded `measured_but_inconclusive` for the same reason. See §6.1. |
 
 ---
 

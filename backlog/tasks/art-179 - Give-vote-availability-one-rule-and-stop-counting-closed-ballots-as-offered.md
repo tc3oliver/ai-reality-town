@@ -1,10 +1,10 @@
 ---
 id: ART-179
 title: 'Give vote availability one rule, and stop counting closed ballots as offered'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-09-09 22:54'
-updated_date: '2026-09-09 23:09'
+updated_date: '2026-09-11 19:01'
 labels:
   - epic-q
 dependencies: []
@@ -40,20 +40,20 @@ Scope: one shared predicate, used by all three sites. The unrendered view-model 
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Notes
@@ -95,3 +95,29 @@ The second injection is the one worth reading: it turns tests red in `environmen
 - `npm run check` — exit 0, 4420 passed, 31 skipped, 253 suites
 - `npm run e2e` — 124 passed
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Merged as PR #278.
+
+**The defect.** Three places decided whether an environment ballot was open, and they disagreed.
+`composeEnvironmentVoteViewModel` compared `now` against `cutoffAt`; the homepage's `vote_viewed`
+effect fired on the mere presence of a ballot row; and `homeRoute.ts` carried a `voteAvailable`
+field no view rendered. Because `crons.interval('tick environment vote rounds', { minutes: 5 })`
+closes rounds on a five-minute tick, a ballot sits at `status: 'open'` with an elapsed `cutoffAt`
+for up to five minutes — and in that window the homepage emitted `vote_viewed` for a ballot no
+viewer could act on, inflating the ART-47 `vote_viewed → vote_submitted` conversion denominator
+with impressions that could never convert.
+
+**The fix.** `src/components/vote/environmentVoteModel.ts` now owns `isBallotOpen` and
+`voteViewedTarget`; the panel, the view model and the emission all call them. `voteAvailable` was
+removed from `HomepageViewModel` rather than re-derived, with a docblock recording why the `vote`
+and `now` parameters stayed.
+
+**Verification.** `npm run check` exit 0; `npm test` 4420 passed / 31 skipped / 253 suites;
+`npm run e2e` 124 passed.
+
+**Fault injection (AC#4).** Reverting the emission to fire on ballot presence alone turned
+`does not emit vote_viewed for a ballot whose cutoff has passed` red; restored, green.
+<!-- SECTION:FINAL_SUMMARY:END -->

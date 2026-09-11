@@ -1,10 +1,10 @@
 ---
 id: ART-172
 title: Give a world mode change an audited operator control
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-09-09 18:31'
-updated_date: '2026-09-09 22:53'
+updated_date: '2026-09-11 19:00'
 labels:
   - prd-2.0
   - epic-k
@@ -38,20 +38,20 @@ Scope: an operator-gated mode change on the ART-48 console surface, admin-only f
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Notes
@@ -90,3 +90,29 @@ Adding a public function is an architectural change, so `publicFunctionSurface`,
 
 - `npm run check` — exit 0, 4436 passed, 31 skipped
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Merged as PR #277.
+
+**What shipped.** `convex/simulation/scheduler.ts` gained `planScheduleModeChange`, a pure planner
+over `(current mode, scheduler status, target mode, emergency-stop state)`; `schedulerOperations.ts`
+gained `changeWorldScheduleMode`, which reads the emergency-stop state from `worldEmergencyStops`
+rather than inferring it from the schedule row; and `convex/operations/worldModeControlFunctions.ts`
+registers the public `changeWorldMode` mutation behind the `world.change_mode` administrator
+capability. A repeat call with the same target mode is audited as `no_op` and patches nothing.
+
+**Verification.** `npm run check` exit 0, 4436 tests passed. 19 new tests in
+`worldModeControlFunctions.test.ts` across the planner, the persistence and the authorized command.
+
+**Fault injections (AC#5).** Removing the `world.change_mode` requirement turned
+`refuses an operator who is not an administrator` red; removing the audit write turned
+`records the actor, both modes and the reason in the same transaction` red. Both restored, both
+green.
+
+**Why this task existed.** ART-138 AC#10 was blocked partly on "there is no audited way to move
+Mistwood out of development mode". That half is now closed: the remaining blocker is the owner
+running the command against the deployment, which is recorded in `docs/prd-2.0-closure-record.md`
+§6.3 as `npx convex run operations/worldModeControlFunctions:changeWorldMode …`.
+<!-- SECTION:FINAL_SUMMARY:END -->

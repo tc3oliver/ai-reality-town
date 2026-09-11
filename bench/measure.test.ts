@@ -211,9 +211,20 @@ describe('the profile is part of the record, not just the setup', () => {
     expect([...BENCH_MODES]).toEqual(['stream', 'delayed', 'snapshot', 'degraded']);
   });
 
-  test('the unreachable character counts are stated with a reason, not omitted', () => {
-    const unreachable = BENCH_CHARACTER_COUNTS.filter((count) => count > CHARACTER_COUNT_LIMIT.available);
-    expect(unreachable).toEqual([20, 40]);
+  test('the counts above the roster are measured by a probe, not recorded as unreachable', () => {
+    /**
+     * This block asserted that 20 and 40 were `unreachable`, and the reason it gave was true about
+     * the WORLD and false about the MEASUREMENT (ART-173): NFR2-002 AC#4 is a renderer-capacity
+     * threshold, not a claim that the town has forty residents. Recording them as unreachable
+     * reported a limitation the requirement does not grant.
+     *
+     * They are measured now, by `src/e2e/spriteLoadWorld.ts`. The roster limit stays — it is still
+     * why the LIVE PAGE cannot be driven above twelve, and it is still what the remaining AC#9
+     * gap (a fixed map zoom at those counts) rests on.
+     */
+    const aboveRoster = BENCH_CHARACTER_COUNTS.filter((count) => count > CHARACTER_COUNT_LIMIT.available);
+    expect(aboveRoster).toEqual([20, 40]);
+    expect(CHARACTER_COUNT_LIMIT.probedBy).toBe('src/e2e/spriteLoadWorld.ts');
     // The reason has to name the constraint. A gap recorded as "not supported" teaches the
     // next reader nothing and invites someone to fabricate the number.
     expect(CHARACTER_COUNT_LIMIT.reason).toContain('FR-N004');
