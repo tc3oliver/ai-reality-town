@@ -5,7 +5,7 @@ status: Blocked
 assignee:
   - '@claude'
 created_date: '2026-08-04 16:00'
-updated_date: '2026-09-09 19:06'
+updated_date: '2026-09-11 20:22'
 labels:
   - prd-2.0
   - v2-j
@@ -64,7 +64,7 @@ ordinal: 136000
 - [ ] #3 Runtime to public screen update latency is normally under five seconds
 - [ ] #4 Desktop averages at least forty five frames per second and mid-tier mobile at least thirty
 - [x] #5 Reduced frame rate never changes a character semantic position
-- [ ] #6 Performance is measured at twelve, twenty and forty visible characters
+- [x] #6 Performance is measured at twelve, twenty and forty visible characters
 - [ ] #7 An eight hour run shows no sustained memory growth
 - [x] #8 The benchmark fixes a named mid-tier device or equivalent throttling profile and a named browser version
 - [x] #9 The benchmark covers twelve, twenty and forty visible characters at a fixed map zoom level
@@ -254,3 +254,43 @@ The four unchecked criteria split three ways, and only one of them is repository
 
 Nothing here changes AC#1 or AC#5, which stay checked.
 <!-- SECTION:NOTES:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+created: 2026-09-11 20:22
+---
+## 2026-09-12 — AC#6 closed by ART-173; AC#7 restated; the rest unchanged
+
+**AC#6 (measure at twelve, twenty and forty) is now checked.** ART-173 built a synthetic load
+probe — `bench.html` as a second Vite input that only `build:e2e` adds — and the benchmark records
+real figures at all three counts on both device profiles. The reason AC#6 was unchecked was the
+count barrier, and the count barrier is gone.
+
+**This does not move AC#4, and is not an argument that it should.** AC#4 is the threshold
+criterion and stays FAIL: mid-tier mobile 29.26 fps against 30 at twelve characters, and 18.03 /
+17.63 at twenty and forty — all on the same ANGLE/SwiftShader host, all recorded
+`measured_but_inconclusive`. The desktop probe figures (54.03 and 53.53 against 45) are conclusive
+for desktop and are **not** offered in place of the mobile ones. §22.30 stays FAIL and ART-138
+AC#11 stays EXTERNAL_BLOCKED.
+
+The previous note argued AC#6 should stay unchecked because the mobile figures cannot settle
+anything. That conflates two criteria: AC#6 asks that performance BE measured at the three counts,
+AC#4 asks that it clear a threshold. Leaving AC#6 unchecked recorded one blocker — the absent GPU —
+as two.
+
+**AC#9 is partly reopened by the same work, and the record says so.** Its zoom half is still
+`unreachable`: zoom belongs to the live page's camera, and the probe mounts the renderer without
+one. That remainder is in `docs/benchmarks/dynamic-view-latest.md` and in
+`docs/prd-2.0-closure-record.md` §6.1 rather than folded into a pass.
+
+**AC#7 stays unchecked and is now stated by the harness itself** (ART-178). It used to render `✅`
+off a two-minute run against a criterion that names eight hours. `soakVerdict` now carries
+`settlesCriterion`, the record renders `⚠️` with the shortfall, the run appears in the gaps table as
+`run_too_short`, and the summary counts 15/17 rather than 16/18. It needs no hardware this project
+lacks — `BENCH_SOAK_MINUTES=480 npm run bench` — which is why it is listed separately from the two
+真正的 external blockers.
+
+AC#2, AC#3 and AC#12 are unchanged: two need a deployment, the third needs a release to exist.
+---
+<!-- COMMENTS:END -->
