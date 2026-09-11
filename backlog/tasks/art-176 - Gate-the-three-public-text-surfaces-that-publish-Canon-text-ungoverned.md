@@ -1,11 +1,11 @@
 ---
 id: ART-176
 title: Gate the three public text surfaces that publish Canon text ungoverned
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-09-09 21:35'
-updated_date: '2026-09-09 21:53'
+updated_date: '2026-09-11 20:16'
 labels:
   - prd-1.0
   - epic-p
@@ -60,7 +60,7 @@ Out of scope: the `relationship:<pairKey>` read model, which the same sweep foun
 - [x] #11 Implementation notes are complete
 - [x] #12 Final summary includes verification evidence
 - [x] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Notes
