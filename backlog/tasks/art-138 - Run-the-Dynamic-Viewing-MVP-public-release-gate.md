@@ -5,7 +5,7 @@ status: Blocked
 assignee:
   - '@claude'
 created_date: '2026-08-04 16:00'
-updated_date: '2026-09-11 20:21'
+updated_date: '2026-09-13 16:34'
 labels:
   - prd-2.0
   - v2-k
@@ -73,7 +73,7 @@ ordinal: 138000
 - [x] #8 Typecheck, lint, tests, build and CI all pass
 - [x] #9 The requirement matrix and closure record are updated and no longer claim product completion from backend completion alone
 - [ ] #10 The public acceptance environment has the Mistwood world seeded and its slot scheduler producing accepted events, so the twelve-character requirement is verified against real canon rather than fixtures only
-- [ ] #11 The ART-136 performance benchmark is confirmed executed and passed before release, not deferred to post-launch
+- [x] #11 The ART-136 performance benchmark is confirmed executed and passed before release, not deferred to post-launch
 - [x] #12 Visual Replay is confirmed to reference only published content identifiers and versions and to invalidate on withhold or supersede
 - [x] #13 Every section 18.1 metric not yet made measurable by FR-Q007 is reported as not measured rather than estimated
 <!-- AC:END -->
