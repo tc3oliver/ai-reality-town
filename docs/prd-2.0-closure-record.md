@@ -279,7 +279,7 @@ first one that clears it**, and it clears it on the field ART-178 added rather t
 | `sampleCount` | 2878 (one every 10 s) |
 | `heapGrowthBytesPerMinute` | **6169.06**, against a threshold of 524288 — 1.2 % of it |
 | Report row | `\| AC#7 \| desktop-reference \| soak (480m, 2878 samples) \| heapGrowthBytesPerMinute \| 6169.06 \| 524288 \| ✅ \|` |
-| Artifacts | `docs/benchmarks/dynamic-view-latest.json` (`soak`), `docs/benchmarks/dynamic-view-latest.md` |
+| Artifacts | `docs/benchmarks/dynamic-view-soak-480m-2026-09-13.json` — an immutable copy of this run, because `dynamic-view-latest.json` is overwritten by the NEXT `npm run bench` and a two-minute run would silently return that file's AC#7 row to `⚠️`. `dynamic-view-latest.{json,md}` carry the same figures until then |
 
 **The run's process exit code was 1, and that is not AC#7's.** `bench:report` exits non-zero when any
 measured criterion fails, and four did — the mid-tier-mobile frame rates covered by §6.1, which is a
