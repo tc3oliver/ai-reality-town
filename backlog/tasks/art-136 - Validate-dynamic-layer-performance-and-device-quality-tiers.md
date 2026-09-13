@@ -5,7 +5,7 @@ status: Blocked
 assignee:
   - '@claude'
 created_date: '2026-08-04 16:00'
-updated_date: '2026-09-11 20:22'
+updated_date: '2026-09-13 16:11'
 labels:
   - prd-2.0
   - v2-j
@@ -65,7 +65,7 @@ ordinal: 136000
 - [ ] #4 Desktop averages at least forty five frames per second and mid-tier mobile at least thirty
 - [x] #5 Reduced frame rate never changes a character semantic position
 - [x] #6 Performance is measured at twelve, twenty and forty visible characters
-- [ ] #7 An eight hour run shows no sustained memory growth
+- [x] #7 An eight hour run shows no sustained memory growth
 - [x] #8 The benchmark fixes a named mid-tier device or equivalent throttling profile and a named browser version
 - [x] #9 The benchmark covers twelve, twenty and forty visible characters at a fixed map zoom level
 - [x] #10 The benchmark covers normal stream, delayed stream, snapshot and degraded modes
@@ -253,6 +253,30 @@ The four unchecked criteria split three ways, and only one of them is repository
 **AC#6 (12, 20 and 40 visible characters): NOT external, and it should not have been recorded as unreachable.** `CHARACTER_COUNT_LIMIT` argues that 20 and 40 are not representable because Mistwood has twelve bound residents and the view model drops unbound characters. That argument is right about the WORLD and wrong about the MEASUREMENT: NFR2-002 AC#4 is a renderer-capacity threshold, not a claim about the town's population. A synthetic load probe confined to `src/e2e/` supplies both counts without touching the production roster or its pinning tests. Raised as **ART-173**.
 
 Nothing here changes AC#1 or AC#5, which stay checked.
+
+## AC#7 — the eight-hour soak, run and PASSED (2026-09-13)
+
+The documented acceptance command, unmodified, on a tree whose `HEAD` was `e63a304` at start and at finish.
+
+| | |
+| --- | --- |
+| Command | `BENCH_SOAK_MINUTES=480 npm run bench` |
+| Commit | `e63a304b84379e6e6cefa0fb873064db307f2f11` |
+| Started / finished | `2026-09-13T08:08:10Z` → `2026-09-13T16:09:33Z` (8h 01m) |
+| Host | Mac14,3 / Apple M2 / 8 cores / 8 GiB / macOS 14.8.9 arm64 |
+| Browser | chromium 151.0.7922.34 / Playwright 1.62.1 |
+| `durationMs` | 28800000 vs `requiredDurationMs` 28800000 |
+| `settlesCriterion` | **true** |
+| `sampleCount` | 2878 |
+| `heapGrowthBytesPerMinute` | **6169.06** vs threshold 524288 (1.2%) |
+| Verdict | **PASS** — report row renders `✅` with `soak (480m, 2878 samples)` |
+| Artifacts | `docs/benchmarks/dynamic-view-latest.json` / `.md` |
+
+**The run's exit code was 1 and that is NOT AC#7's.** `bench:report` exits non-zero when any measured criterion fails; four did, all of them the mid-tier-mobile frame rates that belong to AC#4 / §22.30. The soak test itself passed — `✓ 15 … AC#7 — a 480-minute soak shows no sustained heap growth (8.0h)`, `15 passed`. Reading the exit code as an AC#7 failure, or the soak's pass as an AC#4 pass, would be the same substitution error in opposite directions.
+
+**The renderer was SwiftShader and that does not weaken this criterion.** AC#7 measures `performance.memory.usedJSHeapSize` — the JS heap, not GPU memory — as a trend across the minima of six time windows. Software rasterisation raises CPU-side cost, so if it biases the figure it biases it upward. 6.2 KB/min against 512 KB/min is not a number a renderer swap rescues.
+
+No threshold, workload, sampling or scoring logic was changed. The working tree was clean for the whole run; the only files it wrote are the two benchmark artifacts.
 <!-- SECTION:NOTES:END -->
 
 ## Comments

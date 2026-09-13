@@ -253,32 +253,48 @@ belongs to the live page's camera, and the live page cannot be driven above twel
 inventing twenty-eight visual bindings or putting a benchmark seam in the shipped renderer. That
 remainder is recorded in the results file rather than folded into the pass.
 
-**AC#7 (an eight-hour run shows no sustained memory growth) is not settled either, and an earlier
-version of this section did not say so.** It listed AC#2, AC#3 and AC#6 and stopped. The
-2026-08-24 record showed `AC#7 … ✅` and this document read that as part of「Desktop passes
-everything」— but the run behind it lasted **two minutes**, `npm run bench`'s default, against a
-criterion that names eight hours. The heap slope measured over those two minutes is 0 B/min and is
-genuinely clean; what it cannot be is an answer about eight hours, because slow leaks are the
+**AC#7 (an eight-hour run shows no sustained memory growth) — PASSED on 2026-09-13.** This section
+recorded it as unsettled for two releases, and the history matters because it is the reason the
+result below is trustworthy: the 2026-08-24 record showed `AC#7 … ✅` and this document read that as
+part of「Desktop passes everything」, but the run behind it lasted **two minutes**, `npm run bench`'s
+default, against a criterion that names eight hours. The slope over those two minutes was 0 B/min
+and genuinely clean; what it could not be is an answer about eight hours, because slow leaks are the
 entire reason the criterion is long.
 
-ART-178 made the harness say this itself rather than leaving it to a reader: `soakVerdict` now
-carries `settlesCriterion`, the record renders `⚠️` with the shortfall instead of `✅`, the run is
-listed in that file's「Not measured here, and why」table as `run_too_short`, and the summary line
-counts 15/17 rather than 16/18. A results file recorded before that change has no such field and
-is treated as unsettled, not as settled.
+ART-178 made the harness say that itself rather than leaving it to a reader: `soakVerdict` carries
+`settlesCriterion`, the record renders `⚠️` with the shortfall instead of `✅`, and a results file
+recorded before that change has no such field and is treated as unsettled. **The run below is the
+first one that clears it**, and it clears it on the field ART-178 added rather than on prose.
 
-This one is **not external** in the way the mobile frame rate is — it needs no device this project
-lacks, only eight hours of wall clock on the host that already runs the benchmark:
+| | |
+| --- | --- |
+| Command | `BENCH_SOAK_MINUTES=480 npm run bench` (the documented acceptance command, unmodified) |
+| Commit | `e63a304b84379e6e6cefa0fb873064db307f2f11` — `HEAD` was this at start and at finish |
+| Started / finished | `2026-09-13T08:08:10Z` → `2026-09-13T16:09:33Z` (8h 01m wall clock) |
+| Host | Mac14,3 / Apple M2 / 8 cores / 8 GiB / macOS 14.8.9 arm64 |
+| Browser | chromium 151.0.7922.34, Playwright 1.62.1 |
+| Renderer | `ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device …), SwiftShader driver)` — see below |
+| `durationMs` | 28800000, against `requiredDurationMs` 28800000 |
+| `settlesCriterion` | **true** |
+| `sampleCount` | 2878 (one every 10 s) |
+| `heapGrowthBytesPerMinute` | **6169.06**, against a threshold of 524288 — 1.2 % of it |
+| Report row | `\| AC#7 \| desktop-reference \| soak (480m, 2878 samples) \| heapGrowthBytesPerMinute \| 6169.06 \| 524288 \| ✅ \|` |
+| Artifacts | `docs/benchmarks/dynamic-view-soak-480m-2026-09-13.json` — an immutable copy of this run, because `dynamic-view-latest.json` is overwritten by the NEXT `npm run bench` and a two-minute run would silently return that file's AC#7 row to `⚠️`. `dynamic-view-latest.{json,md}` carry the same figures until then |
 
-```bash
-BENCH_SOAK_MINUTES=480 npm run bench
-```
+**The run's process exit code was 1, and that is not AC#7's.** `bench:report` exits non-zero when any
+measured criterion fails, and four did — the mid-tier-mobile frame rates covered by §6.1, which is a
+separate verdict on the same run. The soak test itself passed: `✓ 15 … AC#7 — a 480-minute soak shows
+no sustained heap growth (8.0h)`, and Playwright reported `15 passed`. Reading the exit code as an
+AC#7 failure, or the soak's pass as a §22.30 pass, would each be the same substitution error in
+opposite directions.
 
-**PASS means:** the `AC#7` row reads `✅` rather than `⚠️` — i.e. `settlesCriterion` is true AND
-`heapGrowthBytesPerMinute` is at or below 524288 — with `soak (480m, …)` in the same row. It is
-listed here rather than in §3 because until that run happens, §22.30's benchmark has one criterion
-recorded as unmeasured, and calling it passed would be the same substitution §6.1 refuses for the
-frame rate.
+**Why a SwiftShader renderer does not weaken this one.** AC#7 measures `performance.memory.usedJSHeapSize`
+— the JavaScript heap — not GPU memory, and the measurement is a trend across the minima of six time
+windows rather than last-minus-first. Software rasterisation raises CPU-side cost, so if it biases the
+figure at all it biases it upward; 6.2 KB/min against a 512 KB/min threshold is not a number a renderer
+swap rescues. This is the one criterion in this section whose evidence is unaffected by §6.1's
+harness defect.
+
 
 ### 6.2 §22.29 / FR-O002 production acceptance — a deployment of current `main`
 
