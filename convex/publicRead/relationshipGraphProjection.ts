@@ -51,9 +51,13 @@
  *
  * The reason is in the reducer: `convex/canon/reducer.ts` folds EVERY `relationship_changed` into
  * that state, public and private alike. Publishing the number would leak the magnitude and
- * direction of hidden feelings through arithmetic rather than through a field — defeating
- * `buildRelationshipProjection`'s private-visibility rejection without ever naming a private
- * value.
+ * direction of hidden feelings through arithmetic rather than through a field — a leak that never
+ * names a private value.
+ *
+ * Until ART-182 this paragraph pointed at `buildRelationshipProjection` as the sibling rejection
+ * this one mirrored. That builder published a per-pair model nothing read and has been deleted, so
+ * the rejection below is no longer one of two: it is the only place a private relationship is
+ * refused entry to a public payload.
  *
  * So this build takes Canon's `relationshipHistory`, keeps only the entries whose `visibility` is
  * `'public'`, and folds THOSE with {@link accumulatePublicRelationshipDimensions}. The published

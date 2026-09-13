@@ -32,12 +32,14 @@ export const READ_MODEL_SCHEMA_VERSION = 1;
 
 /**
  * Kinds of published read-models. The set is intentionally open: downstream
- * projection tasks (world, character, episode, arc, relationship, liveState)
- * register their payloads against one of these kinds. The infrastructure is
- * kind-agnostic — it versions, gates, and sanitises any JSON payload.
+ * projection tasks (world, character, episode, arc, liveState) register their
+ * payloads against one of these kinds. The infrastructure is kind-agnostic —
+ * it versions, gates, and sanitises any JSON payload.
  */
 export const READ_MODEL_KINDS = [
-  'world', 'character', 'episode', 'arc', 'relationship', 'liveState', 'timeline',
+  // `relationship` — one model per character PAIR — was here until ART-182 retired it. See
+  // {@link RETIRED_READ_MODEL_KINDS}.
+  'world', 'character', 'episode', 'arc', 'liveState', 'timeline',
   // FR-O013 / ART-121. A kind of its own rather than a field inside `liveState`, for three
   // reasons: a replay-build failure must not be able to take the live map down with it, the
   // two change on completely different cadences (the projection on every commit, the replay
@@ -65,6 +67,35 @@ export const READ_MODEL_KINDS = [
   'viewerKnowledge',
 ] as const;
 export type ReadModelKind = (typeof READ_MODEL_KINDS)[number];
+
+/**
+ * Kinds that were published once, are published no longer, and still exist in the STORE (ART-182).
+ *
+ * `relationship` was a model per character PAIR, published on every relationship change by the
+ * post-commit pipeline's stage 14 and read by nothing: two consumers shipped — the FR-I007 scoped
+ * graph and the FR-I005 character page — and both say in their own source that they deliberately
+ * read Canon instead. The PRD does not ask for it. FR-I006, the clause the publishing module cited,
+ * is the Story Arc page and names no relationship field at all; §13.3 defines Relationship as a
+ * product-layer ENTITY under a section that leaves the database schema to technical design.
+ *
+ * ## Why the split exists rather than one list
+ *
+ * A retired kind must leave the LIVE vocabulary and stay in the STORAGE vocabulary, and the two
+ * requirements pull in opposite directions:
+ *
+ * - Out of {@link READ_MODEL_KINDS}, so `isReadModelKind` is false for it. That is what closes the
+ *   surface: `getPublishedReadModel` is gated `anonymous` and takes `(worldId, modelKind,
+ *   modelRef)`, so while the kind was live any visitor who could guess a `pairKey` could fetch any
+ *   pair — unscoped, unbounded, and with none of the FR-I007 limits the shipped graph enforces.
+ *   Its arg validator now rejects the kind, and `assertTarget` throws for any legacy row.
+ * - Still in `publicRead/schema.ts`'s `modelKind` union, because rows written before this task
+ *   carry it and Convex validates EXISTING documents on deploy. Deleting the storage literal would
+ *   turn a cleanup into a migration and fail the next deploy.
+ *
+ * Nothing may publish these, and `retiredReadModelKinds.test.ts` is what holds that.
+ */
+export const RETIRED_READ_MODEL_KINDS = ['relationship'] as const;
+export type RetiredReadModelKind = (typeof RETIRED_READ_MODEL_KINDS)[number];
 
 export function isReadModelKind(value: unknown): value is ReadModelKind {
   return typeof value === 'string' && (READ_MODEL_KINDS as readonly string[]).includes(value);

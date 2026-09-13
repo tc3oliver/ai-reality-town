@@ -116,6 +116,7 @@ import {
   type ArcArtifact,
   type EpisodeArtifact,
   type KnowledgeArtifact,
+  type RelationshipArtifact,
   type LiveArcState,
   type MemoryArtifact,
   type PostCommitLivePort,
@@ -732,9 +733,6 @@ function createLivePostCommitPort(canon: InMemoryCanonStore, readStore: MemoryRe
       const projection = replayWorldEvents(emptyProjection(worldId), events());
       return Promise.resolve(authorizeMemoryRead(projection.characterMemories, characterId, OPERATOR));
     },
-    rebuildRelationshipProjection: (_worldId, source, target) =>
-      Promise.resolve(`relationship:${[source, target].sort().join('|')}`),
-
     recordArcClassification(classification) {
       if (classifications.has(classification.sourceEventSequenceNumber)) return Promise.resolve({ created: false });
       classifications.set(classification.sourceEventSequenceNumber, classification);
@@ -1321,6 +1319,29 @@ describe('live post-commit pipeline over real world-day commits (AC#1/#2/#3/#4)'
     const memory = runStore.artifact<MemoryArtifact>(lastRunId, 'memory');
     expect(knowledge.entries.length).toBeGreaterThan(0);
     expect(memory.entries.some(({ newMemoryIds }) => newMemoryIds.length > 0)).toBe(true);
+
+    /**
+     * Stage 14 (PRD §12 「Update Relationships」) after ART-182 retired its publication.
+     *
+     * The expectation is derived from each event's own `stateChanges` rather than from
+     * `publicRelationshipPairs`, which is the function the stage calls: handing a check its own
+     * implementation makes it a tautology (CLAUDE.md §9). The two properties that matter are that
+     * the stage still REPORTS what the event moved — so a silent regression to an empty artifact
+     * fails here — and that it reports only PUBLIC pairs, once each.
+     */
+    let sawAMovedPair = false;
+    for (const [index, event] of canon.committedEvents().entries()) {
+      const expected = [...new Set(event.stateChanges.flatMap((change) => (
+        change.type === 'relationship_changed' && change.visibility === 'public'
+          ? [[change.sourceCharacterId, change.targetCharacterId].sort().join('|')]
+          : []
+      )))].sort();
+      const artifact = runStore.artifact<RelationshipArtifact>(runs[index].runId, 'relationship');
+      expect(artifact.pairKeys).toEqual(expected);
+      if (expected.length > 0) sawAMovedPair = true;
+    }
+    // ...and the loop above was not vacuous.
+    expect(sawAMovedPair).toBe(true);
 
     // AC#1/AC#4 — story arcs exist, stay inside the count-control limits, and only ever
     // moved along legal FR-F002 transitions.

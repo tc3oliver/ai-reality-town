@@ -52,8 +52,10 @@ leaving a viewer to make the stronger reading.
 
 Two alternatives were considered and rejected:
 
-- **Reading the per-pair `relationship:<pairKey>` models.** Nothing published maps a character to
-  the pairs they are in, so the page would have to enumerate pairs it cannot enumerate.
+- **Reading the per-pair `relationship:<pairKey>` models.** Nothing published mapped a character to
+  the pairs they are in, so the page would have had to enumerate pairs it cannot enumerate. This
+  page's refusal and the graph's were the two that left that model with no reader, and ART-182
+  retired it; the alternative is now not merely rejected but gone.
 - **Publishing a per-character relationship index.** That is a second home for a fact the graph
   already holds, and the two could disagree.
 

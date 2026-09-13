@@ -10,10 +10,14 @@ NFR-002, graph clause: 關係圖預設節點不超過 30。
 
 ## 1. Why the graph is built on the server
 
-Not a preference. Relationship projections are published one `modelRef` per pair
-(`relationship:<pairKey>`), and **no published model enumerates the pairs**. A client can ask for
-a relationship it already knows the name of; it cannot discover which relationships exist. There
-is no client-side construction of this graph to prefer or reject.
+Not a preference. When this was written, relationship projections were published one `modelRef`
+per pair (`relationship:<pairKey>`) and **no published model enumerated the pairs**: a client could
+ask for a relationship it already knew the name of, but could not discover which relationships
+exist. There was no client-side construction of this graph to prefer or reject.
+
+ART-182 has since retired that per-pair publication outright — this graph and the character page
+were its only two candidate readers, and both chose Canon — so the argument is now simpler than it
+was: there is no per-pair public model to build a client-side graph from at all.
 
 It is also the only place the two hard bounds can be guarantees rather than hopes. A thirty-node
 cap applied in a component is a cap on what that component draws. Applied before publication, a
@@ -44,7 +48,10 @@ state the published payload has never carried. ART-100.
 
 ### Why Canon rather than the published `relationship:<pairKey>` model
 
-1. **The published model does not carry what this needs.** `RelationshipChange` publishes three of
+Kept in the past tense it was written in, because it is the reasoning that led to ART-182 deleting
+that model: this decision, plus the character page's identical one, is what left it with no reader.
+
+1. **The published model did not carry what this needs.** `RelationshipChange` publishes three of
    the six deltas (trust, affection, resentment) and no world day at all. The seven-day window
    needs the day; 關係類型篩選 needs all six dimensions.
 2. **Independence from ART-95.** The published payload's current dimensions were the last event's
@@ -219,9 +226,11 @@ neighbours by radius and stroke-width as well as colour, so the two groups survi
   whose source event belongs to a Scene refused later has its reason already frozen into that
   day's payload, and — because a past day is never rebuilt (§7) — it stays there.
 
-  This is the same gate the published `relationship:<pairKey>` model has always applied, so it is
-  not a new exposure; what is new is that the per-day freeze makes it permanent for past days
-  rather than self-healing on the next rebuild. Character text avoids this entirely by not being
+  This was the same gate the published `relationship:<pairKey>` model applied, so it was not a new
+  exposure when this was written; what was new is that the per-day freeze makes it permanent for
+  past days rather than self-healing on the next rebuild. Since ART-182 retired that model, this
+  payload is the only place a public change reason is published at all, so the gate below is the
+  only one there is. Character text avoids this entirely by not being
   in the payload (§2), and the honest reason the same trick is not applied to reasons is that a
   change reason has no per-day published model to read it from.
 

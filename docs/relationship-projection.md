@@ -24,14 +24,23 @@ Validation rejects self-relationships, unknown characters, participant mismatche
 non-finite deltas, unsupported visibility values, and all-zero changes. Snapshot and
 origin replay must produce identical state and history.
 
-## The PUBLIC relationship projection (ART-95, corrected in ART-44)
+## The PUBLIC relationship dimensions (ART-95, corrected in ART-44, retired as a model in ART-182)
 
-`convex/publicRead/relationshipArcProjection.ts` publishes `relationship:<pairKey>` for public
-consumption. Two things about it are easy to get wrong, and one of them was wrong until ART-44.
+`convex/publicRead/relationshipArcProjection.ts` published `relationship:<pairKey>` — one read
+model per character pair, committed on every relationship change — until **ART-182 retired that
+publication**. Nothing read it: the FR-I007 graph and the FR-I005 character page both say in their
+own source that they read Canon instead, and the PRD asks for the public projection SHAPE rather
+than for a published model per pair (FR-I006 is the Story Arc page and names no relationship field;
+§13.3 defines Relationship as a product-layer entity).
+
+What survives is the part the graph builder imports: `accumulatePublicRelationshipDimensions` and
+the rules below. They are still live, still load-bearing, and still the only correct way to turn a
+pair's public history into levels — so this section is kept rather than deleted, with the sentences
+that described a published payload marked as history.
 
 ### Published dimensions are accumulated LEVELS, not the last delta
 
-`rebuildRelationshipProjection` used to overwrite its accumulator on every matching event and
+`rebuildRelationshipProjection` (deleted by ART-182) used to overwrite its accumulator on every matching event and
 assign `trust: change.trustDelta` — and the same for the other five dimensions — so the published
 `RelationshipProjection.trust` was the **last event's delta**. A pair that moved +5, +5, +5
 published `trust: 5`; a pair that moved +50 and then -1 published `trust: -1`, i.e. a close ally
@@ -49,9 +58,10 @@ history, clamping per step and flooring familiarity at zero, exactly as the Cano
 
 The reducer folds every change, public and private, into canonical world state. The public
 projection folds only the public ones. They are re-implemented rather than shared, because feeding
-private deltas into the public number would leak the size and direction of hidden feelings — the
-leak that `buildRelationshipProjection`'s private-visibility rejection exists to prevent, defeated
-by arithmetic rather than by publishing a field.
+private deltas into the public number would leak the size and direction of hidden feelings,
+defeated by arithmetic rather than by publishing a field. The visibility rejection that catches the
+other half of that leak now lives in one place only — `relationshipGraphProjection.ts` — because
+its sibling in `buildRelationshipProjection` went with the retired publication.
 
 So the published level is "where this relationship stands as far as the public record shows",
 which is a smaller number than Canon's and is the only one this surface is entitled to.
@@ -69,16 +79,21 @@ The order of the two steps matters. `Infinity` becomes 0, not 100: it is not "ma
 a value nobody can read, and clamping it would publish the strongest possible claim about a
 relationship on the strength of a garbage number.
 
-### The payload shape is deliberately UNCHANGED
+### The payload that is no longer published
 
-This repair is a behaviour fix and carries no shape change. Widening `RelationshipChange` to six
-deltas and a `worldDay` was drafted while ART-44's relationship graph was planned to read it, and
-reverted once that graph moved to Canon (`docs/scoped-relationship-graph.md` §2).
+ART-95's repair deliberately carried no shape change: widening `RelationshipChange` to six deltas
+and a `worldDay` was drafted while ART-44's graph was planned to read the model, and reverted once
+that graph moved to Canon (`docs/scoped-relationship-graph.md` §2). The reason given at the time was
+that a shape change alters every relationship row's `contentHash`, so every pair in every world
+would publish a new version on its next rebuild — churn paid for a field nothing reads.
 
-Two reasons. A shape change alters every relationship row's `contentHash`, so every pair in every
-world publishes a new version on its next rebuild — churn paid for a field nothing reads. And
-mixing it in would make the behaviour fix and the graph reviewable only together.
+**"A field nothing reads" turned out to be the whole payload.** ART-182 followed that observation
+to its end: the model had two candidate consumers, both shipped, and both declined it. The three
+additive v1 dimensions never gained published per-change provenance and now never will, because
+there is no per-pair public payload to carry it — the graph publishes all six as levels, per world
+day, which is what FR-I007 actually asks for.
 
-So the three additive v1 dimensions still have no published per-change provenance, only an
-accumulated level. That predates this task. ART-43 is the next consumer of relationship data and
-the right place to decide whether the public surface needs them.
+Rows written before the retirement are still in `publishedReadModels`. They are inert: `relationship`
+is out of `READ_MODEL_KINDS`, so `getPublishedReadModel` will not name the kind and `serveReadModel`
+throws on it. The literal stays in the stored `modelKind` union precisely so those rows keep
+validating on deploy — see `RETIRED_READ_MODEL_KINDS` and `convex/publicRead/retiredReadModelKinds.test.ts`.

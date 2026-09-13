@@ -29,7 +29,7 @@ import {
   type SecretInput,
   type ViewerKnowledgeProjection,
 } from './viewerKnowledgeProjection';
-import { READ_MODEL_KINDS } from './readModel';
+import { READ_MODEL_KINDS, RETIRED_READ_MODEL_KINDS } from './readModel';
 
 const WORLD_ID = 'mistwood';
 const CHARACTER_ID = 'zhao-ming';
@@ -464,8 +464,15 @@ describe('read-model kind registration', () => {
       readFileSync(join(HERE, 'readModelFunctions.ts'), 'utf8'),
       /const modelKindValidator = v\.union\(([\s\S]*?)\n\);/,
     );
-    expect([...schema].sort()).toEqual([...READ_MODEL_KINDS].sort());
+    // The validator is the LIVE vocabulary exactly: a caller may name a kind if and only if
+    // something publishes it.
     expect([...validator].sort()).toEqual([...READ_MODEL_KINDS].sort());
+    // The schema is the STORED vocabulary, which is the live one plus whatever has been retired
+    // and still has rows (ART-182). Equality on the union rather than a subset check in either
+    // direction: a live kind missing from the schema is an insert-time production failure, and a
+    // schema literal in neither list is a kind nobody decided to keep.
+    expect([...schema].sort()).toEqual([...READ_MODEL_KINDS, ...RETIRED_READ_MODEL_KINDS].sort());
+    expect(READ_MODEL_KINDS.some((kind) => (RETIRED_READ_MODEL_KINDS as readonly string[]).includes(kind))).toBe(false);
   });
 
   it('names this projection', () => {

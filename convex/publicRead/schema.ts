@@ -45,6 +45,12 @@ export const publicReadTables = {
   publishedReadModels: defineTable({
     schemaVersion: v.literal(1),
     worldId: v.string(),
+    // The STORED vocabulary, which is wider than the live one on purpose. `relationship` is
+    // retired (ART-182): nothing publishes it and `getPublishedReadModel` will not name it, but
+    // rows written before that carry it and Convex validates existing documents on deploy — so
+    // removing the literal here would fail the next deploy rather than clean anything up.
+    // `RETIRED_READ_MODEL_KINDS` in `./readModel.ts` is the list, and the test that keeps the two
+    // unions from drifting apart in either direction.
     modelKind: v.union(
       v.literal('world'), v.literal('character'), v.literal('episode'),
       v.literal('arc'), v.literal('relationship'), v.literal('liveState'), v.literal('timeline'),
