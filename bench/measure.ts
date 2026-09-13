@@ -225,3 +225,47 @@ export function soakVerdict(
     requiredDurationMs,
   };
 }
+
+/**
+ * What kind of renderer drew the frames (ART-138 AC#11).
+ *
+ * ## Why this is a classifier and not a boolean on the launch options
+ *
+ * `--ignore-gpu-blocklist` is a REQUEST. What a Chromium actually binds depends on the binary, the
+ * host and the driver, and the two disagree in the direction that matters: for two releases this
+ * benchmark asked for the real GL stack, recorded
+ * `ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device …))`, and published mid-tier-mobile frame rates
+ * measured on a software rasteriser as though they were a statement about a phone. The launch
+ * option said hardware; the renderer said otherwise; nothing compared them.
+ *
+ * So the answer comes from `WEBGL_debug_renderer_info` on a real page, and this function is the one
+ * place that decides what the string means.
+ *
+ * ## Three outcomes, not two
+ *
+ * `unidentified` is separate from `software` on purpose. A renderer this cannot recognise —
+ * `'none'`, `'unknown'`, an empty string, a name no marker matches — is not evidence of hardware,
+ * and collapsing it into `hardware` would let an unreadable environment publish a frame rate under
+ * the name of a GPU. The gate below requires `hardware` positively rather than requiring
+ * `!== 'software'`.
+ *
+ * The markers are substrings of what a software stack calls itself, matched case-insensitively:
+ * SwiftShader (Chromium's own), llvmpipe and Mesa's offscreen renderer (Linux), Microsoft's Basic
+ * Render Driver (Windows), and the generic 'software'. A hardware renderer that named itself with
+ * any of these would be misreporting itself.
+ */
+export const SOFTWARE_RENDERER_MARKERS: readonly string[] = [
+  'swiftshader', 'llvmpipe', 'software', 'mesa offscreen', 'basic render driver', 'generic renderer',
+];
+
+/** Renderer strings that identify nothing, and so cannot be evidence of hardware. */
+export const UNIDENTIFIED_RENDERERS: readonly string[] = ['', 'none', 'unknown'];
+
+export type RendererClass = 'hardware' | 'software' | 'unidentified';
+
+export function classifyRenderer(renderer: string): RendererClass {
+  const normalised = renderer.trim().toLowerCase();
+  if (UNIDENTIFIED_RENDERERS.includes(normalised)) return 'unidentified';
+  if (SOFTWARE_RENDERER_MARKERS.some((marker) => normalised.includes(marker))) return 'software';
+  return 'hardware';
+}

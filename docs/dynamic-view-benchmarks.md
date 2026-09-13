@@ -31,8 +31,13 @@ Three things, and all three are in the **output**:
 - **The browser version and the GL renderer.** Two runs on different Chromium builds are not
   comparable, and the difference between a hardware and a software rasteriser is worth roughly
   everything to a frame rate. The renderer is read from the page rather than inferred from the
-  launch flags: `--ignore-gpu-blocklist` is a *request*, and a host with no usable GPU silently
-  falls back to SwiftShader anyway.
+  launch flags: `--ignore-gpu-blocklist` is a *request*, and a browser that cannot bind a GPU falls
+  back to SwiftShader without saying so.
+
+  **Recording it was never enough**, and §6 is the two releases that proved it — the file said
+  SwiftShader, the frame rates beside it were cited as evidence about a phone, and nothing compared
+  the two. So the renderer is now a *gate* rather than a field: a run that is not on hardware
+  produces no frame rate at all unless `BENCH_SOFTWARE_GL=1` asked for that explicitly.
 - **A fixed camera zoom** (AC#9), set by returning to the town view before sampling.
 
 ## 3. The four modes (AC#10)
@@ -145,28 +150,43 @@ Three things are deliberately true of it, and the report says each one where the
 What is **still** unreachable is the other half of **AC#9**: a fixed map zoom at those counts. The
 probe mounts the renderer without the camera controller that owns zoom, so it cannot set one.
 
-### `measured_but_inconclusive` — mobile frame rate
+### The mobile frame rate — resolved, and the renderer gate that came out of it
 
-**The mobile profile currently fails AC#4, and the failure is reported as a failure.** The
-recorded figure is ~27 fps average against a 30 fps threshold.
+This section used to be headed `measured_but_inconclusive` and recorded ~27 fps against a 30 fps
+threshold, explaining that「this host has no usable GPU」. **The explanation was wrong**, and the
+figure was a consequence of the mistake rather than of a device.
 
-The context, which does not exempt it: this host has no usable GPU. Chromium reports an
-ANGLE/SwiftShader device even with the GPU blocklist ignored, so the mobile profile
-software-rasterises a 1080×2340 backing store — roughly twice the desktop profile's pixels —
-while also under 4× CPU throttling. That is a harsher environment than the named device, and
-the figure therefore cannot settle the criterion either way for real mobile hardware.
+Playwright's default headless Chromium is `chrome-headless-shell`, a build with **no GPU support at
+all**. `--ignore-gpu-blocklist` grants permission to use hardware that binary cannot bind, so every
+run silently fell back to SwiftShader — on a host that is an Apple M2 with Metal 3. The benchmark
+recorded the renderer faithfully and then measured anyway.
 
-Both halves are recorded: the number stands as a fail, and the reason it is inconclusive stands
-beside it. An authoritative mobile figure needs a device, which is ART-138's job. Notably the
-`degraded` rung reaches 60 fps on the same profile, which locates the cost in the Pixi stage
-rather than anywhere else on the page.
+`playwright.bench.config.ts` now selects `channel: 'chromium'`, which is the full build in new
+headless mode, and the same host answers:
 
-The load probe inherits this exactly, and is recorded as inheriting it. On desktop the probe
-clears AC#4's threshold at both twenty and forty; on mobile it fails at both, on the same
-software rasteriser, for the same reason — so `AC#4 (load probe, mobile)` carries its own
-`measured_but_inconclusive` row. **A probe fail on this host is evidence that twenty and forty are
-now measurable, not evidence about a phone**, and the desktop probe figures are not offered as a
-substitute for the mobile ones.
+| Launch | Renderer |
+| --- | --- |
+| default headless | `ANGLE (Google, … SwiftShader Device …)` |
+| `channel: 'chromium'` | `ANGLE (Apple, ANGLE Metal Renderer: Apple M2, …)` |
+
+On hardware the criterion passes with room to spare: **21/21 measured criteria**, mid-tier mobile at
+60 fps in all four modes, and the load probe at 60 fps at twenty and forty sprites.
+
+**The gate that replaces the caveat.** A launch option is a request, not an outcome, so the benchmark
+no longer trusts one. It reads `UNMASKED_RENDERER_WEBGL` from a real page, classifies it with
+`classifyRenderer`, and **refuses to measure at all** when the answer is not `hardware` — the spec is
+serial, so the run yields no frame rate rather than one nobody should cite. An unreadable renderer is
+`unidentified` and blocks too: "we could not tell" is not evidence of a GPU.
+
+`BENCH_SOFTWARE_GL=1` is still supported and is the one way to run this without hardware. Such a run
+records `softwareRendererRequested: true`, and the report opens with a block saying every frame rate
+in it is a property of a rasteriser and is **not** usable for NFR2-002 AC#4 or ART-138 AC#11.
+
+**One limitation the pass carries.** Every profile now sits at the 60 fps vsync ceiling with no
+jitter, so this host has no headroom signal: a severe regression would show, a gradual one would not.
+That the measurement is nonetheless live was verified rather than assumed — at a 24× CPU throttle the
+mobile figures drop to 46.37 fps average, P5 29.94, worst 10, and the forty-sprite probe's P5 falls
+below the twelve-character page's, so both the throttle and the probe's load register.
 
 ## 7. The eight-hour soak
 

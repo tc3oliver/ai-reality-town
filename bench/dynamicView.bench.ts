@@ -19,12 +19,14 @@ import {
 } from './profile';
 import {
   averageFps,
+  classifyRenderer,
   heapGrowthBytesPerMinute,
   p5Fps,
   sampleFrameIntervals,
   worstFps,
   soakVerdict,
   verdictsFor,
+  type RendererClass,
 } from './measure';
 
 /**
@@ -77,6 +79,17 @@ const FPS_SAMPLE_MS = 4_000;
  * not evidence that an eight-hour run is clean.
  */
 const SOAK_MINUTES = Number(process.env.BENCH_SOAK_MINUTES ?? '2');
+
+/**
+ * Did the operator ASK for a software rasteriser?
+ *
+ * The one thing that distinguishes a deliberate software run from a host that quietly fell back to
+ * one. `docs/dynamic-view-benchmarks.md` §1 documents `BENCH_SOFTWARE_GL=1` as a supported mode —
+ * it is how a determinism question gets answered without a GPU — so the gate below must not delete
+ * it. What the gate refuses is the OTHER case: a run that believed it had hardware, did not, and
+ * published frame rates anyway.
+ */
+const SOFTWARE_GL_REQUESTED = process.env.BENCH_SOFTWARE_GL === '1';
 const SOAK_SAMPLE_INTERVAL_MS = 10_000;
 
 type Result = {
@@ -84,6 +97,17 @@ type Result = {
   browser: string;
   /** Which GL stack drew the frames. A frame rate without it is not comparable to anything. */
   renderer: string;
+  /**
+   * What that string MEANS, decided by {@link classifyRenderer} rather than by a reader.
+   *
+   * Recorded next to the renderer because the two were separable in practice for two releases:
+   * the file said `ANGLE (Google, … SwiftShader …)` and the frame rates beside it were read as a
+   * statement about a phone. A machine-checkable field is what lets the report, the record test
+   * and the release gate all reach the same conclusion about the same run.
+   */
+  rendererClass: RendererClass;
+  /** True only when the operator asked for the software path with `BENCH_SOFTWARE_GL=1`. */
+  softwareRendererRequested: boolean;
   soakMinutes: number;
   samples: BenchSample[];
   verdicts: Array<{ profileId: string; mode: BenchMode; criterion: string; metric: string; value: number; threshold: number; pass: boolean }>;
@@ -97,6 +121,8 @@ const result: Result = {
   recordedAt: new Date().toISOString(),
   browser: '',
   renderer: '',
+  rendererClass: 'unidentified',
+  softwareRendererRequested: SOFTWARE_GL_REQUESTED,
   soakMinutes: SOAK_MINUTES,
   samples: [],
   verdicts: [],
@@ -295,6 +321,30 @@ test.describe('dynamic viewing benchmark (FR-Q005 / ART-136)', () => {
       await page.close();
     }
     expect(result.renderer).not.toBe('none');
+    result.rendererClass = classifyRenderer(result.renderer);
+
+    /**
+     * THE GATE (ART-138 AC#11). A software rasteriser may not produce a frame rate.
+     *
+     * This describe block is `mode: 'serial'`, so failing here skips every sample that follows:
+     * the run does not produce a frame rate at all rather than producing one nobody should cite.
+     * That is the point. The previous arrangement recorded the renderer faithfully and then
+     * measured anyway, and the resulting 29.26 fps sat in a release gate for two releases as
+     * evidence about a mid-tier phone — measured on a host with no GPU bound, at roughly twice the
+     * desktop profile's pixel count, under 4× CPU throttling.
+     *
+     * `toEqual` on an object rather than a bare boolean, so a failure prints the renderer that
+     * caused it. `'hardware'` is required POSITIVELY: an unreadable renderer is `unidentified` and
+     * fails here too, because "we could not tell" is not evidence of a GPU.
+     *
+     * `BENCH_SOFTWARE_GL=1` is the documented way to run this on purpose. That path is allowed
+     * through, and the results file records `softwareRendererRequested: true` next to the class so
+     * the report can mark every figure in it as unusable for AC#4 and AC#11.
+     */
+    if (!SOFTWARE_GL_REQUESTED) {
+      expect({ renderer: result.renderer, rendererClass: result.rendererClass })
+        .toEqual({ renderer: result.renderer, rendererClass: 'hardware' });
+    }
   });
 
   for (const profile of BENCH_PROFILES) {
@@ -510,6 +560,24 @@ test.describe('dynamic viewing benchmark (FR-Q005 / ART-136)', () => {
   });
 
   test.afterAll(() => {
+    /**
+     * Two caveats are about the RENDERER, so they only apply to a run that had a bad one.
+     *
+     * `AC#4 (mobile)` and `AC#4 (load probe, mobile)` are declared `measured_but_inconclusive`
+     * because a mid-tier-mobile figure measured on a software rasteriser says nothing about a
+     * phone. That was every run this harness could produce before ART-138 reached the host GPU —
+     * so the rows were written as constants, and on a hardware run they became a file claiming its
+     * own conclusive figures were inconclusive.
+     *
+     * Dropped rather than rewritten: the caveat's whole content is「this was software」, and on a
+     * hardware run there is nothing left of it to state. The renderer and its class stay in the
+     * file either way, so a reader can still see which kind of run produced the numbers.
+     */
+    if (result.rendererClass === 'hardware') {
+      result.notMeasured = result.notMeasured.filter(
+        (entry) => entry.status !== 'measured_but_inconclusive',
+      );
+    }
     mkdirSync(dirname(RESULTS), { recursive: true });
     writeFileSync(RESULTS, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
   });

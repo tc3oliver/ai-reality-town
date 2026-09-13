@@ -34,7 +34,9 @@ type SoakRecord = {
 const record = JSON.parse(read('dynamic-view-latest.json')) as {
   soakMinutes: number;
   soak: SoakRecord | null;
-  verdicts: Array<{ criterion: string; profileId: string; pass: boolean }>;
+  /** Absent in a record written before ART-138 added the renderer gate. */
+  rendererClass?: 'hardware' | 'software' | 'unidentified';
+  verdicts: Array<{ criterion: string; profileId: string; mode: string; pass: boolean }>;
 };
 const markdown = read('dynamic-view-latest.md');
 
@@ -71,12 +73,43 @@ describe('the recorded benchmark does not claim a criterion the run could not se
     expect(markdown).toContain(`BENCH_SOAK_MINUTES=${required} npm run bench`);
   });
 
-  it('reports the mid-tier mobile frame rate as a failure, not as an omission', () => {
-    // The other claim this file is cited for. It is a FAIL and must stay one: ART-138 §6.1
-    // forbids substituting the desktop, degraded or snapshot figure for it, and an absent row
-    // would read as "not a problem" rather than "not settled".
+  it('reports the mid-tier mobile frame rate, whatever it is, rather than omitting it', () => {
+    /**
+     * The other claim this file is cited for.
+     *
+     * This assertion used to require the mobile rows to FAIL — `mobileFps.some((v) => !v.pass)` —
+     * which was true of every run the harness could produce at the time and wrong as a rule. It
+     * encoded「the mid-tier mobile frame rate is a failure」as a property of the RECORD, so a run
+     * that finally passed the criterion would have failed this test. ART-138 found that the reason
+     * those runs failed was a harness defect, not a device limit; a rule that forbids the fix from
+     * ever showing up is not a gate, it is a lock.
+     *
+     * What ART-138 §6.1 actually forbids is SUBSTITUTION: reporting the desktop, degraded or
+     * snapshot figure under the mobile criterion's name, or dropping the row so its absence reads
+     * as「not a problem」. That is what is asserted now — the rows are present, and they are
+     * `stream` and `delayed`, the two modes the criterion names.
+     */
     const mobileFps = record.verdicts.filter((v) => v.criterion === 'AC#4' && v.profileId === 'mid-tier-mobile');
     expect(mobileFps.length).toBeGreaterThan(0);
-    expect(mobileFps.some((verdict) => !verdict.pass)).toBe(true);
+    for (const verdict of mobileFps) {
+      expect(markdown).toContain(`| AC#4 | mid-tier-mobile | ${verdict.mode} |`);
+    }
+    expect(mobileFps.map((verdict) => verdict.mode)).toEqual(expect.arrayContaining(['stream', 'delayed']));
+  });
+
+  it('never presents a software-rasterised run as evidence about a device', () => {
+    /**
+     * ART-138 AC#11. The harness refuses to measure at all unless the renderer is hardware, so the
+     * only way a software run reaches this record is the documented `BENCH_SOFTWARE_GL=1` path —
+     * and a reader who picks the file up months later must not have to recognise
+     * `ANGLE (Google, … SwiftShader Device …)` to know the frame rates in it are about a rasteriser
+     * rather than about a phone. For two releases that is exactly what was required of them.
+     */
+    if (record.rendererClass === undefined) return; // a record written before the field existed
+    expect(markdown).toContain(`- Renderer class: **${record.rendererClass}**`);
+    if (record.rendererClass !== 'hardware') {
+      expect(markdown).toContain('**This run did not use a hardware GPU**');
+      expect(markdown).toContain('not** usable as evidence for NFR2-002 AC#4');
+    }
   });
 });

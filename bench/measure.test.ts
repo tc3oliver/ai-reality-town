@@ -10,6 +10,7 @@
 
 import {
   averageFps,
+  classifyRenderer,
   heapGrowthBytesPerMinute,
   p5Fps,
   soakVerdict,
@@ -228,5 +229,57 @@ describe('the profile is part of the record, not just the setup', () => {
     // The reason has to name the constraint. A gap recorded as "not supported" teaches the
     // next reader nothing and invites someone to fabricate the number.
     expect(CHARACTER_COUNT_LIMIT.reason).toContain('FR-N004');
+  });
+});
+
+/**
+ * The renderer gate (ART-138 AC#11).
+ *
+ * These cases are the real strings this repository has recorded or produced, not invented ones.
+ * The SwiftShader line is verbatim from `docs/benchmarks/dynamic-view-latest.json` as it stood on
+ * 2026-09-13; the Metal line is verbatim from the same host under a GPU-capable Chromium. The
+ * point of the pair is that they are the SAME machine — which is why a launch option could not
+ * settle which one ran.
+ */
+describe('classifyRenderer — what actually drew the frames', () => {
+  const SWIFTSHADER = 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0) (0x0000C0DE)), SwiftShader driver)';
+  const METAL = 'ANGLE (Apple, ANGLE Metal Renderer: Apple M2, Unspecified Version)';
+
+  it('calls the two renderers this host can produce by their right names', () => {
+    expect(classifyRenderer(SWIFTSHADER)).toBe('software');
+    expect(classifyRenderer(METAL)).toBe('hardware');
+  });
+
+  it.each([
+    'ANGLE (Intel, Mesa Intel(R) UHD Graphics 620, OpenGL 4.6)',
+    'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)',
+    'Apple GPU',
+  ])('accepts a real GPU: %s', (renderer) => {
+    expect(classifyRenderer(renderer)).toBe('hardware');
+  });
+
+  it.each([
+    'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)',
+    'Mesa/X.org, llvmpipe (LLVM 15.0.7, 256 bits)',
+    'Google SwiftShader',
+    'Microsoft Basic Render Driver',
+    'ANGLE (Software Adapter, Direct3D11 vs_5_0 ps_5_0)',
+  ])('rejects a software rasteriser: %s', (renderer) => {
+    expect(classifyRenderer(renderer)).toBe('software');
+  });
+
+  it.each(['', 'none', 'unknown', '   ', 'NONE'])(
+    'refuses to call an unreadable renderer hardware: "%s"',
+    (renderer) => {
+      // Separate from `software` on purpose. An environment that cannot say what drew the frames
+      // is not evidence of a GPU, and the gate requires `hardware` POSITIVELY — so an unreadable
+      // renderer blocks the run rather than passing through the software check.
+      expect(classifyRenderer(renderer)).toBe('unidentified');
+    },
+  );
+
+  it('matches case-insensitively, because the string comes from a driver', () => {
+    expect(classifyRenderer('GOOGLE SWIFTSHADER')).toBe('software');
+    expect(classifyRenderer('swiftshader')).toBe('software');
   });
 });

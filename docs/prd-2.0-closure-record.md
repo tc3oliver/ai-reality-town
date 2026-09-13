@@ -31,8 +31,8 @@ exemption to any of the thirty-one.
 
 | Verdict | Count |
 | --- | ---: |
-| PASS | 30 |
-| FAIL | 1 |
+| PASS | 31 |
+| FAIL | 0 |
 | EXTERNAL_BLOCKED | 0 |
 | **Total** | **31** |
 
@@ -40,15 +40,22 @@ exemption to any of the thirty-one.
 
 | Verdict | Count |
 | --- | ---: |
-| PASS | 11 |
+| PASS | 12 |
 | FAIL | 0 |
-| EXTERNAL_BLOCKED | 2 |
+| EXTERNAL_BLOCKED | 1 |
 | **Total** | **13** |
 
-**MVP closure: NOT COMPLETE.** Exactly one §22 criterion fails — §22.30, the mid-tier mobile frame
-rate — and it fails on a host with no GPU, so the figure cannot settle it either way. Two of this
-gate's own criteria need an owner action that `CLAUDE.md` §5 forbids an agent from taking. §6 gives
-each one its operation, its acceptance command and its pass threshold.
+**MVP closure: NOT COMPLETE — but every remaining item is one owner action.** All thirty-one §22
+criteria now pass. §22.30 was the last FAIL and stopped being one on 2026-09-13, when ART-138 found
+that the frame rate had never been measured on a GPU: the benchmark launched Playwright's default
+headless Chromium, a build with no GPU support, so it bound SwiftShader on a host with an Apple M2
+and published the result as a statement about a phone. See §6.1 — the criterion was not blocked on
+hardware this project lacks, it was blocked on a harness that could not reach the hardware it had.
+
+**One** of this gate's own thirteen criteria remains: AC#10, the public acceptance environment,
+which needs a production deploy and a world-mode change that `CLAUDE.md` §5 forbids an agent from
+performing. §6.3 gives the operation, the rollback, the acceptance command and the pass threshold;
+§6.2's deployment corroboration for §22.29 is satisfied by the same deploy.
 
 The two counts are kept apart on purpose. §22 is about the PRODUCT; ART-138's AC#10 and AC#11 are
 about the ENVIRONMENT this gate runs in. Merging them would let an environment blocker read as a
@@ -89,7 +96,7 @@ product failure, or a product pass read as an environment one.
 | 27 | Every V2 P0 requirement has a task and objective evidence | PASS | Every PRD 2.0 Dynamic Viewing task (ART-113 … ART-137, ART-140) is `Done`; the board's only remaining items are this gate and ART-136. Per-requirement evidence is in `docs/prd-2.0-requirement-matrix.md` §3. See §5 below for the one thing this does **not** claim. |
 | 28 | The closure record does not claim MVP completion from backend completion | PASS | This document. §2 records the MVP as **not complete**, and the reason is a browser-measured frame rate — the failure mode §22.28 exists to prevent. |
 | 29 | ART-139 fixed; the real provider produces Accepted Events, with a regression test | PASS | `convex/simulation/sceneSimulation.test.ts` (`ART-139 real-provider schemaVersion contract`) and `convex/canon/proposedEvent.test.ts`. The accepted-event chain was verified live against the configured gateway during ART-141: 2/2 runs took a real provider `ProposedEvent` carrying `character_location_changed` through `parseWholeSceneOutput → normalizeProposedEventOutput → validateEventStructure → validateCanon → appendCommit`. ART-157 then fixed the prompt so a movement proposal names a legal destination, and ART-159/ART-160 wired the real adapter into the scheduled live path. See §5 for what the CURRENT deployment can and cannot corroborate. |
-| 30 | The dynamic-layer benchmark is established **and actually passed** | **FAIL** | `docs/benchmarks/dynamic-view-latest.md`, re-recorded 2026-09-09 with ART-173's load probe. Desktop passes every criterion the run settles — see §6.1 on AC#7, which it does not. **Mid-tier mobile averages 29.26 fps (stream) and 29.13 fps (delayed) against NFR2-002's 30 fps**, and 18.03 / 17.63 fps on the twenty- and forty-sprite load probe. The harness exists, is repeatable (`npm run bench`) and is honest about what it could not measure. §6.1 states why none of those figures can settle the criterion either way, and what would. |
+| 30 | The dynamic-layer benchmark is established **and actually passed** | PASS | `docs/benchmarks/dynamic-view-latest.md`, re-recorded 2026-09-13 on hardware graphics (`ANGLE (Apple, ANGLE Metal Renderer: Apple M2, Unspecified Version)`): **21/21 measured criteria pass**, mid-tier mobile at 60 fps against a 30 fps threshold in all four modes, and the ART-173 load probe at 60 fps at both twenty and forty sprites. Every earlier run bound SwiftShader because the harness launched a GPU-less Chromium build — §6.1 is the whole story, including why the 29.26 fps figure this row used to carry was never evidence about a device. AC#7 is settled separately by the 480-minute soak (§6.1). |
 | 31 | Visual Replay references only published identifiers and versions, and invalidates on withhold/supersede | PASS | `convex/publicRead/visualReplay.test.ts` + `convex/publicRead/visualReplayFunctions.test.ts` — the read-time gate requires a matching `publicationVersion` AND a servable status, so a withheld or superseded record stops resolving without a rebuild. Since ART-171 the status list has one definition, `VIEWER_SERVABLE_PUBLICATION_STATUSES`; `convex/publicRead/visualReplay.boundary.test.ts` pins the builder's whole import closure. |
 
 ---
@@ -108,7 +115,7 @@ product failure, or a product pass read as an environment one.
 | 8 | Typecheck, lint, tests, build and CI pass | PASS | §3 #26. |
 | 9 | The matrix and closure record are updated and no longer claim completion from backend completion alone | PASS | This document; `docs/prd-2.0-requirement-matrix.md` §0 corrected in the same change (§5). |
 | 10 | Public acceptance environment seeded, scheduler producing accepted events, twelve characters verified against real Canon | **EXTERNAL_BLOCKED** | The twelve-character half IS satisfied against real Canon (§4). The world is `development`. The "no registered function can change a world's mode" half of this blocker is CLOSED by ART-172; what remains is an owner deploying current `main` and running the command. §6.3. |
-| 11 | The ART-136 benchmark confirmed executed AND passed before release | **EXTERNAL_BLOCKED** | Executed and recorded; mid-tier mobile FAILS at 29.26 fps on a host with no GPU, and the ART-173 load probe FAILS there too. §6.1. |
+| 11 | The ART-136 benchmark confirmed executed AND passed before release | PASS | Executed 2026-09-13 on an Apple M2 GPU with no threshold, workload or scoring change: 21/21 measured criteria pass, 0 failing verdicts. The benchmark now refuses to measure at all unless the renderer is hardware, so this verdict cannot silently revert to a software figure. §6.1. |
 | 12 | Visual Replay references only published identifiers and versions, invalidating on withhold or supersede | PASS | §3 #31. |
 | 13 | Every §18.1 metric not yet measurable is reported as not measured rather than estimated | PASS | §7. |
 
@@ -184,74 +191,90 @@ Two things this record deliberately does **not** claim:
 
 ## 6. What is blocked, and on whom
 
-### 6.1 §22.30 — the mid-tier mobile frame rate
+### 6.1 §22.30 — the mid-tier mobile frame rate — RESOLVED 2026-09-13
 
-**Verdict:** FAIL, and the failure is **not** conclusive about real hardware.
+**Verdict: PASS.** How it was resolved is the part worth keeping, because for two releases this
+section argued the opposite conclusion from a premise that was false.
 
-The recorded figure is real and is reported as a failure rather than exempted: 29.26 fps against a
-30 fps threshold, in `stream` and `delayed` modes, at 12 visible characters. But the host that
-produced it has no usable GPU — Chromium reports
-`ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device …))` even with the GPU blocklist ignored — so the
-mobile profile software-rasterises a 1080×2340 backing store (about twice the desktop profile's
-pixel count) while also under 4× CPU throttling. A software rasteriser missing 30 fps says nothing
-about a phone with hardware graphics.
+#### What this section used to say
 
-Nothing in this repository can settle it. There is no GPU-capable runner in CI (the E2E job
-installs Chromium on a standard hosted runner), and substituting the desktop figure, the
-`degraded`-mode figure (60 fps) or the `snapshot`-mode figure (39.09 fps) for the normal-mode
-mobile requirement would be reporting a different measurement under the same name. Re-running the
-benchmark on this machine — which ART-173 did, on 2026-09-09 — moves the number by a few tenths
-and changes nothing about why it cannot settle the criterion.
+> The recorded figure is real and is reported as a failure rather than exempted: 29.26 fps against
+> a 30 fps threshold … But the host that produced it **has no usable GPU** — Chromium reports
+> `ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device …))` even with the GPU blocklist ignored …
+> **Nothing in this repository can settle it.** There is no GPU-capable runner in CI …
+> **EXTERNAL_BLOCKED: requires a real mid-tier mobile device, or a GPU-capable representative
+> runner.**
 
-**ART-173's load probe does not change this verdict, and is not offered as evidence against it.**
-It closes a different gap — AC#6's twenty and forty visible characters, previously recorded as
-`unreachable` — by driving the renderer with synthetic sprites. Its mobile figures (18.03 fps at
-twenty, 17.63 at forty) come off the SAME software rasteriser, so they are inconclusive for
-exactly the reason the twelve-character figure is, and the results file records them as
-`measured_but_inconclusive`. Its DESKTOP figures are conclusive on this host and pass: 54 fps at
-twenty and 53 at forty, against a 45 fps threshold. That is the honest reading — the criterion
-became measurable, and on the one profile this host can speak for, it passes.
+Everything it said about the *measurement* was accurate. The sentence about the *host* was not, and
+it was the one the verdict rested on. The host is an Apple M2 with a ten-core GPU and Metal 3.
+Chromium reaches it. What could not reach it was the benchmark:
 
-**EXTERNAL_BLOCKED: requires a real mid-tier mobile device, or a GPU-capable representative
-runner.**
+| Launch | `UNMASKED_RENDERER_WEBGL` |
+| --- | --- |
+| Playwright default headless — **what the benchmark used** | `ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device …), SwiftShader driver)` |
+| `channel: 'chromium'` (new headless) | `ANGLE (Apple, ANGLE Metal Renderer: Apple M2, Unspecified Version)` |
+| headed | `ANGLE (Apple, ANGLE Metal Renderer: Apple M2, Unspecified Version)` |
 
-Minimum owner operation:
+Playwright's default headless Chromium is `chrome-headless-shell`, a build with **no GPU support at
+all**. `--ignore-gpu-blocklist` — which the config set, and which this section cited as evidence the
+host had been asked properly — grants permission to use hardware the binary cannot bind. The flag
+said hardware, the renderer said SwiftShader, and nothing compared the two.
 
-```bash
-# On a host with hardware graphics — do NOT set BENCH_SOFTWARE_GL.
-npm run bench
-```
+**That is a repository defect, not an environment limitation**, and the difference is the whole
+verdict: the criterion sat as `EXTERNAL_BLOCKED` awaiting a device that was already under the desk.
 
-Acceptance command and threshold:
+#### The run that settles it
 
-```bash
-node -e "const r=require('./docs/benchmarks/dynamic-view-latest.json'); \
-  const bad=r.verdicts.filter(v=>v.criterion==='AC#4'&&v.profileId==='mid-tier-mobile'&&!v.pass); \
-  console.log('renderer:', r.renderer); \
-  console.log(bad.length?'FAIL':'PASS', JSON.stringify(bad));"
-```
+| | |
+| --- | --- |
+| Command | `npm run bench` — no `BENCH_SOFTWARE_GL`; no threshold, workload, sampling or scoring change |
+| Renderer | **`ANGLE (Apple, ANGLE Metal Renderer: Apple M2, Unspecified Version)`**, class `hardware` |
+| Browser | chromium 151.0.7922.34 / Playwright 1.62.1 |
+| Result | **21/21 measured criteria pass; 0 failing verdicts** |
+| mid-tier-mobile AC#4 | **60 fps** in `stream`, `delayed`, `snapshot`, `degraded`, against 30 |
+| desktop-reference AC#4 | 60 fps in all four modes, against 45 |
+| Load probe (ART-173) | 60 fps at twenty and at forty sprites, on both profiles |
 
-**PASS means:** `mid-tier-mobile` averages **≥ 30 fps in `stream` and `delayed` modes** at 12
-visible characters, on a run whose recorded `Renderer` line is **not** SwiftShader. Desktop must
-stay ≥ 45 fps. The `degraded` and `snapshot` modes do not substitute for the normal-mode
-requirement, and neither does the desktop profile.
+#### Why 60.00 everywhere is a real figure, not a broken measurement
 
-Two ART-136 criteria are blocked by the same class of thing and are listed here so they are not
-lost: **AC#2** (`publicDynamicQueryP95Ms < 500ms`) and **AC#3** (runtime-to-screen latency < 5s)
-both require a real deployment, because the E2E build replaces the transport with an in-process
-fixture and measuring them there would record ~0 ms for a path that was never exercised.
+Every sample reading exactly 60 is the shape of a vsync ceiling — and equally the shape of a sampler
+that has stopped sampling. It was checked rather than assumed. Raising the mid-tier-mobile profile's
+CPU throttle from 4× to 24× and re-running moved the figures at once: average 46.37 fps, P5 29.94,
+worst 10, and 187 frames in the window instead of 240. The forty-sprite probe's P5 (20.04) came in
+below the twelve-character page's (29.94), so the probe's extra load registers too. The throttle
+applies on this launch path and the sampler is live; at 4× on an M2 the work simply fits inside a
+frame with room to spare.
 
-ART-136 **AC#6** (measure at 12, 20 and 40 visible characters) was recorded as `unreachable`
-because Mistwood has twelve bound residents. **ART-173 closed it.** That argument was right about
-the world and wrong about the measurement: NFR2-002 AC#4 is a renderer-capacity threshold, not a
-claim that the town has forty residents, so recording the counts as unreachable reported a
-limitation the requirement does not grant. A synthetic load probe — a second Vite input that only
-`build:e2e` adds, reaching no production module — now drives the real renderer at both counts.
+**The limitation that comes with the pass, stated rather than left to be noticed:** with every
+profile pinned at the ceiling, this host has no headroom signal. The benchmark will catch a severe
+regression here and will not catch a gradual one. That is a property of running a mobile profile on
+desktop hardware.
 
-What is still `unreachable` is the other half of **AC#9**: a fixed map ZOOM at those counts. Zoom
-belongs to the live page's camera, and the live page cannot be driven above twelve without
-inventing twenty-eight visual bindings or putting a benchmark seam in the shipped renderer. That
-remainder is recorded in the results file rather than folded into the pass.
+#### What stops this from recurring
+
+The benchmark no longer trusts its own launch options. `dynamicView.bench.ts` reads the renderer off
+a real page, classifies it, and **refuses to measure anything** when the result is not hardware — the
+describe block is serial, so such a run produces no frame rate at all rather than one nobody should
+cite. `BENCH_SOFTWARE_GL=1` remains a supported, documented mode; a run made that way records
+`softwareRendererRequested: true`, and the report stamps every figure in it as unusable for AC#4 and
+AC#11.
+
+`bench/measure.test.ts` covers the classifier against the real strings this host produces, and
+`bench/record.test.ts` asserts the record never presents a software run as evidence about a device.
+An earlier assertion in that file required the mobile rows to FAIL — true of every run the harness
+could then produce, and wrong as a rule, since it would have failed the very run that fixed it.
+
+#### What is still not settled here
+
+**AC#2** (`publicDynamicQueryP95Ms < 500ms`) and **AC#3** (runtime-to-screen latency < 5s) still
+require a real deployment: the E2E build replaces the transport with an in-process fixture, so
+measuring them here records ~0 ms for a path that was never exercised.
+
+ART-136 **AC#6** (twelve, twenty and forty visible characters) is closed by ART-173's load probe.
+What remains `unreachable` is the other half of **AC#9**: a fixed map ZOOM at those counts. Zoom
+belongs to the live page's camera, and the live page cannot be driven above twelve without inventing
+twenty-eight visual bindings or putting a benchmark seam in the shipped renderer. That remainder is
+recorded in the results file rather than folded into the pass.
 
 **AC#7 (an eight-hour run shows no sustained memory growth) — PASSED on 2026-09-13.** This section
 recorded it as unsettled for two releases, and the history matters because it is the reason the
@@ -279,7 +302,7 @@ first one that clears it**, and it clears it on the field ART-178 added rather t
 | `sampleCount` | 2878 (one every 10 s) |
 | `heapGrowthBytesPerMinute` | **6169.06**, against a threshold of 524288 — 1.2 % of it |
 | Report row | `\| AC#7 \| desktop-reference \| soak (480m, 2878 samples) \| heapGrowthBytesPerMinute \| 6169.06 \| 524288 \| ✅ \|` |
-| Artifacts | `docs/benchmarks/dynamic-view-soak-480m-2026-09-13.json` — an immutable copy of this run, because `dynamic-view-latest.json` is overwritten by the NEXT `npm run bench` and a two-minute run would silently return that file's AC#7 row to `⚠️`. `dynamic-view-latest.{json,md}` carry the same figures until then |
+| Artifacts | `docs/benchmarks/dynamic-view-soak-480m-2026-09-13.json` — an immutable copy of this run, because `dynamic-view-latest.json` is overwritten by the NEXT `npm run bench` and a two-minute run would silently return that file's AC#7 row to `⚠️`. `dynamic-view-latest.{json,md}` have since been replaced by the 2026-09-13 hardware-GPU run (§6.1) and carry a 2-minute soak, which is exactly the overwrite the archived copy exists for |
 
 **The run's process exit code was 1, and that is not AC#7's.** `bench:report` exits non-zero when any
 measured criterion fails, and four did — the mid-tier-mobile frame rates covered by §6.1, which is a
@@ -404,13 +427,19 @@ Reported as **not measured**, never estimated, per §22.13.
 
 ## 8. What would make this record say COMPLETE
 
-All three, in order:
+Both, in order:
 
 1. §6.2 — a deploy of current `main` and one real-provider slot, so §22.29 has deployment
    corroboration as well as repository evidence.
 2. §6.3 — the acceptance environment enabled, so §22.10 is satisfied by a `public` world rather
    than by a `development` one.
-3. §6.1 — one benchmark run on hardware graphics showing mid-tier mobile at ≥ 30 fps in `stream`
-   and `delayed`, so §22.30 stops being a FAIL.
+**§6.1 is done** — the benchmark ran on hardware graphics on 2026-09-13 and mid-tier mobile reached
+60 fps in all four modes, so §22.30 is no longer a FAIL. It is struck from this list rather than
+deleted from the document, because the reason it took two releases (a harness that could not reach
+the host's GPU, not a missing device) is the kind of thing this record exists to remember.
 
-Until then this document must not be cited as PRD 2.0 MVP closure. That is the whole point of it.
+Both remaining items are satisfied by **one** owner action — deploy current `main`, run a slot,
+promote the world — so the list is shorter than it looks.
+
+Until they are done this document must not be cited as PRD 2.0 MVP closure. That is the whole point
+of it.

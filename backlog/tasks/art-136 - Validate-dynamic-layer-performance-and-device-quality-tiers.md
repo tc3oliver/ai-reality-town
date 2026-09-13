@@ -5,7 +5,7 @@ status: Blocked
 assignee:
   - '@claude'
 created_date: '2026-08-04 16:00'
-updated_date: '2026-09-13 16:11'
+updated_date: '2026-09-13 16:34'
 labels:
   - prd-2.0
   - v2-j
@@ -62,7 +62,7 @@ ordinal: 136000
 - [x] #1 Live view shell P95 time to interactive is under four seconds on desktop and six seconds on mobile
 - [ ] #2 Public dynamic query P95 is under five hundred milliseconds
 - [ ] #3 Runtime to public screen update latency is normally under five seconds
-- [ ] #4 Desktop averages at least forty five frames per second and mid-tier mobile at least thirty
+- [x] #4 Desktop averages at least forty five frames per second and mid-tier mobile at least thirty
 - [x] #5 Reduced frame rate never changes a character semantic position
 - [x] #6 Performance is measured at twelve, twenty and forty visible characters
 - [x] #7 An eight hour run shows no sustained memory growth

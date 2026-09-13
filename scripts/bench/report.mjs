@@ -35,8 +35,30 @@ lines.push('');
 lines.push(`- Recorded at: \`${result.recordedAt}\``);
 lines.push(`- Browser: \`${result.browser}\``);
 lines.push(`- Renderer: \`${result.renderer}\``);
+lines.push(`- Renderer class: **${result.rendererClass ?? 'unrecorded'}**`);
 lines.push(`- Soak length: ${result.soakMinutes} minute(s)`);
 lines.push('');
+
+/**
+ * ART-138. A frame rate measured on a software rasteriser is not evidence about a device, and for
+ * two releases this file published one as though it were. `dynamicView.bench.ts` now refuses to
+ * measure at all unless the renderer is hardware — so the only way a software run reaches this
+ * report is `BENCH_SOFTWARE_GL=1`, which is deliberate and is labelled here rather than left for a
+ * reader to infer from the renderer string.
+ */
+if (result.rendererClass !== undefined && result.rendererClass !== 'hardware') {
+  const requested = result.softwareRendererRequested === true
+    ? ', requested with `BENCH_SOFTWARE_GL=1`'
+    : '';
+  lines.push(
+    '> **This run did not use a hardware GPU** (renderer class `'
+    + result.rendererClass + '`' + requested + ').'
+    + ' Every frame-rate figure below is a property of a software rasteriser on this host. It is'
+    + ' **not** usable as evidence for NFR2-002 AC#4 or for ART-138 AC#11, which are statements'
+    + ' about a device. Re-run without `BENCH_SOFTWARE_GL` on a host with graphics hardware.',
+  );
+  lines.push('');
+}
 lines.push('## Samples');
 lines.push('');
 lines.push('| Profile | Mode | Source | Visible characters | TTI (ms) | Avg FPS | P5 FPS | Worst FPS | Frames sampled |');
