@@ -3,7 +3,7 @@ id: ART-182
 title: >-
   The per-pair relationship read model is published on every change and read by
   nothing
-status: In Progress
+status: Done
 assignee:
   - '@tc3oliver'
 created_date: '2026-09-11 20:02'
