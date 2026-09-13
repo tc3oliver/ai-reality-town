@@ -3,91 +3,70 @@ import {
   ARC_MODEL_KIND,
   RELATIONSHIP_ARC_SCHEMA_VERSION,
   RELATIONSHIP_DIMENSIONS,
-  RELATIONSHIP_MODEL_KIND,
   RelationshipArcError,
   accumulatePublicRelationshipDimensions,
   buildArcProjection,
-  buildRelationshipProjection,
   type ArcSummary,
   type ArcOutcome,
   type PublicFact,
-  type RelationshipChange,
   type RelationshipDeltaInput,
 } from './relationshipArcProjection';
+// The whole namespace as well as the named imports: one test below asserts what is NOT exported,
+// which a named import cannot do — it would fail to compile rather than fail as a test.
+import * as relationshipArcProjection from './relationshipArcProjection';
 
-describe('buildRelationshipProjection (AC#1 — bounded public dims, history, no leakage)', () => {
-  function changes(): RelationshipChange[] {
-    return [{ eventId: 'e2', reason: 'a shared secret surfaced', trustDelta: 10, affectionDelta: 5, resentmentDelta: -3 }];
-  }
-
-  it('projects a public relationship with bounded dimensions and history', () => {
-    const projection = buildRelationshipProjection({
-      worldId: 'w1', sourceCharacterId: 'char-a', targetCharacterId: 'char-b',
-      trust: 40, affection: 25, resentment: 5, fear: NaN, dependency: Infinity, familiarity: 12,
-      visibility: 'public', lastUpdatedEventId: 'e2', changeHistory: changes(),
-    });
-    expect(projection.visibility).toBe('public');
-    expect(projection.pairKey).toBe('char-a:char-b');
-    expect(projection.trust).toBe(40);
-    expect(projection.fear).toBe(0); // NaN bounded
-    expect(projection.dependency).toBe(0); // Infinity bounded
-    expect(projection.changeHistory[0].reason).toContain('shared secret');
-    expect(projection.schemaVersion).toBe(RELATIONSHIP_ARC_SCHEMA_VERSION);
-  });
-
-  it('rejects a private-visibility relationship (no hidden-secret leakage)', () => {
-    expect(() => buildRelationshipProjection({
-      worldId: 'w1', sourceCharacterId: 'char-a', targetCharacterId: 'char-b',
-      trust: 1, affection: 1, resentment: 1, fear: 1, dependency: 1, familiarity: 1,
-      visibility: 'private', lastUpdatedEventId: 'e1', changeHistory: [],
-    })).toThrow(RelationshipArcError);
-  });
-
-  it('is deterministic for identical inputs (AC#3)', () => {
-    const input = {
-      worldId: 'w1', sourceCharacterId: 'char-a', targetCharacterId: 'char-b',
-      trust: 1, affection: 1, resentment: 1, fear: 1, dependency: 1, familiarity: 1,
-      visibility: 'public', lastUpdatedEventId: 'e1', changeHistory: changes(),
-    };
-    expect(buildRelationshipProjection(input)).toEqual(buildRelationshipProjection(input));
-  });
-
-  it('declares the relationship model kind', () => {
-    expect(RELATIONSHIP_MODEL_KIND).toBe('relationship');
+/**
+ * ART-182 removed the per-pair publication this file used to open with.
+ *
+ * `buildRelationshipProjection` shaped a `relationship:<pairKey>` read model that nothing read, and
+ * the seven tests that stood here covered its payload: the pair key, the change history, the
+ * private-visibility rejection, and ART-95's clamp. They are not moved, because their subject is
+ * gone — but two of the things they protected are still live, and each has a home:
+ *
+ * - **The clamp** is tested below, through {@link accumulatePublicRelationshipDimensions}, which is
+ *   now its only caller and is what the FR-I007 graph folds a pair's public history with.
+ * - **The private-visibility rejection** is tested in `relationshipGraphProjection.test.ts`. It was
+ *   asserted in two places while two builders enforced it; one builder is gone, so one assertion
+ *   went with it rather than being retargeted at the survivor it was never about.
+ */
+describe('the per-pair relationship publication is gone, not merely unused (ART-182)', () => {
+  it('exports no builder and no model kind for it', () => {
+    const exported = Object.keys(relationshipArcProjection);
+    expect(exported).not.toContain('buildRelationshipProjection');
+    expect(exported).not.toContain('RELATIONSHIP_MODEL_KIND');
+    // ...and the dimension rules the graph reuses are still here, which is the whole distinction:
+    // the PRD asks for the public projection shape, not for a published model per pair.
+    expect(exported).toContain('accumulatePublicRelationshipDimensions');
+    expect(exported).toContain('RELATIONSHIP_DIMENSIONS');
   });
 
   /**
-   * ART-95. `BOUNDED` coerced non-finite values to zero and did nothing else, while its name and
-   * the docblock above `buildRelationshipProjection` both said the dimensions were bounded. The
-   * repair made the code do what both claimed rather than renaming the claim away.
+   * ART-95, re-anchored. `BOUNDED` coerced non-finite values to zero and did nothing else, while
+   * its name and its docblock both said the dimensions were bounded. The repair made the code do
+   * what both claimed. The claim is still live — Canon's reducer clamps to exactly this range, so a
+   * published level outside it could not correspond to any state the world is in — so it is still
+   * asserted, now against the surviving caller.
    */
-  it('clamps every dimension to Canon’s declared relationship range', () => {
-    const projection = buildRelationshipProjection({
-      worldId: 'w1', sourceCharacterId: 'char-a', targetCharacterId: 'char-b',
-      trust: 1_000, affection: -1_000, resentment: RELATIONSHIP_MAX, fear: RELATIONSHIP_MIN,
-      dependency: 0, familiarity: 101,
-      visibility: 'public', lastUpdatedEventId: 'e1', changeHistory: [],
-    });
-    expect(projection.trust).toBe(RELATIONSHIP_MAX);
-    expect(projection.affection).toBe(RELATIONSHIP_MIN);
-    expect(projection.resentment).toBe(RELATIONSHIP_MAX);
-    expect(projection.fear).toBe(RELATIONSHIP_MIN);
-    expect(projection.familiarity).toBe(RELATIONSHIP_MAX);
+  it('clamps an accumulated level to Canon’s declared relationship range', () => {
+    const levels = accumulatePublicRelationshipDimensions([
+      { trustDelta: 1_000, affectionDelta: -1_000, resentmentDelta: 0, familiarityDelta: 1_000 },
+    ]);
+    expect(levels.trust).toBe(RELATIONSHIP_MAX);
+    expect(levels.affection).toBe(RELATIONSHIP_MIN);
+    expect(levels.familiarity).toBe(RELATIONSHIP_MAX);
     // The bound is Canon's, not a second opinion about it.
     expect([RELATIONSHIP_MIN, RELATIONSHIP_MAX]).toEqual([-100, 100]);
   });
 
-  it('reads an unreadable dimension as zero rather than as the maximum', () => {
+  it('reads an unreadable delta as zero rather than as the maximum', () => {
     // Ordering matters: coerce first, THEN clamp. Clamping `Infinity` would publish 100 — the
     // strongest possible claim about a relationship — on the strength of a garbage number.
-    const projection = buildRelationshipProjection({
-      worldId: 'w1', sourceCharacterId: 'char-a', targetCharacterId: 'char-b',
-      trust: Infinity, affection: -Infinity, resentment: NaN, fear: 1, dependency: 1, familiarity: 1,
-      visibility: 'public', lastUpdatedEventId: 'e1', changeHistory: [],
+    const levels = accumulatePublicRelationshipDimensions([
+      { trustDelta: Infinity, affectionDelta: -Infinity, resentmentDelta: NaN },
+    ]);
+    expect(levels).toEqual({
+      trust: 0, affection: 0, resentment: 0, fear: 0, dependency: 0, familiarity: 0,
     });
-    expect(projection.trust).toBe(0);
-    expect(projection.affection).toBe(0);
-    expect(projection.resentment).toBe(0);
   });
 });
 

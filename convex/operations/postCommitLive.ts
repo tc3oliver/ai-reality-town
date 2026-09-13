@@ -227,8 +227,6 @@ export interface PostCommitLivePort {
   loadCharacterKnowledge(worldId: string, characterId: string): Promise<ReadonlyArray<{ knowledgeId: string; sourceEventId: string }>>;
   /** ART-26 subjective memory for one character (operations requester). */
   loadCharacterMemories(worldId: string, characterId: string): Promise<ReadonlyArray<{ memoryId: string; sourceEventId: string }>>;
-  /** ART-I006 relationship read-model rebuild; null when the pair has no public relationship. */
-  rebuildRelationshipProjection(worldId: string, sourceCharacterId: string, targetCharacterId: string): Promise<string | null>;
   /** ART-29 classification write boundary (validates provenance, creates a new arc's lifecycle + projection). */
   recordArcClassification(classification: ArcEventClassification): Promise<{ created: boolean }>;
   /** ART-30 portfolio admission boundary (count control). */
@@ -927,7 +925,16 @@ export function deriveRecapRequests(
 export type ProjectionArtifact = { characterIds: string[]; modelRefs: string[] };
 export type KnowledgeArtifact = { entries: Array<{ characterId: string; knowledgeCount: number; newKnowledgeIds: string[] }> };
 export type MemoryArtifact = { entries: Array<{ characterId: string; memoryCount: number; newMemoryIds: string[] }> };
-export type RelationshipArtifact = { modelRefs: string[] };
+/**
+ * PRD §12 stage 14 「Update Relationships」: which pairs this event moved in public.
+ *
+ * `modelRefs` until ART-182, because the stage's only work was publishing a `relationship:<pairKey>`
+ * read model that nothing read. `pairKeys` is what the stage can honestly report now — the same
+ * shape stages 12 and 13 have always had, a record of what the accepted event did rather than a
+ * second write of it. The state update the stage is named for is the deterministic reducer's
+ * (`convex/canon/reducer.ts` folds every `relationship_changed`), replayed at stage 11.
+ */
+export type RelationshipArtifact = { pairKeys: string[] };
 export type ArcTransitionRecord = { arcId: string; fromStatus: StoryArcStatus; toStatus: StoryArcStatus };
 export type ArcResolutionRecord = {
   arcId: string;
@@ -1064,15 +1071,21 @@ export function createPostCommitStageHandlers(port: PostCommitLivePort): PostCom
       return { entries };
     },
 
-    // Stage 14: rebuild the public relationship read model for every pair the event moved.
+    // Stage 14 (PRD §12 「Update Relationships」): record the pairs this event moved in public.
+    //
+    // It writes nothing, and that is the same contract stages 12 and 13 have: the update itself
+    // belongs to the deterministic reducer, which folded every `relationship_changed` before this
+    // pipeline ran and is replayed into the live projection at stage 11. Until ART-182 the stage
+    // also published a `relationship:<pairKey>` read model per moved pair — one content hash, one
+    // version allocation and one row per pair per event, on the per-event path CLAUDE.md §9 warns
+    // about — which nothing ever read.
     relationship: async (context): Promise<RelationshipArtifact> => {
       const state = await port.loadWorldState(sourceOf(context));
-      const modelRefs: string[] = [];
-      for (const [sourceCharacterId, targetCharacterId] of publicRelationshipPairs(state.event)) {
-        const modelRef = await port.rebuildRelationshipProjection(context.worldId, sourceCharacterId, targetCharacterId);
-        if (modelRef) modelRefs.push(modelRef);
-      }
-      return { modelRefs };
+      // Sorted per pair, which is the key `publicRelationshipPairs` already dedupes on — so a pair
+      // named in either direction reports once and under one name.
+      return {
+        pairKeys: publicRelationshipPairs(state.event).map(([source, target]) => [source, target].sort().join('|')),
+      };
     },
 
     // Stage 15: FR-F001…FR-F005 — classify the event into arcs, admit a new arc under the

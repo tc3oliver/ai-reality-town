@@ -27,9 +27,17 @@ import {
   type StoredReadModel,
 } from './readModel';
 
+/**
+ * The kinds a caller may name. `READ_MODEL_KINDS` minus nothing — the two are pinned equal by
+ * `viewerKnowledgeProjection.test.ts`, which reads this literal out of the source.
+ *
+ * It is deliberately NARROWER than the stored union in `./schema.ts`: `relationship` is retired
+ * (ART-182, see {@link RETIRED_READ_MODEL_KINDS}), so legacy rows still validate on deploy while
+ * `getPublishedReadModel` — which is gated `anonymous` — refuses to name them at all.
+ */
 const modelKindValidator = v.union(
   v.literal('world'), v.literal('character'), v.literal('episode'),
-  v.literal('arc'), v.literal('relationship'), v.literal('liveState'), v.literal('timeline'),
+  v.literal('arc'), v.literal('liveState'), v.literal('timeline'),
   v.literal('visualReplay'), v.literal('voteConsequence'),
   v.literal('relationshipGraph'), v.literal('viewerKnowledge'),
 );

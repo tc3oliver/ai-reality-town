@@ -1036,9 +1036,6 @@ export function createPostCommitHarness(canon: InMemoryCanonStore, readStore: Me
       const projection = worldProjection(worldId);
       return Promise.resolve(authorizeMemoryRead(projection.characterMemories, characterId, OPERATOR));
     },
-    rebuildRelationshipProjection: (_worldId, source, target) =>
-      Promise.resolve(`relationship:${[source, target].sort().join('|')}`),
-
     recordArcClassification(classification) {
       if (classifications.has(classification.sourceEventSequenceNumber)) return Promise.resolve({ created: false });
       classifications.set(classification.sourceEventSequenceNumber, classification);

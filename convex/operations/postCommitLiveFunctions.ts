@@ -38,10 +38,7 @@ import type {
   rebuildWorldProjection as rebuildWorldProjectionExport,
   rebuildCharacterProjection as rebuildCharacterProjectionExport,
 } from '../publicRead/worldCharacterProjectionFunctions';
-import type {
-  rebuildRelationshipProjection as rebuildRelationshipProjectionExport,
-  rebuildArcProjection as rebuildArcProjectionExport,
-} from '../publicRead/relationshipArcProjectionFunctions';
+import type { rebuildArcProjection as rebuildArcProjectionExport } from '../publicRead/relationshipArcProjectionFunctions';
 import type { recordArcEventClassification as recordArcEventClassificationExport } from '../story/classificationFunctions';
 import type {
   admitArcToPortfolio as admitArcToPortfolioExport,
@@ -146,9 +143,6 @@ const rebuildWorldProjectionRef = internalFunctionRef<typeof rebuildWorldProject
 );
 const rebuildCharacterProjectionRef = internalFunctionRef<typeof rebuildCharacterProjectionExport>(
   'publicRead/worldCharacterProjectionFunctions:rebuildCharacterProjection',
-);
-const rebuildRelationshipProjectionRef = internalFunctionRef<typeof rebuildRelationshipProjectionExport>(
-  'publicRead/relationshipArcProjectionFunctions:rebuildRelationshipProjection',
 );
 const rebuildArcProjectionRef = internalFunctionRef<typeof rebuildArcProjectionExport>(
   'publicRead/relationshipArcProjectionFunctions:rebuildArcProjection',
@@ -593,13 +587,6 @@ function createConvexPostCommitLivePort(ctx: MutationCtx, now: number): PostComm
     async loadCharacterMemories(worldId, characterId) {
       const projection = await loadProjection(worldId);
       return authorizeMemoryRead(projection.characterMemories, characterId, OPERATOR);
-    },
-
-    async rebuildRelationshipProjection(worldId, sourceCharacterId, targetCharacterId) {
-      const { modelRef } = await ctx.runMutation(
-        rebuildRelationshipProjectionRef,
-        { worldId, sourceCharacterId, targetCharacterId, now });
-      return modelRef;
     },
 
     async recordArcClassification(classification) {

@@ -1,21 +1,30 @@
 /**
- * Publication-safe Relationship and Story Arc projections (PRD §13.3, FR-I006).
+ * The publication-safe Story Arc projection (FR-I006), and the public relationship DIMENSION
+ * rules the FR-I007 graph is built from.
  *
- * Pure builders with explicit field projection. Relationship projection exposes
- * bounded public dimensions + change history/reasons and excludes hidden-secret
- * leakage (private-visibility relationships are never projected) (AC#1). Arc
- * projection exposes every published FR-I006 field, with outcome only when the
- * arc is resolved (AC#2). Both rebuild deterministically (AC#3). Pure module —
- * no Convex imports, no clock, no randomness, no Canon mutation.
+ * Pure builders with explicit field projection. The arc projection exposes every published
+ * FR-I006 field, with an outcome only when the arc is resolved (AC#2), and rebuilds
+ * deterministically (AC#3). Published via the public read-model infrastructure (modelKind `arc`);
+ * public reads reuse the generic failure-isolated getPublishedReadModel. Pure module — no Convex
+ * imports, no clock, no randomness, no Canon mutation.
  *
- * Published via the public read-model infrastructure (modelKind `relationship` /
- * `arc`); public reads reuse the generic failure-isolated getPublishedReadModel.
+ * ## What ART-182 removed, and what it kept
+ *
+ * This file also built a per-pair `relationship:<pairKey>` payload and named its model kind. That
+ * publication is gone: nothing read it, and the PRD does not ask for it — §13.3 defines
+ * Relationship as a product-layer ENTITY, and the clauses that describe a public surface for it
+ * (FR-I005's 「主要關係」, FR-I007's scoped graph) are both served from Canon.
+ *
+ * The accumulation rules stayed, because they are not the publication: the graph builder imports
+ * {@link accumulatePublicRelationshipDimensions} and {@link RELATIONSHIP_DIMENSIONS} to fold the
+ * public half of a pair's history into levels. An earlier version of this header described the
+ * relationship half as a published projection with its own privacy guarantee; that guarantee now
+ * lives, and only lives, in `./relationshipGraphProjection.ts`.
  */
 
 import { RELATIONSHIP_MAX, RELATIONSHIP_MIN } from '../shared/constants';
 
 export const RELATIONSHIP_ARC_SCHEMA_VERSION = 1;
-export const RELATIONSHIP_MODEL_KIND = 'relationship' as const;
 export const ARC_MODEL_KIND = 'arc' as const;
 
 export type PublicFact = {
@@ -52,43 +61,16 @@ export type RelationshipDeltaInput = {
 };
 
 /**
- * One published change, as `RelationshipProjection.changeHistory` has always carried it.
+ * `RelationshipChange`, `RelationshipProjection` and `buildRelationshipProjection` stood here until
+ * ART-182 retired the per-pair publication they existed for. Nothing read the model they shaped;
+ * the FR-I007 graph builder below-left (`./relationshipGraphProjection.ts`) carries its own public
+ * payload shape and its own private-visibility rejection, so no guarantee left with them.
  *
- * DELIBERATELY UNCHANGED by ART-95's repair, which is a behaviour fix and carries no payload
- * shape change. Widening this to six deltas and a `worldDay` was drafted while ART-44's graph was
- * planned to read it, and reverted once the graph moved to Canon: a shape change here alters
- * every relationship row's `contentHash`, so every pair in every world publishes a new version on
- * its next rebuild. Paying that for a field nothing reads is churn, and mixing it into this fix
- * would make the two changes reviewable only together.
- *
- * The three additive v1 dimensions (fear, dependency, familiarity) therefore still have no
- * published per-change provenance, only an accumulated level. That predates this task; ART-43 is
- * the next consumer and the right place to decide whether the public surface needs them.
+ * `RELATIONSHIP_DIMENSIONS`, `RelationshipDeltaInput` and
+ * {@link accumulatePublicRelationshipDimensions} did NOT go with them: the graph reuses the
+ * dimension rules, which is exactly the distinction ART-182 had to settle — the PRD asks for the
+ * public projection SHAPE, not for a published model per pair.
  */
-export type RelationshipChange = {
-  eventId: string;
-  reason: string;
-  trustDelta: number;
-  affectionDelta: number;
-  resentmentDelta: number;
-};
-
-export type RelationshipProjection = {
-  schemaVersion: typeof RELATIONSHIP_ARC_SCHEMA_VERSION;
-  worldId: string;
-  pairKey: string;
-  sourceCharacterId: string;
-  targetCharacterId: string;
-  trust: number;
-  affection: number;
-  resentment: number;
-  fear: number;
-  dependency: number;
-  familiarity: number;
-  visibility: 'public';
-  lastUpdatedEventId: string;
-  changeHistory: RelationshipChange[];
-};
 
 export type ArcSummary = {
   arcId: string;
@@ -174,7 +156,8 @@ function clampPublicRelationshipDimension(value: unknown): number {
  *
  * ## The defect this replaces
  *
- * `rebuildRelationshipProjection` used to overwrite a `latest` record on every matching event and
+ * `rebuildRelationshipProjection` — the publisher ART-182 later deleted — used to overwrite a
+ * `latest` record on every matching event and
  * assign `trust: change.trustDelta` — and the same for the other five dimensions — so the
  * published `RelationshipProjection.trust` was the LAST EVENT'S DELTA rather than the accumulated
  * level. A pair that moved +5, +5, +5 published `trust: 5`; a pair that moved +50 and then -1
@@ -189,9 +172,10 @@ function clampPublicRelationshipDimension(value: unknown): number {
  * than imported because the two answer DIFFERENT questions and must not be collapsed into one:
  * the reducer folds EVERY change, public and private, into canonical world state; this folds only
  * the PUBLIC ones. Feeding private deltas in here would leak the size and direction of hidden
- * feelings through a public number, which is the leak `buildRelationshipProjection`'s
- * private-visibility rejection exists to prevent — a caller would have defeated it by arithmetic
- * rather than by publishing a field.
+ * feelings through a public number — defeating by arithmetic the rejection that
+ * `./relationshipGraphProjection.ts` performs by visibility, rather than by publishing a field.
+ * That filter used to have a sibling here (`buildRelationshipProjection`, removed by ART-182), so
+ * it is now the only one, and this function's caller discipline is the other half of it.
  *
  * So the published level is "where this relationship stands as far as the public record shows",
  * which is a smaller number than Canon's and is the only one this surface is entitled to.
@@ -224,58 +208,6 @@ export function accumulatePublicRelationshipDimensions(
 /** An absent or unreadable delta contributes nothing, matching the reducer's `?? 0`. */
 function toDelta(value: number | undefined): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
-}
-
-function pairKey(a: string, b: string): string {
-  return [a, b].sort().join(':');
-}
-
-/**
- * Build the publication-safe Relationship projection (AC#1). Only public-
- * visibility relationships are projected; private ones are rejected outright so
- * hidden feelings never leak. Dimensions are ACCUMULATED LEVELS clamped to
- * Canon's `[RELATIONSHIP_MIN, RELATIONSHIP_MAX]` range — see
- * {@link accumulatePublicRelationshipDimensions} and
- * {@link clampPublicRelationshipDimension}; change history carries reasons and
- * the world day each change landed on.
- */
-export function buildRelationshipProjection(input: {
-  worldId: string;
-  sourceCharacterId: string;
-  targetCharacterId: string;
-  trust: number;
-  affection: number;
-  resentment: number;
-  fear: number;
-  dependency: number;
-  familiarity: number;
-  visibility: string;
-  lastUpdatedEventId: string;
-  changeHistory: readonly RelationshipChange[];
-}): RelationshipProjection {
-  if (input.worldId.trim().length === 0) throw new RelationshipArcError('RELATIONSHIP_INVALID', 'worldId must be non-empty');
-  if (input.sourceCharacterId.trim().length === 0 || input.targetCharacterId.trim().length === 0) {
-    throw new RelationshipArcError('RELATIONSHIP_INVALID', 'source and target character ids are required');
-  }
-  if (input.visibility !== 'public') {
-    throw new RelationshipArcError('RELATIONSHIP_PRIVATE', 'only public-visibility relationships may be projected');
-  }
-  return {
-    schemaVersion: RELATIONSHIP_ARC_SCHEMA_VERSION,
-    worldId: input.worldId,
-    pairKey: pairKey(input.sourceCharacterId, input.targetCharacterId),
-    sourceCharacterId: input.sourceCharacterId,
-    targetCharacterId: input.targetCharacterId,
-    trust: clampPublicRelationshipDimension(input.trust),
-    affection: clampPublicRelationshipDimension(input.affection),
-    resentment: clampPublicRelationshipDimension(input.resentment),
-    fear: clampPublicRelationshipDimension(input.fear),
-    dependency: clampPublicRelationshipDimension(input.dependency),
-    familiarity: clampPublicRelationshipDimension(input.familiarity),
-    visibility: 'public',
-    lastUpdatedEventId: input.lastUpdatedEventId,
-    changeHistory: input.changeHistory.map((change) => ({ ...change })),
-  };
 }
 
 /**
