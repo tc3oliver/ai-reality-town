@@ -1,16 +1,16 @@
 {
-  "recordedAt": "2026-09-09T23:24:53.902Z",
+  "recordedAt": "2026-09-13T08:08:18.525Z",
   "browser": "chromium 151.0.7922.34",
   "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0) (0x0000C0DE)), SwiftShader driver)",
-  "soakMinutes": 2,
+  "soakMinutes": 480,
   "samples": [
     {
       "profileId": "desktop-reference",
       "mode": "stream",
       "characterCount": 12,
-      "timeToInteractiveMs": 520,
+      "timeToInteractiveMs": 638,
       "averageFps": 60,
-      "p5Fps": 59.88,
+      "p5Fps": 59.52,
       "worstFps": 59.52,
       "frameSamples": 241
     },
@@ -18,7 +18,7 @@
       "profileId": "desktop-reference",
       "mode": "delayed",
       "characterCount": 12,
-      "timeToInteractiveMs": 407,
+      "timeToInteractiveMs": 403,
       "averageFps": 60,
       "p5Fps": 59.88,
       "worstFps": 59.52,
@@ -28,7 +28,7 @@
       "profileId": "desktop-reference",
       "mode": "snapshot",
       "characterCount": 12,
-      "timeToInteractiveMs": 395,
+      "timeToInteractiveMs": 408,
       "averageFps": 60,
       "p5Fps": 59.88,
       "worstFps": 59.52,
@@ -38,9 +38,9 @@
       "profileId": "desktop-reference",
       "mode": "degraded",
       "characterCount": 12,
-      "timeToInteractiveMs": 139,
+      "timeToInteractiveMs": 144,
       "averageFps": 60,
-      "p5Fps": 59.88,
+      "p5Fps": 59.52,
       "worstFps": 59.52,
       "frameSamples": 240
     },
@@ -48,51 +48,51 @@
       "profileId": "mid-tier-mobile",
       "mode": "stream",
       "characterCount": 12,
-      "timeToInteractiveMs": 1120,
-      "averageFps": 29.26,
+      "timeToInteractiveMs": 1116,
+      "averageFps": 28.88,
       "p5Fps": 20,
-      "worstFps": 19.96,
-      "frameSamples": 118
+      "worstFps": 14.99,
+      "frameSamples": 116
     },
     {
       "profileId": "mid-tier-mobile",
       "mode": "delayed",
       "characterCount": 12,
-      "timeToInteractiveMs": 1111,
-      "averageFps": 29.13,
+      "timeToInteractiveMs": 1100,
+      "averageFps": 28.64,
       "p5Fps": 20,
       "worstFps": 19.96,
-      "frameSamples": 117
+      "frameSamples": 116
     },
     {
       "profileId": "mid-tier-mobile",
       "mode": "snapshot",
       "characterCount": 12,
-      "timeToInteractiveMs": 1062,
-      "averageFps": 39.09,
+      "timeToInteractiveMs": 1022,
+      "averageFps": 39.67,
       "p5Fps": 29.94,
       "worstFps": 29.85,
-      "frameSamples": 157
+      "frameSamples": 160
     },
     {
       "profileId": "mid-tier-mobile",
       "mode": "degraded",
       "characterCount": 12,
-      "timeToInteractiveMs": 482,
+      "timeToInteractiveMs": 484,
       "averageFps": 60,
       "p5Fps": 59.88,
       "worstFps": 59.52,
-      "frameSamples": 241
+      "frameSamples": 240
     },
     {
       "profileId": "desktop-reference",
       "mode": "stream",
       "characterCount": 20,
       "timeToInteractiveMs": -1,
-      "averageFps": 51.04,
-      "p5Fps": 29.94,
+      "averageFps": 54.77,
+      "p5Fps": 30.03,
       "worstFps": 29.94,
-      "frameSamples": 205,
+      "frameSamples": 220,
       "loadProbe": true
     },
     {
@@ -100,10 +100,10 @@
       "mode": "stream",
       "characterCount": 40,
       "timeToInteractiveMs": -1,
-      "averageFps": 50.54,
-      "p5Fps": 29.94,
+      "averageFps": 54.28,
+      "p5Fps": 30.03,
       "worstFps": 29.94,
-      "frameSamples": 203,
+      "frameSamples": 218,
       "loadProbe": true
     },
     {
@@ -111,10 +111,10 @@
       "mode": "stream",
       "characterCount": 20,
       "timeToInteractiveMs": -1,
-      "averageFps": 18.03,
+      "averageFps": 18.92,
       "p5Fps": 11.99,
-      "worstFps": 10,
-      "frameSamples": 73,
+      "worstFps": 10.01,
+      "frameSamples": 76,
       "loadProbe": true
     },
     {
@@ -122,10 +122,10 @@
       "mode": "stream",
       "characterCount": 40,
       "timeToInteractiveMs": -1,
-      "averageFps": 17.63,
-      "p5Fps": 11.99,
-      "worstFps": 9.99,
-      "frameSamples": 72,
+      "averageFps": 18.84,
+      "p5Fps": 12,
+      "worstFps": 11.99,
+      "frameSamples": 76,
       "loadProbe": true
     }
   ],
@@ -135,7 +135,7 @@
       "mode": "stream",
       "criterion": "AC#1",
       "metric": "timeToInteractiveMs",
-      "value": 520,
+      "value": 638,
       "threshold": 4000,
       "pass": true
     },
@@ -153,7 +153,7 @@
       "mode": "delayed",
       "criterion": "AC#1",
       "metric": "timeToInteractiveMs",
-      "value": 407,
+      "value": 403,
       "threshold": 4000,
       "pass": true
     },
@@ -171,7 +171,7 @@
       "mode": "snapshot",
       "criterion": "AC#1",
       "metric": "timeToInteractiveMs",
-      "value": 395,
+      "value": 408,
       "threshold": 4000,
       "pass": true
     },
@@ -189,7 +189,7 @@
       "mode": "degraded",
       "criterion": "AC#1",
       "metric": "timeToInteractiveMs",
-      "value": 139,
+      "value": 144,
       "threshold": 4000,
       "pass": true
     },
@@ -207,7 +207,7 @@
       "mode": "stream",
       "criterion": "AC#1",
       "metric": "timeToInteractiveMs",
-      "value": 1120,
+      "value": 1116,
       "threshold": 6000,
       "pass": true
     },
@@ -216,7 +216,7 @@
       "mode": "stream",
       "criterion": "AC#4",
       "metric": "averageFps",
-      "value": 29.26,
+      "value": 28.88,
       "threshold": 30,
       "pass": false
     },
@@ -225,7 +225,7 @@
       "mode": "delayed",
       "criterion": "AC#1",
       "metric": "timeToInteractiveMs",
-      "value": 1111,
+      "value": 1100,
       "threshold": 6000,
       "pass": true
     },
@@ -234,7 +234,7 @@
       "mode": "delayed",
       "criterion": "AC#4",
       "metric": "averageFps",
-      "value": 29.13,
+      "value": 28.64,
       "threshold": 30,
       "pass": false
     },
@@ -243,7 +243,7 @@
       "mode": "snapshot",
       "criterion": "AC#1",
       "metric": "timeToInteractiveMs",
-      "value": 1062,
+      "value": 1022,
       "threshold": 6000,
       "pass": true
     },
@@ -252,7 +252,7 @@
       "mode": "snapshot",
       "criterion": "AC#4",
       "metric": "averageFps",
-      "value": 39.09,
+      "value": 39.67,
       "threshold": 30,
       "pass": true
     },
@@ -261,7 +261,7 @@
       "mode": "degraded",
       "criterion": "AC#1",
       "metric": "timeToInteractiveMs",
-      "value": 482,
+      "value": 484,
       "threshold": 6000,
       "pass": true
     },
@@ -279,7 +279,7 @@
       "mode": "stream",
       "criterion": "AC#4 (load probe, 20)",
       "metric": "averageFps",
-      "value": 51.04,
+      "value": 54.77,
       "threshold": 45,
       "pass": true
     },
@@ -288,7 +288,7 @@
       "mode": "stream",
       "criterion": "AC#4 (load probe, 40)",
       "metric": "averageFps",
-      "value": 50.54,
+      "value": 54.28,
       "threshold": 45,
       "pass": true
     },
@@ -297,7 +297,7 @@
       "mode": "stream",
       "criterion": "AC#4 (load probe, 20)",
       "metric": "averageFps",
-      "value": 18.03,
+      "value": 18.92,
       "threshold": 30,
       "pass": false
     },
@@ -306,7 +306,7 @@
       "mode": "stream",
       "criterion": "AC#4 (load probe, 40)",
       "metric": "averageFps",
-      "value": 17.63,
+      "value": 18.84,
       "threshold": 30,
       "pass": false
     }
@@ -323,16 +323,16 @@
   },
   "soak": {
     "profileId": "desktop-reference",
-    "durationMs": 120000,
-    "sampleCount": 12,
-    "heapGrowthBytesPerMinute": 0,
+    "durationMs": 28800000,
+    "sampleCount": 2878,
+    "heapGrowthBytesPerMinute": 6169.06,
     "verdict": {
       "criterion": "AC#7",
       "metric": "heapGrowthBytesPerMinute",
-      "value": 0,
+      "value": 6169.06,
       "threshold": 524288,
       "pass": true,
-      "settlesCriterion": false,
+      "settlesCriterion": true,
       "requiredDurationMs": 28800000
     }
   },

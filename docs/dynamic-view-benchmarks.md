@@ -170,10 +170,31 @@ substitute for the mobile ones.
 
 ## 7. The eight-hour soak
 
-`BENCH_SOAK_MINUTES` defaults to 2 so `npm run bench` stays usable. The committed result is a
-short run, and it is evidence that the harness can **detect** growth — not evidence that an
-eight-hour run is clean. The eight hours NFR2-002 asks for is an operator step at the release
-gate, set with the same knob.
+`BENCH_SOAK_MINUTES` defaults to 2 so `npm run bench` stays usable, and a 2-minute result is
+evidence that the harness can **detect** growth — not evidence that an eight-hour run is clean.
+That distinction is not decorative: for two releases this file's committed result was a short run
+that rendered as `AC#7 … ✅`, and ART-178 added `settlesCriterion` so a short run says `⚠️` with its
+shortfall instead of quietly passing.
+
+**The eight hours NFR2-002 asks for has now been run** (2026-09-13, commit `e63a304`):
+
+```bash
+BENCH_SOAK_MINUTES=480 npm run bench
+```
+
+480 minutes, 2878 samples, `settlesCriterion: true`, **6169.06 B/min against a 524288 B/min
+threshold** — 1.2 % of it. `docs/prd-2.0-closure-record.md` §6.1 carries the full evidence block
+(host, browser, start and finish timestamps, artifacts).
+
+Two things about that run are worth keeping straight, because each is easy to misread:
+
+- **Its process exit code was 1, and that is not AC#7's.** `bench:report` exits non-zero when any
+  measured criterion fails; the four that failed are the mid-tier-mobile frame rates. The soak test
+  passed, and Playwright reported `15 passed`.
+- **It ran on a SwiftShader renderer, and that does not weaken it.** AC#7 measures the JavaScript
+  heap, not GPU memory, across the minima of six time windows. Software rasterisation biases CPU
+  cost upward if it biases anything, and no renderer swap rescues a figure 1.2 % of its threshold.
+  The frame-rate criteria on the same run are a different matter entirely — see §6.
 
 ## 8. What ART-136 does not own
 
