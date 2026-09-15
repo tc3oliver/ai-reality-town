@@ -3,9 +3,10 @@ id: ART-191
 title: >-
   The public name of every resident is the one the codebase says is never
   published
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-09-15 14:26'
+updated_date: '2026-09-15 14:41'
 labels: []
 dependencies: []
 priority: high
@@ -59,3 +60,30 @@ convex/visual already imports data/mistwoodCharacters and passes the boundary ch
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## Where it was resolved, and why there
+
+`buildCharacterProjection` in `convex/publicRead/worldCharacterProjection.ts`, not in the components and not in `displayNames.ts`.
+
+The seed name reached viewers through TWO paths, and only one of them goes through `characterDisplayName`. The published `character:<id>` projection carries `name` in CHARACTER_ALLOWED_FIELDS, and three clients read that field directly — CharacterPage's h1, the live map's character card, and RelationshipGraphView's per-node useQueries. Fixing `displayNames.ts` would have corrected `liveState.displayName`, the onboarding primer and ART-183's prose substitution while leaving those three showing 「He Jun」. The projection is the single public source of what a character is called, so that is where the authored label has to win.
+
+Keyed on (worldId, characterId), not characterId alone. Character ids are unique within a world, not across them; a second world's `he-jun` is a different person. `visualRuntimeForWorld` in liveStateFunctions.ts gates on the same constant for the same reason. A character the roster does not cover keeps the projection's own name — null rather than a guess.
+
+## Fault injection — four run, three bit first time
+
+1. Canonical lookup removed, back to the seed name — 14 named failures across the whole roster.
+2. World gate dropped — failed 'does not reach across worlds, because a character id is unique only within one'.
+3. One resident's label replaced with their id (趙銘 -> zhao-ming) — DID NOT BITE. 19/19 passed. The `it.each` derives its expectation FROM `MISTWOOD_CHARACTER_VISUALS` and then asserts against the same table, so the injection changed what was expected as well as what was produced: a validator handed its own input (CLAUDE.md section 9). Fixed by adding an INDEPENDENT property — the field is documented as a zh-TW label, so it may not equal its own id and may contain no ASCII letters. Re-run failed by name.
+4. A label reverted to the seed's romanised form (趙銘 -> Zhao Ming) — three named failures, including the roster-wide 'publishes no resident under a name the seed romanised'.
+
+## Two spellings already in the repo
+
+`worldCharacterProjection.test.ts` used 趙明; the authored roster has 趙銘. Both were in the tree before this task. The roster is canonical by its own docblock, so the assertion moved to 趙銘 and the drift is noted there. Roughly twenty other fixture strings across test files spell it 趙明 — test prose, not production output, and rewriting them would be the cosmetic cleanup this batch is told not to do.
+
+## What this does NOT decide
+
+Occupations, public profiles, public goals, traits, organization names, historical events and location footprint names are all still English, and all still ART-190. Only the NAME was already decided; this makes the product use the decision it had already recorded.
+<!-- SECTION:NOTES:END -->

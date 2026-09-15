@@ -12,7 +12,46 @@
  * {@link getPublishedReadModel}.
  */
 
+import { MISTWOOD_PUBLIC_WORLD_ID } from '../canon/mistwoodSeed';
+import { MISTWOOD_CHARACTER_VISUALS } from '../../data/mistwoodCharacters';
+
 export const WORLD_CHARACTER_PROJECTION_SCHEMA_VERSION = 1;
+
+/**
+ * The authored public name for each Mistwood resident, keyed by character id (ART-191).
+ *
+ * `data/mistwoodCharacters.ts` states the rule on the field itself: 「The canonical public zh-TW
+ * label. The seed's romanised name is never published.」 Until this task nothing honoured it. The
+ * label was read in exactly one place — `convex/visual/mistwoodVisualBindings.ts` — and only to
+ * pick a sprite, while every public surface rendered `convex/canon/mistwoodSeed.ts`'s romanised
+ * form: 「He Jun」, 「Zhao Ming」, 「Pei Lan」.
+ *
+ * It reached viewers through THIS field. `name` is in {@link CHARACTER_ALLOWED_FIELDS}, so the
+ * published `character:<id>` projection carried the seed name, and from here it flowed into
+ * `characterDisplayName`, into `liveState.displayName`, into the onboarding primer, and into the
+ * prose substitution ART-183 built. ART-183 and ART-186 were both right about the mechanism and
+ * wrong about the table; fixing it here fixes all of them at once, because this projection is the
+ * single public source of what a character is called.
+ */
+const AUTHORED_PUBLIC_NAMES: ReadonlyMap<string, string> = new Map(
+  MISTWOOD_CHARACTER_VISUALS.map((visual) => [visual.characterId, visual.displayName]),
+);
+
+/**
+ * The authored name for a character, or `null` when this codebase has not authored one.
+ *
+ * Keyed on the WORLD as well as the character. Character ids are unique within a world, not
+ * across worlds, and a second world's `he-jun` is a different person who must not inherit
+ * Mistwood's 何俊. `visualRuntimeForWorld` in `liveStateFunctions.ts` gates on the same constant
+ * for the same reason.
+ *
+ * `null` rather than a guess, so the caller keeps the projection's own name: a character the
+ * roster does not cover is published exactly as before this task.
+ */
+export function canonicalPublicName(worldId: string, characterId: string): string | null {
+  if (worldId !== MISTWOOD_PUBLIC_WORLD_ID) return null;
+  return AUTHORED_PUBLIC_NAMES.get(characterId) ?? null;
+}
 
 export const WORLD_MODEL_KIND = 'world' as const;
 export const CHARACTER_MODEL_KIND = 'character' as const;
@@ -173,13 +212,14 @@ export function buildCharacterProjection(input: {
   if (input.worldId.trim().length === 0) throw new ProjectionError('PROJECTION_INVALID', 'worldId must be non-empty');
   const id = pickString(input.source, 'id');
   if (!id) throw new ProjectionError('PROJECTION_INVALID', 'character source requires a non-empty id');
+  const name = canonicalPublicName(input.worldId, id) ?? pickString(input.source, 'name');
   const aliveValue = input.source.alive;
   const activeValue = input.source.active;
   return {
     schemaVersion: WORLD_CHARACTER_PROJECTION_SCHEMA_VERSION,
     id,
     worldId: input.worldId,
-    name: pickString(input.source, 'name'),
+    name,
     age: pickNumber(input.source, 'age'),
     occupation: pickString(input.source, 'occupation'),
     publicProfile: pickString(input.source, 'publicProfile'),

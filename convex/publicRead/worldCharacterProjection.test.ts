@@ -228,7 +228,12 @@ describe('the character allowlist answers to FR-I005, not to §13.2', () => {
       },
     });
     expect(projection).toMatchObject({
-      name: '趙明', age: 41, occupation: '合作社會計', publicProfile: '受信任的會計。',
+      // `name` is RESOLVED rather than passed through since ART-191: `data/mistwoodCharacters.ts`
+      // holds the canonical public label and this world is Mistwood, so the source's own name is
+      // overridden. The fixture says 趙明 and the authored roster says 趙銘 — two spellings of the
+      // same resident that were already in the repo, and the roster is the one that is canonical
+      // by its own docblock. Every OTHER field below is still the pass-through this test is about.
+      name: '趙銘', age: 41, occupation: '合作社會計', publicProfile: '受信任的會計。',
       publicGoal: '完成稽核。', currentLocationId: 'mistwood-mill',
       healthState: '健康', emotionalState: '緊繃', financialState: '普通',
       personality: '沉穩', values: '準確',
