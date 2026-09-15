@@ -60,6 +60,13 @@ export const fixtureCharacterName = (characterId: string): string =>
   ?? characterId;
 
 export const FIXTURE_WORLD_ID = 'mistwood';
+
+/**
+ * The world days that have a published Episode. Shared by the index and by the per-day detail so
+ * the two cannot disagree, and deliberately NOT consecutive: days 4 and 6 are holes, which is what
+ * makes ART-189's "step over an unpublished day" reachable in a real browser.
+ */
+export const FIXTURE_EPISODE_DAYS: readonly number[] = [3, 5, 7];
 export const FIXTURE_WORLD_DAY = 7;
 export const FIXTURE_TIME_SLOT = 'evening';
 
@@ -478,6 +485,41 @@ export function fixtureReadModel(modelRef: string): { payload: unknown } | null 
       },
     };
   }
+  /**
+   * One published Episode per day the index names (ART-189).
+   *
+   * The fixture registered NO `episode:<worldDay>` model at all, so every browser visit to
+   * `#episode/mistwood/<day>` rendered 「找不到此故事」 and the detail page — a P0 public surface —
+   * had no browser coverage of any kind. Its recap depths, its related-character and related-arc
+   * lists and its navigation were all exercised only through `EpisodeDetailView` in jsdom.
+   *
+   * The days come from the same list the index below publishes, built by the same expression, so
+   * the two cannot drift: an Episode the index offers is an Episode this answers.
+   */
+  const episodeDayMatch = modelRef.match(/^episode:(\d+)$/);
+  if (episodeDayMatch !== null) {
+    const worldDay = Number(episodeDayMatch[1]);
+    const index = FIXTURE_EPISODE_DAYS.indexOf(worldDay);
+    if (index === -1) return null;
+    return {
+      payload: {
+        episodeNumber: index + 1,
+        worldDay,
+        title: `世界第 ${worldDay} 天`,
+        headline: index === 2 ? '眾人見證休戰簽署。' : '磨坊之爭持續升溫。',
+        oneLineSummary: index === 2 ? '兩派在鎮公所簽下休戰。' : '水車停工,兩派各執一詞。',
+        keyScenes: [
+          { title: '關鍵場景 1', summary: '兩派在磨坊為停工的水車爭執。', sourceEventIds: ['mistwood#event#101'] },
+        ],
+        relationshipChanges: [{ summary: '林映雪與高文睿的關係惡化。', sourceEventId: 'mistwood#event#101' }],
+        newQuestions: ['休戰能撐過冬天嗎?'],
+        resolvedQuestions: index === 2 ? ['水車由誰負責修?'] : [],
+        arcIds: index === 2 ? ['arc-truce'] : ['arc-mill'],
+        characterIds: [FIXTURE_CHARACTER_IDS[index], FIXTURE_CHARACTER_IDS[index + 1]],
+        nextEpisodeTease: '',
+      },
+    };
+  }
   if (modelRef === `episodes:${FIXTURE_WORLD_ID}`) {
     /**
      * The published Episode Index (FR-I004), which the return recap (FR-H004 / ART-39) reads for
@@ -495,10 +537,12 @@ export function fixtureReadModel(modelRef: string): { payload: unknown } | null 
      * the same two the fixture's scenes and live projection already use.
      */
     const arcIds = ['arc-mill', 'arc-truce'];
-    const episodes = [3, 5, FIXTURE_WORLD_DAY].map((worldDay, index) => ({
+    const episodes = FIXTURE_EPISODE_DAYS.map((worldDay, index) => ({
       worldDay,
       episodeNumber: index + 1,
-      title: `第 ${index + 1} 集`,
+      // The shape the editorial pipeline actually produces (ART-184), not `第 N 集` — which
+      // duplicated the episode number the list already prints beside it.
+      title: `世界第 ${worldDay} 天`,
       headline: index === 2 ? '眾人見證休戰簽署。' : '磨坊之爭持續升溫。',
       arcIds: index === 2 ? ['arc-truce'] : ['arc-mill'],
       characterIds: [FIXTURE_CHARACTER_IDS[index], FIXTURE_CHARACTER_IDS[index + 1]],
