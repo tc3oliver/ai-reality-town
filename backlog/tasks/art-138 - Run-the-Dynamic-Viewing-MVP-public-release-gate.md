@@ -5,7 +5,7 @@ status: Blocked
 assignee:
   - '@claude'
 created_date: '2026-08-04 16:00'
-updated_date: '2026-09-13 16:34'
+updated_date: '2026-09-15 10:56'
 labels:
   - prd-2.0
   - v2-k
@@ -158,4 +158,29 @@ previously recorded as blocked or unreachable turned out to be repository work:
 **ART-182** — the per-pair `relationship:<pairKey>` read model is published on every relationship
 change and read by nothing. It is a cost-and-clarity question with a PRD judgement in it, not a
 §22 criterion, and it is tracked separately rather than folded in here.
+
+## AC#10 dry-run review (2026-09-14) — the documented command cannot authenticate
+
+Found by running an operator-gated **query** from the CLI with no credentials, not by reading code:
+
+```
+✖ Failed to run function "operations/emergencyStopFunctions:inspectEmergencyStop":
+Uncaught OperatorAuthorizationError: [OPS_UNAUTHORIZED] operator is not authorized
+```
+
+The CLI reaches the deployment — the function executed — but carries no verified identity, and the token path is closed on this deployment:
+
+- `CLERK_JWT_ISSUER_DOMAIN` **is set** (confirmed via `npx convex env list`, values not read)
+- `SIMULATION_OPS_ALLOW_TOKEN_FALLBACK` is **not set**
+- so `allowTokenFallback === false`, and `resolveOperatorPrincipal` returns `null` **before** it looks at `operatorToken`
+
+So `operatorId`/`operatorToken` over `npx convex run` — the form written in the closure record and in `docs/proposed-event-review.md` — will fail here. There is also **no UI**: no file under `src/` references `changeWorldMode`.
+
+`docs/agent/OPERATOR-AUTH.md` states the same thing from the other side: once the issuer is set, 「verified identity becomes the only way into the console」.
+
+Three options, owner picks one before starting: (A) a Clerk admin identity plus a client that calls the mutation, which does not exist yet; (B) the documented escape hatch `SIMULATION_OPS_ALLOW_TOKEN_FALLBACK=1`, reversible; (C) a direct Convex client holding a `convex` JWT-template token.
+
+Two facts only the owner can check, because they are secrets: whether `SIMULATION_OPS_OPERATORS` holds an entry with `role: "admin"` (`world.change_mode` requires **admin**, not operator), and whether that entry's `worldIds` scope — if it has one — includes `mistwood`.
+
+Runbook, checkpoint, the four undo paths and the rollback triggers are now in `docs/prd-2.0-closure-record.md` §6.3.1–§6.3.5. **No production command was executed.**
 <!-- SECTION:NOTES:END -->

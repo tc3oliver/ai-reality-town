@@ -191,6 +191,23 @@ Two things this record deliberately does **not** claim:
 
 ## 6. What is blocked, and on whom
 
+### 6.0 The remaining gates are four criteria and ONE operation
+
+Written out rather than summarised as「only AC#10」, because three of the four are easy to lose:
+they belong to ART-136 and §22 rather than to ART-138's own list, and a reader checking ART-138's
+thirteen criteria will not see them.
+
+| # | Criterion | Why the repository cannot settle it |
+| --- | --- | --- |
+| 1 | **ART-138 AC#10** — public acceptance environment | `mistwood` is `mode: development`; promotion is a production mode change. §6.3 |
+| 2 | **§22.29 deployment evidence** | The running deployment predates the real-provider wiring, so §22.29's repository evidence has no live corroboration. §6.2 |
+| 3 | **ART-136 AC#2** — public dynamic query P95 < 500 ms | The E2E build replaces the transport with an in-process fixture; measuring it there records ~0 ms for a path never exercised. §6.1 |
+| 4 | **ART-136 AC#3** — runtime-to-screen latency < 5 s | Spans the simulation, the projection rebuild and the subscription push, none of which exist in a fixture build. §6.1 |
+
+**All four are satisfied by one operation**, in this order: deploy current `main` → run one live
+slot → promote the world to `public` → measure AC#2 and AC#3 against the running system. They are
+four criteria, not four jobs. §6.3 is the runbook, including what to check first and how to undo it.
+
 ### 6.1 §22.30 — the mid-tier mobile frame rate — RESOLVED 2026-09-13
 
 **Verdict: PASS.** How it was resolved is the part worth keeping, because for two releases this
@@ -410,6 +427,114 @@ npx convex run --inline-query 'export default query({ args: {}, handler: async (
 
 ---
 
+#### 6.3.1 Before anything: the command above cannot authenticate as written
+
+**Found by a dry run on 2026-09-14, not by reading the code.** An operator-gated *query* was
+invoked from the CLI with no credentials and refused:
+
+```
+✖ Failed to run function "operations/emergencyStopFunctions:inspectEmergencyStop":
+Uncaught OperatorAuthorizationError: [OPS_UNAUTHORIZED] operator is not authorized
+    at requireOperator (../../convex/operations/opsConsoleFunctions.ts:100:4)
+```
+
+The CLI reaches the deployment — the function ran — but carries no verified identity, and on this
+deployment the token path is **closed**:
+
+```ts
+// convex/operations/opsConsoleFunctions.ts
+const allowTokenFallback = process.env.SIMULATION_OPS_ALLOW_TOKEN_FALLBACK === '1'
+  || !process.env.CLERK_JWT_ISSUER_DOMAIN;
+```
+
+`CLERK_JWT_ISSUER_DOMAIN` **is set** on the deployment and `SIMULATION_OPS_ALLOW_TOKEN_FALLBACK` is
+**not**, so `allowTokenFallback` is `false` and `resolveOperatorPrincipal` returns `null` before it
+ever looks at `operatorToken`. `docs/agent/OPERATOR-AUTH.md` says the same thing from the other
+direction: once the issuer is set,「verified identity becomes the only way into the console」.
+
+So `operatorId` / `operatorToken` over `npx convex run` — the form written above and in
+`docs/proposed-event-review.md` — **will fail on this deployment**. There is also **no UI for it**:
+no file under `src/` references `changeWorldMode`.
+
+Three ways forward. The owner picks one **before** starting:
+
+| Option | What it needs | Cost |
+| --- | --- | --- |
+| **A. Clerk admin identity** (intended design) | `VITE_CLERK_PUBLISHABLE_KEY` on the frontend, a Clerk user whose `sub` is in a `SIMULATION_OPS_OPERATORS` entry with `role: "admin"`, and a client that calls the mutation — which does not exist yet | Highest; needs a caller built |
+| **B. Re-open the token path** (documented escape hatch) | `npx convex env set SIMULATION_OPS_ALLOW_TOKEN_FALLBACK 1`, run the commands, then `npx convex env remove SIMULATION_OPS_ALLOW_TOKEN_FALLBACK` | One env change, reversible, widens the auth surface while set |
+| **C. Direct Convex client with a Clerk JWT** | A short script holding a `convex` JWT-template token for an admin subject | No product change, but a credential handled by hand |
+
+**Two facts only the owner can check**, because the values are secrets this record must not carry:
+
+1. Does `SIMULATION_OPS_OPERATORS` contain an entry with `role: "admin"` — and, for option B, a
+   `token` on that entry? `world.change_mode` requires **`admin`**
+   (`operatorAuthorization.ts`), not `operator`.
+2. If that entry is scoped with `worldIds`, does it include `"mistwood"`? `authorizeOperator`
+   refuses a world outside an entry's scope.
+
+#### 6.3.2 Checkpoint — take these readings BEFORE the deploy
+
+Each is read-only, and each is the thing you will compare against afterwards.
+
+```bash
+# 1. Current mode, status, event count and distinct characters (the acceptance query above).
+# 2. The emergency-stop switch, the preserved queue and the valid rollback targets:
+npx convex run operations/emergencyStopFunctions:inspectEmergencyStop '{"worldId":"mistwood"}'
+```
+
+Record: `mode`, `status`, `acceptedEvents`, `distinctCharacters`, the active recovery head, and
+**the id of the newest valid snapshot** — that id is the argument `activateWorldRollback` needs, and
+it is far easier to capture now than to find during an incident.
+
+`inspectEmergencyStop` is itself operator-gated, so if it refuses, §6.3.1 is unresolved and the
+operation has not started yet. That is the intended order: the checkpoint doubles as the
+credential test.
+
+#### 6.3.3 The four undo paths, and which one to reach for
+
+They are not interchangeable, and reaching for the wrong one either does too little or too much.
+
+| Command | Capability | What it does | Reach for it when |
+| --- | --- | --- | --- |
+| `changeWorldMode` `targetMode: "development"` | `world.change_mode` (admin) | Takes the world back off the public crons. **Demotion is allowed from any state** — no preconditions, unlike promotion | The promotion itself was wrong, or public content must stop being produced. **This is the rollback for this operation.** |
+| `pauseWorld` | `world.pause` (operator) | Moves `status` to `paused`, so the clock stops reserving slots. Mode is untouched | The world is public and should stay public, but must stop advancing now |
+| `emergencyStop` | `world.emergency_stop` (admin) | Closes the world's admission gate: `runQueuedWorldDaySlot` refuses to claim any slot and every world-day stage boundary refuses to start. **Preserves the queued work** and reports `preservedSlotKeys` | Something is actively wrong and you want everything to stop, including work already in flight. Released by `resumeFromEmergencyStop` |
+| `activateWorldRollback` | `world.rollback` (admin) | Points operational reads at an earlier verified snapshot. **Accepted history is never edited**: `canonEvents` and `canonIdempotencyKeys` are neither changed nor deleted, and the snapshot is proven derivable from the accepted-event prefix first. Undone by `clearWorldRollback` | Bad content reached the public read models and demotion alone is not enough |
+
+All four are idempotent and audited to `operatorAuditLog`, including repeats (as `no_op`) — so
+running one twice during an incident costs nothing and still leaves a trail.
+
+The three stop mechanisms are **independent and can be true at once**: mode, schedule status and
+the kill switch each have their own release. Demoting a world does not resume a paused one, and
+releasing the kill switch does not restore a rollback pointer.
+
+#### 6.3.4 After the operation: verify, then decide
+
+```bash
+# The acceptance query above, twice, one slot apart.
+npx convex run operations/emergencyStopFunctions:inspectEmergencyStop '{"worldId":"mistwood"}'
+```
+
+Expected: `mode: "public"`, `status: "running"`, `distinctCharacters: 12`, `acceptedEvents`
+strictly increasing between the two readings, and the emergency-stop switch still disengaged.
+
+#### 6.3.5 Rollback triggers — decide these now, not during the incident
+
+| Trigger | Action |
+| --- | --- |
+| `acceptedEvents` does not increase across two readings a slot apart | `pauseWorld`, then diagnose. The scheduler is not producing; nothing public is wrong yet |
+| `distinctCharacters` is not 12, or names/locations look wrong | `changeWorldMode` → `development`. The public surface is describing a world that is not Mistwood |
+| Scene content that should have been withheld is publicly visible | `emergencyStop` **first** (it preserves the queue), then `activateWorldRollback` to the snapshot id captured in §6.3.2 |
+| Provider errors, budget exhaustion, or a run stuck in a failed stage | `pauseWorld`. Canon is append-only and an unfinished slot commits nothing, so there is nothing to undo |
+| Anything unexplained | `changeWorldMode` → `development`. It is the cheapest reversal in the table and it is reversible in turn |
+
+**One thing is deliberately absent: there is no undo for an accepted Canon event.** Accepted history
+is append-only by architecture (`CLAUDE.md` §6), and every command above moves a pointer, a status
+or a gate rather than editing it. That is the property that makes this operation safe to attempt —
+and the reason the rollback table is about visibility and admission, not about deletion.
+
+---
+
 ## 7. §18.1 metrics that are not measured
 
 Reported as **not measured**, never estimated, per §22.13.
@@ -427,19 +552,28 @@ Reported as **not measured**, never estimated, per §22.13.
 
 ## 8. What would make this record say COMPLETE
 
-Both, in order:
+**Four criteria, one operation, and one decision that has to come first.** §6.0 is the table; this
+is the order.
 
-1. §6.2 — a deploy of current `main` and one real-provider slot, so §22.29 has deployment
+0. **Choose an authentication path (§6.3.1).** The promotion command as documented cannot
+   authenticate on this deployment — verified by a dry run, not inferred — and there is no UI for
+   it. Nothing below can start until this is settled.
+1. **§6.2** — deploy current `main` and let one real-provider slot run, so §22.29 has deployment
    corroboration as well as repository evidence.
-2. §6.3 — the acceptance environment enabled, so §22.10 is satisfied by a `public` world rather
-   than by a `development` one.
+2. **§6.3** — promote the world, so ART-138 AC#10 is satisfied by a `public` world rather than a
+   `development` one.
+3. **ART-136 AC#2 and AC#3** — measure the public dynamic query P95 and the runtime-to-screen
+   latency against the running system. Neither is measurable in a fixture build (§6.1), and both
+   become measurable the moment step 2 lands.
+
 **§6.1 is done** — the benchmark ran on hardware graphics on 2026-09-13 and mid-tier mobile reached
 60 fps in all four modes, so §22.30 is no longer a FAIL. It is struck from this list rather than
 deleted from the document, because the reason it took two releases (a harness that could not reach
 the host's GPU, not a missing device) is the kind of thing this record exists to remember.
 
-Both remaining items are satisfied by **one** owner action — deploy current `main`, run a slot,
-promote the world — so the list is shorter than it looks.
+**ART-136 AC#7 is done** — the eight-hour soak ran on 2026-09-13 at commit `e63a304`:
+`settlesCriterion: true`, 6169.06 B/min against a 524288 threshold, artifact pinned at
+`docs/benchmarks/dynamic-view-soak-480m-2026-09-13.json` (§6.1).
 
-Until they are done this document must not be cited as PRD 2.0 MVP closure. That is the whole point
-of it.
+Until steps 0–3 are done this document must not be cited as PRD 2.0 MVP closure. That is the whole
+point of it.
