@@ -149,12 +149,15 @@ export function ArcDetailView({ worldId, vm }: { worldId: string; vm: ArcViewMod
               <li key={person.characterId} className="text-sm">
                 <a className="public-tap" href={person.href}>{person.name}</a>
                 {person.role && <span className="public-muted">({person.role})</span>}
+                {' '}
                 {/* FR-P002 / ART-130 AC#3 — the arc links to its core people ON THE MAP, not only
                     to their pages. An arc is about what is happening; "where is this happening"
                     is the question the map answers and the page cannot. Named per row, since
                     every row renders the same text (WCAG 2.4.4). */}
                 <a
-                  className="public-tap"
+                  // `ml-2` since ART-193, for the same reason as the Episode page's copy of this
+                  // row: the name and the link rendered with nothing between them.
+                  className="public-tap ml-2"
                   href={characterMapHref(worldId, person.characterId)}
                   aria-label={`在地圖上查看 ${person.name}`}
                 >

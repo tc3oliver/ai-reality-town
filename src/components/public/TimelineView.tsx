@@ -3,7 +3,6 @@ import { useQuery } from 'convex/react';
 import { getPublishedReadModelRef } from './publicReadModelRef';
 import { PublicPageFrame } from './PublicPageFrame';
 import { emitTimelineFiltered } from '../../analytics/productEvents';
-import { eventTypeLabel, timeSlotLabel } from '../../../convex/shared/publicLabels';
 import { useEntityNames } from './useEntityNames';
 import {
   composeTimelineViewModel,
@@ -199,11 +198,12 @@ export function TimelineBody({
           <ul className="public-rows">
             {vm.entries.map((entry) => (
               <li key={entry.eventId} className="mt-2">
-                {/* Both were raw identifiers until ART-188: 「[日 3 night · conversation]」, two
-                    English words inside one pair of Chinese brackets. */}
-                <span className="text-sm public-muted">
-                  [日 {entry.worldDay} {timeSlotLabel(entry.timeSlot)} · {eventTypeLabel(entry.eventType)}]
-                </span>
+                {/* Both parts were raw identifiers until ART-188 — 「[日 3 night · conversation]」,
+                    two English words inside one pair of Chinese brackets — and the line was
+                    assembled in JSX, so an entry with no eventType rendered 「[日 3 中午 · ]」. It is
+                    composed in `timelineRoute.ts` now, where a separator cannot outlive its value
+                    and the result can be asserted (ART-193). */}
+                <span className="text-sm public-muted">{entry.metaLabel}</span>
                 <span className="ml-2">{entry.publicSummary}</span>
                 {entry.episodeHref && (
                   // Every row renders the same visible text, so the accessible name carries the

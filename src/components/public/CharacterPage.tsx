@@ -237,11 +237,20 @@ export function CharacterPageView({ worldId, vm }: { worldId: string; vm: Charac
           <ul className="public-rows">
             {vm.relationships.map((relationship) => (
               <li key={relationship.otherCharacterId} className="text-sm">
+                {/* ART-193: these three rendered as 「高文睿信任 · 強度 10共同修復水車」 — one
+                    string, on screen as well as to a screen reader, because JSX drops the
+                    newlines between siblings. */}
                 <a href={relationship.href}>{relationship.otherName}</a>
-                <span className="public-muted">
+                {' '}
+                <span className="public-muted ml-2">
                   {relationshipTypeLabel(relationship.relationshipType)} · 強度 {relationship.strength}
                 </span>
-                {relationship.reasons.length > 0 && <span>{relationship.reasons.join('、')}</span>}
+                {relationship.reasons.length > 0 && (
+                  <>
+                    {' '}
+                    <span className="ml-2">{relationship.reasons.join('、')}</span>
+                  </>
+                )}
               </li>
             ))}
           </ul>

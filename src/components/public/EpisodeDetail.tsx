@@ -293,13 +293,16 @@ export function EpisodeDetailView({
               <a className="public-tap" href={`#character/${worldId}/${id}`}>
                 {named(names.characters, id)}
               </a>
+              {' '}
               {/* FR-P002 / ART-130 AC#2 — the other half of "links back to related characters":
                   where they are RIGHT NOW. The link opens the live map focused on them and with
                   their card open, so the viewer lands on the answer instead of on a map they
                   then have to search. Named per row, since every row reads the same (WCAG
                   2.4.4). */}
               <a
-                className="public-tap"
+                // `ml-2` since ART-193: the row rendered 「蘇美珍在地圖上查看」, with the name and
+                // the link touching.
+                className="public-tap ml-2"
                 href={characterMapHref(worldId, id)}
                 aria-label={`在地圖上查看 ${named(names.characters, id)}`}
               >

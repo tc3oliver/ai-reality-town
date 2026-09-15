@@ -14,7 +14,7 @@
  * Pure module — no React, no Convex, no DOM, no clock, no randomness.
  */
 
-import { eventTypeLabel } from '../../../convex/shared/publicLabels';
+import { eventTypeLabel, timeSlotLabel } from '../../../convex/shared/publicLabels';
 import type { WorldNames } from './worldNames';
 
 /** Published major-event timeline (§13.8) — fields the page reads. */
@@ -42,6 +42,8 @@ export type TimelineItem = {
   worldDay: number;
   timeSlot: string;
   eventType: string;
+  /** The bracketed `[日 3 中午 · 對話]` line, composed so a separator cannot outlive its value. */
+  metaLabel: string;
   publicSummary: string;
   episodeHref: string | null;
 };
@@ -90,6 +92,27 @@ export function timelineEntryMatchesFilters(
   return true;
 }
 
+/**
+ * The bracketed line before an event's summary (ART-193).
+ *
+ * Composed here rather than in JSX so it can be asserted, and so the separator cannot outlive the
+ * value beside it. The page rendered `[日 {worldDay} {timeSlot} · {eventType}]` unconditionally,
+ * which on an entry with no `eventType` — a real state, since a published payload reaches the
+ * client as unvalidated JSON — printed 「[日 3 中午 · ]」: a separator with nothing after it.
+ *
+ * A missing time slot is the same case. Every part is dropped WITH its separator or not at all.
+ */
+export function timelineMetaLabel(entry: { worldDay: number; timeSlot?: unknown; eventType?: unknown }): string {
+  const parts = [`日 ${entry.worldDay}`];
+  if (typeof entry.timeSlot === 'string' && entry.timeSlot.length > 0) {
+    parts[0] = `${parts[0]} ${timeSlotLabel(entry.timeSlot)}`;
+  }
+  if (typeof entry.eventType === 'string' && entry.eventType.length > 0) {
+    parts.push(eventTypeLabel(entry.eventType));
+  }
+  return `[${parts.join(' · ')}]`;
+}
+
 const unique = (values: readonly string[]): string[] => [...new Set(values)].sort();
 
 /**
@@ -133,6 +156,7 @@ export function composeTimelineViewModel(input: {
   const filtered = entries
     .filter((entry) => timelineEntryMatchesFilters(entry, input.filter))
     .map((entry) => ({
+      metaLabel: timelineMetaLabel(entry),
       eventId: entry.eventId,
       worldDay: entry.worldDay,
       timeSlot: entry.timeSlot,
