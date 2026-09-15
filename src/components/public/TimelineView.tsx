@@ -3,6 +3,7 @@ import { useQuery } from 'convex/react';
 import { getPublishedReadModelRef } from './publicReadModelRef';
 import { PublicPageFrame } from './PublicPageFrame';
 import { emitTimelineFiltered } from '../../analytics/productEvents';
+import { eventTypeLabel, timeSlotLabel } from '../../../convex/shared/publicLabels';
 import { useEntityNames } from './useEntityNames';
 import {
   composeTimelineViewModel,
@@ -198,8 +199,10 @@ export function TimelineBody({
           <ul className="public-rows">
             {vm.entries.map((entry) => (
               <li key={entry.eventId} className="mt-2">
+                {/* Both were raw identifiers until ART-188: 「[日 3 night · conversation]」, two
+                    English words inside one pair of Chinese brackets. */}
                 <span className="text-sm public-muted">
-                  [日 {entry.worldDay} {entry.timeSlot} · {entry.eventType}]
+                  [日 {entry.worldDay} {timeSlotLabel(entry.timeSlot)} · {eventTypeLabel(entry.eventType)}]
                 </span>
                 <span className="ml-2">{entry.publicSummary}</span>
                 {entry.episodeHref && (

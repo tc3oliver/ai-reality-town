@@ -1,9 +1,10 @@
 ---
 id: ART-188
 title: Raw enum values and mixed-language labels in the zh-Hant public UI
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-09-15 14:11'
+updated_date: '2026-09-15 14:53'
 labels: []
 dependencies: []
 priority: high

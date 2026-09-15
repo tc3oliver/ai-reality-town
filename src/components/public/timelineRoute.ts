@@ -14,6 +14,7 @@
  * Pure module — no React, no Convex, no DOM, no clock, no randomness.
  */
 
+import { eventTypeLabel } from '../../../convex/shared/publicLabels';
 import type { WorldNames } from './worldNames';
 
 /** Published major-event timeline (§13.8) — fields the page reads. */
@@ -152,6 +153,9 @@ export function composeTimelineViewModel(input: {
     characterOptions: labelledOptions(
       entries.flatMap((entry) => entry.characterIds), input.names?.characters,
     ),
-    eventTypeOptions: labelledOptions(entries.map((entry) => entry.eventType)),
+    // The only dimension whose labels come from a table rather than from published data: an
+    // event type is a closed canon enum, not an entity anybody named.
+    eventTypeOptions: labelledOptions(entries.map((entry) => entry.eventType))
+      .map((option) => ({ ...option, label: eventTypeLabel(option.value) })),
   };
 }

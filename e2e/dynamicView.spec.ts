@@ -227,7 +227,8 @@ test.describe('the live map in a real browser', () => {
     await expect(focus).toHaveAttribute('aria-pressed', 'true');
 
     // An ended scene offers its Episode; that link is ART-130's live -> editorial direction.
-    await expect(panel.getByRole('link', { name: '閱讀當日 Episode' })).toHaveAttribute(
+    // 「閱讀當日 Episode」 until ART-188, which is the vocabulary the rest of the product uses.
+    await expect(panel.getByRole('link', { name: '閱讀本日故事' })).toHaveAttribute(
       'href',
       /#episode\/mistwood\//,
     );

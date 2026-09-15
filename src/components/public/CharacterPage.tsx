@@ -5,6 +5,7 @@ import { viewerKnowledgeModelRef } from '../../../convex/shared/viewerKnowledgeR
 import { MISTWOOD_CHARACTER_VISUALS } from '../../../data/mistwoodCharacters';
 import { mistwoodLocationFootprints } from '../../../data/mistwood';
 import { emitCharacterViewed } from '../../analytics/productEvents';
+import { relationshipTypeLabel } from '../../../convex/shared/publicLabels';
 import { getPublishedReadModelRef } from './publicReadModelRef';
 import { CharacterSprite } from './CharacterSprite';
 import { PublicPageFrame } from './PublicPageFrame';
@@ -216,7 +217,8 @@ export function CharacterPageView({ worldId, vm }: { worldId: string; vm: Charac
       )}
 
       <section className="character-arcs mt-4" aria-labelledby="character-arcs">
-        <h2 id="character-arcs" className="text-xl font-semibold">所屬 Arc</h2>
+        {/* 「所屬 Arc」 until ART-188. Every other surface in the product says 故事線. */}
+        <h2 id="character-arcs" className="text-xl font-semibold">所屬故事線</h2>
         {vm.arcs.length > 0 ? (
           <ul className="public-rows">
             {vm.arcs.map((arc) => (
@@ -237,7 +239,7 @@ export function CharacterPageView({ worldId, vm }: { worldId: string; vm: Charac
               <li key={relationship.otherCharacterId} className="text-sm">
                 <a href={relationship.href}>{relationship.otherName}</a>
                 <span className="public-muted">
-                  {relationship.relationshipType} · 強度 {relationship.strength}
+                  {relationshipTypeLabel(relationship.relationshipType)} · 強度 {relationship.strength}
                 </span>
                 {relationship.reasons.length > 0 && <span>{relationship.reasons.join('、')}</span>}
               </li>

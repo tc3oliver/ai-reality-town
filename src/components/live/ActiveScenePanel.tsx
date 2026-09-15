@@ -84,7 +84,7 @@ export function ActiveScenePanel({
                         sceneId: scene.key,
                       })}
                     >
-                      閱讀當日 Episode
+                      閱讀本日故事
                     </a>
                   )}
                 </div>

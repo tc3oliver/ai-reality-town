@@ -408,7 +408,7 @@ describe('the active scene panel (FR-O003 / ART-122)', () => {
     );
     const link = ended.querySelector('a[href="#episode/mistwood/7"]');
     expect(link).not.toBeNull();
-    expect(accessibleName(link as Element)).toBe('閱讀當日 Episode');
+    expect(accessibleName(link as Element)).toBe('閱讀本日故事');
     expect(ended.textContent).toContain('已結束');
 
     const active = render(
