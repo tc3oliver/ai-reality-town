@@ -1,3 +1,4 @@
+import { relationshipTypeLabel } from '../../../convex/shared/publicLabels';
 /**
  * The public relationship graph page's pure logic (FR-I007 / ART-44).
  *
@@ -12,7 +13,6 @@ import {
   KNOWN_NODE_ORDERING,
   MAX_GRAPH_SUMMARY_CHARS,
   NO_SUMMARY,
-  RELATIONSHIP_TYPE_LABELS,
   composeRelationshipGraphViewModel,
   currentWorldDay,
   edgeMatchesFilter,
@@ -155,7 +155,9 @@ describe('AC#2 — relationship-type filtering', () => {
 
   it('has a zh-Hant label for every type the server can publish', () => {
     for (const type of ['trust', 'affection', 'resentment', 'fear', 'dependency', 'familiarity', 'neutral']) {
-      expect(RELATIONSHIP_TYPE_LABELS[type]).toBeTruthy();
+      // The table moved to convex/shared/publicLabels.ts (ART-188); the graph and the character
+      // page now read it from the same place.
+      expect(relationshipTypeLabel(type)).not.toBe(type);
     }
   });
 

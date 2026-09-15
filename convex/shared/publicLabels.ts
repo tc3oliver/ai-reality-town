@@ -99,3 +99,97 @@ const FACT_PREDICATE_LABELS: Readonly<Record<string, string>> = {
 export function formatNameList(names: readonly string[]): string {
   return names.filter((name) => name.trim().length > 0).join('、');
 }
+
+/**
+ * Event types, in canon's order (ART-188).
+ *
+ * Declared here rather than imported for the same reason {@link LABELLED_TIME_SLOTS} is — `shared`
+ * may depend on nothing — and checked the same way: `publicLabels.test.ts` imports `EVENT_TYPES`
+ * from `convex/canon/eventTypes.ts` and asserts the two cover each other exactly. This union is
+ * CLOSED, so that check can be exhaustive, which is what makes {@link eventTypeLabel} total in
+ * practice rather than merely by fallback.
+ *
+ * The timeline rendered these raw: 「[日 3 night · conversation]」, two English identifiers inside
+ * one pair of Chinese brackets.
+ */
+export const LABELLED_EVENT_TYPES = [
+  'conversation', 'movement', 'relationship_change', 'discovery', 'rumor',
+  'world_event', 'correction', 'compensation', 'retcon',
+] as const;
+
+export type LabelledEventType = (typeof LABELLED_EVENT_TYPES)[number];
+
+const EVENT_TYPE_LABELS: Readonly<Record<LabelledEventType, string>> = {
+  conversation: '對話',
+  movement: '移動',
+  relationship_change: '關係變化',
+  discovery: '發現',
+  rumor: '傳聞',
+  world_event: '世界事件',
+  // The three FR-K003 remediation types. A viewer sees these on the timeline like any other event,
+  // so they are said plainly rather than in the vocabulary of the append-only log they come from.
+  correction: '更正',
+  compensation: '補償',
+  retcon: '改寫',
+};
+
+/** An event type, said in Chinese. Total, with the same unknown-yields-raw rule as the slots. */
+export function eventTypeLabel(eventType: string): string {
+  return EVENT_TYPE_LABELS[eventType as LabelledEventType] ?? eventType;
+}
+
+/**
+ * Relationship types, said in Chinese (ART-188).
+ *
+ * Moved here from `src/components/public/relationshipGraphRoute.ts`, where it was used by the
+ * relationship graph alone. The character page rendered the SAME edge's type raw, so the two
+ * surfaces described one relationship in two vocabularies — the exact defect ART-187 fixed for the
+ * NAME on that row, one field to its left.
+ *
+ * `relationshipType` is `v.string()` in Canon, not a closed union, so this cannot be exhaustive
+ * and the raw value is the fallback. That is safe in a way {@link factPredicateLabel}'s is not: a
+ * relationship type is a short, deliberately-chosen word, while a fact predicate is a schema key.
+ */
+const RELATIONSHIP_TYPE_LABELS: Readonly<Record<string, string>> = {
+  trust: '信任',
+  affection: '好感',
+  resentment: '敵意',
+  fear: '恐懼',
+  dependency: '依賴',
+  familiarity: '熟悉',
+  neutral: '中立',
+};
+
+export function relationshipTypeLabel(relationshipType: string): string {
+  return RELATIONSHIP_TYPE_LABELS[relationshipType] ?? relationshipType;
+}
+
+/**
+ * A location's type, said in Chinese — or `null` when this module has never heard of it.
+ *
+ * `null`, like {@link factPredicateLabel} and unlike the two above, because the vocabulary is
+ * OPEN: `convex/canon/proposedEvent.ts` declares `locationType` as `v.string()` and the seed
+ * authors it freely (`station`, `civic`, `government`, `business`, `health`, `industrial`,
+ * `agricultural`, `hospitality`). A registry that fell back to the raw value would keep printing
+ * English schema words to viewers for every type a future world invents.
+ *
+ * The caller's rule for `null` is to OMIT the line. Unlike a fact, whose value is public prose
+ * worth showing on its own, a location type carries nothing a viewer loses by not seeing it — the
+ * place's name and description are right beside it.
+ */
+export function locationTypeLabel(locationType: string): string | null {
+  return LOCATION_TYPE_LABELS[locationType] ?? null;
+}
+
+const LOCATION_TYPE_LABELS: Readonly<Record<string, string>> = {
+  station: '車站',
+  civic: '公共空間',
+  government: '行政機關',
+  business: '商家',
+  health: '醫療',
+  industrial: '工業',
+  agricultural: '農業',
+  hospitality: '住宿餐飲',
+  square: '廣場',
+  public: '公共空間',
+};

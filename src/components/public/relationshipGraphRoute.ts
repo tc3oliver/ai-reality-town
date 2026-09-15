@@ -21,6 +21,8 @@
  * Pure module — no React, no Convex, no DOM, no clock, no randomness.
  */
 
+import { relationshipTypeLabel } from '../../../convex/shared/publicLabels';
+
 /** Published `relationshipGraph:<worldId>:<worldDay>` — the fields the page reads. */
 export type RelationshipGraphPayload = {
   worldDay: number;
@@ -84,16 +86,6 @@ export type RelationshipGraphFilter = { relationshipType: string | null };
  * builder for why there is no richer taxonomy to name. `neutral` is not a seventh flavour: it is
  * the honest label for a pair whose dimensions have moved and moved back.
  */
-export const RELATIONSHIP_TYPE_LABELS: Record<string, string> = {
-  trust: '信任',
-  affection: '好感',
-  resentment: '敵意',
-  fear: '恐懼',
-  dependency: '依賴',
-  familiarity: '熟悉',
-  neutral: '中立',
-};
-
 const ARC_STATUS_LABELS: Record<string, string> = {
   active: '進行中',
   escalating: '升溫中',
@@ -262,8 +254,13 @@ export function edgeMatchesFilter(
   return filter.relationshipType === null || edge.relationshipType === filter.relationshipType;
 }
 
+/**
+ * Moved to `convex/shared/publicLabels.ts` by ART-188 and re-exported here so existing importers
+ * are unchanged. It lived in this client module while the character page rendered the same field
+ * raw, which is how one relationship came to be described two ways.
+ */
 function typeLabel(relationshipType: string): string {
-  return RELATIONSHIP_TYPE_LABELS[relationshipType] ?? relationshipType;
+  return relationshipTypeLabel(relationshipType);
 }
 
 /**

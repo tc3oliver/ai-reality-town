@@ -1,4 +1,4 @@
-import { timeSlotLabel } from '../../../convex/shared/publicLabels';
+import { locationTypeLabel, timeSlotLabel } from '../../../convex/shared/publicLabels';
 import { mistwoodLocationFootprints } from '../../../data/mistwood';
 import { useQuery } from 'convex/react';
 import { getPublishedReadModelRef } from './publicReadModelRef';
@@ -82,8 +82,11 @@ export function LiveViewBody({ worldId, vm }: { worldId: string; vm: LiveViewMod
               <li key={location.locationId}>
                 <span className="font-medium">{location.name}</span>
                 <span className="public-muted">
-                  {' · '}
-                  {location.locationType}
+                  {/* Omitted rather than printed raw when unlabelled (ART-188). A location type is
+                      an open vocabulary, and the place's name and description are right beside it,
+                      so a viewer loses nothing by not being shown the schema word. */}
+                  {locationTypeLabel(location.locationType) !== null
+                    && ` · ${locationTypeLabel(location.locationType)}`}
                   {location.active ? '' : '(休止)'}
                 </span>
                 {location.description && <p className="text-sm public-muted">{location.description}</p>}
@@ -139,7 +142,7 @@ export function LiveViewBody({ worldId, vm }: { worldId: string; vm: LiveViewMod
               )}
               {scene.episodeHref !== null && (
                 <p className="text-sm">
-                  <a href={scene.episodeHref}>閱讀當日 Episode</a>
+                  <a href={scene.episodeHref}>閱讀本日故事</a>
                 </p>
               )}
             </article>
