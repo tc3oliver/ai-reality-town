@@ -3,11 +3,11 @@ id: ART-183
 title: >-
   Public narrative presentation: remove English placeholders, raw schema keys
   and slugs from viewer-facing text
-status: In Review
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-09-15 12:19'
-updated_date: '2026-09-15 12:51'
+updated_date: '2026-09-15 13:29'
 labels: []
 dependencies: []
 priority: critical
@@ -56,18 +56,18 @@ Out of scope: story generation semantics, Canon schema or reducer changes, and a
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No English placeholder template reaches a viewer-facing field: Press the matter of, X raises Y at Z, Key scene N, Quiet beat N, World Day N, A quiet day in Mistwood, Arc from world day, How will X settle what happened at Y, Relationship changed between, No accepted public development was recorded, The town passed a quiet day without a public Canon development
-- [ ] #2 The internal pacingStage enum value does not appear in any viewer-facing field
-- [ ] #3 Fact predicates render through a display-name mapping; a raw camelCase schema key such as currentArcPremise, name or age never reaches the onboarding summaryText
-- [ ] #4 A fact predicate with no registered display name is handled by a stated rule (omitted, or labelled) rather than falling through to the raw key
-- [ ] #5 Characters and locations render a human-readable display name in every public surface; a slug such as he-jun or mistwood-mill never appears to the viewer as a name
-- [ ] #6 Where the display name comes from is decided and written down, including what happens when a record has none
-- [ ] #7 The zh-Hant UI contains no unlocalized enum value; the time slot renders in Chinese on the home page, the live view and the onboarding summary
-- [ ] #8 Truncation never cuts inside a word, and every truncated public string states that content was omitted, satisfying the CLAUDE.md section 9 truncation contract
-- [ ] #9 Regression tests assert on the FINAL output of the public home page view model, the live view and the onboarding read model, not on intermediate helpers
-- [ ] #10 A fault injection is performed for each of the four defect classes: the guarantee is broken, a NAMED test is shown failing, and the guarantee is restored
-- [ ] #11 Tests run without production data
-- [ ] #12 npm run check passes
+- [x] #1 No English placeholder template reaches a viewer-facing field: Press the matter of, X raises Y at Z, Key scene N, Quiet beat N, World Day N, A quiet day in Mistwood, Arc from world day, How will X settle what happened at Y, Relationship changed between, No accepted public development was recorded, The town passed a quiet day without a public Canon development
+- [x] #2 The internal pacingStage enum value does not appear in any viewer-facing field
+- [x] #3 Fact predicates render through a display-name mapping; a raw camelCase schema key such as currentArcPremise, name or age never reaches the onboarding summaryText
+- [x] #4 A fact predicate with no registered display name is handled by a stated rule (omitted, or labelled) rather than falling through to the raw key
+- [x] #5 Characters and locations render a human-readable display name in every public surface; a slug such as he-jun or mistwood-mill never appears to the viewer as a name
+- [x] #6 Where the display name comes from is decided and written down, including what happens when a record has none
+- [x] #7 The zh-Hant UI contains no unlocalized enum value; the time slot renders in Chinese on the home page, the live view and the onboarding summary
+- [x] #8 Truncation never cuts inside a word, and every truncated public string states that content was omitted, satisfying the CLAUDE.md section 9 truncation contract
+- [x] #9 Regression tests assert on the FINAL output of the public home page view model, the live view and the onboarding read model, not on intermediate helpers
+- [x] #10 A fault injection is performed for each of the four defect classes: the guarantee is broken, a NAMED test is shown failing, and the guarantee is restored
+- [x] #11 Tests run without production data
+- [x] #12 npm run check passes
 <!-- AC:END -->
 
 ## Definition of Done
@@ -147,3 +147,29 @@ Known limitation, owned by ART-185 rather than fixed here: location ids can only
 
 Out-of-scope finding worth recording: the Mistwood seed world is itself authored in English. zhao-ming is named "Zhao Ming", not a Chinese name, and occupations, profiles, goals and historical events are all English prose. Rendering display names removes the slugs, which is what this task asked for, but the narrative CONTENT stays English until that is decided as a product question.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Public narrative is now written for a reader rather than serialised from the database. Merged in two PRs, #287 and #289, both with all CI green.
+
+Four defect classes, all on the production path and all reproducible by regenerating the world.
+
+English placeholders were replaced with zh-Hant at FIFTEEN sites, not the twelve first identified — a second sweep after #287 merged found three more that a viewer reads just as directly, including the arc premise, which is the exact field that rendered as 「currentArcPremise是…」 on the live home page. That gap is the reason ART-183 took two PRs, and all fifteen are now pinned by name in publicNarrativePresentation.test.ts.
+
+Raw schema keys go through a label table in the new convex/shared/publicLabels.ts. The unregistered case is the half that matters: a predicate is LLM-authored, so the vocabulary is open and no registry can be complete, and falling back to the key is precisely what produced the defect. An unlabelled predicate now renders its VALUE alone, which is safe because the value is prose written for a reader while the key is not. name and age leave the fact list as identity rather than news.
+
+Slugs are substituted at the public read boundary, not per template. Authors write entity ids into prose deliberately and a model does the same, so a per-template fix would have left ids in LLM-authored text untouched. Matching is longest-first and boundary-bounded.
+
+Truncation backs off to the start of a Latin token, bounded at 16 characters. The bound is the design rather than a guard: shareFormats composes a 60-character card from a 300-character unbroken run and an unbounded back-off returned seven characters of it.
+
+Two comments that asserted the opposite of their own code were corrected in place rather than silently replaced, per CLAUDE.md section 9.
+
+Six fault injections across the two PRs. TWO DID NOT BITE FIRST TIME and are recorded: the truncation assertion could not fail, and removing a labelled slot broke compilation rather than failing a named test, reporting Tests: 0 total.
+
+Verified: npm run check green on both PRs; npm run e2e 124 passed; CI green on #287 and #289.
+
+Known limitation owned by ART-185: location ids can only be substituted for locations present in the projection, and convex/publicRead replays from empty deliberately, so most seeded Mistwood locations are absent from it.
+
+Out-of-scope finding: the Mistwood seed world is itself authored in English. Display names remove the slugs, but the narrative CONTENT stays English until that is decided as a product question.
+<!-- SECTION:FINAL_SUMMARY:END -->
