@@ -3,10 +3,10 @@ id: ART-193
 title: >-
   Adjacent inline elements run together, and a separator prints with nothing
   after it
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-09-15 15:32'
-updated_date: '2026-09-15 15:48'
+updated_date: '2026-09-15 16:48'
 labels: []
 dependencies: []
 priority: high
