@@ -1,10 +1,10 @@
 ---
 id: ART-192
 title: 'No public hash link navigates: the router never subscribes to hashchange'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-09-15 15:22'
-updated_date: '2026-09-15 15:48'
+updated_date: '2026-09-15 16:31'
 labels: []
 dependencies: []
 priority: high
