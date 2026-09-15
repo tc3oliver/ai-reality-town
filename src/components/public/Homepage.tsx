@@ -25,6 +25,7 @@ import {
 } from '../../analytics/productEvents';
 import { VOTE_CONSEQUENCE_MODEL_KIND } from '../../../convex/publicRead/voteConsequenceProjection';
 import { freshnessDescriptor, worldClockDescriptors } from './publicStatusBadge';
+import { timeSlotLabel } from '../../../convex/shared/publicLabels';
 import {
   composeHomepageViewModel,
   parseHomeRoute,
@@ -422,7 +423,7 @@ export function HomepageView({
         </h2>
         {vm.live ? (
           <p>
-            世界日 {vm.live.worldDay} · {vm.live.timeSlot}
+            世界日 {vm.live.worldDay} · {timeSlotLabel(String(vm.live.timeSlot))}
           </p>
         ) : (
           <p className="public-muted">實況尚未開始。</p>

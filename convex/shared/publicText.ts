@@ -37,9 +37,24 @@ export const PUBLIC_TRUNCATION_SUFFIX = '…';
  * quietly returns 49. Off-by-one in the direction of overflow is how a hint pushes a card wider
  * on the one screen size nobody tested.
  *
- * Word boundaries are deliberately NOT respected. Chinese does not have them, and a rule that
- * only worked for the space-separated half of the content would cut CJK at an arbitrary point
- * anyway while looking correct in review.
+ * ## Where the cut may land (ART-183)
+ *
+ * This docblock used to say word boundaries are deliberately NOT respected, because Chinese has
+ * none and a rule that only worked for the space-separated half of the content would cut CJK at
+ * an arbitrary point anyway. The first half of that is right and still governs the CJK case. The
+ * conclusion was wrong: it treated "cannot help every script" as a reason to help none, and the
+ * live site published `Press the matter of "Digitize the surviving archives." at mistwoo…` —
+ * a cut four letters into a place name, which reads as a typo rather than as an omission.
+ *
+ * So the rule is asymmetric, matching the scripts rather than pretending they are alike:
+ *
+ * - Inside a run of Latin letters or digits, back off to the start of that run. A token there is
+ *   a unit a reader can see; half of one is noise.
+ * - Anywhere else — between CJK characters, at punctuation, at a space — cut where the budget
+ *   ran out. This is the original behaviour, and for CJK it remains the only honest option.
+ *
+ * Backing off never yields an empty string while content exists: if the run reaches all the way
+ * back to the start, the cut stands rather than discarding everything (see {@link safeCutIndex}).
  *
  * Returns `''` for empty or whitespace-only input, which is what a withheld scene's summary is —
  * so a withheld scene produces an empty hint BY CONSTRUCTION rather than by a second check.
@@ -55,7 +70,45 @@ export function truncateForPublic(
   // `maxLength` of 1 leaves no room for content beside the ellipsis, so the ellipsis alone is
   // the honest answer: something was here, and none of it fits.
   const budget = Math.max(0, maxLength - PUBLIC_TRUNCATION_SUFFIX.length);
-  return `${trimmed.slice(0, budget).trimEnd()}${PUBLIC_TRUNCATION_SUFFIX}`;
+  return `${trimmed.slice(0, safeCutIndex(trimmed, budget)).trimEnd()}${PUBLIC_TRUNCATION_SUFFIX}`;
+}
+
+/** A Latin letter or a digit — the characters that form a token a cut can visibly break. */
+const TOKEN_CHARACTER = /[A-Za-z0-9]/;
+
+/**
+ * How far back the cut may move to avoid splitting a token.
+ *
+ * Bounded, and the bound is the whole design rather than a guard. A real word is short, so 16
+ * characters is more than enough to reach the start of one. A run LONGER than that is not a word
+ * a reader would recognise — it is an identifier, a URL, or machine output — and giving up its
+ * content to protect it is the worse trade: `shareFormats` composes a 60-character card from a
+ * 300-character unbroken run, and an unbounded back-off returned SEVEN characters of it.
+ *
+ * So: short token, back off; long run, cut where the budget ran out.
+ */
+const MAX_TOKEN_BACKOFF = 16;
+
+/**
+ * Where to cut so the tail is not half a Latin word.
+ *
+ * Only backs off when the cut would land INSIDE a token, which means both the last kept character
+ * and the first dropped character are token characters. A cut whose next character is a space, a
+ * quote, a full stop or a CJK ideograph is already on a boundary and is left alone — that is the
+ * CJK path, and it is the common one here.
+ *
+ * Returns `budget` unchanged in the two cases where backing off would cost more than it saves:
+ * when the token starts at the very beginning of the text, and when it is longer than
+ * {@link MAX_TOKEN_BACKOFF}. Cutting mid-token is bad; returning an ellipsis with almost no
+ * content is worse, because it tells the reader nothing about what was there.
+ */
+export function safeCutIndex(text: string, budget: number): number {
+  if (budget <= 0 || budget >= text.length) return budget;
+  if (!TOKEN_CHARACTER.test(text[budget - 1]) || !TOKEN_CHARACTER.test(text[budget])) return budget;
+  const floor = Math.max(0, budget - MAX_TOKEN_BACKOFF);
+  let index = budget;
+  while (index > floor && TOKEN_CHARACTER.test(text[index - 1])) index -= 1;
+  return index === 0 || index === floor ? budget : index;
 }
 
 /**

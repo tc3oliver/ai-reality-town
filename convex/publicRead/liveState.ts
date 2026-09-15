@@ -12,6 +12,7 @@
  * does not depend on the post-commit orchestrator (AC#4).
  */
 
+import { renderEntityNames } from './entityNames';
 import type { AcceptedEvent, TimeSlot } from '../canon/model';
 import { emptyLiveFold, foldLiveEvents, type LiveFoldState, type LiveLocation } from './liveFold';
 import { toPublicActiveScene } from './publicDynamicProjection';
@@ -45,7 +46,7 @@ export type LiveWorldTime = { worldDay: number; timeSlot: TimeSlot };
  * import from here (see `liveFold.ts`). Every existing caller keeps naming it from this module.
  */
 export type { LiveLocation } from './liveFold';
-export type LiveCharacter = { characterId: string; locationId: string | null; alive: boolean };
+export type LiveCharacter = { characterId: string; locationId: string | null; alive: boolean; displayName: string };
 export type LiveRecentEvent = { eventId: string; summary: string | null; worldDay: number; timeSlot: TimeSlot };
 export type LiveActiveArc = { arcId: string; title: string; currentQuestion: string; status: string };
 /**
@@ -124,6 +125,14 @@ export function buildLiveProjection(input: {
    * behaviour every pre-ART-100 caller relies on.
    */
   priorFold?: LiveFoldState;
+  /**
+   * Entity id to display name, applied to every public STRING this payload carries (ART-183).
+   *
+   * Supplied by the caller rather than resolved here because this function is pure and a name
+   * lives in a read model. Omitted means no substitution, which is the pre-ART-183 behaviour and
+   * exactly what the test fixtures that do not care about names rely on.
+   */
+  displayNames?: ReadonlyMap<string, string>;
 }): LiveProjectionPayload {
   if (input.worldId.trim().length === 0) {
     throw new LiveStateError('LIVE_STATE_INVALID', 'worldId must be non-empty');
@@ -149,10 +158,17 @@ export function buildLiveProjection(input: {
   const { locations, positionByCharacter, aliveByCharacter, knownCharacters } =
     foldLiveEvents(input.priorFold ?? emptyLiveFold(), events);
 
+  const names = input.displayNames ?? new Map<string, string>();
+  const asText = (value: string): string => renderEntityNames(value, names);
+
   const characters: LiveCharacter[] = [...knownCharacters].sort().map((characterId) => ({
     characterId,
     locationId: positionByCharacter.get(characterId) ?? null,
     alive: aliveByCharacter.get(characterId) ?? true,
+    // Falls back to the id. A character with no published name still has to render as SOMETHING,
+    // and the id is the honest answer — it is also what a test asserting "no slug reaches a
+    // viewer" will catch, rather than an empty label that looks intentional.
+    displayName: names.get(characterId) ?? characterId,
   }));
 
   const latest = events[events.length - 1] ?? null;
@@ -164,18 +180,23 @@ export function buildLiveProjection(input: {
     .reverse()
     .map((event) => ({
       eventId: event.eventId,
-      summary: event.publicSummary ?? null,
+      summary: event.publicSummary === null || event.publicSummary === undefined
+        ? null : asText(event.publicSummary),
       worldDay: event.worldDay,
       timeSlot: event.timeSlot,
     }));
 
   const activeArcs: LiveActiveArc[] = input.arcs
     .filter((arc) => isActiveArc(arc.status))
-    .map((arc) => ({ arcId: arc.arcId, title: arc.title, currentQuestion: arc.currentQuestion, status: arc.status }))
+    .map((arc) => ({
+      arcId: arc.arcId, title: asText(arc.title),
+      currentQuestion: asText(arc.currentQuestion), status: arc.status,
+    }))
     .sort((a, b) => a.arcId.localeCompare(b.arcId));
 
   const activeScenes: LiveScene[] = (input.activeScenes ?? input.publishedEpisode?.keyScenes ?? [])
-    .map(toPublicActiveScene);
+    .map(toPublicActiveScene)
+    .map((scene) => ({ ...scene, title: asText(scene.title), summary: asText(scene.summary) }));
 
   return {
     schemaVersion: LIVE_PROJECTION_SCHEMA_VERSION,

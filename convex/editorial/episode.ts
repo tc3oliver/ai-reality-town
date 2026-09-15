@@ -108,16 +108,16 @@ export function buildDailyEpisode(
   const buckets = Array.from({ length: sceneCount }, (): EpisodeSourceEvent[] => []);
   ordered.forEach((source, index) => buckets[index % sceneCount].push(source));
   const scenes = buckets.map((bucket, index): EpisodeScene => ({
-    title: bucket.length > 0 ? `Key scene ${index + 1}` : `Quiet beat ${index + 1}`,
-    summary: bucket.map(({ publicSummary }) => publicSummary).filter((value): value is string => value !== null).join(' ') || 'No accepted public development was recorded.',
+    title: bucket.length > 0 ? `關鍵場景 ${index + 1}` : `平靜片段 ${index + 1}`,
+    summary: bucket.map(({ publicSummary }) => publicSummary).filter((value): value is string => value !== null).join(' ') || '這一段沒有已接受的公開進展。',
     sourceEventIds: bucket.map(({ eventId }) => eventId), publicFactIds: unique(bucket.flatMap(({ publicFactIds }) => publicFactIds)),
   }));
   const sourceEventIds = ordered.map(({ eventId }) => eventId);
   const publicSummaries = ordered.map(({ publicSummary }) => publicSummary).filter((value): value is string => value !== null);
   return {
-    schemaVersion: 1, worldId, worldDay, episodeNumber, title: `World Day ${worldDay}`,
-    headline: publicSummaries[0] ?? 'A quiet day in Mistwood',
-    oneLineSummary: publicSummaries.slice(0, 2).join(' ') || 'The town passed a quiet day without a public Canon development.',
+    schemaVersion: 1, worldId, worldDay, episodeNumber, title: `世界第 ${worldDay} 天`,
+    headline: publicSummaries[0] ?? '平靜的一天',
+    oneLineSummary: publicSummaries.slice(0, 2).join(' ') || '這一天平靜度過,沒有任何公開進展。',
     keyScenes: scenes,
     relationshipChanges: ordered.flatMap((source) => source.publicRelationshipChanges.map((summary) => ({ summary, sourceEventId: source.eventId }))),
     newQuestions: unique(ordered.flatMap(({ newQuestions }) => newQuestions)),

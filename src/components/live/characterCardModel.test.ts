@@ -205,7 +205,7 @@ describe('public goal, active arcs and recent events (AC#3)', () => {
   it('labels recent events and links only those with a published episode', () => {
     const vm = compose();
     expect(vm.recentEvents).toHaveLength(2);
-    expect(vm.recentEvents[0].label).toBe('[日 3 noon] 簽下休戰。');
+    expect(vm.recentEvents[0].label).toBe('[日 3 中午] 簽下休戰。');
     expect(vm.recentEvents[0].episodeHref).toBe('#episode/mistwood/3');
     expect(vm.recentEvents[1].label).toContain('(無摘要)');
     expect(vm.recentEvents[1].episodeHref).toBeNull();

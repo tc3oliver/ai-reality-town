@@ -26,6 +26,7 @@
  * are the separate world-day pipeline in `convex/simulation/worldDayLive.ts`.
  */
 
+import { timeSlotLabel } from '../shared/publicLabels';
 import type { AcceptedEvent } from '../canon/model';
 import {
   MAX_EVENT_ARC_MEMBERSHIPS,
@@ -518,9 +519,9 @@ export function deriveArcClassification(
     }],
     newArc: {
       arcId,
-      title: `Arc from world day ${event.worldDay} (${event.timeSlot})`,
+      title: `第 ${event.worldDay} 天${timeSlotLabel(event.timeSlot)}開始的故事線`,
       premise,
-      currentQuestion: `How will ${coreCharacterIds[0]} settle what happened at ${event.locationId}?`,
+      currentQuestion: `${coreCharacterIds[0]} 要如何收拾 ${event.locationId} 發生的事?`,
       coreCharacterIds,
     },
   });

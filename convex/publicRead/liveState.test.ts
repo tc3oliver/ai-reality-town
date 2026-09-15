@@ -173,7 +173,7 @@ describe('buildLiveProjection (AC#1 — derived from accepted events + published
       dynamic,
     });
     expect(payload.dynamic).toEqual(dynamic);
-    expect(payload.characters).toEqual([{ characterId: 'char-a', locationId: 'loc-1', alive: true }]);
+    expect(payload.characters).toEqual([{ characterId: 'char-a', locationId: 'loc-1', alive: true, displayName: 'char-a' }]);
   });
 
   it('rejects an accepted event whose worldId does not match', () => {

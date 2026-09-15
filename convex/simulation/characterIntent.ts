@@ -154,7 +154,7 @@ export function validateCharacterIntent(value: unknown, rawContext: unknown): In
   if (intent.action === 'wait' && intent.downgradeReason === null) throw new CharacterIntentError('INTENT_INVALID_SHAPE', 'wait intent requires a downgrade reason');
   const locations = new Set([context.currentLocationId, ...context.reachableLocationIds]);
   if (!locations.has(intent.desiredLocationId)) {
-    return { disposition: 'downgraded', intent: { ...intent, action: 'wait', actionDescription: 'Remain in place', desiredLocationId: context.currentLocationId,
+    return { disposition: 'downgraded', intent: { ...intent, action: 'wait', actionDescription: '留在原地', desiredLocationId: context.currentLocationId,
       urgency: 0, downgradeReason: 'INTENT_LOCATION_UNAVAILABLE' } };
   }
   return { disposition: 'accepted', intent };

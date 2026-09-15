@@ -51,6 +51,7 @@
  */
 
 import { CANON_SCHEMA_VERSION, MAX_PUBLIC_SUMMARY_LENGTH } from '../shared/constants';
+import { safeCutIndex } from '../shared/publicText';
 import type { ProposedEvent, StateChange } from '../canon/model';
 import type { TimeSlot } from '../canon/eventTypes';
 import type {
@@ -75,11 +76,17 @@ function fingerprint(value: string): number {
   return hash >>> 0;
 }
 
-/** Clamp any generated text to the Canon public-summary limit without breaking words. */
+/**
+ * Clamp any generated text to the Canon public-summary limit.
+ *
+ * This comment used to claim the clamp worked "without breaking words". It did not: the body was
+ * a bare `slice`, so the docblock asserted the opposite of its own function. `safeCutIndex` is
+ * what makes the claim true, and it is now shared with every other public truncation (ART-183).
+ */
 function summaryText(value: string): string {
-  return value.length <= MAX_PUBLIC_SUMMARY_LENGTH
-    ? value
-    : `${value.slice(0, MAX_PUBLIC_SUMMARY_LENGTH - 1).trimEnd()}…`;
+  if (value.length <= MAX_PUBLIC_SUMMARY_LENGTH) return value;
+  const budget = MAX_PUBLIC_SUMMARY_LENGTH - 1;
+  return `${value.slice(0, safeCutIndex(value, budget)).trimEnd()}…`;
 }
 
 /**

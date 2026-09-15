@@ -14,6 +14,8 @@
  * questions and merging them would make a badge that answers neither.
  */
 
+import { timeSlotLabel } from '../../../convex/shared/publicLabels';
+
 /**
  * The four verdicts `PublicRuntimeFreshness` (convex/publicRead/runtimeSnapshot.ts) can return.
  *
@@ -110,11 +112,14 @@ export function worldClockDescriptors(
   }
   const slot = typeof timeSlot === 'string' ? timeSlot.trim() : '';
   if (!UNKNOWN_LABELS.has(slot)) {
+    // The wire form of a time slot is an English identifier, and this chip used to render it
+    // verbatim: the day chip beside it read 「第 3 天」 while this one read `night` (ART-183).
+    const label = timeSlotLabel(slot);
     chips.push({
       state: null,
-      label: slot,
+      label,
       glyph: '◔',
-      announcement: `時段:${slot}。`,
+      announcement: `時段:${label}。`,
     });
   }
   return chips;

@@ -78,7 +78,7 @@ describe('the freshness vocabulary', () => {
 describe('the world clock chips', () => {
   test('render the day and the slot, in that order', () => {
     const chips = worldClockDescriptors(7, 'evening');
-    expect(chips.map((chip) => chip.label)).toEqual(['第 7 天', 'evening']);
+    expect(chips.map((chip) => chip.label)).toEqual(['第 7 天', '傍晚']);
     // Metadata, not state: nothing keys a border-style off them.
     expect(chips.every((chip) => chip.state === null)).toBe(true);
     expect(new Set(chips.map((chip) => chip.glyph)).size).toBe(2);
@@ -89,7 +89,7 @@ describe('the world clock chips', () => {
     // here keeps it a presentation concern rather than forcing either view model to change.
     expect(worldClockDescriptors('7', 'evening').map((chip) => chip.label)).toEqual([
       '第 7 天',
-      'evening',
+      '傍晚',
     ]);
   });
 
@@ -101,12 +101,12 @@ describe('the world clock chips', () => {
     expect(worldClockDescriptors(undefined, undefined)).toEqual([]);
     // Half-known stays half-rendered rather than being dropped whole.
     expect(worldClockDescriptors(7, '—').map((chip) => chip.label)).toEqual(['第 7 天']);
-    expect(worldClockDescriptors('—', 'evening').map((chip) => chip.label)).toEqual(['evening']);
+    expect(worldClockDescriptors('—', 'evening').map((chip) => chip.label)).toEqual(['傍晚']);
   });
 
   test('a non-finite day is treated as unknown', () => {
     expect(worldClockDescriptors(Number.NaN, 'evening').map((chip) => chip.label)).toEqual([
-      'evening',
+      '傍晚',
     ]);
     expect(worldClockDescriptors(Number.POSITIVE_INFINITY, null)).toEqual([]);
   });

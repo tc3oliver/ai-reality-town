@@ -19,7 +19,7 @@ describe('AC#9 — live-only state', () => {
     expect(badges[0].state).toBe('now');
     expect(badges[0].label).toBe('現在');
     expect(badges[0].detail).toContain('4');
-    expect(badges[0].detail).toContain('evening');
+    expect(badges[0].detail).toContain('傍晚');
   });
 
   test('unknown world time is admitted, not fabricated', () => {
@@ -44,9 +44,9 @@ describe('AC#9 — during playback, all three states are shown together', () => 
     const earlier = badges.find((badge) => badge.state === 'earlier')!;
     const now = badges.find((badge) => badge.state === 'now')!;
     expect(earlier.detail).toContain('2');
-    expect(earlier.detail).toContain('morning');
+    expect(earlier.detail).toContain('上午');
     expect(now.detail).toContain('4');
-    expect(now.detail).toContain('evening');
+    expect(now.detail).toContain('傍晚');
     expect(earlier.detail).not.toBe(now.detail);
   });
 

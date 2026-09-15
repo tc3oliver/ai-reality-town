@@ -10,7 +10,7 @@ describe('FR-G001 Accepted-event daily Episodes', () => {
     const sources = [source('e1', 0.9), source('e2', 0.8), source('e3')];
     const episode = validateDailyEpisode(buildDailyEpisode('w', 4, 4, sources), sources, []);
     expect(episode).toMatchObject({ schemaVersion: 1, worldId: 'w', worldDay: 4, episodeNumber: 4,
-      title: 'World Day 4', headline: 'Public e1', sourceEventIds: ['e1', 'e2', 'e3'], arcIds: ['arc-1'] });
+      title: '世界第 4 天', headline: 'Public e1', sourceEventIds: ['e1', 'e2', 'e3'], arcIds: ['arc-1'] });
     expect(episode.keyScenes).toHaveLength(3);
     expect(episode.relationshipChanges).toEqual(sources.map(({ eventId }) => ({ summary: `Relationship ${eventId}`, sourceEventId: eventId })));
     expect(episode.newQuestions).toEqual(['Question e1?', 'Question e2?', 'Question e3?']);
