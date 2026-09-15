@@ -91,6 +91,21 @@ function describeFact(fact: OnboardingFact): string {
   return label === null ? value : `${label}:${value}`;
 }
 
+/**
+ * Whether two public strings describe the same development.
+ *
+ * Containment rather than equality, in both directions: a scene summary is assembled by joining
+ * the summaries of the events it covers, so it CONTAINS the lead event's sentence rather than
+ * equalling it. Equality alone would have missed every case actually observed on the live site.
+ * Blank on either side is never a match — an absent summary is not a repeat of anything.
+ */
+function sameDevelopment(left: string, right: string | null): boolean {
+  const a = left.trim();
+  const b = (right ?? '').trim();
+  if (a.length === 0 || b.length === 0) return false;
+  return a.includes(b) || b.includes(a);
+}
+
 export function buildOnboardingSummary(input: {
   worldId: string;
   majorEvent: { eventId: string; publicSummary: string } | null;
@@ -105,12 +120,30 @@ export function buildOnboardingSummary(input: {
   const characters = input.characters.slice(0, ONBOARDING_MAX_CHARACTERS);
   const facts = input.facts.slice(0, ONBOARDING_MAX_FACTS);
 
+  /**
+   * The lead event STAYS in the primer (ART-184).
+   *
+   * An earlier attempt at this task removed it, on the reasoning that `structured.majorEvent`
+   * carries the identical string and every surface renders that field in a labelled section of
+   * its own. The reasoning was wrong about who `summaryText` is for: ART-75 AC#1 requires the
+   * composed text ALONE to tell a first-time reader what is happening, and the acceptance suite
+   * caught the removal immediately. The page-level repetition is fixed where it belongs, in the
+   * consumers that print both — see `Homepage.tsx` and `StoryOverlay.tsx`.
+   */
   const parts: string[] = [];
   if (input.majorEvent) parts.push(`近期大事:${input.majorEvent.publicSummary}`);
   if (characters.length > 0) parts.push(`關鍵人物:${formatNameList(characters.map((character) => character.name))}`);
   if (facts.length > 0) parts.push(`已知事實:${facts.map(describeFact).join('、')}`);
   if (input.question) parts.push(`懸而未決:${input.question}`);
-  if (input.scene) parts.push(`場景:${input.scene.summary}`);
+  /**
+   * The day's scene is skipped when it merely restates the lead event. With duplicate public
+   * summaries collapsed upstream (ART-184 in `episode.ts`) an identical string is the common
+   * case rather than a rare one, and a primer that says the same thing twice in one paragraph is
+   * exactly what the live home page did.
+   */
+  if (input.scene && !sameDevelopment(input.scene.summary, input.majorEvent?.publicSummary ?? null)) {
+    parts.push(`場景:${input.scene.summary}`);
+  }
   if (input.recommendedEpisode) parts.push(`建議從第${input.recommendedEpisode.episodeNumber}集開始認識這個世界`);
   const composed = joinNonEmpty(parts) || '這個世界正等待你來探索。';
   const summaryText = truncateToChineseChars(composed, ONBOARDING_MAX_CHARS);

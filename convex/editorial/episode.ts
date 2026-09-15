@@ -97,6 +97,58 @@ export function validateDailyEpisode(
   return structuredClone(episode);
 }
 
+/** A public summary, with every event that produced that exact text. */
+type CollapsedSource = {
+  readonly source: EpisodeSourceEvent;
+  readonly eventIds: string[];
+  /** Merged across every event collapsed here, so a fact a duplicate named is not lost. */
+  readonly publicFactIds: string[];
+};
+
+/**
+ * Events that are distinct in Canon but indistinguishable to a reader, merged into one (ART-184).
+ *
+ * A public summary is derived from a scene's place, cast and goals, none of which change between
+ * ticks, so the same scene at a later time produces a BYTE-IDENTICAL string. Measured on the live
+ * world: twenty recent events carried three distinct summaries, one of them seven times. The
+ * round-robin in `buildDailyEpisode` then dealt those repeats across buckets, so every key scene
+ * came out a permutation of the same three sentences and one contained the same sentence twice.
+ *
+ * Merging rather than dropping is the point. The duplicate events are real and their ids are
+ * provenance a reader can follow, so each entry KEEPS THEM ALL. The episode's own
+ * `sourceEventIds`, relationship changes and questions are still derived from the full `ordered`
+ * list, so nothing about what the episode COVERS changes — only how many times it says one thing.
+ *
+ * The highest-importance event wins the representative slot, because `ordered` is already sorted.
+ * A summary of `null` or blank is never merged: two events that both said nothing publicly are
+ * not thereby the same event, and collapsing them would silently shrink a quiet day's scene count.
+ */
+function collapseByPublicSummary(ordered: readonly EpisodeSourceEvent[]): CollapsedSource[] {
+  const byText = new Map<string, CollapsedSource>();
+  const collapsed: CollapsedSource[] = [];
+  for (const source of ordered) {
+    const text = source.publicSummary;
+    if (text === null || text.trim().length === 0) {
+      collapsed.push({ source, eventIds: [source.eventId], publicFactIds: [...source.publicFactIds] });
+      continue;
+    }
+    const seen = byText.get(text);
+    if (seen === undefined) {
+      const entry: CollapsedSource = {
+        source, eventIds: [source.eventId], publicFactIds: [...source.publicFactIds],
+      };
+      byText.set(text, entry);
+      collapsed.push(entry);
+      continue;
+    }
+    seen.eventIds.push(source.eventId);
+    for (const factId of source.publicFactIds) {
+      if (!seen.publicFactIds.includes(factId)) seen.publicFactIds.push(factId);
+    }
+  }
+  return collapsed;
+}
+
 export function buildDailyEpisode(
   worldId: string,
   worldDay: number,
@@ -104,16 +156,17 @@ export function buildDailyEpisode(
   sources: readonly EpisodeSourceEvent[],
 ): DailyEpisode {
   const ordered = [...sources].sort((a, b) => b.importance - a.importance || a.eventId.localeCompare(b.eventId));
-  const sceneCount = Math.min(MAX_EPISODE_SCENES, Math.max(MIN_EPISODE_SCENES, ordered.length));
-  const buckets = Array.from({ length: sceneCount }, (): EpisodeSourceEvent[] => []);
-  ordered.forEach((source, index) => buckets[index % sceneCount].push(source));
+  const distinct = collapseByPublicSummary(ordered);
+  const sceneCount = Math.min(MAX_EPISODE_SCENES, Math.max(MIN_EPISODE_SCENES, distinct.length));
+  const buckets = Array.from({ length: sceneCount }, (): CollapsedSource[] => []);
+  distinct.forEach((entry, index) => buckets[index % sceneCount].push(entry));
   const scenes = buckets.map((bucket, index): EpisodeScene => ({
     title: bucket.length > 0 ? `關鍵場景 ${index + 1}` : `平靜片段 ${index + 1}`,
-    summary: bucket.map(({ publicSummary }) => publicSummary).filter((value): value is string => value !== null).join(' ') || '這一段沒有已接受的公開進展。',
-    sourceEventIds: bucket.map(({ eventId }) => eventId), publicFactIds: unique(bucket.flatMap(({ publicFactIds }) => publicFactIds)),
+    summary: bucket.map(({ source }) => source.publicSummary).filter((value): value is string => value !== null).join(' ') || '這一段沒有已接受的公開進展。',
+    sourceEventIds: bucket.flatMap(({ eventIds }) => eventIds), publicFactIds: unique(bucket.flatMap((entry) => entry.publicFactIds)),
   }));
   const sourceEventIds = ordered.map(({ eventId }) => eventId);
-  const publicSummaries = ordered.map(({ publicSummary }) => publicSummary).filter((value): value is string => value !== null);
+  const publicSummaries = distinct.map(({ source }) => source.publicSummary).filter((value): value is string => value !== null);
   return {
     schemaVersion: 1, worldId, worldDay, episodeNumber, title: `世界第 ${worldDay} 天`,
     headline: publicSummaries[0] ?? '平靜的一天',

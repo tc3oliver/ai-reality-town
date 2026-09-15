@@ -90,6 +90,8 @@ export type HomepageViewModel = {
   majorEvent: string | null;
   /** ~30-second current-situation summary (UX-003 first layer). */
   currentSituation: string;
+  /** True when 最新大事 would reprint a sentence 近期大事 already carries (ART-184). */
+  majorEventIsInSituation: boolean;
   /**
    * ≤ {@link HOME_MAX_CHARACTERS} core characters (UX-002/AC#4).
    *
@@ -220,6 +222,15 @@ export function composeHomepageViewModel(input: {
     timeSlot: input.world?.currentTimeSlot ?? EM_DASH,
     majorEvent: structured?.majorEvent?.publicSummary ?? null,
     currentSituation: summary?.summaryText ?? NO_SITUATION,
+    /**
+     * Containment, not equality: the primer wraps the sentence in 「近期大事:…」 and continues
+     * with other clauses, so it CONTAINS the major event's text rather than equalling it.
+     */
+    majorEventIsInSituation: (() => {
+      const situation = summary?.summaryText ?? '';
+      const major = structured?.majorEvent?.publicSummary?.trim() ?? '';
+      return major.length > 0 && situation.includes(major);
+    })(),
     characters: (structured?.characters ?? []).slice(0, HOME_MAX_CHARACTERS).map((character) => ({
       characterId: character.characterId,
       name: character.name,

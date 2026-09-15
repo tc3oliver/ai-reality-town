@@ -3,11 +3,11 @@ id: ART-183
 title: >-
   Public narrative presentation: remove English placeholders, raw schema keys
   and slugs from viewer-facing text
-status: In Progress
+status: In Review
 assignee:
   - '@claude'
 created_date: '2026-09-15 12:19'
-updated_date: '2026-09-15 12:44'
+updated_date: '2026-09-15 12:51'
 labels: []
 dependencies: []
 priority: critical
