@@ -3,11 +3,11 @@ id: ART-184
 title: >-
   Public content duplication and episode navigation: distinct scenes,
   deduplicated sections, and a CTA that matches its route
-status: In Review
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-09-15 12:20'
-updated_date: '2026-09-15 13:09'
+updated_date: '2026-09-15 13:22'
 labels: []
 dependencies: []
 priority: critical
@@ -38,16 +38,16 @@ Depends on ART-183 only for the text itself; the dedup and navigation rules are 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Two key scenes of the same episode never carry identical or near-identical summary text
-- [ ] #2 A single key scene never repeats the same sentence within itself
-- [ ] #3 近期大事 does not present the same underlying event more than once
-- [ ] #4 最新大事 and the other home page sections have a stated presentation rule for referencing the same event, and do not simply repeat the same text
-- [ ] #5 Events that would otherwise produce byte-identical public text are distinguishable to a viewer, or are deliberately collapsed by a stated rule rather than emitted repeatedly
-- [ ] #6 The episode CTA displays a number that matches the route it navigates to; a label reading 第 3 集 does not resolve to a URL ending in /2
-- [ ] #7 Deterministic regression tests reproduce the duplication from fixture input and assert it is gone, with no reliance on production data
-- [ ] #8 A test asserts the distinct-summary count for a fixture world, so a regression to three distinct strings across twenty events fails by name
-- [ ] #9 A fault injection is performed for the dedup guarantee and for the CTA route agreement: each is broken, a NAMED test is shown failing, and each is restored
-- [ ] #10 npm run check passes
+- [x] #1 Two key scenes of the same episode never carry identical or near-identical summary text
+- [x] #2 A single key scene never repeats the same sentence within itself
+- [x] #3 近期大事 does not present the same underlying event more than once
+- [x] #4 最新大事 and the other home page sections have a stated presentation rule for referencing the same event, and do not simply repeat the same text
+- [x] #5 Events that would otherwise produce byte-identical public text are distinguishable to a viewer, or are deliberately collapsed by a stated rule rather than emitted repeatedly
+- [x] #6 The episode CTA displays a number that matches the route it navigates to; a label reading 第 3 集 does not resolve to a URL ending in /2
+- [x] #7 Deterministic regression tests reproduce the duplication from fixture input and assert it is gone, with no reliance on production data
+- [x] #8 A test asserts the distinct-summary count for a fixture world, so a regression to three distinct strings across twenty events fails by name
+- [x] #9 A fault injection is performed for the dedup guarantee and for the CTA route agreement: each is broken, a NAMED test is shown failing, and each is restored
+- [x] #10 npm run check passes
 <!-- AC:END -->
 
 ## Definition of Done
@@ -97,3 +97,19 @@ Fault injections — four, all bit by name on the first attempt:
 
 New tests: convex/publicRead/publicNarrativeDuplication.test.ts (11) and src/components/public/homepagePresentation.dom.test.tsx (3). The duplication tests assert the DISTINCT COUNT against the input rather than merely scene 1 != scene 2, because the weaker assertion passes on a page that says one thing five ways.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Public content no longer repeats itself, and the episode link names the address it goes to. Merged in PR #288 with all CI green (offline checks, browser E2E, autonomous control plane).
+
+The duplication was measured, not assumed: the served liveState carried 20 recent events on THREE distinct summary strings, one repeated seven times, so five key scenes were permutations of the same three sentences. A public summary derives from a scene place, cast and goals — none of which change between ticks — so the same scene later produces a byte-identical string. buildDailyEpisode now collapses those before bucketing, merging rather than dropping: every event id and public fact id a duplicate named is kept, and the episode-level provenance still comes from the full list. A blank summary is never collapsed, because two events that both said nothing publicly are not the same event.
+
+The onboarding primer skips its scene clause when the scene restates the lead event, by containment in both directions rather than equality. The home page suppresses 最新大事, header and all, when the primer already carries that sentence.
+
+The episode CTA turned out to be narrower than the task described: the link was always correct, since episodeNumber and worldDay come from one record and the destination heads itself 第 N 集 · 世界日 M. Only the unexplained URL digit was a defect, and the label now names both numbers. This is recorded as what it is rather than written up as a fixed broken link.
+
+Two attempts were wrong and are recorded in the code and notes: removing the lead event from summaryText broke ART-75 AC#1, and applying the same suppression to the live overlay broke FR-O007 AC#1. Both were caught by the acceptance suites and reverted.
+
+Verified: npm run check 4592 passed / 4623 total with build; npm run e2e 124 passed; four fault injections, each failing a NAMED test and each restored.
+<!-- SECTION:FINAL_SUMMARY:END -->
