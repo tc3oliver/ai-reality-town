@@ -3,10 +3,12 @@ import { useQuery } from 'convex/react';
 import { getPublishedReadModelRef } from './publicReadModelRef';
 import { PublicPageFrame } from './PublicPageFrame';
 import { emitTimelineFiltered } from '../../analytics/productEvents';
+import { useEntityNames } from './useEntityNames';
 import {
   composeTimelineViewModel,
   parseTimelineRoute,
   type TimelineFilter,
+  type FilterOption,
   type TimelineProjection,
   type TimelineViewModel,
 } from './timelineRoute';
@@ -71,6 +73,15 @@ export default function TimelineView() {
   const [selection, setSelection] = useState<Record<FilterKind, string>>({
     arc: NONE, character: NONE, eventType: NONE,
   });
+  /**
+   * Names for the filter dropdowns (ART-187). The arc ids come from the timeline entries this
+   * page has already read, so the per-arc reads are bounded by what is actually on screen.
+   */
+  const names = useEntityNames(
+    worldId,
+    ((result?.payload ?? null) as TimelineProjection | null)?.entries
+      .flatMap((entry) => entry.arcIds) ?? [],
+  );
 
   /**
    * §15's `timeline_filtered`, emitted per DIMENSION rather than per selection.
@@ -111,6 +122,7 @@ export default function TimelineView() {
     worldId,
     projection: (result?.payload ?? null) as TimelineProjection | null,
     filter,
+    names,
   });
 
   return (
@@ -134,7 +146,7 @@ export function TimelineBody({
   selection?: Record<FilterKind, string>;
   onFilterChange?: (kind: FilterKind, value: string) => void;
 }) {
-  const options: Record<FilterKind, readonly string[]> = {
+  const options: Record<FilterKind, readonly FilterOption[]> = {
     arc: vm.arcOptions, character: vm.characterOptions, eventType: vm.eventTypeOptions,
   };
   const filtered = FILTER_DIMENSIONS.some((dimension) => selection[dimension.kind] !== NONE);
@@ -161,7 +173,7 @@ export function TimelineBody({
               >
                 <option value={NONE}>全部</option>
                 {options[dimension.kind].map((option) => (
-                  <option key={option} value={option}>{option}</option>
+                  <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
               </select>
             </label>

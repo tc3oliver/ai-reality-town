@@ -14,6 +14,8 @@
  * Pure module — no React, no Convex, no DOM, no clock, no randomness.
  */
 
+import type { WorldNames } from './worldNames';
+
 /** Published major-event timeline (§13.8) — fields the page reads. */
 export type TimelineProjection = {
   entries: Array<{
@@ -46,9 +48,17 @@ export type TimelineItem = {
 export type TimelineViewModel = {
   hasContent: boolean;
   entries: TimelineItem[];
-  arcOptions: string[];
-  characterOptions: string[];
-  eventTypeOptions: string[];
+  /**
+   * Filter options as `{ value, label }` since ART-187.
+   *
+   * `value` is the id the filter selects on; `label` is what a reader sees. They were one string —
+   * `namedOptions()` only de-duplicated — so the 故事線 and 角色 dropdowns listed `arc-mill-audit`
+   * and `he-jun`. Keeping the id as the value is what makes this a presentation change and not a
+   * filtering one.
+   */
+  arcOptions: FilterOption[];
+  characterOptions: FilterOption[];
+  eventTypeOptions: FilterOption[];
 };
 
 const NO_SUMMARY = '(無摘要)';
@@ -91,8 +101,19 @@ const unique = (values: readonly string[]): string[] => [...new Set(values)].sor
  * the whole timeline — a worse bug than the nameless option it was fixing. The browser suite caught
  * it; the jsdom one could not, because its fixtures are built from the declared type.
  */
-const namedOptions = (values: readonly unknown[]): string[] =>
-  unique(values.filter((value): value is string => typeof value === 'string' && value.trim().length > 0));
+/** One selectable filter value and the text a reader sees for it. */
+export type FilterOption = { value: string; label: string };
+
+/**
+ * De-duplicate, then label. An id with no name keeps the id as its label, so a filter is never
+ * unusable because a name has not resolved — the documented fallback everywhere else here.
+ */
+const labelledOptions = (
+  values: readonly unknown[],
+  names?: ReadonlyMap<string, string>,
+): FilterOption[] =>
+  unique(values.filter((value): value is string => typeof value === 'string' && value.trim().length > 0))
+    .map((value) => ({ value, label: names?.get(value) ?? value }));
 
 /**
  * Compose the timeline render model from the published projection and the
@@ -104,6 +125,8 @@ export function composeTimelineViewModel(input: {
   worldId: string;
   projection: TimelineProjection | null;
   filter: TimelineFilter;
+  /** What to call the arcs and characters in the filter dropdowns (ART-187). */
+  names?: WorldNames | null;
 }): TimelineViewModel {
   const entries = input.projection?.entries ?? [];
   const filtered = entries
@@ -125,8 +148,10 @@ export function composeTimelineViewModel(input: {
     // screen reader announces as nothing, and one that filters the list down to zero if taken.
     // axe does not flag it, because an option with no accessible name is not a rule violation;
     // it is simply an offer the page should not be making.
-    arcOptions: namedOptions(entries.flatMap((entry) => entry.arcIds)),
-    characterOptions: namedOptions(entries.flatMap((entry) => entry.characterIds)),
-    eventTypeOptions: namedOptions(entries.map((entry) => entry.eventType)),
+    arcOptions: labelledOptions(entries.flatMap((entry) => entry.arcIds), input.names?.arcs),
+    characterOptions: labelledOptions(
+      entries.flatMap((entry) => entry.characterIds), input.names?.characters,
+    ),
+    eventTypeOptions: labelledOptions(entries.map((entry) => entry.eventType)),
   };
 }

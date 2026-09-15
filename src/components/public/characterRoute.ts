@@ -86,6 +86,12 @@ export type CharacterArc = {
  */
 export type CharacterRelationship = {
   otherCharacterId: string;
+  /**
+   * What the other person is CALLED (ART-187). The page rendered `otherCharacterId` as the row's
+   * visible link text, while the relationship graph — reading the SAME published edge — rendered
+   * a name, so the two surfaces described one relationship in two vocabularies.
+   */
+  otherName: string;
   href: string;
   relationshipType: string;
   strength: number;
@@ -257,6 +263,8 @@ export type CharacterViewModel = {
   viewerKnowledgeFromWorldDay: number | null;
 };
 
+import { composeWorldNames, named } from './worldNames';
+
 const EM_DASH = '—';
 
 /**
@@ -293,11 +301,27 @@ export function composeCharacterViewModel(input: {
   relationshipGraph?: CharacterRelationshipGraphInput | null;
   /** The published FR-I005 viewer-knowledge model for this character (ART-169). */
   viewerKnowledge?: CharacterViewerKnowledgeInput | null;
+  /**
+   * The characters published alongside the locations above, so 主要關係 can name the other end of
+   * an edge (ART-187). Same array, same read — the page was already holding it.
+   */
+  characters?: readonly { characterId: string; displayName?: string | null }[] | null;
+  /**
+   * Authored map footprints, so a seeded location the payload omits is still named (ART-186).
+   * See `worldNames.ts` for why the omission is by construction rather than a projection bug.
+   */
+  footprints?: readonly { readonly id: string; readonly name: string }[] | null;
 }): CharacterViewModel {
   const character = input.character;
   const recent = input.recentEvents ?? [];
   const characterId = character?.id ?? '';
   const arcById = new Map((input.activeArcs ?? []).map((arc) => [arc.arcId, arc]));
+  const names = composeWorldNames({
+    characters: input.characters,
+    locations: input.locations,
+    activeArcs: input.activeArcs,
+    footprints: input.footprints,
+  });
   return {
     hasContent: character !== null,
     characterId,
@@ -311,7 +335,9 @@ export function composeCharacterViewModel(input: {
     healthState: character?.healthState ?? EM_DASH,
     emotionalState: character?.emotionalState ?? EM_DASH,
     financialState: character?.financialState ?? EM_DASH,
-    locationName: resolveLocationName(character?.currentLocationId ?? null, input.locations ?? null),
+    locationName: character?.currentLocationId
+      ? named(names.locations, character.currentLocationId)
+      : EM_DASH,
     alive: character?.alive ?? true,
     active: character?.active ?? true,
     spriteKey: input.spriteKey,
@@ -321,13 +347,15 @@ export function composeCharacterViewModel(input: {
       // is a gap in the arc list, not evidence the membership is untrue.
       .map((membership): CharacterArc => ({
         arcId: membership.arcId,
-        title: arcById.get(membership.arcId)?.title ?? membership.arcId,
+        title: arcById.get(membership.arcId)?.title ?? named(names.arcs, membership.arcId),
         status: arcById.get(membership.arcId)?.status ?? '',
         href: `#arc/${encodeURIComponent(input.worldId)}/${encodeURIComponent(membership.arcId)}`,
       })),
     relationships: characterId.length === 0
       ? []
-      : characterRelationships(characterId, input.worldId, input.relationshipGraph ?? null),
+      : characterRelationships(
+        characterId, input.worldId, input.relationshipGraph ?? null, names.characters,
+      ),
     relationshipsAsOfWorldDay: input.relationshipGraph?.worldDay ?? null,
     recentEvents: recent.map((event) => ({
       eventId: event.eventId,
@@ -416,18 +444,6 @@ export function dramaticIronyFacts(
   });
 }
 
-/** The published name of the character's current location, or a placeholder. */
-function resolveLocationName(
-  locationId: string | null,
-  locations: readonly { locationId: string; name: string }[] | null,
-): string {
-  if (locationId === null) return EM_DASH;
-  const named = (locations ?? []).find((location) => location.locationId === locationId);
-  // The id is the published fact; falling back to it says where the character is even when the
-  // Live projection has not been read, which is better than saying nothing.
-  return named?.name ?? locationId;
-}
-
 /**
  * This character's edges in the published FR-I007 graph, strongest first.
  *
@@ -442,6 +458,8 @@ export function characterRelationships(
   characterId: string,
   worldId: string,
   graph: CharacterRelationshipGraphInput | null,
+  /** Names for the other end of each edge. Omitted renders ids, the pre-ART-187 behaviour. */
+  names: ReadonlyMap<string, string> = new Map(),
 ): CharacterRelationship[] {
   if (graph === null) return [];
   return graph.edges
@@ -452,6 +470,7 @@ export function characterRelationships(
         : edge.sourceCharacterId;
       return {
         otherCharacterId,
+        otherName: named(names, otherCharacterId),
         href: `#character/${encodeURIComponent(worldId)}/${encodeURIComponent(otherCharacterId)}`,
         relationshipType: edge.relationshipType,
         strength: edge.strength,

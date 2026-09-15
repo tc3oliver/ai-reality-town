@@ -33,6 +33,9 @@ import {
  * visible Chinese one, and muted text uses the measured `.public-muted` token.
  */
 
+/** The world timeline, as this page reads it: event keys to the words published about them. */
+type TimelinePayload = { entries: Array<{ eventId: string; publicSummary: string | null }> };
+
 export default function ArcDetailPage() {
   const route = typeof window === 'undefined' ? null : parseArcRoute(window.location.hash);
   const worldId = route?.worldId ?? null;
@@ -51,6 +54,18 @@ export default function ArcDetailPage() {
   const primerResult = useQuery(
     getPublishedReadModelRef,
     enabled ? { worldId: worldId as string, modelKind: 'arc', modelRef: `primer:${arcId}` } : 'skip',
+  );
+  /**
+   * The world timeline, read for ONE thing (ART-187): the text of the arc's inciting event and
+   * its latest turning point. The arc payload names both by Canon event key and carries no words
+   * for either, and 「起始事件:mistwood#event#74」 is what that produced on screen.
+   *
+   * A third anonymous read of an already-allowlisted query, so the public surface is unchanged and
+   * nothing here can trigger generation.
+   */
+  const timelineResult = useQuery(
+    getPublishedReadModelRef,
+    enabled ? { worldId: worldId as string, modelKind: 'timeline', modelRef: `timeline:${worldId}` } : 'skip',
   );
 
   if (!enabled) {
@@ -72,10 +87,17 @@ export default function ArcDetailPage() {
     );
   }
 
+  const timeline = (timelineResult?.payload ?? null) as TimelinePayload | null;
   const vm = composeArcViewModel({
     worldId: worldId as string,
     arc: (arcResult?.payload ?? null) as ArcProjectionPayload | null,
     primer: (primerResult?.payload ?? null) as ArcPrimerPayload | null,
+    eventSummaries: new Map(
+      (timeline?.entries ?? [])
+        .filter((entry): entry is { eventId: string; publicSummary: string } =>
+          typeof entry.publicSummary === 'string' && entry.publicSummary.trim().length > 0)
+        .map((entry) => [entry.eventId, entry.publicSummary]),
+    ),
   });
 
   if (!vm.hasContent) {
@@ -156,10 +178,13 @@ export function ArcDetailView({ worldId, vm }: { worldId: string; vm: ArcViewMod
       <section className="arc-turning-points mt-4" aria-labelledby="arc-turning-points">
         <h2 id="arc-turning-points" className="text-xl font-semibold">轉折</h2>
         <ul className="public-rows text-sm">
-          <li>起始事件:{vm.incitingEventId || '—'}</li>
+          {/* A Canon event key is not content (ART-187). When nothing published names the event,
+              the absence is stated — the timeline is major-events-only, so an arc that began with
+              an ordinary event genuinely has no public sentence to show here. */}
+          <li>起始事件:{vm.incitingEventSummary ?? '尚未公開此事件的內容。'}</li>
           <li>
             最近轉折:{vm.latestTurningPoint
-              ? (vm.latestTurningPoint.summary ?? vm.latestTurningPoint.eventId)
+              ? (vm.latestTurningPoint.summary ?? '尚未公開此事件的內容。')
               : '尚無'}
           </li>
         </ul>

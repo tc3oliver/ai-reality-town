@@ -75,8 +75,14 @@ describe('composeEpisodeListViewModel', () => {
 
   it('exposes arc and character filter options (AC#2)', () => {
     const vm = composeEpisodeListViewModel({ worldId: 'w', index: index(), filter: NO_FILTER });
-    expect(vm.arcOptions).toEqual(['arc-1', 'arc-2']);
-    expect(vm.characterOptions).toEqual(['char-a', 'char-b']);
+    // ART-187 split an option into the id it filters on and the text a reader sees. No names were
+    // supplied, so each label falls back to its own id.
+    expect(vm.arcOptions).toEqual([
+      { value: 'arc-1', label: 'arc-1' }, { value: 'arc-2', label: 'arc-2' },
+    ]);
+    expect(vm.characterOptions).toEqual([
+      { value: 'char-a', label: 'char-a' }, { value: 'char-b', label: 'char-b' },
+    ]);
   });
 
   it('filters episodes by arc (AC#2)', () => {
