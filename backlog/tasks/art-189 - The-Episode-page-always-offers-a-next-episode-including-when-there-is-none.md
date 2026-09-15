@@ -1,9 +1,10 @@
 ---
 id: ART-189
 title: 'The Episode page always offers a next episode, including when there is none'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-09-15 14:11'
+updated_date: '2026-09-15 15:01'
 labels: []
 dependencies: []
 priority: medium

@@ -4,6 +4,11 @@ import { getPublishedReadModelRef } from './publicReadModelRef';
 import { PublicPageFrame } from './PublicPageFrame';
 import { characterMapHref } from './liveMapLinks';
 import { useEntityNames } from './useEntityNames';
+import {
+  episodeNeighbours,
+  type EpisodeNeighbourSource,
+  type EpisodeNeighbours,
+} from './episodeNeighbours';
 import { EMPTY_WORLD_NAMES, named, type WorldNames } from './worldNames';
 import { useEndOfContent } from '../analytics/useEndOfContent';
 import {
@@ -141,12 +146,28 @@ function EpisodeDetailBody({
   episode: EpisodeProjection;
 }) {
   const names = useEntityNames(worldId, episode.arcIds);
+  /**
+   * The published index, read for the navigation bound (ART-189).
+   *
+   * The same `episodes:<worldId>` model the Episode list already reads — an allowlisted anonymous
+   * query that triggers no generation. It is the only published thing that says which Episodes
+   * EXIST, and 下一集 was computed by adding one to the current day instead.
+   */
+  const indexResult = useQuery(
+    getPublishedReadModelRef,
+    { worldId, modelKind: 'episode', modelRef: `episodes:${worldId}` },
+  );
+  const neighbours = episodeNeighbours(
+    worldDay,
+    ((indexResult?.payload ?? null) as { episodes?: EpisodeNeighbourSource[] } | null)?.episodes,
+  );
   return (
     <EpisodeDetailView
       worldId={worldId}
       worldDay={worldDay}
       episode={episode}
       names={names}
+      neighbours={neighbours}
       onNavigate={navigate}
     />
   );
@@ -170,6 +191,7 @@ export function EpisodeDetailView({
   worldDay,
   episode,
   names = EMPTY_WORLD_NAMES,
+  neighbours = { previous: null, next: null },
   initialRecapView = 'quick',
   onNavigate = navigate,
 }: {
@@ -182,6 +204,12 @@ export function EpisodeDetailView({
    * unchanged, and a name that has not resolved yet costs one row its name rather than the page.
    */
   names?: WorldNames;
+  /**
+   * Which Episodes actually exist either side of this one (ART-189). Omitted offers neither
+   * control, which is what an unread index should look like: a control that is briefly absent is
+   * a smaller error than one that is offered and then lands on 找不到此故事.
+   */
+  neighbours?: EpisodeNeighbours;
   initialRecapView?: RecapView;
   onNavigate?: (worldId: string, worldDay: number) => void;
 }) {
@@ -190,8 +218,6 @@ export function EpisodeDetailView({
   // Fires when the end of the Episode reaches the viewport — including immediately, for an
   // Episode short enough to fit on one screen, which a scroll listener would never see.
   const { ref: endOfEpisode } = useEndOfContent(() => emitEpisodeCompleted(worldId, worldDay));
-  const prevDay = worldDay - 1;
-  const nextDay = worldDay + 1;
 
   return (
     <PublicPageFrame worldId={worldId}>
@@ -328,22 +354,34 @@ export function EpisodeDetailView({
         )}
       </p>
 
+      {/* Bounded by what is PUBLISHED, not by arithmetic (ART-189). 下一集 used to be offered
+          unconditionally and landed on 找不到此故事 at the end of the run; both ends are now the
+          nearest published Episode, so a withheld day in the middle is stepped over rather than
+          walked into. Each control names both numbers, as the header above does — ART-184 already
+          established that conflating 集 and 日 is what makes a link surprising. */}
       <nav className="episode-nav mt-4 flex flex-wrap gap-2" aria-label="集數導覽">
-        <button
-          type="button"
-          className="public-tap border"
-          disabled={prevDay < 1}
-          onClick={() => onNavigate(worldId, prevDay)}
-        >
-          上一集(第 {prevDay} 日)
-        </button>
-        <button
-          type="button"
-          className="public-tap border"
-          onClick={() => onNavigate(worldId, nextDay)}
-        >
-          下一集(第 {nextDay} 日)
-        </button>
+        {neighbours.previous === null ? (
+          <span className="public-muted text-sm">已經是最早一集。</span>
+        ) : (
+          <button
+            type="button"
+            className="public-tap border"
+            onClick={() => onNavigate(worldId, neighbours.previous?.worldDay as number)}
+          >
+            上一集:第 {neighbours.previous.episodeNumber} 集(世界日 {neighbours.previous.worldDay})
+          </button>
+        )}
+        {neighbours.next === null ? (
+          <span className="public-muted text-sm">這是目前最新的一集。</span>
+        ) : (
+          <button
+            type="button"
+            className="public-tap border"
+            onClick={() => onNavigate(worldId, neighbours.next?.worldDay as number)}
+          >
+            下一集:第 {neighbours.next.episodeNumber} 集(世界日 {neighbours.next.worldDay})
+          </button>
+        )}
       </nav>
     </PublicPageFrame>
   );
