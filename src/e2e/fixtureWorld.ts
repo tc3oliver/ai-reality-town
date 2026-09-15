@@ -46,6 +46,19 @@ export const FIXTURE_CHARACTER_IDS: readonly string[] = MISTWOOD_CHARACTER_VISUA
   (visual) => visual.characterId,
 );
 
+/**
+ * What the browser suite should expect to READ for a resident (ART-186).
+ *
+ * The specs used to build accessible names as 「查看 ${characterId} 的角色卡」 and to assert that
+ * the floor plan's roster contained each id. Both were accurate descriptions of a surface that
+ * printed slugs. Asserting the name instead is strictly stronger: it proves the whole
+ * `liveState.displayName` → `composeWorldNames` → chrome path end to end in a real browser, which
+ * no unit test reaches.
+ */
+export const fixtureCharacterName = (characterId: string): string =>
+  MISTWOOD_CHARACTER_VISUALS.find((visual) => visual.characterId === characterId)?.displayName
+  ?? characterId;
+
 export const FIXTURE_WORLD_ID = 'mistwood';
 export const FIXTURE_WORLD_DAY = 7;
 export const FIXTURE_TIME_SLOT = 'evening';

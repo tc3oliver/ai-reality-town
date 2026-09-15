@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
-import { FIXTURE_CHARACTER_IDS } from '../src/e2e/fixtureWorld';
+import { FIXTURE_CHARACTER_IDS, fixtureCharacterName } from '../src/e2e/fixtureWorld';
 
 /**
  * The dynamic view's accessibility baseline (FR-Q004 / ART-135, realizing NFR2-006).
@@ -81,8 +81,11 @@ test.describe('AC#1 — the world is comprehensible without the map', () => {
 test.describe('AC#2 — the surface is operable from the keyboard alone', () => {
   test('Tab reaches the character controls, and Enter opens the card', async ({ page }) => {
     await openLive(page);
-    const characterId = FIXTURE_CHARACTER_IDS[0];
-    const target = page.getByRole('button', { name: `查看 ${characterId} 的角色卡` });
+    // The NAME, not the id (ART-186). The control announces 「查看 何俊 的角色卡」; asserting the
+    // slug would now pass only on a surface that had regressed.
+    const target = page.getByRole('button', {
+      name: `查看 ${fixtureCharacterName(FIXTURE_CHARACTER_IDS[0])} 的角色卡`,
+    });
 
     // Focused programmatically then activated BY KEY — the activation is the part a click cannot
     // stand in for, because a control reachable by pointer but not by Enter is still broken.
@@ -286,7 +289,7 @@ test.describe('AC#4/#5 — state is never colour-only, and everything important 
     // only form of it a screen-reader user can reach.
     const readings: string[] = [];
     for (const characterId of FIXTURE_CHARACTER_IDS.slice(0, 4)) {
-      await page.getByRole('button', { name: `查看 ${characterId} 的角色卡` }).click();
+      await page.getByRole('button', { name: `查看 ${fixtureCharacterName(characterId)} 的角色卡` }).click();
       const card = page.locator('section.live-character-card');
       await expect(card).toBeVisible();
       readings.push(await card.locator('li', { hasText: '目前活動' }).innerText());
