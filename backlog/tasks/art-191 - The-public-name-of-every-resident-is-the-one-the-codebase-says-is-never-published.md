@@ -6,7 +6,7 @@ title: >-
 status: Done
 assignee: []
 created_date: '2026-09-15 14:26'
-updated_date: '2026-09-15 15:17'
+updated_date: '2026-09-15 16:51'
 labels: []
 dependencies: []
 priority: high
@@ -36,29 +36,29 @@ convex/visual already imports data/mistwoodCharacters and passes the boundary ch
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every public surface renders a resident's authored zh-TW name: home page, character page, live map chrome, floor plan, character card, scene panel, text live view, relationship graph, onboarding primer
-- [ ] #2 The romanised seed name appears on no public surface, and a NAMED test scans the resolved output for it rather than trusting the call sites
-- [ ] #3 A character with no authored label still resolves to the published projection name, and then to the id — no blank, no invented placeholder
-- [ ] #4 The substitution ART-183 performs inside published prose uses the same table, so a name embedded in a sentence and a name in a list agree
-- [ ] #5 Fault injection: removing the authored table fails a named test rather than silently reverting to the seed name
+- [x] #1 Every public surface renders a resident's authored zh-TW name: home page, character page, live map chrome, floor plan, character card, scene panel, text live view, relationship graph, onboarding primer
+- [x] #2 The romanised seed name appears on no public surface, and a NAMED test scans the resolved output for it rather than trusting the call sites
+- [x] #3 A character with no authored label still resolves to the published projection name, and then to the id — no blank, no invented placeholder
+- [x] #4 The substitution ART-183 performs inside published prose uses the same table, so a name embedded in a sentence and a name in a list agree
+- [x] #5 Fault injection: removing the authored table fails a named test rather than silently reverting to the seed name
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Notes

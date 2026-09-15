@@ -4,7 +4,7 @@ title: Raw enum values and mixed-language labels in the zh-Hant public UI
 status: Done
 assignee: []
 created_date: '2026-09-15 14:11'
-updated_date: '2026-09-15 15:53'
+updated_date: '2026-09-15 16:50'
 labels: []
 dependencies: []
 priority: high
@@ -26,29 +26,29 @@ Scope: convex/shared/publicLabels.ts and its test, src/components/public/Timelin
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every event type renders in Chinese, and a NAMED test fails when a value is added to canon's EVENT_TYPES without a label
-- [ ] #2 A relationship type is described with one vocabulary across the character page and the relationship graph
-- [ ] #3 An unlabelled locationType is omitted rather than printed, and a NAMED test pins that
-- [ ] #4 No public surface renders a bare English identifier for timeSlot, eventType, locationType or relationshipType
-- [ ] #5 所屬 Arc and 閱讀當日 Episode are replaced by the vocabulary the rest of the product uses
+- [x] #1 Every event type renders in Chinese, and a NAMED test fails when a value is added to canon's EVENT_TYPES without a label
+- [x] #2 A relationship type is described with one vocabulary across the character page and the relationship graph
+- [x] #3 An unlabelled locationType is omitted rather than printed, and a NAMED test pins that
+- [x] #4 No public surface renders a bare English identifier for timeSlot, eventType, locationType or relationshipType
+- [x] #5 所屬 Arc and 閱讀當日 Episode are replaced by the vocabulary the rest of the product uses
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Notes

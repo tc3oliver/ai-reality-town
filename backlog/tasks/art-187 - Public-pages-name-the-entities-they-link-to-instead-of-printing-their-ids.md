@@ -4,7 +4,7 @@ title: Public pages name the entities they link to instead of printing their ids
 status: Done
 assignee: []
 created_date: '2026-09-15 14:11'
-updated_date: '2026-09-15 15:31'
+updated_date: '2026-09-15 16:50'
 labels: []
 dependencies: []
 priority: high
@@ -31,28 +31,28 @@ Out of scope: the live map and text live view (ART-186), enum labels (their own 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 關連角色 and 關連故事線 on the Episode page render names and titles, and the 在地圖上查看 accessible name does too
-- [ ] #2 主要關係 on the character page names the other person, and names them identically to the relationship graph page for the same edge
-- [ ] #3 No public page renders a Canon event key; 起始事件 renders the event's public summary or states plainly that none is published
-- [ ] #4 所在地 and an arc's title never fall back to a raw id
-- [ ] #5 The timeline and episode-list filter options are named, and filtering still selects on the underlying id
-- [ ] #6 Deterministic tests fail by name when any of these resolutions is removed
+- [x] #1 關連角色 and 關連故事線 on the Episode page render names and titles, and the 在地圖上查看 accessible name does too
+- [x] #2 主要關係 on the character page names the other person, and names them identically to the relationship graph page for the same edge
+- [x] #3 No public page renders a Canon event key; 起始事件 renders the event's public summary or states plainly that none is published
+- [x] #4 所在地 and an arc's title never fall back to a raw id
+- [x] #5 The timeline and episode-list filter options are named, and filtering still selects on the underlying id
+- [x] #6 Deterministic tests fail by name when any of these resolutions is removed
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
