@@ -3,11 +3,11 @@ id: ART-184
 title: >-
   Public content duplication and episode navigation: distinct scenes,
   deduplicated sections, and a CTA that matches its route
-status: In Progress
+status: In Review
 assignee:
   - '@claude'
 created_date: '2026-09-15 12:20'
-updated_date: '2026-09-15 13:03'
+updated_date: '2026-09-15 13:09'
 labels: []
 dependencies: []
 priority: critical
