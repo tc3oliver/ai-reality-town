@@ -214,3 +214,35 @@ describe('the shared table behaves the same on these pages as on the live ones',
     expect(named(NAMES.characters, 'nobody')).toBe('nobody');
   });
 });
+
+describe('a published payload is unvalidated JSON, and the name lookup must survive it', () => {
+  /**
+   * Regression for a defect the BROWSER suite caught and no unit test would have.
+   *
+   * `useEntityNames` took `readonly string[]` and called `.trim()` on each entry. Every caller
+   * builds that array from a published payload — `entries.flatMap((entry) => entry.arcIds)` — and
+   * a timeline entry whose `arcIds` was never set arrives as `undefined`, so `flatMap` yielded
+   * `[undefined]` and the render threw. The page went blank with no error a viewer could see: no
+   * `<main>`, no `<h1>`, the ART-146 signature. Every fixture set the field, which is precisely
+   * why only a real payload shape exposed it.
+   *
+   * The hook is not callable outside React, so this pins the PROPERTY at the boundary it belongs
+   * to: the filter must reject by TYPE, not merely by emptiness. `timelineRoute.ts` already had a
+   * test named 「survives a payload whose value is missing rather than empty」 for the same reason,
+   * and this is its counterpart on the naming path.
+   */
+  const arcIdsFrom = (entries: readonly { arcIds?: string[] }[]): unknown[] =>
+    entries.flatMap((entry) => entry.arcIds as unknown as unknown[]);
+
+  it('produces the values the hook must be able to receive', () => {
+    expect(arcIdsFrom([{ arcIds: ['arc-mill'] }, {}])).toEqual(['arc-mill', undefined]);
+  });
+
+  it('builds a table from them without throwing', () => {
+    const ids = arcIdsFrom([{ arcIds: ['arc-mill'] }, {}]);
+    const usable = ids.filter((id): id is string => typeof id === 'string' && id.trim().length > 0);
+    expect(usable).toEqual(['arc-mill']);
+    expect(() => composeWorldNames({ activeArcs: usable.map((arcId) => ({ arcId, title: null })) }))
+      .not.toThrow();
+  });
+});

@@ -54,13 +54,32 @@ type LivePayload = {
  * which is what a page that only names people should do. Ids are de-duplicated and sorted here so
  * two renders that hold the same set in a different order do not re-subscribe.
  */
-export function useEntityNames(worldId: string | null, arcIds: readonly string[] = []): WorldNames {
+export function useEntityNames(
+  worldId: string | null,
+  /**
+   * `unknown[]`, deliberately. Every caller builds this from a published payload, and typing it
+   * as `string[]` would let TypeScript promise something the wire cannot — see the filter below.
+   */
+  arcIds: readonly unknown[] = [],
+): WorldNames {
   const live = useQuery(
     getPublishedReadModelRef,
     worldId === null ? 'skip' : { worldId, modelKind: 'liveState', modelRef: `live:${worldId}` },
   );
 
-  const arcIdKey = [...new Set(arcIds.filter((id) => id.trim().length > 0))].sort().join('|');
+  /**
+   * Typed-checked, not just emptiness-checked.
+   *
+   * A published payload reaches the client as unvalidated JSON, so a field that was never set
+   * arrives as `undefined` rather than as `[]` — `timelineRoute.ts` has a test named for exactly
+   * that. The first version of this line called `.trim()` on whatever `flatMap` produced, and a
+   * timeline entry with no `arcIds` made it throw during render. The page went blank, which is the
+   * ART-146 signature: no error a viewer could see, just no `<main>`. The browser E2E caught it
+   * and no unit test would have, because the fixtures all set the field.
+   */
+  const arcIdKey = [...new Set(
+    arcIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0),
+  )].sort().join('|');
   const arcQueries = useMemo<RequestForQueries>(() => {
     const queries: RequestForQueries = {};
     if (worldId === null || arcIdKey.length === 0) return queries;
