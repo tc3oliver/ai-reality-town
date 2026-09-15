@@ -1,10 +1,10 @@
 ---
 id: ART-188
 title: Raw enum values and mixed-language labels in the zh-Hant public UI
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-09-15 14:11'
-updated_date: '2026-09-15 14:53'
+updated_date: '2026-09-15 15:53'
 labels: []
 dependencies: []
 priority: high
@@ -50,3 +50,28 @@ Scope: convex/shared/publicLabels.ts and its test, src/components/public/Timelin
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Three values, three different guarantees, because each has a different kind of vocabulary.
+
+EventType is a CLOSED canon union, so LABELLED_EVENT_TYPES is cross-checked against EVENT_TYPES in both directions — the same treatment ART-183 gave TIME_SLOTS, and the strongest form available. relationshipType and locationType are both v.string() in Canon and cannot be checked that way.
+
+The relationshipType defect was not a missing table but a SECOND one: RELATIONSHIP_TYPE_LABELS lived in relationshipGraphRoute.ts and served the graph alone while CharacterPage rendered the same edge's type raw. That is the identical 'two surfaces, one relationship, two vocabularies' shape ART-187 fixed for the NAME, one field to its left on the same row.
+
+locationType takes the factPredicateLabel treatment — null for an unknown value, caller omits the line — and the reason it differs from a fact is worth keeping: a fact's VALUE is public prose written for a reader, so showing it alone is safe; a location type carries nothing a viewer loses, because the place's name and description are beside it.
+
+The location-type test scans mistwoodWorldConfiguration rather than a hand-written list, and asserts the scan is non-empty first so an empty roster cannot make the block vacuous.
+
+## Fault injection — four, all bit
+
+1. Canon gains an event type with no label — three named failures including the cross-check.
+2. locationTypeLabel falls back to the raw value — failed 'returns null — not the raw value'.
+3. One seeded location type loses its label — failed the seed scan.
+4. relationshipTypeLabel returns the raw value — three named failures including 'is ONE table'.
+
+## Caught after the first CI run
+
+dynamicView.spec.ts named the scene panel's Episode link by its visible text, which this task renamed from 「閱讀當日 Episode」 to 「閱讀本日故事」. npm run check passed because the assertion lives in the Playwright suite, which check does not run — the trap CLAUDE.md section 7 names explicitly. Fixed in a second commit; full local E2E then 124 passed.
+<!-- SECTION:NOTES:END -->

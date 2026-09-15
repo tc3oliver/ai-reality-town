@@ -1,10 +1,10 @@
 ---
 id: ART-192
 title: 'No public hash link navigates: the router never subscribes to hashchange'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-09-15 15:22'
-updated_date: '2026-09-15 15:22'
+updated_date: '2026-09-15 16:31'
 labels: []
 dependencies: []
 priority: high
@@ -60,3 +60,23 @@ Verification must follow a link, not load a URL. A spec that asserts the destina
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Found by FOLLOWING a link rather than by loading one, during the ART-193 screenshot review. Clicking 林映雪 on the home page moved the URL to #character/mistwood/lin-yingxue and left the h1 on the home page's.
+
+PublicRoute read window.location.hash during render and subscribed to nothing. A hash link fires no navigation and reloads nothing, so React was never told the route moved.
+
+RelationshipGraphView had already solved this for itself under ART-44, and its docblock stated the rule half wrong: a cross-route link does NOT 're-enter PublicRoute through a different branch and remount', because re-entering PublicRoute requires PublicRoute to render again. The graph worked because it subscribed; every other page inherited the assumption. The hook moves to its own module and both use it — one subscription, not two.
+
+Why a full browser suite missed it: every spec navigates with page.goto(), a full load, and a full load reads the hash correctly. Nothing anywhere followed a link. The new spec states that as its own rule — goto may only reach the starting page.
+
+The individual pages needed no change. They read window.location.hash during render too, which is CORRECT once the router re-renders: a same-route hash change reconciles the component and it re-reads, and a cross-route change mounts a new one.
+
+## Fault injection
+
+Restoring the render-time read fails 7 of 8 tests by name. The survivor is the graph's date stepper — exactly right, since it carries its own subscription and is why it was the one page where following a link ever worked.
+
+An earlier version of one assertion did NOT fail under that injection: it read not.toContainText('-') on a heading, and the Episode heading 「世界第 7 天」 contains no hyphen either, so it passed on a page that had not navigated. Replaced with the destination's exact name and URL; the re-run fails it.
+<!-- SECTION:NOTES:END -->

@@ -363,7 +363,17 @@ export function HomepageView({
             {vm.activeScenes.map((scene) => (
               <li key={scene.key}>
                 <a href={scene.href} aria-label={`本日故事:${scene.title}`}>{scene.title}</a>
-                {scene.summary.length > 0 && <span className="public-muted">{scene.summary}</span>}
+                {/* ART-193: JSX collapses the newline between two siblings to nothing, so the
+                    title and the summary rendered as one unbroken string —
+                    「磨坊對質兩派在磨坊為停工的水車爭執。」, which reads as a strange sentence
+                    rather than as a scene and its summary. `ml-2` is the separation the rest of
+                    these pages already use between a row's label and its detail. */}
+                {scene.summary.length > 0 && (
+                  <>
+                    {' '}
+                    <span className="public-muted ml-2">{scene.summary}</span>
+                  </>
+                )}
               </li>
             ))}
           </ul>

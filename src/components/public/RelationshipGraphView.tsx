@@ -321,8 +321,10 @@ export function RelationshipGraphBody({
                           className="mt-1 graph-edge-row"
                           aria-label={`${node.name} 與 ${relationship.otherName} 的關係`}
                         >
-                          與 {relationship.otherName}:{relationship.typeLabel}(強度 {relationship.strength})
-                          ,最近變化於世界日 {relationship.lastChangedWorldDay}
+                          {/* One text run, on one line. Broken across two, the newline became a
+                              SPACE and the row read 「(強度 30) ,最近變化於」 — a space before a
+                              comma (ART-193). */}
+                          與 {relationship.otherName}:{relationship.typeLabel}(強度 {relationship.strength}),最近變化於世界日 {relationship.lastChangedWorldDay}
                           {/* AC#2 關係變化原因 */}
                           {relationship.reasons.length > 0 && `・原因:${relationship.reasons.join(';')}`}
                           {relationship.furtherChangeCount > 0
