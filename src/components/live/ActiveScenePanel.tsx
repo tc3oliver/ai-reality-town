@@ -50,11 +50,11 @@ export function ActiveScenePanel({
                   <p className="public-muted text-sm">地點:{scene.locationLabel}</p>
                 )}
                 {scene.summary.length > 0 && <p className="text-sm">{scene.summary}</p>}
-                {scene.participantCharacterIds.length > 0 && (
-                  <p className="text-sm">登場角色:{scene.participantCharacterIds.join('、')}</p>
+                {scene.participantNames.length > 0 && (
+                  <p className="text-sm">登場角色:{scene.participantNames.join('、')}</p>
                 )}
-                {scene.arcIds.length > 0 && (
-                  <p className="text-sm">相關故事線:{scene.arcIds.join('、')}</p>
+                {scene.arcTitles.length > 0 && (
+                  <p className="text-sm">相關故事線:{scene.arcTitles.join('、')}</p>
                 )}
 
                 <div className="flex flex-wrap gap-2 mt-1">

@@ -274,10 +274,14 @@ export function fixtureReadModel(modelRef: string): { payload: unknown } | null 
           locationType: 'public',
           active: footprint.id === MILL || footprint.id === HALL,
         })),
-        characters: FIXTURE_CHARACTER_IDS.map((characterId, index) => ({
-          characterId,
+        // `displayName` since ART-183, and read by every live surface since ART-186. Omitting it
+        // here would let the browser suite pass on a fixture that exercises only the id fallback,
+        // which is the state the task was about.
+        characters: MISTWOOD_CHARACTER_VISUALS.map((visual, index) => ({
+          characterId: visual.characterId,
           locationId: index % 2 === 0 ? MILL : HALL,
           alive: true,
+          displayName: visual.displayName,
         })),
         recentEvents: [
           {

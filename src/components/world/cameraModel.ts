@@ -216,12 +216,24 @@ export function focusTargetsFrom({
   map,
   nowMs,
   scenes = [],
+  characterNames,
 }: {
   motions: readonly PublicCharacterMotion[];
   footprints: readonly MistwoodLocationFootprint[];
   map: { width: number; height: number; tileDim: number };
   nowMs: number;
   scenes?: readonly SceneFocusInput[];
+  /**
+   * What to call each character (ART-186). A PARAMETER rather than an import: this module is
+   * `clientWorldReadOnly`, which `architecture/module-boundaries.json` does not let reach
+   * `clientPublic` where the table is built. `LiveMapPage` supplies it from the `liveState` it
+   * already reads.
+   *
+   * Omitted or unresolved falls back to the id, which is what every one of these labels was
+   * before this task — so a caller that has not adopted it is unchanged, and a character whose
+   * name has not been published yet costs one button its name rather than the whole chrome.
+   */
+  characterNames?: ReadonlyMap<string, string>;
 }): FocusTarget[] {
   const worldWidth = map.width * map.tileDim;
   const worldHeight = map.height * map.tileDim;
@@ -245,7 +257,9 @@ export function focusTargetsFrom({
       return {
         kind: 'character',
         id: characterTargetId(motion.characterId),
-        label: motion.characterId,
+        // The label a viewer reads, and — through `composeStaticMap`, which takes its names from
+        // these targets rather than from a second table — the one the floor plan reads too.
+        label: characterNames?.get(motion.characterId) ?? motion.characterId,
         point: {
           x: (motion.from.x + (motion.to.x - motion.from.x) * progress) * map.tileDim,
           y: (motion.from.y + (motion.to.y - motion.from.y) * progress) * map.tileDim,

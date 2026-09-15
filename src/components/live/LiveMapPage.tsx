@@ -9,6 +9,7 @@ import type { SceneFocusInput } from '../world/cameraModel';
 import { getPublishedReadModelRef } from '../public/publicReadModelRef';
 import { getPublicRuntimeSnapshotRef } from '../public/publicRuntimeSnapshotRef';
 import type { CharacterProjection, CharacterRecentEvent } from '../public/characterRoute';
+import { composeWorldNames } from '../public/worldNames';
 import { emitDynamicViewEvent } from '../../analytics/analyticsSink';
 import { resolveDegradationLevel } from './degradationLadder';
 import { composeStaticMap } from './staticMapModel';
@@ -50,8 +51,20 @@ type TimelinePayload = {
   }>;
 };
 
-/** The `live:<worldId>` projection, as the story overlay reads it (ART-125 / FR-O007). */
-type LiveStatePayload = { activeArcs: StoryOverlayArcInput[] };
+/**
+ * The `live:<worldId>` projection, as this page reads it.
+ *
+ * `activeArcs` is the story overlay's (ART-125 / FR-O007). `characters` and `locations` are the
+ * name tables (ART-186): the camera chrome, the floor plan, the card and the scene panel all name
+ * the same residents, and reading them from ONE published payload is what stops two of those
+ * surfaces from calling the same person different things. Both are optional because a `liveState`
+ * version persisted before ART-183 carries no `displayName` at all.
+ */
+type LiveStatePayload = {
+  activeArcs: StoryOverlayArcInput[];
+  characters?: Array<{ characterId: string; displayName?: string | null }>;
+  locations?: Array<{ locationId: string; name?: string | null }>;
+};
 
 /**
  * The live map route's data layer (ART-118 / FR-O001, animated by ART-119 / FR-O002,
@@ -398,6 +411,25 @@ export default function LiveMapPage({ worldId, base }: { worldId: string; base: 
       }),
     [motions, nowMs, projection?.worldDay, reducedMotion],
   );
+  /**
+   * What to call every resident and every place (ART-186).
+   *
+   * Built once and read by the camera chrome, the floor plan (through the targets), the character
+   * card and the scene panel, so those four cannot name the same person differently. Memoised on
+   * the payload rather than rebuilt per render: `focusTargetsFrom` is memoised on its inputs and a
+   * fresh Map each render would defeat that and restart the viewport tween.
+   *
+   * `footprints` is the authored second source for locations, and only for locations — see
+   * `worldNames.ts` for why a seeded place is absent from the published payload and why that is
+   * not changed here.
+   */
+  const worldNames = useMemo(
+    () => composeWorldNames({
+      ...((liveStateResult?.payload ?? null) as LiveStatePayload | null) ?? {},
+      footprints: mistwoodLocationFootprints,
+    }),
+    [liveStateResult],
+  );
   // Memoised on the projection's own cadence, never on `nowMs`: a fresh `targets` array per
   // animation tick would restart the viewport tween thirty times a second and make the
   // camera judder. Adding scenes here does not change that -- `activeScenes` moves when
@@ -410,6 +442,7 @@ export default function LiveMapPage({ worldId, base }: { worldId: string; base: 
         map: mistwoodWorldMap,
         nowMs: Date.now(),
         scenes: scenes as readonly SceneFocusInput[],
+        characterNames: worldNames.characters,
       }),
       // The published scene is the real answer to "what is the world's attention on";
       // character density is the documented fallback for worlds and payloads that carry no
@@ -417,7 +450,7 @@ export default function LiveMapPage({ worldId, base }: { worldId: string; base: 
       primaryLocationId: primarySceneLocationId(scenes as readonly SceneFocusInput[])
         ?? primaryLocationId(liveMotions),
     }),
-    [liveMotions, scenes],
+    [liveMotions, scenes, worldNames],
   );
   /**
    * The floor plan for rung 3 (FR-O010 AC#1).
@@ -441,8 +474,10 @@ export default function LiveMapPage({ worldId, base }: { worldId: string; base: 
   );
 
   const scenePanel = useMemo(
-    () => composeActiveScenePanel({ scenes, footprints: mistwoodLocationFootprints, worldId }),
-    [scenes, worldId],
+    () => composeActiveScenePanel({
+      scenes, footprints: mistwoodLocationFootprints, worldId, names: worldNames,
+    }),
+    [scenes, worldId, worldNames],
   );
   const timeStateBadges = useMemo(
     () =>
@@ -507,8 +542,9 @@ export default function LiveMapPage({ worldId, base }: { worldId: string; base: 
       recentEvents,
       spriteKeys: mistwoodCharacterSpriteKeys,
       footprints: mistwoodLocationFootprints,
+      names: worldNames,
     });
-  }, [selectedCharacterId, characterResult, timelineResult, motions, scenes, worldId]);
+  }, [selectedCharacterId, characterResult, timelineResult, motions, scenes, worldId, worldNames]);
 
   // The story overlay (FR-O007 / ART-125). Half of it needs no read at all: the day, the slot and
   // the scenes are the ones the canvas beside it is already drawing, so the overlay and the map

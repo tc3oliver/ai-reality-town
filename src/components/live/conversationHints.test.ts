@@ -120,7 +120,7 @@ describe('a withheld scene contributes no text, only state (AC#3, AC#5)', () => 
       footprints: mistwoodLocationFootprints,
     });
     // AC#5: the safe state is still shown.
-    expect(card.conversationPartnerIds).toEqual(['pei-lan']);
+    expect(card.conversationPartnerNames).toEqual(['pei-lan']);
     // AC#3: and nothing that has not passed publication is shown.
     expect(card.conversationHint).toBe('');
   });
@@ -193,7 +193,7 @@ describe('a published scene does produce a hint (AC#1, AC#4)', () => {
       spriteKeys: {},
       footprints: mistwoodLocationFootprints,
     });
-    expect(card.conversationPartnerIds).toEqual([]);
+    expect(card.conversationPartnerNames).toEqual([]);
     expect(card.conversationHint).toBe('');
   });
 
@@ -208,7 +208,7 @@ describe('a published scene does produce a hint (AC#1, AC#4)', () => {
       spriteKeys: {},
       footprints: mistwoodLocationFootprints,
     });
-    expect(card.conversationPartnerIds).toEqual([]);
+    expect(card.conversationPartnerNames).toEqual([]);
     expect(card.conversationHint).toBe('');
   });
 
@@ -227,7 +227,7 @@ describe('a published scene does produce a hint (AC#1, AC#4)', () => {
       footprints: mistwoodLocationFootprints,
     });
     // Deterministic, so a card re-opened with no change reads identically.
-    expect(card.conversationPartnerIds).toEqual(['lin-yingxue', 'pei-lan']);
+    expect(card.conversationPartnerNames).toEqual(['lin-yingxue', 'pei-lan']);
   });
 
   test('two scenes never have their summaries concatenated', () => {

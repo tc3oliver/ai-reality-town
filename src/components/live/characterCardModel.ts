@@ -36,6 +36,7 @@ import {
   type CharacterProjection,
   type CharacterRecentEvent,
 } from '../public/characterRoute';
+import { EMPTY_WORLD_NAMES, named, type WorldNames } from '../public/worldNames';
 
 const EM_DASH = '—';
 
@@ -80,7 +81,14 @@ export interface CharacterCardMotionInput {
  * 「這個角色現在在哪些 Arc 裡」 with one function, and a shape declared twice is the first step
  * back to two answers.
  */
-export type CharacterCardArc = CharacterArcMembership;
+/**
+ * An arc the card lists, with the title a viewer reads (ART-186).
+ *
+ * `title` is added to the membership rather than resolved in the component, so the card and the
+ * text live view take the same title from the same table. The card previously rendered
+ * `arc.arcId`, which put `arc-mill-audit` under 「進行中的故事線」.
+ */
+export type CharacterCardArc = CharacterArcMembership & { title: string };
 
 /**
  * Whether the card has something to show, is waiting, or has nothing to wait for.
@@ -121,10 +129,14 @@ export interface CharacterCardViewModel {
   /**
    * Who this character is visibly in conversation with, or `[]` (FR-O004 / ART-123 AC#1).
    *
-   * Ids, because the projection publishes no display names — the same thing the camera controls
-   * and the scene panel show, so the three surfaces name people identically.
+   * NAMES since ART-186. This field's docblock used to say "Ids, because the projection publishes
+   * no display names — the same thing the camera controls and the scene panel show, so the three
+   * surfaces name people identically." That reasoning was sound and its premise is no longer true:
+   * ART-183 added `displayName` to every entry of `liveState.characters`, so the three surfaces
+   * now agree on a NAME instead of agreeing on a slug. A partner with no published name still
+   * appears as their id rather than vanishing — see {@link named} in `worldNames.ts`.
    */
-  conversationPartnerIds: string[];
+  conversationPartnerNames: string[];
   /**
    * A short line from the scene's ALREADY-PUBLISHED summary, or `''` (AC#1, AC#4).
    *
@@ -230,9 +242,15 @@ export function composeCharacterCardViewModel(input: {
   /** `characterId -> asset key`, the same map the renderer draws from (AC#6). */
   spriteKeys: Readonly<Record<string, string>>;
   footprints: readonly MistwoodLocationFootprint[];
+  /**
+   * What to call the other residents and the arcs (ART-186). Omitted renders ids, which is the
+   * pre-ART-186 behaviour, so a caller that has not adopted it is unchanged.
+   */
+  names?: WorldNames;
 }): CharacterCardViewModel {
   const character = input.character ?? null;
   const motion = input.motion;
+  const names = input.names ?? EMPTY_WORLD_NAMES;
   const locationName = new Map(input.footprints.map((footprint) => [footprint.id, footprint.name]));
 
   // The live position wins over the projection's `currentLocationId`: both are Canon-derived, but
@@ -255,11 +273,13 @@ export function composeCharacterCardViewModel(input: {
     locationLabel: locationId === null ? EM_DASH : (locationName.get(locationId) ?? locationId),
     movementLabel: motion === null ? EM_DASH : MOVEMENT_LABELS[motion.motionType],
     activityLabel: motion === null ? EM_DASH : ACTIVITY_LABELS[motion.animationState],
-    conversationPartnerIds: conversationPartners(input.characterId, input.scenes ?? []),
+    conversationPartnerNames: conversationPartners(input.characterId, input.scenes ?? [])
+      .map((partnerId) => named(names.characters, partnerId)),
     conversationHint: conversationHintFor(input.characterId, input.scenes ?? []),
     emotionalState: character?.emotionalState ?? EM_DASH,
     publicGoal: character?.publicGoal ?? '',
-    activeArcs: characterCurrentArcs(input.characterId, input.scenes ?? []),
+    activeArcs: characterCurrentArcs(input.characterId, input.scenes ?? [])
+      .map((membership) => ({ ...membership, title: named(names.arcs, membership.arcId) })),
     // Newest last in the timeline payload, so the tail is the recent end.
     recentEvents: (input.recentEvents ?? [])
       .slice(-CHARACTER_CARD_RECENT_EVENT_LIMIT)
