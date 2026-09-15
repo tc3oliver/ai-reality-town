@@ -3,10 +3,10 @@ id: ART-191
 title: >-
   The public name of every resident is the one the codebase says is never
   published
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-09-15 14:26'
-updated_date: '2026-09-15 14:41'
+updated_date: '2026-09-15 15:17'
 labels: []
 dependencies: []
 priority: high

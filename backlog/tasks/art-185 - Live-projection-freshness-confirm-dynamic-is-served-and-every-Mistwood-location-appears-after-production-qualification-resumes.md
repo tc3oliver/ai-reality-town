@@ -6,7 +6,7 @@ title: >-
 status: Blocked
 assignee: []
 created_date: '2026-09-15 12:20'
-updated_date: '2026-09-15 12:20'
+updated_date: '2026-09-15 15:16'
 labels: []
 dependencies:
   - ART-183
@@ -72,3 +72,39 @@ Blocked on production qualification, which is PAUSED by release policy until ART
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## Repository-side precheck, done without touching production (2026-09-15)
+
+Everything in this task that does NOT need a deployment has now been checked. The result splits the task cleanly in two.
+
+### The location half: reproducible, explained, and no longer viewer-visible
+
+1. **Initial snapshot location completeness — PASS.** convex/canon/mistwoodSeed.ts authors eight locations and importWorld writes them into the initial snapshot.
+2. **Replay restores every seed location — PASS.** replayWorldEvents starts from SEEDED_BASELINE and locations is one of SEED_BASELINE_FIELDS, so a Canon replay has them all.
+3. **The public projection loses them — CONFIRMED, and BY DESIGN.** convex/publicRead/liveFold.ts folds locations from EMPTY over location_state_changed alone; its own comment reads "Never seeded". Resuming from a Canon snapshot instead would add the seed locations back and make the incremental fold differ from a full replay, which is exactly what ART-100 AC#3 forbids. CLAUDE.md section 9 records the empty replay as deliberate, to keep seed data out of public read models.
+4. **Reproduced deterministically, with no production data.** src/components/live/publicEntityNaming.test.ts uses a fixture in precisely this shape — one published location, characters standing in others — because that is what the live payload looks like.
+
+So the omission is NOT a repository defect. The published payload is correct; mistwood-station is there because an event described it and the other seven are not because none has.
+
+What WAS a defect is the consequence, and it is fixed under ART-186: the text live view rendered 「未知位置」 for a character the animated map was drawing inside a named building, and the character page rendered the raw location id under 所在地. The map has always placed people against mistwoodLocationFootprints, which ships in the client bundle; the text surfaces now use the same authored names. AC#6 and AC#7 are therefore answerable now: the omission is explained and classified, and the viewer-visible half is closed without publishing seed data.
+
+### The dynamic half: still genuinely production-freshness-blocked
+
+Every repository-side link in the chain is present and covered:
+
+- liveState.ts:82/211 declares and fills dynamic; liveState.test.ts:142 pins that it defaults to null and :157 that a supplied projection nests without disturbing the semantic character list.
+- liveStateFunctions.ts:917 passes it through the publish path.
+- selectPublicDynamicProjection returns null ONLY when the key is absent or null. A present, valid projection is returned — nothing in the selector or the fallback chain downgrades valid data.
+
+The production null therefore has exactly one remaining explanation, which is the one this task already recorded: the served payload is version 19, published 2026-08-04, three days before ART-115 (563dc5e) added the field on 2026-08-07. No repository change can alter what a payload published six weeks ago contains.
+
+### Revised procedure once production qualification resumes
+
+Steps 1-3 stand. Step 4 is now a confirmation rather than an investigation, and step 5 is answered:
+
+4. Expect locations to contain only the locations events have described. That is correct behaviour, not a symptom.
+5. Do NOT classify the seed-location omission as a repository defect — it is required by ART-100 AC#3. Confirm instead that the map places characters and that the text live view names their locations, which is ART-186's guarantee.
+<!-- SECTION:NOTES:END -->
