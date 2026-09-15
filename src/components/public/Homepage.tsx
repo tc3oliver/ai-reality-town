@@ -345,8 +345,17 @@ export function HomepageView({
           </p>
         )}
 
-        <h3 className="font-medium mt-2">最新大事</h3>
-        {vm.majorEvent ? <p>{vm.majorEvent}</p> : <p className="public-muted">尚無重大發展。</p>}
+        {/* Suppressed entirely when the primer above already contains this exact sentence
+            (ART-184). The onboarding summary opens with 「近期大事:<publicSummary>」 and ART-75
+            AC#1 requires it to, so the duplication has to be resolved HERE rather than by
+            shortening the primer. The header goes with the paragraph: a labelled section with
+            nothing under it reads as missing content rather than as content shown once. */}
+        {vm.majorEventIsInSituation ? null : (
+          <>
+            <h3 className="font-medium mt-2">最新大事</h3>
+            {vm.majorEvent ? <p>{vm.majorEvent}</p> : <p className="public-muted">尚無重大發展。</p>}
+          </>
+        )}
 
         {/* AC#5 — a scene links through to the day it belongs to. */}
         {vm.activeScenes.length > 0 && (
@@ -376,7 +385,13 @@ export function HomepageView({
                 worldId, vm.recommendedEpisode?.worldDay ?? 0, 0,
               )}
             >
-              從第 {vm.recommendedEpisode.episodeNumber} 集開始認識這個世界
+              {/* Both numbers, because the two differ and the URL shows the second (ART-184).
+                  The link is correct — `episodeNumber` and `worldDay` come from ONE episode
+                  record, and the destination heads itself 「第 N 集 · 世界日 M」 — but a reader
+                  who clicked 「第 3 集」 landed on a URL ending in /2 with nothing on the way to
+                  explain it. Naming the day here makes the address predictable before the click
+                  rather than surprising after it. */}
+              從第 {vm.recommendedEpisode.episodeNumber} 集(世界日 {vm.recommendedEpisode.worldDay})開始認識這個世界
             </a>
           </p>
         ) : (
