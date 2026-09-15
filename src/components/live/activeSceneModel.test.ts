@@ -36,8 +36,10 @@ describe('AC#2 — a scene carries its title, summary, participants and story ar
       // The footprint's authored name, not the raw slug: the panel and the map label must
       // agree about what the same place is called.
       locationLabel: 'Town Hall',
-      participantCharacterIds: ['cassia', 'rowan'],
-      arcIds: ['arc-truce'],
+      // Names and titles since ART-186. This fixture passes no table, so both fall back to the
+      // id — the resolution itself is pinned in `publicEntityNaming.test.ts`.
+      participantNames: ['cassia', 'rowan'],
+      arcTitles: ['arc-truce'],
       ended: false,
       // FR-O004 / ART-123: the publication verdict the client did not read until now.
       withheld: false,
@@ -50,8 +52,8 @@ describe('AC#2 — a scene carries its title, summary, participants and story ar
     // Exactly the shape a last-known-good payload persisted before ART-122 carries.
     const [scene] = compose([{ title: '舊場景', summary: '摘要。' }]).scenes;
     expect(scene.locationLabel).toBeNull();
-    expect(scene.participantCharacterIds).toEqual([]);
-    expect(scene.arcIds).toEqual([]);
+    expect(scene.participantNames).toEqual([]);
+    expect(scene.arcTitles).toEqual([]);
     expect(scene.focusTargetId).toBeNull();
     expect(scene.episodeHref).toBeNull();
     expect(scene.key).toBe('scene-0');

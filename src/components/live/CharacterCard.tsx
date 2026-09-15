@@ -111,8 +111,8 @@ export function CharacterCard({
               Rendered as TEXT in the DOM rather than on the canvas. The canvas draws no text at
               all (see `conversationState.ts`), which is what makes AC#2 and AC#3 structural on
               the map surface rather than a rule someone has to remember. */}
-          {viewModel.conversationPartnerIds.length > 0 && (
-            <li>與 {viewModel.conversationPartnerIds.join('、')} 交談中</li>
+          {viewModel.conversationPartnerNames.length > 0 && (
+            <li>與 {viewModel.conversationPartnerNames.join('、')} 交談中</li>
           )}
           {/* Absent, not blank, when the scene's text is withheld or unpublished: an empty
               「談話內容:」 row would imply the conversation had nothing in it (AC#5 — the state
@@ -144,7 +144,7 @@ export function CharacterCard({
               <ul className="text-sm" aria-labelledby="live-character-card-arcs">
                 {viewModel.activeArcs.map((arc) => (
                   <li key={arc.arcId}>
-                    {arc.arcId}
+                    {arc.title}
                     {arc.sceneTitle.length > 0 && (
                       <span className="public-muted">(場景:{arc.sceneTitle})</span>
                     )}

@@ -1,4 +1,5 @@
 import { timeSlotLabel } from '../../../convex/shared/publicLabels';
+import { mistwoodLocationFootprints } from '../../../data/mistwood';
 import { useQuery } from 'convex/react';
 import { getPublishedReadModelRef } from './publicReadModelRef';
 import { PublicPageFrame } from './PublicPageFrame';
@@ -46,6 +47,9 @@ export default function LiveView({ worldId }: { worldId: string }) {
   const vm = composeLiveViewModel({
     live: (result?.payload ?? null) as LiveProjection | null,
     worldId,
+    // The authored names the animated map is already drawing with. This view is that map's
+    // NFR-009 equivalent, so it must not know LESS about the world than the map does (ART-186).
+    footprints: mistwoodLocationFootprints,
   });
 
   return <LiveViewBody worldId={worldId} vm={vm} />;
@@ -101,7 +105,7 @@ export function LiveViewBody({ worldId, vm }: { worldId: string; vm: LiveViewMod
               <li key={character.characterId}>
                 {/* The arrow glyph this used to render is not announced by
                     screen readers; the relationship is now stated in words. */}
-                {character.characterId} 位於 {character.locationLabel}
+                {character.name} 位於 {character.locationLabel}
                 {!character.alive && <span className="public-muted">(已歿)</span>}
               </li>
             ))}
@@ -127,11 +131,11 @@ export function LiveViewBody({ worldId, vm }: { worldId: string; vm: LiveViewMod
                 <p className="text-sm public-muted">地點:{scene.locationLabel}</p>
               )}
               <p className="text-sm public-muted">{scene.summary}</p>
-              {scene.participantCharacterIds.length > 0 && (
-                <p className="text-sm">登場角色:{scene.participantCharacterIds.join('、')}</p>
+              {scene.participantNames.length > 0 && (
+                <p className="text-sm">登場角色:{scene.participantNames.join('、')}</p>
               )}
-              {scene.arcIds.length > 0 && (
-                <p className="text-sm">相關故事線:{scene.arcIds.join('、')}</p>
+              {scene.arcTitles.length > 0 && (
+                <p className="text-sm">相關故事線:{scene.arcTitles.join('、')}</p>
               )}
               {scene.episodeHref !== null && (
                 <p className="text-sm">

@@ -29,7 +29,14 @@ export type LiveProjection = {
     locationType: string;
     active: boolean;
   }>;
-  characters: Array<{ characterId: string; locationId: string | null; alive: boolean }>;
+  /**
+   * `displayName` since ART-183, and optional because a `liveState` version persisted before it
+   * carries none. `convex/publicRead/displayNames.ts` fills it from the published `character:<id>`
+   * projection, so the text view and the map take the same name from the same place.
+   */
+  characters: Array<{
+    characterId: string; locationId: string | null; alive: boolean; displayName?: string | null;
+  }>;
   recentEvents: Array<{
     eventId: string;
     summary: string | null;
@@ -55,6 +62,8 @@ export type LiveProjectionScene = {
   arcIds?: string[];
   status?: 'active' | 'ended';
 };
+
+import { composeWorldNames, named } from './worldNames';
 
 const UNKNOWN_LOCATION = '未知位置';
 const NO_SUMMARY = '(無摘要)';
@@ -86,8 +95,16 @@ export type LiveViewModel = {
     locationType: string;
     active: boolean;
   }>;
-  /** Character positions with location resolved to a readable label (AC#1). */
-  characterPositions: Array<{ characterId: string; locationLabel: string; alive: boolean }>;
+  /**
+   * Character positions, both halves resolved to something a person can read (AC#1).
+   *
+   * `name` was the character's id until ART-186, and `locationLabel` was 「未知位置」 for every
+   * seeded location — so this list, which is the NFR-009 non-map equivalent of the animated map,
+   * said 「he-jun 位於 未知位置」 about a character the map was drawing inside a named building.
+   */
+  characterPositions: Array<{
+    characterId: string; name: string; locationLabel: string; alive: boolean;
+  }>;
   /**
    * Active scenes (FR-I002 AC#2, widened by FR-O003 AC#2/#5).
    *
@@ -100,8 +117,10 @@ export type LiveViewModel = {
     title: string;
     summary: string;
     locationLabel: string | null;
-    participantCharacterIds: string[];
-    arcIds: string[];
+    /** Named since ART-186, exactly as the map's scene panel names them. */
+    participantNames: string[];
+    /** Titled since ART-186, from the same table. */
+    arcTitles: string[];
     ended: boolean;
     episodeHref: string | null;
   }>;
@@ -120,10 +139,20 @@ export function composeLiveViewModel(input: {
   live: LiveProjection | null;
   /** Needed only for the world-scoped Episode deep link; omitted yields no link. */
   worldId?: string;
+  /**
+   * Authored map footprints, so a seeded location the published payload omits is still named
+   * (ART-186). Omitted keeps the pre-ART-186 behaviour for a caller that has not adopted it.
+   *
+   * The omission is by construction, not a bug in the projection: `convex/publicRead/liveFold.ts`
+   * folds locations from empty over `location_state_changed` and describes the result as "Never
+   * seeded", which ART-100 AC#3 requires for byte-identity with a full replay. See
+   * `worldNames.ts`.
+   */
+  footprints?: readonly { readonly id: string; readonly name: string }[] | null;
 }): LiveViewModel {
   const live = input.live;
   const locations = live?.locations ?? [];
-  const locationNameById = new Map(locations.map((location) => [location.locationId, location.name]));
+  const names = composeWorldNames({ ...(live ?? {}), footprints: input.footprints });
 
   return {
     hasContent: Boolean(
@@ -140,8 +169,12 @@ export function composeLiveViewModel(input: {
     })),
     characterPositions: (live?.characters ?? []).map((character) => ({
       characterId: character.characterId,
+      name: named(names.characters, character.characterId),
+      // `UNKNOWN_LOCATION` is now reachable only when the payload names no location AT ALL for
+      // this character. A location id that resolves to no name renders as the id, which says
+      // where they are; claiming not to know would be false, since the id is the published fact.
       locationLabel: character.locationId
-        ? (locationNameById.get(character.locationId) ?? UNKNOWN_LOCATION)
+        ? named(names.locations, character.locationId)
         : UNKNOWN_LOCATION,
       alive: character.alive,
     })),
@@ -150,11 +183,10 @@ export function composeLiveViewModel(input: {
       return {
         title: scene.title,
         summary: scene.summary,
-        locationLabel: scene.locationId
-          ? (locationNameById.get(scene.locationId) ?? scene.locationId)
-          : null,
-        participantCharacterIds: [...(scene.participantCharacterIds ?? [])],
-        arcIds: [...(scene.arcIds ?? [])],
+        locationLabel: scene.locationId ? named(names.locations, scene.locationId) : null,
+        participantNames: (scene.participantCharacterIds ?? [])
+          .map((characterId) => named(names.characters, characterId)),
+        arcTitles: (scene.arcIds ?? []).map((arcId) => named(names.arcs, arcId)),
         ended: scene.status === 'ended',
         // Only an ended scene links onward (FR-O003 AC#5): the day an active scene belongs
         // to has not been narrated yet, so the link would land on an empty Episode.

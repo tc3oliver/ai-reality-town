@@ -186,9 +186,11 @@ describe('public goal, active arcs and recent events (AC#3)', () => {
     const vm = compose();
     expect(vm.publicGoal).toBe('修好水車');
     // `arc-hall` belongs to a scene without this character; `arc-old` to an ended one.
+    // `title` falls back to the arc id here because this fixture passes no name table; the
+    // resolution itself is pinned in `publicEntityNaming.test.ts` (ART-186).
     expect(vm.activeArcs).toEqual([
-      { arcId: 'arc-mill', sceneTitle: '修水車' },
-      { arcId: 'arc-truce', sceneTitle: '修水車' },
+      { arcId: 'arc-mill', sceneTitle: '修水車', title: 'arc-mill' },
+      { arcId: 'arc-truce', sceneTitle: '修水車', title: 'arc-truce' },
     ]);
   });
 

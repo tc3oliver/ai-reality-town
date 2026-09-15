@@ -15,6 +15,7 @@
 
 import type { MistwoodLocationFootprint } from '../../../data/mistwood';
 import { sceneTargetId } from '../world/cameraModel';
+import { EMPTY_WORLD_NAMES, named, type WorldNames } from '../public/worldNames';
 
 /** One published scene, as this module reads it. Every ART-122 field is optional. */
 export interface ActiveSceneInput {
@@ -45,8 +46,13 @@ export interface ActiveScenePanelItem {
   summary: string;
   /** The location's authored name when the map knows it, else the raw id, else null. */
   locationLabel: string | null;
-  participantCharacterIds: string[];
-  arcIds: string[];
+  /**
+   * Who is in the scene, named (ART-186). The panel rendered these as ids until then, so
+   * 登場角色 read `he-jun、zhao-ming` beside a location the same panel called 「Northwater Mill」.
+   */
+  participantNames: string[];
+  /** The scene's arcs, titled (ART-186). Same defect, same fix, same table. */
+  arcTitles: string[];
   ended: boolean;
   /** True when FR-P004's gate is holding this scene's text back (AC#3). */
   withheld: boolean;
@@ -96,7 +102,13 @@ export function composeActiveScenePanel(input: {
   scenes: readonly ActiveSceneInput[];
   footprints: readonly MistwoodLocationFootprint[];
   worldId: string;
+  /**
+   * What to call the participants and the arcs (ART-186). Omitted renders ids, which is what this
+   * panel did before, so a caller that has not adopted it is unchanged.
+   */
+  names?: WorldNames;
 }): ActiveScenePanelModel {
+  const names = input.names ?? EMPTY_WORLD_NAMES;
   const nameById = new Map(input.footprints.map((footprint) => [footprint.id, footprint.name]));
 
   const scenes = input.scenes.map((scene, index) => {
@@ -113,8 +125,9 @@ export function composeActiveScenePanel(input: {
       locationLabel: scene.locationId === undefined
         ? null
         : (nameById.get(scene.locationId) ?? scene.locationId),
-      participantCharacterIds: [...(scene.participantCharacterIds ?? [])],
-      arcIds: [...(scene.arcIds ?? [])],
+      participantNames: (scene.participantCharacterIds ?? [])
+        .map((characterId) => named(names.characters, characterId)),
+      arcTitles: (scene.arcIds ?? []).map((arcId) => named(names.arcs, arcId)),
       ended,
       // Absent means published: a payload persisted before FR-P004 carries no verdict, and
       // reading its silence as "withheld" would label every pre-ART-132 scene as held back.

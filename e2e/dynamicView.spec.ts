@@ -1,6 +1,6 @@
 import { expect, test, type Page, type Request } from '@playwright/test';
 
-import { FIXTURE_CHARACTER_IDS } from '../src/e2e/fixtureWorld';
+import { FIXTURE_CHARACTER_IDS, fixtureCharacterName } from '../src/e2e/fixtureWorld';
 
 /**
  * The dynamic viewing experience, in a real browser (FR-Q006 / ART-137).
@@ -202,7 +202,7 @@ test.describe('the live map in a real browser', () => {
     // happened to share a state, and AC#4 failed for a reason that had nothing to do with the
     // states being distinguishable. `fixtureWorld.test.ts` pins which four carry them.
     for (const characterId of FIXTURE_CHARACTER_IDS.slice(0, 4)) {
-      await page.getByRole('button', { name: `查看 ${characterId} 的角色卡` }).click();
+      await page.getByRole('button', { name: `查看 ${fixtureCharacterName(characterId)} 的角色卡` }).click();
       const card = page.locator('section.live-character-card');
       await expect(card).toBeVisible();
       const text = await card.locator('li', { hasText: '移動狀態' }).innerText();
@@ -634,8 +634,11 @@ test.describe('the degradation ladder (FR-O010 / ART-127)', () => {
     }
     const roster = page.locator('.static-map-roster');
     await expect(roster).toBeVisible();
+    // The roster NAMES them (ART-186). It took its labels from the camera's focus targets even
+    // before this, so it printed whatever those printed — which was the slug.
     for (const characterId of FIXTURE_CHARACTER_IDS) {
-      await expect(roster).toContainText(characterId);
+      await expect(roster).toContainText(fixtureCharacterName(characterId));
+      await expect(roster).not.toContainText(characterId);
     }
   });
 

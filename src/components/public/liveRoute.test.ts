@@ -43,7 +43,7 @@ describe('composeLiveViewModel', () => {
     expect(vm.locations).toHaveLength(2);
     expect(vm.activeScenes).toEqual([{
       title: '簽約', summary: '眾人見證休戰。', locationLabel: null,
-      participantCharacterIds: [], arcIds: [], ended: false, episodeHref: null,
+      participantNames: [], arcTitles: [], ended: false, episodeHref: null,
     }]);
     expect(vm.activeArcs).toHaveLength(1);
   });
@@ -72,8 +72,8 @@ describe('composeLiveViewModel', () => {
     const vm = composeLiveViewModel({ live: fixture() });
     const scene = vm.activeScenes[0];
     expect(Object.keys(scene).sort()).toEqual([
-      'arcIds', 'ended', 'episodeHref', 'locationLabel',
-      'participantCharacterIds', 'summary', 'title',
+      'arcTitles', 'ended', 'episodeHref', 'locationLabel',
+      'participantNames', 'summary', 'title',
     ]);
   });
 
