@@ -4,7 +4,7 @@ title: 'The Episode page always offers a next episode, including when there is n
 status: In Progress
 assignee: []
 created_date: '2026-09-15 14:11'
-updated_date: '2026-09-15 15:01'
+updated_date: '2026-09-15 15:48'
 labels: []
 dependencies: []
 priority: medium
@@ -48,3 +48,28 @@ The bound needs the published episode index, episodes:<worldId> — the same rea
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Neighbours come from the published index episodes:<worldId>, not from arithmetic. That answers both halves at once: the end of the run, which was the reported defect, and a HOLE in the middle of it, which arithmetic cannot get right either — a day the safety gate withheld, or one the editorial pipeline has not reached, is a published run with a gap, and worldDay + 1 walks straight into it.
+
+An absent neighbour renders a stated absence, not a disabled button. A disabled control still tells a viewer there is something there.
+
+Both controls named a 日 while calling it a 集, two lines below a header that distinguishes them correctly. ART-184 already established that conflating the two is what made the recommended-episode link surprising. A test pins that the episode number is not derived from the day: in the fixture, day 5 is episode 2 because day 4 published nothing.
+
+## The fixture gap this exposed
+
+The fixture registered NO episode:<worldDay> model, so every browser visit to #episode/mistwood/<day> rendered 「找不到此故事」 and this P0 public surface had no browser coverage of any kind. Its recap depths, its related lists and its navigation were exercised only through EpisodeDetailView in jsdom. FIXTURE_EPISODE_DAYS is now [3, 5, 7], shared by the index and the per-day detail so the two cannot drift, with days 4 and 6 as deliberate holes.
+
+## Fault injection — four, three bit first time
+
+1. Next computed by arithmetic — six named failures.
+2. Next offered unconditionally in the component — reported 'Tests: 10 passed, 10 total' against a 16-test baseline. The substitution broke the DOM suite's JSX so it never loaded, which in a filtered summary is indistinguishable from a clean pass. Re-run as the original defect expressed in the new code (fabricating a next by arithmetic when none is published) it failed three tests by name.
+3. The control names only the world day again — failed by name.
+4. Nearest-published replaced by furthest — failed by name.
+
+## Handed to another task
+
+Running the new browser spec showed that FOLLOWING 下一集 changes the address bar and not the page. That is not this task's defect — PublicRoute never subscribed to hashchange, so no public link navigated at all. Raised as ART-192. This spec asserts the control's LABEL and leaves following it to that task, so each PR's tests pass on their own branch.
+<!-- SECTION:NOTES:END -->

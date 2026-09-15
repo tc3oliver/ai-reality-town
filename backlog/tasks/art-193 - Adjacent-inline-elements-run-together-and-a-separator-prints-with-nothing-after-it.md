@@ -6,7 +6,7 @@ title: >-
 status: In Progress
 assignee: []
 created_date: '2026-09-15 15:32'
-updated_date: '2026-09-15 15:33'
+updated_date: '2026-09-15 15:48'
 labels: []
 dependencies: []
 priority: high
@@ -60,3 +60,28 @@ Fix the composition, not the strings: a separator that is printed unconditionall
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Found by reading the RENDERED page against fixture data and by looking at screenshots, not by reading source. That is the point: JSX collapses the newline between two siblings to nothing, so markup laid out across three lines renders as one unbroken string, and the source looks correct while the page does not.
+
+## The first attempt was insufficient and is worth recording
+
+I first used the ml-2 margin class this codebase already uses between a row label and its detail. It fixes the screen and NOT the text: a margin is not a character, so textContent — which is what a screen reader gets — stayed concatenated, and the new tests failed. The rows now carry a real separator character as well as the margin.
+
+## The fifth case is the mirror image
+
+The timeline rendered 「[日 3 中午 · ]」 for an entry with no eventType. A published payload is unvalidated JSON on the client, so an absent field is a real state, and a separator printed beside a missing value is the same defect as no separator at all. The line is composed in timelineRoute.ts now, where every part is dropped WITH its separator, and where it can be asserted rather than eyeballed.
+
+The graph case is the same mechanism inverted: a line break INSIDE a text run becomes a space, and that line happened to break immediately before a comma.
+
+## Fault injection — four, all bit
+
+1. Character row separators removed — failed by name.
+2. Scene summary separator removed — failed by name.
+3. Timeline prints the separator unconditionally — three named failures.
+4. The graph comma gets its space back — failed by name.
+
+The tests assert the composed row rendered text rather than the presence of its pieces. A test that checked that the name is there and the reason is there passed throughout the defect.
+<!-- SECTION:NOTES:END -->
