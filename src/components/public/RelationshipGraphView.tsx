@@ -4,6 +4,9 @@ import { getPublishedReadModelRef } from './publicReadModelRef';
 import { emitRelationshipGraphOpened } from '../../analytics/productEvents';
 import { PublicPageFrame } from './PublicPageFrame';
 import { relationshipGraphModelRef } from '../../../convex/shared/relationshipGraphRef';
+// Shared with the router since ART-192. This page wrote the hook and was, until then, the only
+// public surface where following a link worked; see `useLocationHash.ts` for why.
+import { useLocationHash } from './useLocationHash';
 import {
   composeRelationshipGraphViewModel,
   currentWorldDay,
@@ -41,34 +44,6 @@ import {
  */
 
 const ALL_TYPES = '__all__';
-
-/**
- * The current `location.hash`, kept in sync with the browser.
- *
- * Every other public page reads `window.location.hash` once during render and gets away with it,
- * because none of them links to a DIFFERENT hash of the SAME route — following a link from
- * `#arc/…` to `#character/…` re-enters `PublicRoute` through a different branch and remounts.
- *
- * Date switching is exactly that case: `#graph/w/7` → `#graph/w/6` changes no route branch and
- * fires no navigation, so a component that read the hash at render time went on displaying day 7
- * with day 6 in the address bar. The browser E2E caught it; no unit test could have, because the
- * defect is a missing subscription rather than a wrong value.
- *
- * `subscribe` is registered in an effect (never during render) and torn down with the component,
- * so no listener outlives the page.
- */
-function useLocationHash(): string {
-  const [hash, setHash] = useState(() => (typeof window === 'undefined' ? '' : window.location.hash));
-  useEffect(() => {
-    const onHashChange = () => setHash(window.location.hash);
-    window.addEventListener('hashchange', onHashChange);
-    // Read once more on mount: the hash can have changed between the initial state and the
-    // listener being attached, and a page that missed that would be stale from its first paint.
-    onHashChange();
-    return () => window.removeEventListener('hashchange', onHashChange);
-  }, []);
-  return hash;
-}
 
 export default function RelationshipGraphView() {
   const hash = useLocationHash();

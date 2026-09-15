@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 
 import AnalyticsTransport from './components/analytics/AnalyticsTransport.tsx';
+import { useLocationHash } from './components/public/useLocationHash.ts';
 import { LiveMapErrorBoundary } from './components/live/LiveMapErrorBoundary.tsx';
 import LiveMapPage from './components/live/LiveMapPage.tsx';
 import { parseLiveMapPath, redirectForLegacyHash } from './components/live/liveMapRoute.ts';
@@ -55,6 +56,17 @@ function PublicRoute() {
   // Public newcomer-facing pages live behind a hash route (#episode/…,
   // #episodes/…, #home). Public reads use the failure-isolated public read model
   // and trigger no generation (FR-I002/I003/I004 AC#5).
+  /**
+   * ART-192. This router read `window.location.hash` during render and subscribed to nothing, so
+   * clicking a public link changed the address bar and rendered the page it was already on. A hash
+   * link fires no navigation and reloads nothing; without this, React is never told the route
+   * moved. The hook is the one `RelationshipGraphView` wrote for itself — the graph was the only
+   * public surface where following a link worked.
+   *
+   * Called BEFORE the SSR guard below, because a hook may not be called conditionally. It is
+   * SSR-safe by construction: its initialiser returns `''` when there is no `window`.
+   */
+  const hash = useLocationHash();
   if (typeof window === 'undefined') return <Homepage />;
 
   const liveRoute = parseLiveMapPath(window.location.pathname, BASE);
@@ -72,37 +84,37 @@ function PublicRoute() {
     );
   }
 
-  const legacyLive = redirectForLegacyHash(window.location.hash, BASE);
+  const legacyLive = redirectForLegacyHash(hash, BASE);
   if (legacyLive !== null) return <LegacyLiveRedirect href={legacyLive} />;
 
-  if (window.location.hash.startsWith('#episodes/')) {
+  if (hash.startsWith('#episodes/')) {
     return <EpisodeList />;
   }
-  if (window.location.hash.startsWith('#episode/')) {
+  if (hash.startsWith('#episode/')) {
     return <EpisodeDetail />;
   }
-  if (window.location.hash.startsWith('#character/')) {
+  if (hash.startsWith('#character/')) {
     return <CharacterPage />;
   }
-  if (window.location.hash.startsWith('#timeline/')) {
+  if (hash.startsWith('#timeline/')) {
     return <TimelineView />;
   }
-  if (window.location.hash.startsWith('#arc/')) {
+  if (hash.startsWith('#arc/')) {
     return <ArcDetailPage />;
   }
   // ART-44 (FR-I007): the scoped relationship graph. `#graph/<worldId>` defaults to the world's
   // current day; `#graph/<worldId>/<worldDay>` is the date-switched form, which is a real URL so
   // a particular day is shareable.
-  if (window.location.hash.startsWith('#graph/')) {
+  if (hash.startsWith('#graph/')) {
     return <RelationshipGraphView />;
   }
   // ART-39 (FR-H004): the device-aware return recap. A route of its own rather than a homepage
   // section, so the homepage keeps the exact query set and the zero-write assertion that
   // ART-127/ART-137's browser evidence rests on. See `docs/device-return-recap.md` §7.
-  if (window.location.hash.startsWith('#recap/')) {
+  if (hash.startsWith('#recap/')) {
     return <ReturnRecapPage />;
   }
-  if (window.location.hash.startsWith('#help')) {
+  if (hash.startsWith('#help')) {
     return <HelpPage />;
   }
   return <Homepage />;
