@@ -59,6 +59,15 @@ const BANNED_PLACEHOLDERS: ReadonlyArray<{ file: string; fragment: string }> = [
   { file: 'convex/simulation/worldDayLive.ts', fragment: ' raises "' },
   { file: 'convex/simulation/worldDayLive.ts', fragment: 'Waiting longer costs' },
   { file: 'convex/simulation/characterIntent.ts', fragment: "'Remain in place'" },
+  /**
+   * Found by a SECOND sweep, after the first pass of this task had already merged. The first
+   * sweep keyed on lines that assigned a summary or a title and missed three that a viewer reads
+   * just as directly — including the arc premise, which is the exact field that rendered as
+   * 「currentArcPremise是…」 on the live home page. Listed here so the gap cannot reopen quietly.
+   */
+  { file: 'convex/operations/postCommitLive.ts', fragment: 'were drawn into an unresolved matter' },
+  { file: 'convex/operations/postCommitLive.ts', fragment: 'carries the outcome of' },
+  { file: 'convex/simulation/worldDayLive.ts', fragment: 'What does this town owe' },
 ];
 
 describe('no English placeholder reaches a viewer-facing field', () => {

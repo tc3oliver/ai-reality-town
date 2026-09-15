@@ -26,7 +26,7 @@
  * are the separate world-day pipeline in `convex/simulation/worldDayLive.ts`.
  */
 
-import { timeSlotLabel } from '../shared/publicLabels';
+import { formatNameList, timeSlotLabel } from '../shared/publicLabels';
 import type { AcceptedEvent } from '../canon/model';
 import {
   MAX_EVENT_ARC_MEMBERSHIPS,
@@ -509,7 +509,10 @@ export function deriveArcClassification(
   const arcId = derivedArcId(event.worldId, event.sequenceNumber);
   const coreCharacterIds = [...event.participantIds].sort((left, right) => left.localeCompare(right))
     .slice(0, MAX_MAJOR_CORE_CHARACTERS);
-  const premise = event.publicSummary?.trim() || `${coreCharacterIds.join(' and ')} were drawn into an unresolved matter.`;
+  // The arc PREMISE, which the onboarding summary publishes to newcomers — this is the field
+  // that rendered as 「currentArcPremise是…」 on the live home page (ART-183).
+  const premise = event.publicSummary?.trim()
+    || `${formatNameList(coreCharacterIds)}被捲入一件尚未了結的事。`;
   return parseArcEventClassification({
     schemaVersion: 1, worldId: event.worldId, sourceEventId: event.eventId,
     sourceEventSequenceNumber: event.sequenceNumber,
@@ -630,7 +633,7 @@ export function deriveArcConsequences(arc: LiveArcState, event: AcceptedEvent): 
   return [
     ...characters.map((characterId) => ({
       consequenceId: `${stem}:${characterId}`,
-      summary: `${characterId} carries the outcome of ${arc.fields.title} forward.`,
+      summary: `${characterId} 將「${arc.fields.title}」的結果帶往接下來的日子。`,
       affectedCharacterIds: [characterId],
       affectsWorldSummary: false,
       sourceEventId: event.eventId,
