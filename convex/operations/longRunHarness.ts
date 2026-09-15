@@ -1651,7 +1651,7 @@ function episodeSourceEvents(
         change.type === 'fact_created' && change.visibility === 'public' ? [`${event.eventId}:fact:${index}`] : []),
       publicRelationshipChanges: event.stateChanges.flatMap((change) => change.type === 'relationship_changed'
         && change.visibility === 'public'
-        ? [`Relationship changed between ${change.sourceCharacterId} and ${change.targetCharacterId}.`] : []),
+        ? [`${change.sourceCharacterId} 與 ${change.targetCharacterId} 之間的關係有了變化。`] : []),
       newQuestions: classifications.get(event.sequenceNumber)?.newArc
         ? [classifications.get(event.sequenceNumber)!.newArc!.currentQuestion] : [],
       resolvedQuestions: entries.filter(({ role }) => role === 'resolution')

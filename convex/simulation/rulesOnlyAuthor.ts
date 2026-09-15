@@ -35,6 +35,7 @@
  */
 
 import { CANON_SCHEMA_VERSION, MAX_PUBLIC_SUMMARY_LENGTH } from '../shared/constants';
+import { safeCutIndex } from '../shared/publicText';
 import type { ProposedEvent } from '../canon/model';
 import type { TimeSlot } from '../canon/eventTypes';
 
@@ -65,8 +66,11 @@ export type RulesOnlyContext = {
  */
 export const MAX_RULES_ONLY_EVENTS_PER_SLOT = 2;
 
+/** Clamp to the Canon public-summary limit without cutting a Latin token in half (ART-183). */
 const summaryText = (value: string): string =>
-  (value.length <= MAX_PUBLIC_SUMMARY_LENGTH ? value : `${value.slice(0, MAX_PUBLIC_SUMMARY_LENGTH - 1).trimEnd()}…`);
+  (value.length <= MAX_PUBLIC_SUMMARY_LENGTH
+    ? value
+    : `${value.slice(0, safeCutIndex(value, MAX_PUBLIC_SUMMARY_LENGTH - 1)).trimEnd()}…`);
 
 /** zh-Hant, matching every other public string; factual, and it says what it is. */
 const SLOT_LABEL: Readonly<Record<TimeSlot, string>> = {

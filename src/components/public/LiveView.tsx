@@ -1,3 +1,4 @@
+import { timeSlotLabel } from '../../../convex/shared/publicLabels';
 import { useQuery } from 'convex/react';
 import { getPublishedReadModelRef } from './publicReadModelRef';
 import { PublicPageFrame } from './PublicPageFrame';
@@ -61,7 +62,7 @@ export function LiveViewBody({ worldId, vm }: { worldId: string; vm: LiveViewMod
         <h1 className="text-3xl font-bold">實況(文字版)</h1>
         <p className="text-sm public-muted">
           {vm.worldTime
-            ? `世界日 ${vm.worldTime.worldDay} · ${vm.worldTime.timeSlot}`
+            ? `世界日 ${vm.worldTime.worldDay} · ${timeSlotLabel(String(vm.worldTime.timeSlot))}`
             : '實況尚未開始,顯示最後狀態。'}
         </p>
       </header>
@@ -153,7 +154,7 @@ export function LiveViewBody({ worldId, vm }: { worldId: string; vm: LiveViewMod
             {vm.recentEvents.map((event) => (
               <li key={event.eventId} className="text-sm">
                 <span className="public-muted">
-                  [日 {event.worldDay} {event.timeSlot}]
+                  [日 {event.worldDay} {timeSlotLabel(String(event.timeSlot))}]
                 </span>{' '}
                 {event.summary}
               </li>

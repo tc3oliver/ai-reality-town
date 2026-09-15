@@ -39,6 +39,7 @@
  * published payloads exactly (redeclared locally, as every public page does).
  */
 
+import { timeSlotLabel } from '../../../convex/shared/publicLabels';
 import { countChineseCharacters } from '../../../convex/shared/publicText';
 import { isSpoilerMode, SPOILER_MODES, type SpoilerMode } from '../../../convex/viewer/spoilerMode';
 
@@ -378,7 +379,7 @@ export function composeVoteRecapLine(
     trigger: {
       eventId: node.eventId,
       summary: truncateToChineseCharacters(summary, RECAP_LINE_MAX_CHARACTERS),
-      when: `第 ${node.worldDay} 天 · ${node.timeSlot}`,
+      when: `第 ${node.worldDay} 天 · ${timeSlotLabel(String(node.timeSlot))}`,
       followed: false,
       href: null,
     },
@@ -470,7 +471,7 @@ export function composeReturnRecapViewModel(input: {
     return {
       eventId: entry.eventId,
       summary: truncateToChineseCharacters(entry.publicSummary ?? NO_SUMMARY, RECAP_LINE_MAX_CHARACTERS),
-      when: `第 ${entry.worldDay} 天${entry.timeSlot === undefined ? '' : ` · ${entry.timeSlot}`}`,
+      when: `第 ${entry.worldDay} 天${entry.timeSlot === undefined ? '' : ` · ${timeSlotLabel(String(entry.timeSlot))}`}`,
       followed,
       href: publishedDays.has(entry.worldDay) ? episodeHref(entry.worldDay) : null,
     };

@@ -24,6 +24,7 @@
  * Pure module — no React, no Convex, no DOM, no clock, no randomness.
  */
 
+import { timeSlotLabel } from '../../../convex/shared/publicLabels';
 import type { MistwoodLocationFootprint } from '../../../data/mistwood';
 import { characterTargetId } from '../world/cameraModel';
 import { truncateForPublic } from '../../../convex/shared/publicText';
@@ -264,7 +265,7 @@ export function composeCharacterCardViewModel(input: {
       .slice(-CHARACTER_CARD_RECENT_EVENT_LIMIT)
       .map((event) => ({
         eventId: event.eventId,
-        label: `[日 ${event.worldDay} ${event.timeSlot}] ${event.publicSummary ?? '(無摘要)'}`,
+        label: `[日 ${event.worldDay} ${timeSlotLabel(String(event.timeSlot))}] ${event.publicSummary ?? '(無摘要)'}`,
         episodeHref: event.episodeNumber != null
           ? `#episode/${encodeURIComponent(input.worldId)}/${event.worldDay}`
           : null,

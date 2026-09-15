@@ -34,6 +34,7 @@
  * holds a fact that is not already there, and `rebuildFromScratch` re-derives them.
  */
 
+import { loadDisplayNames } from './displayNames';
 import { v } from 'convex/values';
 import type { GenericDatabaseReader } from 'convex/server';
 import { internalMutation, query } from '../_generated/server';
@@ -895,10 +896,20 @@ export const rebuildLiveProjection = internalMutation({
      * therefore the identity. `liveState.test.ts` pins that against the full replay rather than
      * leaving it as an argument.
      */
+    /**
+     * Names for every character the fold knows, plus every location it can already name (ART-183).
+     *
+     * Bounded by the cast, which is what makes a point lookup per character acceptable on a
+     * per-event path: this is not a `.collect()` over a world, it is one indexed read per person
+     * who exists. See `displayNames.ts` for why locations come from the fold rather than a lookup.
+     */
+    const displayNames = await loadDisplayNames(ctx, worldId, fold.knownCharacters, fold.locations.values());
+
     const payload = buildLiveProjection({
       worldId,
       acceptedEvents: redactWithheldSummaries(recentEvents, withheldEvents),
       priorFold: fold,
+      displayNames,
       arcs,
       publishedEpisode: publishedEpisode && { ...publishedEpisode, keyScenes: publishableKeyScenes },
       activeScenes: presentation.scenes,

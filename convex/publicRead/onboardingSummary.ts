@@ -11,6 +11,7 @@
  */
 
 import { countChineseCharacters } from '../recaps/recapFormats';
+import { factPredicateLabel, formatNameList } from '../shared/publicLabels';
 
 export const ONBOARDING_SCHEMA_VERSION = 1;
 export const ONBOARDING_MAX_CHARS = 300;
@@ -67,6 +68,29 @@ function joinNonEmpty(parts: readonly string[]): string {
  * structured payload keeps the bounded fields (≤4 characters, ≤3 facts) so the
  * summary can never degrade into a full history dump.
  */
+/**
+ * One fact, as a viewer should read it (ART-183).
+ *
+ * The predicate is a SCHEMA KEY, and a fact's predicate is LLM-authored (see where
+ * `onboardingSummaryFunctions.ts` collects them), so the vocabulary is open and no registry can
+ * cover it. This function previously rendered `${predicate}是${value}` unconditionally, which put
+ * 「currentArcPremise是An anonymous locker key…」 on the live home page: the reader was shown a
+ * camelCase database key in the middle of a Chinese sentence.
+ *
+ * So there are two renderings, and the unregistered case is the important one:
+ *
+ * - A predicate with a zh-Hant label reads 「label:value」. `name`/`age` need this — 「Zhao Ming」
+ *   alone says nothing.
+ * - A predicate WITHOUT one renders the value alone. That is safe precisely because the value is
+ *   public prose written for a reader while the predicate is not, and it degrades by dropping a
+ *   label rather than by printing an identifier.
+ */
+function describeFact(fact: OnboardingFact): string {
+  const label = factPredicateLabel(fact.predicate);
+  const value = String(fact.value).trim();
+  return label === null ? value : `${label}:${value}`;
+}
+
 export function buildOnboardingSummary(input: {
   worldId: string;
   majorEvent: { eventId: string; publicSummary: string } | null;
@@ -83,8 +107,8 @@ export function buildOnboardingSummary(input: {
 
   const parts: string[] = [];
   if (input.majorEvent) parts.push(`近期大事:${input.majorEvent.publicSummary}`);
-  if (characters.length > 0) parts.push(`關鍵人物:${characters.map((character) => character.name).join('、')}`);
-  if (facts.length > 0) parts.push(`已知事實:${facts.map((fact) => `${fact.predicate}是${String(fact.value)}`).join('、')}`);
+  if (characters.length > 0) parts.push(`關鍵人物:${formatNameList(characters.map((character) => character.name))}`);
+  if (facts.length > 0) parts.push(`已知事實:${facts.map(describeFact).join('、')}`);
   if (input.question) parts.push(`懸而未決:${input.question}`);
   if (input.scene) parts.push(`場景:${input.scene.summary}`);
   if (input.recommendedEpisode) parts.push(`建議從第${input.recommendedEpisode.episodeNumber}集開始認識這個世界`);

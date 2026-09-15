@@ -22,6 +22,8 @@
  * No React, no Convex, no clock, no randomness, no storage.
  */
 
+import { timeSlotLabel } from '../../../convex/shared/publicLabels';
+
 /**
  * The published `voteConsequence` payload, redeclared as every public page redeclares the model
  * it reads. `src/components/vote` may not depend on `convex/publicRead` (the module boundary in
@@ -131,7 +133,7 @@ function itemFrom(node: VoteConsequenceNode): VoteConsequenceItem {
   return {
     eventId: node.eventId,
     summary,
-    when: `第 ${node.worldDay} 天 · ${node.timeSlot}`,
+    when: `第 ${node.worldDay} 天 · ${timeSlotLabel(String(node.timeSlot))}`,
     // Depth 0 is the trigger itself; saying 「距離投票 0 層」 about the vote event is noise.
     depthLabel: node.depth === null || node.depth === 0 ? null : `因果距離 ${node.depth} 層`,
     basisLabel: basisText(node.provenance.basis),

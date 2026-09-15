@@ -313,7 +313,7 @@ describe('FR-K003 audited canon correction workflows', () => {
     const liveOf = (): ReturnType<typeof buildLiveProjection> => buildLiveProjection({
       worldId: WORLD_ID, acceptedEvents: store.committedEvents(), arcs: [], publishedEpisode: null,
     });
-    expect(liveOf().characters).toEqual([{ characterId: VICTIM, locationId: null, alive: false }]);
+    expect(liveOf().characters).toEqual([{ characterId: VICTIM, locationId: null, alive: false, displayName: VICTIM }]);
 
     const { ports, refreshes } = createPorts(store);
     const result = await submitRemediation(ports, {
@@ -327,7 +327,7 @@ describe('FR-K003 audited canon correction workflows', () => {
     });
 
     const live = liveOf();
-    expect(live.characters).toEqual([{ characterId: VICTIM, locationId: null, alive: true }]);
+    expect(live.characters).toEqual([{ characterId: VICTIM, locationId: null, alive: true, displayName: VICTIM }]);
     expect(live.recentEvents[0]).toMatchObject({
       eventId: result.eventId, summary: 'he-jun survived the mill collapse after all.',
     });

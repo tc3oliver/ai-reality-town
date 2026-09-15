@@ -654,8 +654,10 @@ export function generateDirectorPlanCandidate(
       timeSlot: slot.timeSlot,
       locationId: group.locationId,
       participantIds: participants.map(({ characterId }) => characterId),
-      trigger: `${lead.characterId} raises "${lead.currentGoal}" at ${group.locationId}.`,
-      dramaticPressure: `${question} Waiting longer costs ${lead.characterId} standing (${context.pacingStage}).`,
+      trigger: `${lead.characterId} 在 ${group.locationId} 提出「${lead.currentGoal}」。`,
+      // `pacingStage` is a scheduler enum. It used to be appended in parentheses, so a viewer read
+      // 「…(rising)」 — a word from the pacing state machine, in a sentence about a person (ART-183).
+      dramaticPressure: `${question} 再拖下去,${lead.characterId} 的處境只會更難。`,
       arcIds,
       protectedFactIds,
       // Declared honestly: a one-character scene has no relationship to change, and a
@@ -736,7 +738,7 @@ export function generateCharacterIntent(
     return {
       ...base,
       action: 'wait',
-      actionDescription: 'Stay with routine work this slot',
+      actionDescription: '這個時段維持例行工作',
       targetCharacterId: null,
       desiredLocationId: context.currentLocationId,
       rationale: `${context.characterId} has no planned scene this slot.`,
@@ -747,7 +749,7 @@ export function generateCharacterIntent(
   return {
     ...base,
     action: 'attempt',
-    actionDescription: `Press the matter of "${context.currentGoal.value}" at ${placement.locationId}`,
+    actionDescription: `在 ${placement.locationId} 推動「${context.currentGoal.value}」`,
     targetCharacterId: placement.targetCharacterId,
     desiredLocationId: placement.locationId,
     rationale: `${context.characterId} is ${context.emotionalState.value} and cannot let "${context.currentGoal.value}" wait.`,

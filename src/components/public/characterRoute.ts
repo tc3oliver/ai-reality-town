@@ -12,6 +12,8 @@
  * Pure module — no React, no Convex, no DOM, no clock, no randomness.
  */
 
+import { timeSlotLabel } from '../../../convex/shared/publicLabels';
+
 /** Published character projection (§13.2) — fields the page may display. */
 export type CharacterProjection = {
   id: string;
@@ -329,7 +331,7 @@ export function composeCharacterViewModel(input: {
     relationshipsAsOfWorldDay: input.relationshipGraph?.worldDay ?? null,
     recentEvents: recent.map((event) => ({
       eventId: event.eventId,
-      label: `[日 ${event.worldDay} ${event.timeSlot}] ${event.publicSummary ?? '(無摘要)'}`,
+      label: `[日 ${event.worldDay} ${timeSlotLabel(String(event.timeSlot))}] ${event.publicSummary ?? '(無摘要)'}`,
       episodeHref: event.episodeNumber != null ? `#episode/${input.worldId}/${event.worldDay}` : null,
     })),
     viewerKnownSecrets: viewerKnownSecrets(input.worldId, input.viewerKnowledge ?? null),

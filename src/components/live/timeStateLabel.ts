@@ -22,6 +22,8 @@
  * Pure: no React, no clock, no DOM. `TimeStateBanner.tsx` renders what this returns.
  */
 
+import { timeSlotLabel } from '../../../convex/shared/publicLabels';
+
 export const TIME_STATES = ['replay', 'earlier', 'now'] as const;
 export type TimeState = (typeof TIME_STATES)[number];
 
@@ -66,13 +68,15 @@ export type TimeStateContext = {
 /**
  * A world day and slot as a phrase, or an admission that we do not know one.
  *
- * The raw `timeSlot` is printed rather than translated, deliberately: Canon's slot vocabulary
- * is a plain string the runtime already treats as extensible, and a lookup table here would
- * turn adding a sixth slot into a blank label.
+ * This used to print the raw `timeSlot`, deliberately: Canon's slot vocabulary is a plain string
+ * the runtime treats as extensible, and a lookup table here would turn adding a sixth slot into a
+ * blank label. The worry was right and the conclusion cost us 「第 3 天 · night」 on a zh-Hant page.
+ * `timeSlotLabel` answers it directly — it is TOTAL, returning the raw value for a slot it has
+ * never heard of, so a sixth slot renders exactly as it does today rather than blank (ART-183).
  */
 function worldTimeText(worldDay: number | undefined, timeSlot: string | undefined): string {
   if (worldDay === undefined || timeSlot === undefined) return '世界時間未知';
-  return `第 ${worldDay} 天 · ${timeSlot}`;
+  return `第 ${worldDay} 天 · ${timeSlotLabel(timeSlot)}`;
 }
 
 /**

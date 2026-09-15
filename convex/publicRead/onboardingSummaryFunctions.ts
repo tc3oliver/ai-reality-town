@@ -15,6 +15,8 @@ import { rowToAcceptedEvent, type CanonEventRow } from '../canon/serialize';
 import { readWithheldSceneLabels } from '../safety/effectiveSafetyLabels';
 import { readWithheldPublicationWorldDays } from './withheldPublicationDays';
 import { deriveEventId } from '../shared/ids';
+import { IDENTITY_FACT_PREDICATES } from '../shared/publicLabels';
+import { characterDisplayName } from './displayNames';
 import {
   redactWithheldNarration,
   redactWithheldSummaries,
@@ -213,7 +215,12 @@ export const rebuildOnboardingSummary = internalMutation({
         event.stateChanges.forEach((change, index) => {
           if (facts.length >= 3) return;
           if (change.type === 'fact_created' && (change.visibility === 'public' || change.visibility === 'canon')
-            && (change.subjectType === 'world' || change.subjectType === 'character')) {
+            && (change.subjectType === 'world' || change.subjectType === 'character')
+            // A character's `name` and `age` arrive as facts like anything else — that is how the
+            // character projection learns them — but they are IDENTITY, not news. Left in, the
+            // summary told a newcomer 「已知事實:…name是Zhao Ming、age是41」, spending two of the
+            // three fact slots to report that a person has a name (ART-183).
+            && !IDENTITY_FACT_PREDICATES.includes(change.predicate)) {
             facts.push({ factId: `${event.eventId}:fact:${index}`, predicate: change.predicate, value: change.value });
           }
         });
@@ -233,7 +240,7 @@ export const rebuildOnboardingSummary = internalMutation({
     if (majorEventSource) {
       for (const participantId of majorEventSource.participantIds) {
         if (characters.length >= 4) break;
-        characters.push({ characterId: participantId, name: participantId });
+        characters.push({ characterId: participantId, name: (await characterDisplayName(ctx, args.worldId, participantId)) ?? participantId });
       }
     }
 
