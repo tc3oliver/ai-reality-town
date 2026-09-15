@@ -3,6 +3,7 @@ import { useQuery } from 'convex/react';
 import { relationshipGraphModelRef } from '../../../convex/shared/relationshipGraphRef';
 import { viewerKnowledgeModelRef } from '../../../convex/shared/viewerKnowledgeRef';
 import { MISTWOOD_CHARACTER_VISUALS } from '../../../data/mistwoodCharacters';
+import { mistwoodLocationFootprints } from '../../../data/mistwood';
 import { emitCharacterViewed } from '../../analytics/productEvents';
 import { getPublishedReadModelRef } from './publicReadModelRef';
 import { CharacterSprite } from './CharacterSprite';
@@ -53,6 +54,8 @@ type TimelinePayload = {
 type LivePayload = {
   worldTime: { worldDay: number } | null;
   locations: Array<{ locationId: string; name: string }>;
+  /** `displayName` since ART-183; read here since ART-187, so 主要關係 can name the other end. */
+  characters?: Array<{ characterId: string; displayName?: string | null }>;
   activeArcs: CharacterArcInput[];
   activeScenes: CharacterSceneInput[];
 };
@@ -152,6 +155,10 @@ export default function CharacterPage() {
     locations: live?.locations ?? null,
     activeScenes: live?.activeScenes ?? null,
     activeArcs: live?.activeArcs ?? null,
+    characters: live?.characters ?? null,
+    // The authored names the animated map draws with (ART-186): a seeded location the published
+    // payload omits still has a name here rather than showing its id under 所在地.
+    footprints: mistwoodLocationFootprints,
     relationshipGraph: (graphResult?.payload ?? null) as CharacterRelationshipGraphInput | null,
     viewerKnowledge: (viewerKnowledgeResult?.payload ?? null) as CharacterViewerKnowledgeInput | null,
   });
@@ -228,7 +235,7 @@ export function CharacterPageView({ worldId, vm }: { worldId: string; vm: Charac
           <ul className="public-rows">
             {vm.relationships.map((relationship) => (
               <li key={relationship.otherCharacterId} className="text-sm">
-                <a href={relationship.href}>{relationship.otherCharacterId}</a>
+                <a href={relationship.href}>{relationship.otherName}</a>
                 <span className="public-muted">
                   {relationship.relationshipType} · 強度 {relationship.strength}
                 </span>

@@ -92,8 +92,16 @@ export type ArcViewModel = {
   coreCharacters: Array<{ characterId: string; name: string; role: string | null; href: string }>;
   /** Essential backstory, rendered as readable predicate/value lines. */
   essentialBackstory: Array<{ factId: string; label: string }>;
-  incitingEventId: string;
-  /** Latest turning point: the canonical event id plus the primer summary. */
+  /**
+   * What the arc STARTED with, in words (ART-187).
+   *
+   * Was `incitingEventId`, rendered straight into 「起始事件:mistwood#event#74」. A Canon event
+   * key is not content and there is no reading of it that helps a viewer — it is an internal
+   * identifier that happened to be on the published payload. `null` when no published summary
+   * names that event, which the page states rather than filling with the key.
+   */
+  incitingEventSummary: string | null;
+  /** Latest turning point, in words. `summary` is null when nothing published names the event. */
   latestTurningPoint: { eventId: string; summary: string | null } | null;
   /** Recommended entry point so a newcomer need not start at Episode 1. */
   recommendedEntry: { episodeNumber: number; worldDay: number; href: string } | null;
@@ -152,6 +160,15 @@ export function composeArcViewModel(input: {
   worldId: string;
   arc: ArcProjectionPayload | null;
   primer: ArcPrimerPayload | null;
+  /**
+   * `eventId -> publicSummary`, from the published `timeline:<worldId>` projection (ART-187).
+   *
+   * The arc payload names its inciting event and its latest turning point by Canon event key and
+   * carries no text for either. The timeline is the one published model that maps a key to
+   * something a person can read. It is MAJOR-EVENTS-ONLY by construction, so a lookup can miss —
+   * and a miss must resolve to null, never back to the key.
+   */
+  eventSummaries?: ReadonlyMap<string, string> | null;
 }): ArcViewModel {
   const arc = input.arc;
   const structured = input.primer?.structured ?? null;
@@ -193,13 +210,20 @@ export function composeArcViewModel(input: {
       factId: fact.factId,
       label: factLabel(fact),
     })),
-    incitingEventId: arc?.incitingEventId ?? '',
+    incitingEventSummary: arc?.incitingEventId
+      ? (input.eventSummaries?.get(arc.incitingEventId) ?? null)
+      : null,
     latestTurningPoint: turningPointId
       ? {
           eventId: turningPointId,
-          summary: primerTurningPoint && primerTurningPoint.eventId === turningPointId
+          // The primer's summary is the specific one — it was written about THIS turning point.
+          // The timeline is the general fallback, and it only carries major events, so an arc
+          // whose turning point was not a major event still resolves to null rather than to a key.
+          summary: (primerTurningPoint && primerTurningPoint.eventId === turningPointId
             ? primerTurningPoint.summary
-            : null,
+            : null)
+            ?? input.eventSummaries?.get(turningPointId)
+            ?? null,
         }
       : null,
     recommendedEntry: recommendedEntry

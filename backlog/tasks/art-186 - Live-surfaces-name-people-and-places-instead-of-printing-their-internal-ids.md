@@ -1,10 +1,10 @@
 ---
 id: ART-186
 title: Live surfaces name people and places instead of printing their internal ids
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-09-15 14:10'
-updated_date: '2026-09-15 14:25'
+updated_date: '2026-09-15 14:52'
 labels: []
 dependencies: []
 priority: high

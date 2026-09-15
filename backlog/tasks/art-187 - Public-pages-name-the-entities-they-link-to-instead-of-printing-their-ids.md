@@ -1,9 +1,10 @@
 ---
 id: ART-187
 title: Public pages name the entities they link to instead of printing their ids
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-09-15 14:11'
+updated_date: '2026-09-15 14:43'
 labels: []
 dependencies: []
 priority: high

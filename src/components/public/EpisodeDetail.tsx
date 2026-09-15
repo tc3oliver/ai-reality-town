@@ -3,6 +3,8 @@ import { useQuery } from 'convex/react';
 import { getPublishedReadModelRef } from './publicReadModelRef';
 import { PublicPageFrame } from './PublicPageFrame';
 import { characterMapHref } from './liveMapLinks';
+import { useEntityNames } from './useEntityNames';
+import { EMPTY_WORLD_NAMES, named, type WorldNames } from './worldNames';
 import { useEndOfContent } from '../analytics/useEndOfContent';
 import {
   emitEpisodeCompleted,
@@ -112,10 +114,39 @@ export default function EpisodeDetail() {
   }
 
   return (
-    <EpisodeDetailView
+    <EpisodeDetailBody
       worldId={route.worldId}
       worldDay={route.worldDay}
       episode={result.payload as EpisodeProjection}
+    />
+  );
+}
+
+/**
+ * The name lookup, split out because a hook may not run after the early returns above (ART-187).
+ *
+ * 關連角色 and 關連故事線 rendered `he-jun` and `arc-mill-audit` as the visible text of links
+ * pointing at those ids — and the map link beside each row announced 「在地圖上查看 he-jun」. The
+ * names are resolved here rather than in {@link EpisodeDetailView} so the presentational export
+ * stays renderable without a Convex client, which is what lets the accessibility suite exercise
+ * the real markup.
+ */
+function EpisodeDetailBody({
+  worldId,
+  worldDay,
+  episode,
+}: {
+  worldId: string;
+  worldDay: number;
+  episode: EpisodeProjection;
+}) {
+  const names = useEntityNames(worldId, episode.arcIds);
+  return (
+    <EpisodeDetailView
+      worldId={worldId}
+      worldDay={worldDay}
+      episode={episode}
+      names={names}
       onNavigate={navigate}
     />
   );
@@ -138,12 +169,19 @@ export function EpisodeDetailView({
   worldId,
   worldDay,
   episode,
+  names = EMPTY_WORLD_NAMES,
   initialRecapView = 'quick',
   onNavigate = navigate,
 }: {
   worldId: string;
   worldDay: number;
   episode: EpisodeProjection;
+  /**
+   * What to call the related characters and arcs (ART-187). Omitted renders ids, which is what
+   * this page did before — so the accessibility suite and any caller that has not adopted it are
+   * unchanged, and a name that has not resolved yet costs one row its name rather than the page.
+   */
+  names?: WorldNames;
   initialRecapView?: RecapView;
   onNavigate?: (worldId: string, worldDay: number) => void;
 }) {
@@ -226,7 +264,9 @@ export function EpisodeDetailView({
         <ul className="public-rows">
           {episode.characterIds.map((id) => (
             <li key={id}>
-              <a className="public-tap" href={`#character/${worldId}/${id}`}>{id}</a>
+              <a className="public-tap" href={`#character/${worldId}/${id}`}>
+                {named(names.characters, id)}
+              </a>
               {/* FR-P002 / ART-130 AC#2 — the other half of "links back to related characters":
                   where they are RIGHT NOW. The link opens the live map focused on them and with
                   their card open, so the viewer lands on the answer instead of on a map they
@@ -235,7 +275,7 @@ export function EpisodeDetailView({
               <a
                 className="public-tap"
                 href={characterMapHref(worldId, id)}
-                aria-label={`在地圖上查看 ${id}`}
+                aria-label={`在地圖上查看 ${named(names.characters, id)}`}
               >
                 在地圖上查看
               </a>
@@ -251,7 +291,9 @@ export function EpisodeDetailView({
         <ul className="public-rows">
           {episode.arcIds.map((id) => (
             <li key={id}>
-              <a className="public-tap" href={`#arc/${worldId}/${id}`}>{id}</a>
+              <a className="public-tap" href={`#arc/${worldId}/${id}`}>
+                {named(names.arcs, id)}
+              </a>
             </li>
           ))}
         </ul>

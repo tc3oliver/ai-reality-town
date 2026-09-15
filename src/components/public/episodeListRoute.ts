@@ -10,6 +10,9 @@
  * shapes mirror the published `episodes:<worldId>` index projection payload.
  */
 
+import type { FilterOption } from './timelineRoute';
+import type { WorldNames } from './worldNames';
+
 /** Published episode index (FR-I004) — fields the page reads. */
 export type EpisodeListIndex = {
   episodes: Array<{
@@ -44,9 +47,10 @@ export type EpisodeListViewModel = {
   /** Episodes after applying the active arc + character filters, ordered by day. */
   episodes: EpisodeListItem[];
   /** Available arc filters (from the published index). */
-  arcOptions: string[];
+  /** `{ value, label }` since ART-187: the id the filter selects on, and what a reader sees. */
+  arcOptions: FilterOption[];
   /** Available character filters (from the published index). */
-  characterOptions: string[];
+  characterOptions: FilterOption[];
 };
 
 /**
@@ -84,6 +88,8 @@ export function composeEpisodeListViewModel(input: {
   worldId: string;
   index: EpisodeListIndex | null;
   filter: EpisodeFilter;
+  /** What to call the arcs and characters in the filter dropdowns (ART-187). */
+  names?: WorldNames | null;
 }): EpisodeListViewModel {
   const episodes = input.index?.episodes ?? [];
   const filtered = episodes
@@ -101,7 +107,9 @@ export function composeEpisodeListViewModel(input: {
   return {
     hasContent: episodes.length > 0,
     episodes: filtered,
-    arcOptions: input.index?.arcIds ?? [],
-    characterOptions: input.index?.characterIds ?? [],
+    arcOptions: (input.index?.arcIds ?? [])
+      .map((arcId) => ({ value: arcId, label: input.names?.arcs.get(arcId) ?? arcId })),
+    characterOptions: (input.index?.characterIds ?? [])
+      .map((id) => ({ value: id, label: input.names?.characters.get(id) ?? id })),
   };
 }

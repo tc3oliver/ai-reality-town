@@ -67,9 +67,11 @@ describe('composeTimelineViewModel', () => {
 
   it('exposes arc, character, and event-type filter options (AC#2)', () => {
     const vm = composeTimelineViewModel({ worldId: 'w', projection: projection(), filter: NO_FILTER });
-    expect(vm.arcOptions).toEqual(['arc-1', 'arc-2']);
-    expect(vm.characterOptions).toEqual(['char-a', 'char-b']);
-    expect(vm.eventTypeOptions).toEqual(['conflict', 'meeting']);
+    // ART-187: an option is now the id it filters on plus the text a reader sees. Unnamed here,
+    // so each label is its own id.
+    expect(vm.arcOptions.map((option) => option.value)).toEqual(['arc-1', 'arc-2']);
+    expect(vm.characterOptions.map((option) => option.value)).toEqual(['char-a', 'char-b']);
+    expect(vm.eventTypeOptions.map((option) => option.value)).toEqual(['conflict', 'meeting']);
   });
 
   it('filters by arc (AC#2)', () => {
@@ -133,11 +135,15 @@ describe('filter options are offers a viewer can actually take (ART-94 / NFR-009
     });
     // An `<option></option>` announces as nothing to a screen reader, and taking it filters the
     // list down to zero — the timeline rendered one for every event with no arc.
-    expect(vm.arcOptions).toEqual(['arc-mill']);
-    expect(vm.eventTypeOptions).toEqual(['conflict']);
-    expect(vm.characterOptions).toEqual(['pei-lan']);
+    // ART-187 split an option into the id it selects on and the text a reader sees. No names were
+    // supplied here, so every label falls back to its own id — which is what makes the filter
+    // still usable when a name has not resolved.
+    expect(vm.arcOptions).toEqual([{ value: 'arc-mill', label: 'arc-mill' }]);
+    expect(vm.eventTypeOptions).toEqual([{ value: 'conflict', label: 'conflict' }]);
+    expect(vm.characterOptions).toEqual([{ value: 'pei-lan', label: 'pei-lan' }]);
     for (const option of [...vm.arcOptions, ...vm.characterOptions, ...vm.eventTypeOptions]) {
-      expect(option.trim()).not.toBe('');
+      expect(option.value.trim()).not.toBe('');
+      expect(option.label.trim()).not.toBe('');
     }
   });
 
@@ -159,7 +165,7 @@ describe('filter options are offers a viewer can actually take (ART-94 / NFR-009
       worldId: 'mistwood', projection: missing, filter: { arc: null, character: null, eventType: null },
     });
     expect(vm.eventTypeOptions).toEqual([]);
-    expect(vm.arcOptions).toEqual(['arc-mill']);
+    expect(vm.arcOptions).toEqual([{ value: 'arc-mill', label: 'arc-mill' }]);
     expect(vm.entries).toHaveLength(1);
   });
 

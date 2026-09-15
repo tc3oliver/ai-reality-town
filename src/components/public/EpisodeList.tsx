@@ -8,6 +8,8 @@ import {
   type EpisodeFilter,
   type EpisodeListIndex,
 } from './episodeListRoute';
+import { useEntityNames } from './useEntityNames';
+import { EMPTY_WORLD_NAMES, type WorldNames } from './worldNames';
 
 /**
  * Public Episode list page (FR-I004). Reads ONLY the published `episodes:<worldId>`
@@ -35,6 +37,12 @@ export default function EpisodeList() {
     getPublishedReadModelRef,
     enabled ? { worldId, modelKind: 'episode', modelRef: `episodes:${worldId}` } : 'skip',
   );
+  /**
+   * Names for the two filter dropdowns (ART-187), which listed `arc-mill-audit` and `he-jun`.
+   * The arc ids are the index's own, so the per-arc reads are bounded by what the page can offer.
+   */
+  const index = (result?.payload ?? null) as EpisodeListIndex | null;
+  const names = useEntityNames(worldId, index?.arcIds ?? []);
 
   if (!enabled) {
     return (
@@ -55,9 +63,7 @@ export default function EpisodeList() {
     );
   }
 
-  return (
-    <EpisodeListView worldId={worldId} index={(result?.payload ?? null) as EpisodeListIndex | null} />
-  );
+  return <EpisodeListView worldId={worldId} index={index} names={names} />;
 }
 
 /**
@@ -68,9 +74,12 @@ export default function EpisodeList() {
 export function EpisodeListView({
   worldId,
   index,
+  names = EMPTY_WORLD_NAMES,
 }: {
   worldId: string;
   index: EpisodeListIndex | null;
+  /** Omitted labels every option by its own id, which is what this page did before ART-187. */
+  names?: WorldNames;
 }) {
   const [arc, setArc] = useState<string>(NONE);
   const [character, setCharacter] = useState<string>(NONE);
@@ -79,7 +88,7 @@ export function EpisodeListView({
     arc: arc === NONE ? null : arc,
     character: character === NONE ? null : character,
   };
-  const vm = composeEpisodeListViewModel({ worldId, index, filter });
+  const vm = composeEpisodeListViewModel({ worldId, index, filter, names });
 
   return (
     <PublicPageFrame worldId={worldId}>
@@ -103,8 +112,8 @@ export function EpisodeListView({
             >
               <option value={NONE}>全部</option>
               {vm.arcOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
+                <option key={option.value} value={option.value}>
+                  {option.label}
                 </option>
               ))}
             </select>
@@ -118,8 +127,8 @@ export function EpisodeListView({
             >
               <option value={NONE}>全部</option>
               {vm.characterOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
+                <option key={option.value} value={option.value}>
+                  {option.label}
                 </option>
               ))}
             </select>

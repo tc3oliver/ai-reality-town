@@ -108,7 +108,9 @@ describe('composeArcViewModel', () => {
     expect(vm.currentQuestion).toBe('何俊會如何了結磨坊的事?');
     expect(vm.statusLabel).toEqual({ status: 'resolving', label: '收束中', isActiveContext: true });
     expect(vm.essentialBackstory.map((fact) => fact.label)).toEqual(['occupation:磨坊管事', 'age:39']);
-    expect(vm.incitingEventId).toBe('mistwood#event#50');
+    // ART-187: the view model carries the event's WORDS, not its Canon key. No summaries were
+    // supplied here, so the honest answer is null and the page states the absence.
+    expect(vm.incitingEventSummary).toBeNull();
     expect(vm.latestTurningPoint).toEqual({ eventId: 'mistwood#event#74', summary: '審計被要求公開。' });
     expect(vm.recommendedEntry).toEqual({ episodeNumber: 3, worldDay: 2, href: '#episode/mistwood/2' });
     expect(vm.relatedEpisodes).toEqual([

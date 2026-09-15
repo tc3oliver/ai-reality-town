@@ -172,11 +172,13 @@ describe('the fields ART-43 AC#1 could not deliver at the time', () => {
   it('takes the other end of every edge that touches the character, strongest first', () => {
     expect(characterRelationships('char-a', 'mistwood', graph)).toEqual([
       {
-        otherCharacterId: 'char-c', href: '#character/mistwood/char-c',
+        // `otherName` falls back to the id with no table (ART-187); the resolution itself is
+        // pinned in `publicPageNaming.test.ts`.
+        otherCharacterId: 'char-c', otherName: 'char-c', href: '#character/mistwood/char-c',
         relationshipType: 'resentment', strength: 7, lastChangedWorldDay: 9, reasons: [],
       },
       {
-        otherCharacterId: 'char-b', href: '#character/mistwood/char-b',
+        otherCharacterId: 'char-b', otherName: 'char-b', href: '#character/mistwood/char-b',
         relationshipType: 'trust', strength: 4, lastChangedWorldDay: 11, reasons: ['共同守夜'],
       },
     ]);
