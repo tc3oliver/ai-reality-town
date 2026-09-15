@@ -4,7 +4,7 @@ title: Live surfaces name people and places instead of printing their internal i
 status: Done
 assignee: []
 created_date: '2026-09-15 14:10'
-updated_date: '2026-09-15 14:52'
+updated_date: '2026-09-15 16:50'
 labels: []
 dependencies: []
 priority: high
@@ -29,30 +29,30 @@ Out of scope: the static public pages (their own task), enum labels (their own t
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The live map's 聚焦角色 buttons and their 角色卡 accessible names render a character's display name, not their id
-- [ ] #2 The static floor plan's roster and its SVG name labels render display names, inheriting them from the same focus targets so the two surfaces cannot disagree
-- [ ] #3 The text live view renders a character's display name in 角色位置, 登場角色 and the conversation line, and an arc's title in 相關故事線
-- [ ] #4 A character standing in a seeded location that no event has described is shown that location's authored name, not 未知位置 and not its id
-- [ ] #5 A character or location for which no name is resolvable still renders its id rather than a blank, and a NAMED test pins that fallback
-- [ ] #6 Deterministic tests reproduce the id-labelled state from a fixture and fail by name when the resolution is removed
+- [x] #1 The live map's 聚焦角色 buttons and their 角色卡 accessible names render a character's display name, not their id
+- [x] #2 The static floor plan's roster and its SVG name labels render display names, inheriting them from the same focus targets so the two surfaces cannot disagree
+- [x] #3 The text live view renders a character's display name in 角色位置, 登場角色 and the conversation line, and an arc's title in 相關故事線
+- [x] #4 A character standing in a seeded location that no event has described is shown that location's authored name, not 未知位置 and not its id
+- [x] #5 A character or location for which no name is resolvable still renders its id rather than a blank, and a NAMED test pins that fallback
+- [x] #6 Deterministic tests reproduce the id-labelled state from a fixture and fail by name when the resolution is removed
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Notes

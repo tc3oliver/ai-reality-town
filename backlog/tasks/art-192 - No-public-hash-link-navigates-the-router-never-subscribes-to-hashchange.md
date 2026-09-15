@@ -4,7 +4,7 @@ title: 'No public hash link navigates: the router never subscribes to hashchange
 status: Done
 assignee: []
 created_date: '2026-09-15 15:22'
-updated_date: '2026-09-15 16:31'
+updated_date: '2026-09-15 16:51'
 labels: []
 dependencies: []
 priority: high
@@ -35,30 +35,30 @@ Verification must follow a link, not load a URL. A spec that asserts the destina
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Following a link from one public page to another renders the destination, in a real browser
-- [ ] #2 Following 上一集 / 下一集 on the Episode page renders the neighbouring Episode, including across an unpublished day
-- [ ] #3 Changing the hash of the SAME route re-renders — the relationship graph's date stepper keeps working and is not made to pay for a second subscription
-- [ ] #4 Browser back and forward move between public pages
-- [ ] #5 One subscription, shared: the graph page stops carrying its own copy
-- [ ] #6 Fault injection: removing the subscription fails a NAMED browser test rather than only slowing something down
+- [x] #1 Following a link from one public page to another renders the destination, in a real browser
+- [x] #2 Following 上一集 / 下一集 on the Episode page renders the neighbouring Episode, including across an unpublished day
+- [x] #3 Changing the hash of the SAME route re-renders — the relationship graph's date stepper keeps working and is not made to pay for a second subscription
+- [x] #4 Browser back and forward move between public pages
+- [x] #5 One subscription, shared: the graph page stops carrying its own copy
+- [x] #6 Fault injection: removing the subscription fails a NAMED browser test rather than only slowing something down
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
 
 ## Implementation Notes

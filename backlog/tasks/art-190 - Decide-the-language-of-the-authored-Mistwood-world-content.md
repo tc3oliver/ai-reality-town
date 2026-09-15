@@ -4,7 +4,7 @@ title: Decide the language of the authored Mistwood world content
 status: Blocked
 assignee: []
 created_date: '2026-09-15 14:12'
-updated_date: '2026-09-15 14:12'
+updated_date: '2026-09-15 16:49'
 labels: []
 dependencies: []
 priority: high
@@ -69,3 +69,23 @@ Release-blocker assessment: NO for the presentation defects, which are fixed ind
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+REVISED 2026-09-16, after ART-191.
+
+The NAME half of this question was never open. data/mistwoodCharacters.ts had already recorded the decision on the field itself — 「The canonical public zh-TW label. The seed romanised name is never published.」 — and authored a zh-TW name for all twelve residents. Nothing rendered it; every public surface showed the seed romanised form instead. ART-191 made the product use the decision it had already made, so 何俊, 趙銘 and 裴嵐 are what a viewer now reads.
+
+What remains genuinely open, and what this task is now only about:
+
+- occupation, publicProfile, publicGoal, personality traits and values — all allowlisted, all rendered on the character page and the live map character card, all English prose.
+- The world name Mistwood, plus description, background, era, technologyLevel, geographyRules, socialRules, laws and taboos.
+- Organizations: Mistwood Council, Mistwood Chronicle, Northwater Cooperative.
+- Historical events: The Station Flood, Northwater Rescue, Archive Room Fire.
+- data/mistwood.ts location footprint names: Mistwood Station, Town Hall, Lantern Square, Juniper Clinic, Northwater Mill, Bellweather Orchard, Foxglove Inn. These are drawn on the live map and are what the text surfaces now fall back to, so 「所在地:Northwater Mill」 is what the character page reads today.
+
+The 霧林鎮 / Mistwood contradiction on the home page stands.
+
+Release-blocker assessment is unchanged and now firmer: NO. Every presentation defect is fixed and none of them depended on this. What is left is a product question about what the world IS, and a resident name — the part that would have needed a Canon migration — is already settled.
+<!-- SECTION:NOTES:END -->
