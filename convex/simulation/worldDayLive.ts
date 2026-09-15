@@ -642,7 +642,7 @@ export function generateDirectorPlanCandidate(
   for (const group of candidates) {
     const participants = group.members.slice(0, Math.min(MAX_PLANNED_SCENE_PARTICIPANTS, MAX_MAJOR_SCENE_PARTICIPANTS));
     const lead = participants[0];
-    const question = snapshot.activeArcs[0]?.currentQuestion ?? 'What does this town owe its own record?';
+    const question = snapshot.activeArcs[0]?.currentQuestion ?? '這座鎮欠自己的記錄一個交代嗎?';
     const travels = participants.length === 1
       && travelScenes < MAX_TRAVEL_SCENES_PER_SLOT
       && travelDestinationFor(lead.characterId, snapshot) !== null;
