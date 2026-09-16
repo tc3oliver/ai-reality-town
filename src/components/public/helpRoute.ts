@@ -14,6 +14,10 @@
  */
 
 import { textLiveHref } from '../live/liveMapRoute';
+import {
+  PUBLIC_WORLD_PLACEHOLDER_NAME,
+  worldDisplayName,
+} from '../../../convex/shared/publicWorldNames';
 
 export interface HelpSection {
   /** Stable id, used for the section's `aria-labelledby` heading. */
@@ -45,16 +49,26 @@ export function composeHelpViewModel({
   /** Deployment path prefix (`import.meta.env.BASE_URL`). */
   base: string;
 }): HelpViewModel {
+  /**
+   * The world's PUBLIC name (ART-190).
+   *
+   * This page reads no projection — `#help` resolves from the hash alone and may carry no world at
+   * all — so it resolves from the world id, which is exactly the case
+   * {@link worldDisplayName} takes an id rather than a payload for. The copy said
+   * 「Mistwood 是一個持續運作的 AI 世界」 and 「目前的 Mistwood」, the canonical English name inside
+   * two Chinese sentences.
+   */
+  const worldName = worldDisplayName(worldId) ?? PUBLIC_WORLD_PLACEHOLDER_NAME;
   return {
     title: '觀看指南',
     intro:
-      'Mistwood 是一個持續運作的 AI 世界。你是觀眾:你可以觀看、瀏覽與回顧,但無法加入世界或指揮角色。世界的走向只由已採信的正典事件決定。',
+      `${worldName}是一個持續運作的 AI 世界。你是觀眾:你可以觀看、瀏覽與回顧,但無法加入世界或指揮角色。世界的走向只由已採信的正典事件決定。`,
     sections: [
       {
         id: 'help-watching',
         heading: '觀看世界',
         paragraphs: [
-          '地圖畫面呈現目前的 Mistwood:地點、建築,以及角色所在的位置。畫面只反映已發布的公開投影,不會因為你的操作而改變。',
+          `地圖畫面呈現目前的${worldName}:地點、建築,以及角色所在的位置。畫面只反映已發布的公開投影,不會因為你的操作而改變。`,
           '點擊地圖不會指派任何角色移動——公開介面沒有任何控制元件。',
         ],
       },

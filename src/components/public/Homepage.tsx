@@ -294,8 +294,11 @@ export function HomepageView({
           event and the recommended Episode. It is one `<section>` rather than five so it is one
           screenful rather than five headings a viewer scrolls past. */}
       <section className="home-first-screen mt-4" aria-labelledby="home-first-screen">
+        {/* 「現在的霧林鎮」 was hardcoded here while the h1 above rendered the seed's
+            「Mistwood」 — two names for one town, three lines apart (ART-190). Both now come from
+            the same resolution. */}
         <h2 id="home-first-screen" className="text-xl font-semibold">
-          現在的霧林鎮
+          現在的{vm.worldName}
         </h2>
 
         {/* AC#1 — the live world is the lead action, not a link buried under the prose. */}
