@@ -1,10 +1,10 @@
 ---
 id: ART-190
 title: Decide the language of the authored Mistwood world content
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-09-15 14:12'
-updated_date: '2026-09-16 00:06'
+updated_date: '2026-09-16 00:26'
 labels: []
 dependencies: []
 priority: high
