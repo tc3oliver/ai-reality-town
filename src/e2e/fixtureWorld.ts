@@ -253,6 +253,35 @@ export function fixtureReplay() {
 
 /** The published read models the map and the homepage ask for, by `modelRef`. */
 export function fixtureReadModel(modelRef: string): { payload: unknown } | null {
+  /**
+   * The published world projection (ART-190).
+   *
+   * The fixture served no `world:<worldId>` model, so the home page's `h1` fell to its placeholder
+   * in every browser run and the world's published name was never exercised at all.
+   *
+   * `name` is what the SERVER would publish — the display name, because `buildWorldProjection`
+   * resolves it — rather than the seed's canonical 「Mistwood」. A fixture that returned the
+   * canonical name would be asserting that the client translates, which it must not: the
+   * translation happens once, at the read-model boundary, and the browser should see the result.
+   */
+  if (modelRef === `world:${FIXTURE_WORLD_ID}`) {
+    return {
+      payload: {
+        schemaVersion: 1,
+        worldId: FIXTURE_WORLD_ID,
+        name: '霧林鎮',
+        description: null,
+        status: 'running',
+        currentWorldDay: FIXTURE_WORLD_DAY,
+        currentTimeSlot: FIXTURE_TIME_SLOT,
+        simulationMode: 'public',
+        publicLaunchDay: 1,
+        createdAt: 0,
+        updatedAt: 0,
+        publicFacts: [],
+      },
+    };
+  }
   if (modelRef === `onboarding:${FIXTURE_WORLD_ID}`) {
     return {
       payload: {

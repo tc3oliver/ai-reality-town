@@ -161,6 +161,7 @@ import type * as shared_opaqueDigest from "../shared/opaqueDigest.js";
 import type * as shared_providerRateWindow from "../shared/providerRateWindow.js";
 import type * as shared_publicLabels from "../shared/publicLabels.js";
 import type * as shared_publicText from "../shared/publicText.js";
+import type * as shared_publicWorldNames from "../shared/publicWorldNames.js";
 import type * as shared_publicationGate from "../shared/publicationGate.js";
 import type * as shared_relationshipGraphRef from "../shared/relationshipGraphRef.js";
 import type * as shared_runRecord from "../shared/runRecord.js";
@@ -421,6 +422,7 @@ declare const fullApi: ApiFromModules<{
   "shared/providerRateWindow": typeof shared_providerRateWindow;
   "shared/publicLabels": typeof shared_publicLabels;
   "shared/publicText": typeof shared_publicText;
+  "shared/publicWorldNames": typeof shared_publicWorldNames;
   "shared/publicationGate": typeof shared_publicationGate;
   "shared/relationshipGraphRef": typeof shared_relationshipGraphRef;
   "shared/runRecord": typeof shared_runRecord;

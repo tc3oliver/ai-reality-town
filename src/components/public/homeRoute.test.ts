@@ -74,7 +74,15 @@ describe('parseHomeRoute', () => {
 describe('composeHomepageViewModel', () => {
   it('composes the full view model from published projections', () => {
     const vm = composeHomepageViewModel({ worldId: 'mistwood', summary: summary(), world, live, base: BASE });
-    expect(vm.worldName).toBe('迷霧鎮');
+    /**
+     * The registered display name, NOT this fixture's `world.name` (ART-190).
+     *
+     * The fixture calls the town 「迷霧鎮」 — a third spelling that was already in the tree
+     * alongside Canon's 「Mistwood」 and the home page's hardcoded 「現在的霧林鎮」. That is the
+     * problem the policy exists for, and it is why the display name wins over whatever the
+     * projection carries rather than merely filling in when the projection is absent.
+     */
+    expect(vm.worldName).toBe('霧林鎮');
     expect(vm.worldDay).toBe('7');
     expect(vm.timeSlot).toBe('evening');
     expect(vm.majorEvent).toBe('兩大家族簽下休戰協議。');

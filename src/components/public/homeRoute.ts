@@ -27,6 +27,10 @@
  */
 
 import { MISTWOOD_CHARACTER_VISUALS } from '../../../data/mistwoodCharacters';
+import {
+  PUBLIC_WORLD_PLACEHOLDER_NAME,
+  worldDisplayName,
+} from '../../../convex/shared/publicWorldNames';
 import { liveMapHref, textLiveHref } from '../live/liveMapRoute';
 
 /** Published onboarding summary (FR-H001) — fields the homepage reads. */
@@ -165,7 +169,11 @@ function pickPrimaryArc(arcs: readonly HomeArc[]): HomeArc | null {
 /** At most this many scenes lead the first screen; the rest are the live surface's job. */
 export const HOME_MAX_SCENES = 2;
 
-const PLACEHOLDER_WORLD_NAME = '這個世界';
+/**
+ * Moved to `convex/shared/publicWorldNames.ts` by ART-190 so the home page and the watch guide
+ * share one placeholder instead of each keeping a copy.
+ */
+const PLACEHOLDER_WORLD_NAME = PUBLIC_WORLD_PLACEHOLDER_NAME;
 const EM_DASH = '—';
 const NO_SITUATION = '摘要尚不可用。';
 
@@ -217,7 +225,12 @@ export function composeHomepageViewModel(input: {
   const live = input.live ?? null;
 
   return {
-    worldName: input.world?.name ?? PLACEHOLDER_WORLD_NAME,
+    /**
+     * Resolved from the WORLD ID first (ART-190), so the page heads itself correctly before the
+     * projection has been read. It previously showed 「這個世界」 until the read landed and then
+     * 「Mistwood」 — a placeholder followed by the wrong name.
+     */
+    worldName: worldDisplayName(input.worldId, input.world?.name ?? null) ?? PLACEHOLDER_WORLD_NAME,
     worldDay: input.world?.currentWorldDay != null ? String(input.world.currentWorldDay) : EM_DASH,
     timeSlot: input.world?.currentTimeSlot ?? EM_DASH,
     majorEvent: structured?.majorEvent?.publicSummary ?? null,

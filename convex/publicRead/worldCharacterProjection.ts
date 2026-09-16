@@ -14,6 +14,7 @@
 
 import { MISTWOOD_PUBLIC_WORLD_ID } from '../canon/mistwoodSeed';
 import { MISTWOOD_CHARACTER_VISUALS } from '../../data/mistwoodCharacters';
+import { worldDisplayName } from '../shared/publicWorldNames';
 
 export const WORLD_CHARACTER_PROJECTION_SCHEMA_VERSION = 1;
 
@@ -186,7 +187,13 @@ export function buildWorldProjection(input: {
   return {
     schemaVersion: WORLD_CHARACTER_PROJECTION_SCHEMA_VERSION,
     worldId: input.worldId,
-    name: pickString(input.source, 'name'),
+    /**
+     * The PUBLIC name (ART-190), resolved exactly as {@link canonicalPublicName} resolves a
+     * resident's. Canon still calls this world 「Mistwood」 and `worldId` is still `mistwood`; a
+     * zh-Hant viewer reads 「霧林鎮」, and this is the one place that translation happens. An
+     * unregistered world publishes whatever Canon calls it.
+     */
+    name: worldDisplayName(input.worldId, pickString(input.source, 'name')),
     description: pickString(input.source, 'description'),
     status: pickString(input.source, 'status'),
     currentWorldDay: pickNumber(input.source, 'currentWorldDay'),
