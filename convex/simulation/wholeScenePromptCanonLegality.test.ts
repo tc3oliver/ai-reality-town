@@ -657,3 +657,68 @@ describe('causedByEventIds is filled in rather than requested', () => {
     expect(parsed.proposedEvents[0].causedByEventIds).toEqual(['mistwood#event#999']);
   });
 });
+
+// =============================================================================
+// The at-most-once-per-event family (ART-204)
+// =============================================================================
+
+/**
+ * Sixth stop of the same class, on fresh day-6 slots after ART-203:
+ *
+ *   mistwood day 6 morning — DUPLICATE_CHARACTER_MOVEMENT at validate_canon
+ *   mistwood day 6 noon    — DUPLICATE_CHARACTER_MOVEMENT at validate_canon
+ *   "a character may move at most once per event"
+ *
+ * The model narrated a character walking somewhere and then walking on again, and wrote both hops
+ * as `character_location_changed` entries on the same event.
+ */
+describe('the at-most-once-per-event rules are stated', () => {
+  const prompt = wholeSceneSystemPrompt(scene, { legalDestinationIds: ['mistwood-mill'] });
+
+  const eventWith = (stateChanges: unknown[]) => ({
+    schemaVersion: 1, worldId: scene.worldId, idempotencyKey: `${scene.sceneId}:1`,
+    proposedBy: { type: 'system' }, worldDay: scene.worldDay, timeSlot: scene.timeSlot,
+    eventType: 'movement', locationId: scene.locationId,
+    participantIds: [scene.participantIds[0]], causedByEventIds: [] as string[],
+    publicSummary: '有人離開了。', stateChanges,
+  });
+
+  it('refuses two movements of one character in one event, and says so', () => {
+    const projection = worldWithParticipants();
+    const twice = eventWith([
+      {
+        type: 'character_location_changed', characterId: scene.participantIds[0],
+        fromLocationId: scene.locationId, toLocationId: 'mistwood-mill',
+      },
+      {
+        type: 'character_location_changed', characterId: scene.participantIds[0],
+        fromLocationId: 'mistwood-mill', toLocationId: scene.locationId,
+      },
+    ]);
+    expect(validateCanon(twice as never, projection))
+      .toMatchObject({ code: 'DUPLICATE_CHARACTER_MOVEMENT' });
+    expect(prompt).toContain('at most one character_location_changed in a single event');
+  });
+
+  it('accepts a single movement, so the rule is about the duplicate and not about movement', () => {
+    // The negative control: without it the assertion above would pass on a fixture that was
+    // invalid for some unrelated reason.
+    const once = eventWith([{
+      type: 'character_location_changed', characterId: scene.participantIds[0],
+      fromLocationId: scene.locationId, toLocationId: 'mistwood-mill',
+    }]);
+    expect(validateCanon(once as never, worldWithParticipants())).toBeNull();
+  });
+
+  it('states the per-SLOT movement rule as well, which is a different refusal', () => {
+    // A character appears in one scene per slot, but a scene may propose several events, and a
+    // second movement in a later event is refused by CHARACTER_ALREADY_MOVED_THIS_SLOT.
+    expect(prompt).toContain('may move at most ONCE in this whole scene');
+  });
+
+  it('names the other members of the family', () => {
+    expect(prompt).toContain('character_life_changed');
+    expect(prompt).toContain('rumor_belief_changed');
+    expect(prompt).toContain('rumor_corrected');
+  });
+});

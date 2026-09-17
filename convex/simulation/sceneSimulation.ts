@@ -477,6 +477,20 @@ export const wholeSceneSystemPrompt = (scene: GroupedScene, context: WholeSceneP
      * separate work — see ART-198.
      */
     `These identifiers are checked against the world and you have not been given them, so use exactly these values and nothing else. causedByEventIds must be an empty array, exactly as the worked example shows: you have no event ids, and any id you write will not exist. locationId must be ${JSON.stringify(scene.locationId)}. A fact_created or a rumor claim may only be about a character in ${JSON.stringify(scene.participantIds)}, or about the location ${JSON.stringify(scene.locationId)}, or about the world itself -- and a world subject must use subjectId ${JSON.stringify(scene.worldId)}. Never use subjectType "item", and never emit item_transferred, location_state_changed or organization_state_changed: each needs an entity id and its current recorded state -- an item and its owner, a location with all of its properties, an organization -- and you have not been given any of them. One event may not create two facts with the same subject and predicate.`,
+    /**
+     * ART-204. The at-most-once-per-event family, which `validateCanon` enforces and the prompt
+     * stated none of.
+     *
+     * `DUPLICATE_CHARACTER_MOVEMENT` is the one that stopped the world the sixth time, on two
+     * consecutive slots: the model narrated a character walking somewhere and then walking on
+     * again, and wrote both hops as `character_location_changed` entries on the SAME event.
+     *
+     * The per-SLOT rule is stated separately from the per-EVENT one because they are different
+     * refusals with different codes. A character appears in only one scene per slot, but a scene
+     * may propose several events, and a second movement in a later event of the same slot is
+     * refused by `CHARACTER_ALREADY_MOVED_THIS_SLOT` rather than by the duplicate rule.
+     */
+    'Some changes may happen at most once per event, and proposing a second one refuses the whole scene. One character may have at most one character_location_changed in a single event -- to narrate two hops, propose two separate events, and even then a character may move at most ONCE in this whole scene, so choose the destination that matters. The same at-most-once rule applies per character to character_life_changed, and per rumor to rumor_belief_changed for one character and to rumor_corrected.',
     `Every proposedEvents item must copy this scene's own identity exactly: worldId ${JSON.stringify(scene.worldId)}, worldDay ${scene.worldDay}, timeSlot ${JSON.stringify(scene.timeSlot)}. Its participantIds must contain only characters from ${JSON.stringify(scene.participantIds)}, and so must every characterId, sourceCharacterId and targetCharacterId in keyActions, dialogueHighlights, relationshipChanges, knowledgeChanges, memories and rumors -- a character who is only mentioned in passing is not a participant and will be refused. Each proposedEvents item needs its own unique idempotencyKey, and continuityWarnings must not repeat a string. Provide at least one keyActions entry.`,
     `Canon will reject the entire scene unless every stateChanges entry obeys these rules. Every characterId named anywhere in stateChanges must be one of this scene's participants: ${JSON.stringify(scene.participantIds)}. A relationship_changed must set visibility to "public" -- every event here carries a publicSummary, and a private relationship change on an event with a public summary is refused; its sourceCharacterId and targetCharacterId must differ, and at least one of its six deltas must be non-zero. Never emit character_state_changed or character_knowledge_learned: the first must state the character's current recorded value and the second must cite an existing causal event id, and this request gives you neither. Use character_memory_formed, relationship_changed, fact_created, item_transferred, the rumor_* changes, or character_location_changed instead.`,
     movementRule,
