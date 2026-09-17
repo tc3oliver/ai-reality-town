@@ -204,6 +204,11 @@ and the long-run harness runs the same evaluators over its own run. See
   from empty **deliberately**, to keep seed data out of public read models — the two sides want
   opposite things from the same projection and are correctly different (`SEED_BASELINE_FIELDS`).
 - **Truncation is never silent** — publish what was omitted and why.
+- **A failure message is recorded only after two redaction passes.** `convex/shared/failureDetail.ts`
+  redacts by SHAPE and cannot see a credential; `convex/simulation/providers/` redacts by VALUE and
+  is the only module holding one. Sanitized text goes to `authoringFailures`, never to `llmTraces` —
+  that table's contract is a bounded machine code and no free text. See
+  `docs/authoring-failure-diagnosis.md`.
 - **The E2E fixture transport throws on an unregistered query.** A new `modelRef` needs a
   branch in `src/e2e/fixtureWorld.ts`, keyed through a shared ref-builder so the fixture cannot
   drift from the server.

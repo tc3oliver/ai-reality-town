@@ -83,6 +83,9 @@ import type {
   releaseSceneBudget as releaseSceneBudgetExport,
 } from '../tokenBudgetGateFunctions';
 import { TIME_SLOTS } from '../../canon/eventTypes';
+import {
+  describeFailure, redactFailureDetail, stableFailureCode, type FailureDetail,
+} from '../../shared/failureDetail';
 import { authorSlotScenes, type SceneAuthoringStore } from '../worldDayLive';
 import type { LanguageModelProvider } from '../provider';
 import { createLiveSceneAuthor, resolveLiveSceneAuthoringModel } from './liveSceneAuthor';
@@ -147,7 +150,18 @@ export function actionAuthoringStore(ctx: ActionCtx, now: number): SceneAuthorin
     // FR-M002 / ART-90. The action authors, so the action is where a per-attempt record can be
     // written at all — the finishing mutation only ever sees results that already parsed.
     recordAuthoringAttempt: async (attempt) => {
-      await ctx.runMutation(recordAuthoringAttemptRef, { ...attempt, now });
+      await ctx.runMutation(recordAuthoringAttemptRef, {
+        ...attempt,
+        // ART-195. The exact-value redaction pass, applied HERE because this is the boundary the
+        // detail crosses on its way to a durable row and this module is the only one holding the
+        // credential. `describeFailure` has already removed everything credential-SHAPED; this
+        // removes the configured value itself, which by definition looks like nothing in
+        // particular. Neither pass makes the other redundant.
+        failure: attempt.failure === null
+          ? null
+          : redactFailureDetail(attempt.failure, providerSecrets()),
+        now,
+      });
     },
     // Three transactions rather than one, because they happen at three moments with a network
     // call between them. That is what `sceneBudget.ts` always described and what a single
@@ -183,6 +197,17 @@ export type LiveSlotOutcome = {
    */
   authoringErrorCode?: string;
   /**
+   * The same failure, with everything that could be established about it (ART-195).
+   *
+   * `authoringErrorCode` above answers WHICH failure; before this field there was no answer to WHY,
+   * and for the failure that actually stopped the world the code was itself a placeholder. The
+   * action returns this, so `npx convex run …:runLiveWorldDaySlotWithProvider` prints the root
+   * cause instead of requiring a second investigation to recover it.
+   *
+   * Sanitized and secret-redacted — see {@link failureOf}.
+   */
+  authoringFailure?: FailureDetail;
+  /**
    * FR-M004 (ART-165): the rung this slot ran at, and whether it was the periodic provider probe.
    *
    * `prepareQueuedWorldDaySlot` has returned the level since ART-91 and nothing read it, so the
@@ -193,12 +218,34 @@ export type LiveSlotOutcome = {
   probe: boolean;
 };
 
-/** The stable code an error carries, or a marker saying it carried none. */
-const stableCodeOf = (error: unknown): string =>
-  error !== null && typeof error === 'object' && 'code' in error
-    && typeof (error as { code: unknown }).code === 'string'
-    ? (error as { code: string }).code
-    : 'SCENE_AUTHORING_FAILED';
+/**
+ * Every credential this deployment could leak into an error message (ART-195).
+ *
+ * The exact-value half of the two-pass redaction described in `convex/shared/failureDetail.ts`.
+ * This module is the provider composition root — `architecture/module-boundaries.json` confines
+ * adapter construction here — so it is the only place that both holds the configured key and sees
+ * a failure on its way to being recorded.
+ *
+ * `LLM_API_URL` is included because a network error commonly quotes the URL it failed on back, and
+ * a gateway URL carrying an embedded token is a shape this endpoint does not use today but that
+ * nothing prevents tomorrow. Redacting a URL costs a reader the host name, which the code already
+ * tells them; redacting nothing costs a credential in a durable row.
+ */
+const providerSecrets = (): readonly (string | null | undefined)[] =>
+  [process.env.LLM_API_KEY, process.env.LLM_API_URL];
+
+/**
+ * A failure, classified and with both redaction passes applied (ART-195).
+ *
+ * Replaces a rule that kept only `error.code` and fell back to the constant
+ * `SCENE_AUTHORING_FAILED`. That fallback was reached by every raw `Error` and every `TypeError`,
+ * which is the class of failure an operator has the least other evidence about.
+ */
+const failureOf = (error: unknown): FailureDetail =>
+  redactFailureDetail(describeFailure(error, 'provider_transport'), providerSecrets());
+
+/** The stable code an error carries, or one derived from its class. Never a message. */
+const stableCodeOf = (error: unknown): string => stableFailureCode(error);
 
 /**
  * Author one prepared slot's scenes, then settle the slot.
@@ -216,13 +263,14 @@ export async function authorAndSettle(
   now: number,
 ): Promise<LiveSlotOutcome> {
   let authoredScenes = 0;
-  let authoringErrorCode: string | undefined;
+  let authoringFailure: FailureDetail | undefined;
   try {
     const authored = await authorSlotScenes(provider, actionAuthoringStore(ctx, now), prepared.plan);
     authoredScenes = authored.length;
   } catch (error) {
-    authoringErrorCode = stableCodeOf(error);
+    authoringFailure = failureOf(error);
   }
+  const authoringErrorCode = authoringFailure?.code;
   /**
    * FR-M004 (ART-91). The ladder is fed here, and only here, because this is the one place that
    * knows whether the PROVIDER worked — the finishing mutation sees only whether the scenes it
@@ -254,6 +302,7 @@ export async function authorAndSettle(
     degradationLevel: prepared.degradationLevel,
     probe: prepared.probe,
     ...(authoringErrorCode === undefined ? {} : { authoringErrorCode }),
+    ...(authoringFailure === undefined ? {} : { authoringFailure }),
   };
 }
 

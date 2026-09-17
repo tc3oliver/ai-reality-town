@@ -7,8 +7,31 @@
  * whole of ART-90's AC#3.
  *
  * Neither carries a payload. A validation row holds an idempotency key, a stage, a verdict and a
- * stable code; an attempt row holds a model id, an outcome and a code. Nothing here can carry a
- * proposal, a prompt, a model response or a secret, because none of those is an argument.
+ * stable code; an attempt row holds a model id, an outcome and a code.
+ *
+ * ## One text field, added deliberately (ART-195)
+ *
+ * This header used to end "Nothing here can carry a proposal, a prompt, a model response or a
+ * secret, because none of those is an argument." That reasoning was sound and its conclusion is
+ * now too strong: `recordAuthoringAttempt` takes a `failure` whose `message` is text.
+ *
+ * It is there because the alternative was measured and failed. A live slot stopped the world and
+ * the evidence it left was two constants — `SCENE_SIMULATION_FAILED` on the slot and
+ * `SCENE_ATTEMPT_FAILED` on the attempt, the latter being the marker for "the error carried no
+ * code" rather than a diagnosis. Answering "why" required deploying new code, which is the one
+ * thing an operator watching a stalled world cannot do quickly.
+ *
+ * The guarantee is preserved by construction rather than by the field not existing:
+ *
+ *  - the text is produced only by `sanitizeFailureText` (`convex/shared/failureDetail.ts`), which
+ *    strips bearer tokens, credential-shaped query parameters and long opaque runs, bounds the
+ *    result, and publishes what it truncated;
+ *  - `convex/simulation/providers/` applies a second, exact-value pass against the configured
+ *    credential — the one place that holds it;
+ *  - a non-string `message` yields the empty string. No arbitrary object is ever stringified,
+ *    because the object most likely to be hanging off a provider error is the payload;
+ *  - it is written to `authoringFailures`, NOT to `llmTraces`. That table's contract — a bounded
+ *    machine code and no free text, enforced by `normalizeLlmTraceDraft` — is untouched.
  */
 
 import { v } from 'convex/values';
@@ -101,6 +124,23 @@ export const recordAuthoringAttempt = internalMutation({
     attempt: v.number(),
     outcome: v.union(v.literal('parsed'), v.literal('output_rejected'), v.literal('provider_failed')),
     errorCode: v.union(v.string(), v.null()),
+    /**
+     * ART-195. The sanitized detail behind `errorCode`, written to `authoringFailures`.
+     *
+     * Optional so a caller written before ART-195 still records a trace rather than throwing —
+     * the recorder's own failures are swallowed by `worldDayLive.ts`, so a rejected draft costs a
+     * measurement silently, which is the one way this change could have made diagnosis worse.
+     */
+    failure: v.optional(v.union(v.object({
+      code: v.string(),
+      errorName: v.string(),
+      message: v.string(),
+      stage: v.string(),
+      causeName: v.union(v.string(), v.null()),
+      causeCode: v.union(v.string(), v.null()),
+      causeMessage: v.union(v.string(), v.null()),
+      retryable: v.boolean(),
+    }), v.null())),
     requestedModel: v.string(),
     resolvedModel: v.union(v.string(), v.null()),
     transportRetries: v.number(),
@@ -111,6 +151,31 @@ export const recordAuthoringAttempt = internalMutation({
     // Derived from the simulation run and the attempt index, both of which a retried slot
     // re-derives identically — so re-running a slot re-reaches the same trace ids.
     const traceId = `${args.simulationRunId}:attempt:${args.attempt}`;
+    /**
+     * ART-195. Written BEFORE the `llmTraces` dedup return, and deduplicated on its own key.
+     *
+     * Ordering matters for exactly one case, and it is the case this task is about: a trace row
+     * written before ART-195 exists with no failure detail beside it, and a re-run that returned
+     * early on the trace's dedup would never write the detail that re-run was performed to obtain.
+     */
+    if (args.failure) {
+      const priorFailure = await ctx.db.query('authoringFailures')
+        .withIndex('by_attempt_id', (q) => q.eq('attemptId', traceId)).unique();
+      if (!priorFailure) {
+        await ctx.db.insert('authoringFailures', {
+          schemaVersion: 1,
+          attemptId: traceId,
+          worldId: args.worldId,
+          worldDay: args.worldDay,
+          timeSlot: args.timeSlot,
+          sceneId: args.sceneId,
+          simulationRunId: args.simulationRunId,
+          attempt: args.attempt,
+          ...args.failure,
+          createdAt: args.now,
+        });
+      }
+    }
     const existing = await ctx.db.query('llmTraces')
       .withIndex('by_trace_id', (q) => q.eq('traceId', traceId)).unique();
     if (existing) return { traceId, deduplicated: true };

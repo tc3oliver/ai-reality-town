@@ -671,7 +671,9 @@ An authoring attempt ends in exactly one of three states:
   This is the numerator's complement, and the only outcome §16.2's 「JSON 結構成功率」 is
   about.
 - **`provider_failed`** — there was no answer to validate. A timeout, a refused credential,
-  an exhausted route chain, a budget refusal.
+  an exhausted route chain, a budget refusal. Since ART-195 each of those also writes a row to
+  `authoringFailures` naming the class, the sanitized message, the stage and the cause, because a
+  code on its own could not tell them apart — see `docs/authoring-failure-diagnosis.md`.
 
 Only the first two are in the denominator. An attempt that never received a model response is
 not evidence about whether a model can follow a schema, and counting it as a failure would

@@ -172,6 +172,9 @@ describe('ART-90 authoring attempts: a provider that answers correctly', () => {
       attempt: 1,
       outcome: 'parsed',
       errorCode: null,
+      // ART-195: a successful attempt has no failure to describe. Asserted rather than omitted, so
+      // a detail leaking onto a parsed attempt is a test failure and not an unnoticed extra column.
+      failure: null,
       requestedModel: FAKE_SCENE_MODEL,
       resolvedModel: FAKE_SCENE_MODEL,
       // Read from the trace, not assumed: the transport retried twice inside this one

@@ -46,6 +46,66 @@ export const simulationTables = {
     .index('by_world_and_day', ['worldId', 'worldDay'])
     .index('by_world_key_and_stage', ['worldId', 'idempotencyKey', 'stage']),
 
+  /**
+   * Why one whole-scene authoring attempt failed, in enough detail to act on (ART-195).
+   *
+   * ## Why this is not a column on `llmTraces`
+   *
+   * `llmTraces` is FR-M001's per-call accounting record and its contract is that it carries no
+   * free text at all: `normalizeLlmTraceDraft` rejects any key that looks like a prompt, a request
+   * body or credential material, and its `errorCode` must match a bounded upper-case pattern
+   * specifically so a provider's error message cannot be written into it. That contract is
+   * correct and is not widened here. A sanitized message is still free text, and it belongs in a
+   * table that says so.
+   *
+   * ## What made the separate table necessary at all
+   *
+   * A live slot failed with `authoringErrorCode: SCENE_SIMULATION_FAILED` and an attempt row
+   * reading `SCENE_ATTEMPT_FAILED` — which is the marker for "the error carried no code", not a
+   * diagnosis. Both were constants. Nothing in the deployment could say whether the gateway was
+   * down, the key was refused, a Convex mutation inside the budget gate had failed, or the
+   * pre-generation policy had blocked the prompt, and answering that required deploying new code.
+   *
+   * ## What is safe to keep here
+   *
+   * `message` and `causeMessage` are passed through `sanitizeFailureText` (bearer tokens,
+   * credential query parameters and long opaque runs removed, bounded, truncation published) and
+   * then through an exact-value pass against the configured credential in
+   * `convex/simulation/providers/`. No request body, no prompt, no provider response, and a
+   * non-string message yields the empty string rather than being stringified — an arbitrary object
+   * hanging off an error is most likely the payload that caused it.
+   *
+   * Insert-if-absent on `attemptId`, which is `${simulationRunId}:attempt:${n}` — the same derived
+   * key `llmTraces` uses — so a retried slot re-records rather than re-counts.
+   */
+  authoringFailures: defineTable({
+    schemaVersion: v.literal(1),
+    /** `${simulationRunId}:attempt:${n}`; identical to the `llmTraces` row's `traceId`. */
+    attemptId: v.string(),
+    worldId: v.string(),
+    worldDay: v.number(),
+    timeSlot: v.string(),
+    sceneId: v.string(),
+    simulationRunId: v.string(),
+    attempt: v.number(),
+    /** The stable outer code, the same value the `llmTraces` row carries. */
+    code: v.string(),
+    /** The thrown value's own class name, or the `typeof` of a throw that was not an Error. */
+    errorName: v.string(),
+    /** Sanitized and bounded. Empty when the throw carried no string message. */
+    message: v.string(),
+    stage: v.string(),
+    causeName: v.union(v.string(), v.null()),
+    causeCode: v.union(v.string(), v.null()),
+    causeMessage: v.union(v.string(), v.null()),
+    /** The predicate the retry loop actually applied, not a description of it. */
+    retryable: v.boolean(),
+    createdAt: v.number(),
+  })
+    .index('by_attempt_id', ['attemptId'])
+    .index('by_world_and_day', ['worldId', 'worldDay'])
+    .index('by_world_and_time', ['worldId', 'createdAt']),
+
   worldDayCheckpoints: defineTable({
     runId: v.string(), stage: v.string(), attempt: v.number(),
     status: v.union(v.literal('running'), v.literal('failed'), v.literal('completed')),

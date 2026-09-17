@@ -6,6 +6,7 @@ import {
 } from '../canon/eventTypes';
 import type { ProposedEvent } from '../canon/model';
 import { classifyPostGeneration, type PostGenerationClassification } from '../safety/postGeneration';
+import { describeFailure, formatFailureDetail, type FailureDetail } from '../shared/failureDetail';
 import { SimulationProviderError, type LanguageModelProvider, type ProviderTraceMetadata } from './provider';
 import { runBudgetedAttempt, SceneBudgetError, type SceneBudgetGate } from './sceneBudget';
 import type { BudgetReservationRequest } from '../shared/tokenBudget';
@@ -46,21 +47,24 @@ export type SceneSimulationResult = {
 /** See `AUTHORING_ATTEMPT_OUTCOMES`; restated here so this module stays free of `worldDayLive`. */
 export type AttemptOutcome = 'parsed' | 'output_rejected' | 'provider_failed';
 
-/** The stable code an error carries, or a marker saying it carried none. */
-function stableAttemptCode(error: unknown): string {
-  if (error !== null && typeof error === 'object' && 'code' in error
-      && typeof (error as { code: unknown }).code === 'string') {
-    return (error as { code: string }).code;
-  }
-  return 'SCENE_ATTEMPT_FAILED';
-}
-
 export class SceneSimulationError extends Error {
-  constructor(readonly code: string, message: string, readonly path?: string) {
+  /**
+   * The failure this one stands in for, when it stands in for one (ART-195).
+   *
+   * Only {@link SCENE_SIMULATION_FAILED} carries it, and that is the point: every other code on
+   * this class describes something this module itself decided, so the error IS the diagnosis. The
+   * fallback is the one case where an error of a class nobody here recognises was caught, and
+   * before ART-195 it was discarded — an operator was told a provider call failed and nothing else.
+   */
+  constructor(readonly code: string, message: string, readonly path?: string,
+    readonly detail?: FailureDetail) {
     super(`[${code}] ${message}`);
     this.name = 'SceneSimulationError';
   }
 }
+
+/** The code the fallback throw carries when nothing more specific could be established. */
+export const SCENE_SIMULATION_FAILED = 'SCENE_SIMULATION_FAILED';
 
 const record = (value: unknown, path: string, keys: readonly string[]): Record<string, unknown> => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SceneSimulationError('SCENE_OUTPUT_INVALID', 'must be an object', path);
@@ -437,6 +441,15 @@ export type WholeSceneSimulationOptions = {
     attempt: number;
     outcome: AttemptOutcome;
     errorCode: string | null;
+    /**
+     * ART-195. The sanitized failure behind `errorCode`, or `null` on a parsed attempt.
+     *
+     * A code alone cannot name a cause an operator can act on, and that was the whole of the
+     * evidence a failed live slot produced: `SCENE_ATTEMPT_FAILED` — the marker for "the error
+     * carried no code" — with the error's class, message and cause all discarded. This field is
+     * what makes the attempt row answer WHY rather than only THAT.
+     */
+    failure: FailureDetail | null;
     requestedModel: string;
     resolvedModel: string | null;
     transportRetries: number;
@@ -494,6 +507,8 @@ export async function simulateWholeScene(provider: LanguageModelProvider, simula
   });
 
   let lastError: unknown;
+  /** ART-195: what the last failure was, kept so the fallback throw is not empty. */
+  let lastFailure: FailureDetail | null = null;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     /**
      * ART-90. What this attempt asked for and what came back, reported to the caller's recorder
@@ -501,8 +516,13 @@ export async function simulateWholeScene(provider: LanguageModelProvider, simula
      * here: a metric that could fail an authoring attempt would be a metric that costs scenes.
      */
     let attemptTrace: ProviderTraceMetadata | null = null;
-    const report = (outcome: AttemptOutcome, errorCode: string | null) => options.onAttempt?.({
-      attempt, outcome, errorCode,
+    const report = (outcome: AttemptOutcome, failure: FailureDetail | null) => options.onAttempt?.({
+      attempt, outcome,
+      // Kept as its own field rather than read off `failure` by every consumer: `errorCode` is the
+      // one thing `llmTraces` accepts, and that contract — a bounded code, never a message — is
+      // exactly why the sanitized detail travels beside it instead of inside it.
+      errorCode: failure?.code ?? null,
+      failure,
       requestedModel: options.model ?? options.budget?.reservation.requestedModel ?? 'unknown',
       resolvedModel: attemptTrace?.resolvedModel ?? null,
       transportRetries: attemptTrace?.retryCount ?? 0,
@@ -545,7 +565,7 @@ export async function simulateWholeScene(provider: LanguageModelProvider, simula
       } catch (error) {
         // The provider ANSWERED and the answer did not satisfy the schema. This, and only this,
         // is what §16.2's 「JSON 結構成功率」 counts against.
-        report('output_rejected', error instanceof SceneSimulationError ? error.code : 'SCENE_OUTPUT_INVALID');
+        report('output_rejected', describeFailure(error, 'output_validation'));
         throw error;
       }
       report('parsed', null);
@@ -553,21 +573,43 @@ export async function simulateWholeScene(provider: LanguageModelProvider, simula
         { ...response.trace, retryCount: response.trace.retryCount + attempt - 1 });
     } catch (error) {
       lastError = error;
-      // Anything that reaches here without an answer to validate: a timeout, a refused credential,
-      // an exhausted route chain, a budget refusal. Not a structured-output failure.
+      /**
+       * Anything that reaches here without an answer to validate: a timeout, a refused credential,
+       * an exhausted route chain, a budget refusal, a Convex mutation that failed inside the budget
+       * gate, a pre-generation policy block. Not a structured-output failure.
+       *
+       * ART-195: classified rather than reduced to `error.code`. The rule this replaces returned
+       * the constant `SCENE_ATTEMPT_FAILED` for every error that carried no `code` — which is every
+       * raw `Error`, every `TypeError`, and `PreGenerationSafetyError`, whose category lives on
+       * `.rejection.code`. All of those were recorded as one thing.
+       */
+      lastFailure = describeFailure(error, 'provider_transport');
       if (!(error instanceof SceneSimulationError && attemptTrace !== null)) {
-        report('provider_failed', stableAttemptCode(error));
+        report('provider_failed', lastFailure);
       }
       // A budget refusal is NOT retryable. Retrying it would spend the retry budget arguing with
       // the limit that just refused the call, and every further attempt would be refused for the
       // same reason with one more audit row to explain it.
       if (error instanceof SceneBudgetError) throw error;
-      const retryable = error instanceof SceneSimulationError
-        || (error instanceof SimulationProviderError && error.kind === 'transient');
-      if (!retryable || attempt === maxAttempts) break;
+      // The SAME predicate that is recorded on the attempt, rather than a second copy of the rule
+      // beside it. A row saying `retryable: true` next to an attempt that was not retried would be
+      // the kind of evidence this task exists to stop producing.
+      if (!lastFailure.retryable || attempt === maxAttempts) break;
     }
   }
   if (lastError instanceof SceneSimulationError) throw lastError;
   if (lastError instanceof SimulationProviderError) throw lastError;
-  throw new SceneSimulationError('SCENE_SIMULATION_FAILED', 'whole-scene provider failed');
+  /**
+   * The error was of no class this module recognises, so it is reported AS one — with everything
+   * that could be established about it attached (ART-195).
+   *
+   * The code is unchanged, deliberately: `SCENE_SIMULATION_FAILED` is a published contract that
+   * `describeWorldDayError` and the FR-M002 metrics already group on, and renaming it would move a
+   * diagnosability problem rather than fix one. What changed is that it no longer arrives empty.
+   */
+  throw new SceneSimulationError(SCENE_SIMULATION_FAILED,
+    lastFailure === null
+      ? 'whole-scene provider failed'
+      : `whole-scene provider failed: ${formatFailureDetail(lastFailure)}`,
+    undefined, lastFailure ?? undefined);
 }
