@@ -1,11 +1,11 @@
 ---
 id: ART-201
 title: Whole-scene prompt asks for identifiers a scene author cannot know
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-09-17 19:49'
-updated_date: '2026-09-17 19:50'
+updated_date: '2026-09-17 21:08'
 labels: []
 dependencies: []
 priority: high
@@ -51,10 +51,10 @@ state.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every identifier field the author cannot fill correctly is either constrained to values it has, or forbidden
-- [ ] #2 causedByEventIds is required to be empty, with the reason stated
-- [ ] #3 fact_created and rumor claim subjects are constrained to the scene's own entities
-- [ ] #4 A test asserts the prompt constrains each field and that validateCanon refuses the unconstrained form
+- [x] #1 Every identifier field the author cannot fill correctly is either constrained to values it has, or forbidden
+- [x] #2 causedByEventIds is required to be empty, with the reason stated
+- [x] #3 fact_created and rumor claim subjects are constrained to the scene's own entities
+- [x] #4 A test asserts the prompt constrains each field and that validateCanon refuses the unconstrained form
 <!-- AC:END -->
 
 ## Definition of Done
@@ -80,3 +80,9 @@ state.
 <!-- SECTION:PLAN:BEGIN -->
 One paragraph covering every identifier the author cannot know, with the scene's literal values inlined as ART-157 and ART-199 do. Tests pair each rule with the validator that enforces it, so prompt text and canon rule cannot drift.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Shipped in #310. Every identifier the author cannot fill correctly is now constrained or forbidden: causedByEventIds, locationId, fact and rumor claim subjects, and the whole-entity variants that need an id plus current state. Verified: npm run check exit 0; one fault injection failing 7 named tests. THE FIRST SUCCESSFUL LIVE SLOT in this repository followed immediately: mistwood day 5 evening, status completed, 3 scenes authored, 6 accepted events mistwood#event#83..#88.
+<!-- SECTION:FINAL_SUMMARY:END -->

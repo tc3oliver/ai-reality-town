@@ -1,11 +1,11 @@
 ---
 id: ART-197
 title: Whole-scene prompt does not state the Canon rules a scene author can break
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-09-17 18:37'
-updated_date: '2026-09-17 18:39'
+updated_date: '2026-09-17 21:08'
 labels: []
 dependencies: []
 priority: high
@@ -58,10 +58,10 @@ so `character_state_changed` becomes usable again is real work and is its own ta
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The prompt states every Canon rule a scene author can break with the fields the schema offers
-- [ ] #2 The request stops asking for stateChange variants it cannot supply the context for
-- [ ] #3 The worked example is legal under validateCanon, not only under validateEventStructure
-- [ ] #4 A test drives the real prompt example through validateCanon against a seeded world projection
+- [x] #1 The prompt states every Canon rule a scene author can break with the fields the schema offers
+- [x] #2 The request stops asking for stateChange variants it cannot supply the context for
+- [x] #3 The worked example is legal under validateCanon, not only under validateEventStructure
+- [x] #4 A test drives the real prompt example through validateCanon against a seeded world projection
 <!-- AC:END -->
 
 ## Definition of Done
@@ -102,3 +102,9 @@ Two fault injections, each failing the named test it should:
   2 drop the canon rules paragraph -> 4 failed.
 Follow-up recorded as ART-198 for the two removed variants.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Shipped in #307. Strict mode makes publicSummary mandatory on every event, and validateCanon refuses a private relationship change on an event that has one -- while private was one of the two enum values offered. The prompt now states the participants, visibility, distinct-endpoint and non-zero-delta rules, and stops asking for character_state_changed and character_knowledge_learned, which need context the request cannot supply (ART-198). It also corrected ART-196's worked example to character_memory_formed: the earlier choice passed validateEventStructure but validateCanon compares fromValue against the projection. Tests now run the example through validateCanon. Verified: npm run check exit 0; two fault injections, one of which demonstrates the gap ART-196 fell into.
+<!-- SECTION:FINAL_SUMMARY:END -->

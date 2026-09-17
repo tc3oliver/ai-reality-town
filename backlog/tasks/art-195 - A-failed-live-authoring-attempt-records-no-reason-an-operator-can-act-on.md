@@ -1,11 +1,11 @@
 ---
 id: ART-195
 title: A failed live authoring attempt records no reason an operator can act on
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-09-17 16:52'
-updated_date: '2026-09-17 17:38'
+updated_date: '2026-09-17 21:08'
 labels: []
 dependencies: []
 priority: high
@@ -58,10 +58,10 @@ Record the error message and constructor name alongside the code on the attempt 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A live authoring failure records enough for an operator to name the cause without deploying new code
-- [ ] #2 An exception that escapes the provider adapter is classified rather than reaching the attempt recorder bare
-- [ ] #3 SCENE_ATTEMPT_FAILED stops being reachable for an error that had a usable message
-- [ ] #4 A test drives a raw, code-less throw from the adapter and asserts the recorded evidence names it
+- [x] #1 A live authoring failure records enough for an operator to name the cause without deploying new code
+- [x] #2 An exception that escapes the provider adapter is classified rather than reaching the attempt recorder bare
+- [x] #3 SCENE_ATTEMPT_FAILED stops being reachable for an error that had a usable message
+- [x] #4 A test drives a raw, code-less throw from the adapter and asserts the recorded evidence names it
 <!-- AC:END -->
 
 ## Definition of Done
@@ -163,3 +163,9 @@ Verification:
   uncommitted work mid-injection (redone, then committed BEFORE injecting), and zsh does not
   word-split unquoted expansions, so the first injection round reported 'Tests: 0 total'.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Shipped in #305 and corrected in #306. convex/shared/failureDetail.ts classifies any thrown value into a bounded code, the class name, a sanitized message, the pipeline stage, the cause and retryability; stage and retryability are DERIVED from the error, and retryability is the predicate simulateWholeScene now applies. Secret safety is two passes -- by shape in shared/, by exact value in providers/ -- with truncation published and no arbitrary object ever stringified. The detail goes to a new authoringFailures table; llmTraces' code-only contract is untouched. Verified: npm run check exit 0; 56 new tests, 18 driving the real adapter; six fault injections plus four more for the corrections, each failing the named test it should. It worked on its first live use: the very next slot named INVALID_EVENT_SHAPE / CanonError / 'stateChanges must not be empty', which is ART-196.
+<!-- SECTION:FINAL_SUMMARY:END -->

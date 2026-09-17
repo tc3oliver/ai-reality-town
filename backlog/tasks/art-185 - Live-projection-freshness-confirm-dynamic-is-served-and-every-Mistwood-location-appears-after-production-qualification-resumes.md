@@ -6,7 +6,7 @@ title: >-
 status: Blocked
 assignee: []
 created_date: '2026-09-15 12:20'
-updated_date: '2026-09-15 15:16'
+updated_date: '2026-09-17 21:08'
 labels: []
 dependencies:
   - ART-183
@@ -107,4 +107,18 @@ Steps 1-3 stand. Step 4 is now a confirmation rather than an investigation, and 
 
 4. Expect locations to contain only the locations events have described. That is correct behaviour, not a symptom.
 5. Do NOT classify the seed-location omission as a repository defect — it is required by ART-100 AC#3. Confirm instead that the map places characters and that the text live view names their locations, which is ART-186's guarantee.
+
+Partially verified on colorless-deer-917 (Public Acceptance / Staging) 2026-09-17, and the cause is now established.
+
+The stale liveState was NOT a projection defect. rebuildLiveProjection invoked directly published
+v20 immediately: publishedAt 2026-08-04 -> 2026-09-17T20:14:28Z, dynamic present with 12 characters
+and 0 problems, 0 unbound characters, world time day 3 night -> day 5 evening, servedFrom current.
+The projection code is healthy.
+
+What is NOT verified is that the PIPELINE keeps it fresh, and it does not: post-commit runs exist
+only through mistwood#event#74 while Canon holds events up to #88, and drainLivePostCommit returns
+[] because its cursor is past them. That is ART-202, and it is what ART-185 is actually blocked on.
+
+Remains Blocked. Do not close on the manual rebuild -- an operator running a mutation by hand is not
+the freshness guarantee this task is about.
 <!-- SECTION:NOTES:END -->

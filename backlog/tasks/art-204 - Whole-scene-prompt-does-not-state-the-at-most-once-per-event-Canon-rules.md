@@ -1,11 +1,11 @@
 ---
 id: ART-204
 title: Whole-scene prompt does not state the at-most-once-per-event Canon rules
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-09-17 20:43'
-updated_date: '2026-09-17 20:43'
+updated_date: '2026-09-17 21:08'
 labels: []
 dependencies: []
 priority: high
@@ -45,9 +45,9 @@ Do NOT relax Canon. The model is proposing something invalid; the request should
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every at-most-once-per-event rule a scene author can break is stated
-- [ ] #2 The per-slot movement rule is stated as well as the per-event one
-- [ ] #3 A test pairs each stated rule with the validator that enforces it
+- [x] #1 Every at-most-once-per-event rule a scene author can break is stated
+- [x] #2 The per-slot movement rule is stated as well as the per-event one
+- [x] #3 A test pairs each stated rule with the validator that enforces it
 <!-- AC:END -->
 
 ## Definition of Done
@@ -67,3 +67,9 @@ Do NOT relax Canon. The model is proposing something invalid; the request should
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Shipped in #312. validateCanon enforces a family of at-most-once-per-event rules and the prompt stated none. The per-slot movement rule is stated separately from the per-event one because they are different refusals with different codes. Verified: npm run check exit 0; one fault injection failing 2 named tests, with a single-movement negative control. Live result: the model still broke the rule on a later slot, which is ART-205 rather than a prompt gap.
+<!-- SECTION:FINAL_SUMMARY:END -->

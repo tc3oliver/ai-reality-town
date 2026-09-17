@@ -3,11 +3,11 @@ id: ART-203
 title: >-
   Stop asking the scene author for causedByEventIds instead of only discouraging
   it
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-09-17 20:18'
-updated_date: '2026-09-17 20:22'
+updated_date: '2026-09-17 21:08'
 labels: []
 dependencies: []
 priority: high
@@ -50,10 +50,10 @@ This lowers no validation threshold. Canon's rule is unchanged and still enforce
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The request no longer asks for causedByEventIds
-- [ ] #2 An omitted causedByEventIds is filled with the empty array, as ART-139 fills schemaVersion and sceneId
-- [ ] #3 A value the model did supply is still validated and still refused if invented
-- [ ] #4 A test drives the real prompt and asserts the field is absent from the serialized schema
+- [x] #1 The request no longer asks for causedByEventIds
+- [x] #2 An omitted causedByEventIds is filled with the empty array, as ART-139 fills schemaVersion and sceneId
+- [x] #3 A value the model did supply is still validated and still refused if invented
+- [x] #4 A test drives the real prompt and asserts the field is absent from the serialized schema
 <!-- AC:END -->
 
 ## Definition of Done
@@ -83,3 +83,9 @@ Three fault injections, each failing the named test it should; 47/47 restored af
   2 stop filling an omitted field            -> 1 failed
   3 overwrite a supplied value               -> 1 failed
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Shipped in #311. ART-201 asked in prose and the model complied once then did not. causedByEventIds is removed from the request schema and filled with [] when absent -- the ART-139 treatment for a field whose only valid value the caller knows. A value the model DID supply is left alone and still refused by Canon, because erasing it would make a hallucination invisible. Verified: npm run check exit 0; three fault injections. Live result: UNKNOWN_EVENT_REFERENCE stopped occurring.
+<!-- SECTION:FINAL_SUMMARY:END -->
