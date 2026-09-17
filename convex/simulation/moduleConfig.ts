@@ -22,7 +22,6 @@ import {
   type ConfigurableModule,
   type EffectiveModuleConfig,
 } from '../shared/moduleModelConfig';
-import { selectWholeScenePrompt } from './promptVersions';
 import type { WholeSceneSimulationOptions } from './sceneSimulation';
 
 type ReadDb = GenericDatabaseReader<DataModel>;
@@ -85,12 +84,31 @@ export async function resolveModuleConfig(
  * degradation ordering. Passing them into a call that cannot honour them would be worse than
  * omitting them, because it would look like they were being applied.
  */
+/**
+ * The options a scene is simulated with, as PLAIN DATA (ART-194).
+ *
+ * This deliberately does NOT resolve `promptVersion` into a `buildSystemPrompt` function. It used
+ * to, and that made the live path impossible: `buildSceneAuthoringPlan` stores these options on
+ * `SceneAuthoringPlan`, and `prepareQueuedWorldDaySlot` returns that plan from a mutation INTO an
+ * action. Convex has to serialize anything crossing that boundary, a function is not a Convex
+ * value, and the failure surfaced from deep inside `convexToJson` as
+ * `Cannot read properties of undefined (reading 'length')` — a message that names neither the
+ * field nor the plan.
+ *
+ * `awaiting_authoring` is returned for every slot that actually needs a provider, so this was not
+ * an edge case: no live slot could be authored at all, on any world, which is why the acceptance
+ * world stopped advancing.
+ *
+ * `promptVersion` is carried through instead and resolved by {@link wholeScenePromptFor} on the
+ * authoring side, beside `onAttempt` and `budget` — which are added there already, for this same
+ * reason. The rule this encodes: everything reachable from a `SceneAuthoringPlan` must be a Convex
+ * value, and `sceneAuthoringPlan.serialization.test.ts` enforces it against the real serializer.
+ */
 export function wholeSceneOptionsFor(config: EffectiveModuleConfig): WholeSceneSimulationOptions {
   return {
     maxAttempts: config.semanticMaxAttempts,
     temperature: config.temperature,
     maxTokens: config.maxTokens,
-    buildSystemPrompt: selectWholeScenePrompt(config.promptVersion),
     ...(config.model === null ? {} : { model: config.model }),
     ...(config.timeoutMs === null ? {} : { timeoutMs: config.timeoutMs }),
     ...(config.transportMaxAttempts === null
@@ -98,3 +116,4 @@ export function wholeSceneOptionsFor(config: EffectiveModuleConfig): WholeSceneS
       : { transportMaxAttempts: config.transportMaxAttempts }),
   };
 }
+

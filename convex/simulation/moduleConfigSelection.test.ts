@@ -338,8 +338,12 @@ describe('scope boundary — Fallback and Daily Budget are configured, never app
     // `timeoutMs` and `transportMaxAttempts` are absent because this fixture leaves them `null`
     // (inherit the deployment value); the block above pins that separately. What matters here is
     // that the two ART-59/ART-91 settings are absent no matter what they hold.
+    // `buildSystemPrompt` left this list in ART-194: it is a FUNCTION, and these options travel on
+    // a `SceneAuthoringPlan` that Convex serializes across the live path's action boundary. The
+    // prompt version rides along as data and the authoring side resolves it. The claim this test
+    // actually makes — the two ART-59/ART-91 settings are absent — is unchanged.
     expect(Object.keys(options).sort())
-      .toEqual(['buildSystemPrompt', 'maxAttempts', 'maxTokens', 'temperature']);
+      .toEqual(['maxAttempts', 'maxTokens', 'temperature']);
     expect(options).not.toHaveProperty('fallbackModel');
     expect(options).not.toHaveProperty('dailyTokenBudget');
   });
