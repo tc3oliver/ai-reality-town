@@ -3,10 +3,10 @@ id: ART-194
 title: >-
   The live world-day path cannot cross the action boundary: the authoring plan
   carries a function
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-09-17 16:23'
-updated_date: '2026-09-17 16:26'
+updated_date: '2026-09-17 16:53'
 labels: []
 dependencies: []
 priority: high
@@ -55,28 +55,28 @@ Scope: convex/simulation/moduleConfig.ts, convex/simulation/worldDayLive.ts, and
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A successful live slot returns a settled PreparedSlot that Convex can serialize
-- [ ] #2 An omitted optional field is ABSENT from the returned object, not present with value undefined
-- [ ] #3 A failing slot still carries its failureStage, errorCode and errorMessage
-- [ ] #4 Every other value crossing the live path's action/mutation boundary is checked for the same shape
-- [ ] #5 A test serializes the real return value the way Convex does, so the defect cannot reappear behind an in-process assertion
-- [ ] #6 Fault injection: restoring the explicit undefined fails a NAMED test
+- [x] #1 A successful live slot returns a settled PreparedSlot that Convex can serialize
+- [x] #2 An omitted optional field is ABSENT from the returned object, not present with value undefined
+- [x] #3 A failing slot still carries its failureStage, errorCode and errorMessage
+- [x] #4 Every other value crossing the live path's action/mutation boundary is checked for the same shape
+- [x] #5 A test serializes the real return value the way Convex does, so the defect cannot reappear behind an in-process assertion
+- [x] #6 Fault injection: restoring the explicit undefined fails a NAMED test
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 All acceptance criteria are satisfied
-- [ ] #2 Relevant automated tests are added or updated
-- [ ] #3 Typecheck passes
-- [ ] #4 Lint passes
-- [ ] #5 Relevant tests pass
-- [ ] #6 Build passes when applicable
-- [ ] #7 No known regression is introduced
-- [ ] #8 No secret or credential is committed
-- [ ] #9 Documentation is updated
-- [ ] #10 PRD traceability is updated when applicable
-- [ ] #11 Implementation notes are complete
-- [ ] #12 Final summary includes verification evidence
-- [ ] #13 Changes are committed and pushed
-- [ ] #14 Pull request is merged or explicitly blocked
+- [x] #1 All acceptance criteria are satisfied
+- [x] #2 Relevant automated tests are added or updated
+- [x] #3 Typecheck passes
+- [x] #4 Lint passes
+- [x] #5 Relevant tests pass
+- [x] #6 Build passes when applicable
+- [x] #7 No known regression is introduced
+- [x] #8 No secret or credential is committed
+- [x] #9 Documentation is updated
+- [x] #10 PRD traceability is updated when applicable
+- [x] #11 Implementation notes are complete
+- [x] #12 Final summary includes verification evidence
+- [x] #13 Changes are committed and pushed
+- [x] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
