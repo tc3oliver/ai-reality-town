@@ -160,3 +160,46 @@ have proved the copy was legal.
   `attemptTrace`, which exists only once a call has returned.
 
 See `docs/authoring-failure-diagnosis.md` for how the failure was made legible enough to find.
+
+## The prompt has to state the Canon rules, not only the schema (ART-197)
+
+Fixing ART-196 got three scenes authored — up from zero — and the slot then failed one stage later:
+
+```
+failureStage: validate_canon
+errorCode:    PRIVATE_RELATIONSHIP_DISCLOSURE
+message:      a private relationship change cannot carry a public summary
+```
+
+Same shape as ART-196, one layer further in. `strictObject` derives `required` from `properties`,
+so under strict mode **every** property is mandatory — including `publicSummary` on every event. And
+`validateCanon` refuses a `relationship_changed` whose `visibility` is `private` on an event that
+carries one. `private` is one of the two enum values the schema offers, so the request was again
+offering a combination that could never be accepted.
+
+The prompt now states the rules a scene author can actually break with the fields it is given:
+participants-only for every `characterId`, `visibility: "public"` on a relationship change, distinct
+relationship endpoints, and at least one non-zero delta. Each of these refuses the **whole** scene.
+
+### Two variants the request stopped asking for
+
+| Variant | What Canon requires | What the request supplies |
+| --- | --- | --- |
+| `character_state_changed` | `fromValue` equal to the character's projected value | nothing about current state |
+| `character_knowledge_learned` | `sourceEventId` present in `causedByEventIds` and known | no event ids at all |
+
+Neither could ever be accepted from here, so both produced rejections and nothing else. The prompt
+says not to emit them and names the alternatives. That is a real capability loss, recorded as
+ART-198 — it is not a claim that the variants are wrong, only that this request cannot support them.
+
+### The worked example, again
+
+ART-196's example used a `character_state_changed` on `emotion`. Legal **structurally** — which is
+all `validateEventStructure` checks, and all its test checked — but `validateCanon` compares
+`fromValue` against the projection, so it would have been refused in every scene where the
+character's emotion was not the literal shown. It is now a `character_memory_formed`, which has
+exactly two canon rules and both are satisfied by naming a scene participant.
+
+**The tests now run the example through `validateCanon` against a seeded projection.** Stopping at
+`validateEventStructure` is precisely what let the riskier example ship, and the live slot failed at
+the stage the tests were not looking at.

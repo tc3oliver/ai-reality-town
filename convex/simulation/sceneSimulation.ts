@@ -333,8 +333,17 @@ export const wholeSceneSystemPrompt = (scene: GroupedScene, context: WholeSceneP
      */
     stateChanges: exampleDestination === undefined
       ? [{
-        type: 'character_state_changed', characterId: scene.participantIds[0] ?? 'character-id',
-        field: 'emotion', fromValue: '平靜', toValue: '不安', reason: '對方的話讓他心神不寧。',
+        // ART-197. `character_memory_formed`, not the `character_state_changed` ART-196 chose.
+        //
+        // That earlier choice was legal STRUCTURALLY, which is all `validateEventStructure` checks
+        // and all its test checked — but `validateCanon` requires a `character_state_changed`'s
+        // `fromValue` to equal the character's currently projected value, so the example would have
+        // been refused in every scene where the character's emotion was not the literal shown. A
+        // memory has exactly two canon rules, both satisfied by naming a scene participant, so it
+        // is legal in every scene with no world state to know.
+        type: 'character_memory_formed', characterId: scene.participantIds[0] ?? 'character-id',
+        content: '他記住了對方說話時的停頓。', interpretation: '對方有所隱瞞。',
+        importance: 0.6, emotionalWeight: 0.4, confidence: 0.7, visibility: 'private',
       }]
       : [{
         type: 'character_location_changed', characterId: scene.participantIds[0] ?? 'character-id',
@@ -355,6 +364,22 @@ export const wholeSceneSystemPrompt = (scene: GroupedScene, context: WholeSceneP
     // that stopped the world: every event the model proposed with an empty stateChanges array was
     // refused by Canon, and nothing in the request had told it that such an event is not a thing.
     'Every proposedEvents item must carry at least one entry in stateChanges. An event that changes nothing is rejected, so if a beat moves no world state, write it as a memories, knowledgeChanges or rumors note about another event instead of proposing an event of its own.',
+    /**
+     * ART-197. The Canon rules a scene author can break with the fields this schema offers.
+     *
+     * Every one of these refuses the WHOLE scene when it fires, and the prompt stated none of them.
+     * The first is what stopped the live world the second time: strict mode makes `publicSummary`
+     * mandatory on every event, and `validateCanon` refuses a `private` relationship change on an
+     * event that has one — so the schema was offering a combination that could never be accepted.
+     *
+     * The last sentence removes two variants rather than explaining them, because neither can be
+     * used correctly from here: `character_state_changed` must carry a `fromValue` equal to the
+     * character's currently projected value, and `character_knowledge_learned` must cite an event
+     * id in `causedByEventIds`. This request gives the author neither. Asking for them anyway
+     * produced nothing but rejections. Supplying the context they need is real work and is its own
+     * task; until then the request stops asking for what it cannot support.
+     */
+    `Canon will reject the entire scene unless every stateChanges entry obeys these rules. Every characterId named anywhere in stateChanges must be one of this scene's participants: ${JSON.stringify(scene.participantIds)}. A relationship_changed must set visibility to "public" -- every event here carries a publicSummary, and a private relationship change on an event with a public summary is refused; its sourceCharacterId and targetCharacterId must differ, and at least one of its six deltas must be non-zero. Never emit character_state_changed or character_knowledge_learned: the first must state the character's current recorded value and the second must cite an existing causal event id, and this request gives you neither. Use character_memory_formed, relationship_changed, fact_created, item_transferred, the rumor_* changes, or character_location_changed instead.`,
     movementRule,
     'The memories, knowledgeChanges and rumors collections are short narrative notes about a proposed event, not state changes. Each memories or knowledgeChanges item has exactly characterId, content and proposedEventIndex; each rumors item has exactly sourceCharacterId, content and proposedEventIndex, where proposedEventIndex is the zero-based position in proposedEvents. Never give them interpretation, importance, emotionalWeight, confidence or visibility -- those belong only to a character_memory_formed entry inside proposedEvents stateChanges.',
     // FR-E005. Said explicitly because the two things share a word: a `rumors` note is colour a
