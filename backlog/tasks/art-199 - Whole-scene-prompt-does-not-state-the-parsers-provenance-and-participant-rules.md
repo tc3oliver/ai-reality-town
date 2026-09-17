@@ -3,11 +3,11 @@ id: ART-199
 title: >-
   Whole-scene prompt does not state the parser's provenance and participant
   rules
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-09-17 19:01'
-updated_date: '2026-09-17 19:04'
+updated_date: '2026-09-17 21:08'
 labels: []
 dependencies: []
 priority: high
@@ -51,10 +51,10 @@ Do NOT relax the parser, the schema or Canon.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The prompt states the provenance triple and requires it copied verbatim
-- [ ] #2 The prompt states that every characterId in every collection must be a scene participant
-- [ ] #3 The prompt states the uniqueness rules the parser enforces
-- [ ] #4 A test drives a model-shaped output violating each stated rule and asserts the parser refuses it
+- [x] #1 The prompt states the provenance triple and requires it copied verbatim
+- [x] #2 The prompt states that every characterId in every collection must be a scene participant
+- [x] #3 The prompt states the uniqueness rules the parser enforces
+- [x] #4 A test drives a model-shaped output violating each stated rule and asserts the parser refuses it
 <!-- AC:END -->
 
 ## Definition of Done
@@ -89,3 +89,9 @@ Fault injection: drop the parser-rules paragraph -> 7 named tests failed; baseli
 Each case asserts both halves, so a prompt sentence with no parser behind it and a parser rule the
 prompt does not state are both test failures.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Shipped in #308. parseWholeSceneOutput requires every proposed event to copy the scene's worldId, worldDay and timeSlot verbatim and to name only its participants; nothing said so. Every parser rule that refuses a whole scene is now stated in one pass, with the scene's values inlined. Each test asserts the rule twice -- that the parser refuses the violation and that the prompt states it -- so the two cannot drift. Verified: npm run check exit 0; one fault injection failing 7 named tests.
+<!-- SECTION:FINAL_SUMMARY:END -->

@@ -1,11 +1,11 @@
 ---
 id: ART-200
 title: Movement rule tells the model a fromLocationId Canon will reject
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-09-17 19:25'
-updated_date: '2026-09-17 19:29'
+updated_date: '2026-09-17 21:08'
 labels: []
 dependencies: []
 priority: high
@@ -57,11 +57,11 @@ scene author proposes, Canon decides.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each participant is told their own projected location as the only legal fromLocationId
-- [ ] #2 Destinations are computed from each participant's own location, not the scene's
-- [ ] #3 A participant with no legal destination is told they may not move
-- [ ] #4 The worked example demonstrates a movement only for a character who can actually make it
-- [ ] #5 A test builds a scene whose participant stands elsewhere and asserts the prompt does not instruct an illegal move
+- [x] #1 Each participant is told their own projected location as the only legal fromLocationId
+- [x] #2 Destinations are computed from each participant's own location, not the scene's
+- [x] #3 A participant with no legal destination is told they may not move
+- [x] #4 The worked example demonstrates a movement only for a character who can actually make it
+- [x] #5 A test builds a scene whose participant stands elsewhere and asserts the prompt does not instruct an illegal move
 <!-- AC:END -->
 
 ## Definition of Done
@@ -102,3 +102,9 @@ Three fault injections, each failing the named test it should; 35/35 restored af
   2 example origin back to the scene location -> 1 failed
   3 destinations computed from the scene      -> 1 failed
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Shipped in #309. ART-157's rule asserted every participant stands at the scene's location; a scene groups by intent while Canon tracks position. participantMovementFor gives each participant their own projected origin and the destinations legal from it, which settles four canon rules at once. The worked example follows the character it names. The scene-level rule is kept for callers supplying no positions. Verified: npm run check exit 0; three fault injections.
+<!-- SECTION:FINAL_SUMMARY:END -->

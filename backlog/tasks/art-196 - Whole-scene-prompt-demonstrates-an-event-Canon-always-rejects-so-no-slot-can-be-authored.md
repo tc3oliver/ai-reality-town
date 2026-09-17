@@ -3,11 +3,11 @@ id: ART-196
 title: >-
   Whole-scene prompt demonstrates an event Canon always rejects, so no slot can
   be authored
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-09-17 18:06'
-updated_date: '2026-09-17 18:12'
+updated_date: '2026-09-17 21:08'
 labels: []
 dependencies: []
 priority: high
@@ -58,11 +58,11 @@ for something invalid; the fix is to ask correctly.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The prompt never demonstrates an event Canon would reject
-- [ ] #2 The request states the non-empty stateChanges rule in both the JSON schema and prose
-- [ ] #3 A scene whose location has no legal destination still gets a worked example that Canon accepts
-- [ ] #4 A refused ANSWER is retried consistently, whichever error class raised the refusal
-- [ ] #5 A test drives the real prompt for a no-destination scene and asserts its example validates against Canon
+- [x] #1 The prompt never demonstrates an event Canon would reject
+- [x] #2 The request states the non-empty stateChanges rule in both the JSON schema and prose
+- [x] #3 A scene whose location has no legal destination still gets a worked example that Canon accepts
+- [x] #4 A refused ANSWER is retried consistently, whichever error class raised the refusal
+- [x] #5 A test drives the real prompt for a no-destination scene and asserts its example validates against Canon
 <!-- AC:END -->
 
 ## Definition of Done
@@ -119,3 +119,9 @@ Five fault injections, each failing the named test it should, baseline restored 
   4 stop retrying a canon refusal     -> 2 failed
   5 restore the class-based guard     -> 2 failed
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Shipped in #306. The worked example the prompt showed was invalid in two independent ways for any scene with no legal destination: stateChanges: [] and eventType 'interaction', which is not in EVENT_TYPES. The model copied it, so no slot could commit. The example now demonstrates a change Canon accepts, and the non-empty rule is stated in the schema (minItems) and in prose. Verified: npm run check exit 0; five fault injections. Live result: authored scenes went from 0 to 3 on the next slot.
+<!-- SECTION:FINAL_SUMMARY:END -->
