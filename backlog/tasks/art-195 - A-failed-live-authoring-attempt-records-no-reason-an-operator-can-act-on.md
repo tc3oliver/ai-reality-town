@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-09-17 16:52'
-updated_date: '2026-09-17 17:23'
+updated_date: '2026-09-17 17:38'
 labels: []
 dependencies: []
 priority: high
@@ -132,3 +132,34 @@ Raw exceptions can escape at: `gate.reserve` / `gate.settle` (a Convex mutation 
    `SCENE_SIMULATION_FAILED` with nothing else.
 7. `npm run codegen:api` -- a new file under `convex/`.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Phase 1 (observability) complete.
+
+Propagation path and the five loss points are in the plan. Implemented:
+- convex/shared/failureDetail.ts — describeFailure / sanitizeFailureText / redactSecrets.
+  Stage and retryability DERIVED from the error; retryability is the predicate
+  simulateWholeScene now applies, so the field cannot drift from the decision.
+- convex/simulation/schema.ts — authoringFailures table. llmTraces is NOT widened.
+- sceneSimulation.ts — the fallback throw carries the detail; onAttempt carries it.
+- qualityEvidenceFunctions.ts — writes the second row, deduped on the same attempt key,
+  BEFORE the llmTraces dedup return so a pre-ART-195 trace row does not block it.
+- liveWorldDayActions.ts — exact-value secret pass; LiveSlotOutcome.authoringFailure.
+
+Verification:
+- npm run check exit 0. 275 suites, 4773 tests passed (baseline 4717 + 56 new).
+- 56 new tests across two suites; 18 of them drive the REAL adapter over a stub transport.
+- SIX fault injections, each failing the named test it should:
+  1 restore old fallback throw      -> 1 failed  (carries the same detail out on the thrown error)
+  2 restore .code-only rule         -> 13 failed (derives a code from the class..., and 12 more)
+  3 drop bearer redaction           -> 1 failed  (redacts a bearer token but keeps the word...)
+  4 drop exact-value secret pass    -> 2 failed  (removes the configured credential wherever...)
+  5 stringify non-string message    -> 1 failed  (never stringifies a non-string message)
+  6 drop truncation marker          -> 1 failed  (publishes what truncation removed...)
+  Baseline restored to 56/56 after each.
+- Two harness faults caught and not counted as results: a 'git checkout --' reverted
+  uncommitted work mid-injection (redone, then committed BEFORE injecting), and zsh does not
+  word-split unquoted expansions, so the first injection round reported 'Tests: 0 total'.
+<!-- SECTION:NOTES:END -->

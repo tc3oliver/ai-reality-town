@@ -107,3 +107,23 @@ error message, and this record's whole contract is that it carries no model text
 `recordAuthoringAttempt` now builds its row through `normalizeLlmTraceDraft` rather than
 inserting it directly. The paragraph above about the normaliser had been true of `recordTrace`
 and false of the only writer this deployment runs, from ART-90 until ART-166.
+
+### The code is still all this table carries (ART-195)
+
+That contract held, and it was not enough on its own. A live slot failed with
+`SCENE_ATTEMPT_FAILED` — which was not a code an attempt failed with, but the marker
+`stableAttemptCode` returned when the thrown error carried no `code` at all — and an operator had
+no way to reach the class, the message or the cause behind it.
+
+The answer was **not** to widen this record. A sanitized message is still free text, and admitting
+one here would have removed the guarantee for every reader of the table rather than only for the
+one writer that needed it. `recordAuthoringAttempt` therefore writes a second row to
+`authoringFailures`, keyed on the same `${simulationRunId}:attempt:${n}`, and this table is
+untouched: `errorCode` is still a bounded machine code, and `ERROR_CODE_PATTERN` still refuses
+anything else.
+
+What did change is that the code is now specific. An error carrying none has one derived from its
+class — `TypeError` becomes `PROVIDER_EXCEPTION_TYPE_ERROR` — which is a code-side constant and
+passes the pattern, so `providerFailureReasons` distinguishes faults it used to collapse.
+
+See `docs/authoring-failure-diagnosis.md`.
