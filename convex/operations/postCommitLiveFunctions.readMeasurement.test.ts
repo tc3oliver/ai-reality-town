@@ -1230,4 +1230,31 @@ describe('ART-100 AC#2 — runLiveWorldDayCycle over a whole time slot', () => {
     expect(result.cursorAfter).toBe(2);
     expect(result.caughtUp).toBe(false);
   });
+
+  it('does not carry the cursor over a range the scan never looked at', async () => {
+    /**
+     * Added because a fault injection proved the previous case could not tell the difference.
+     * Setting the cursor to `max(repaired)` passes every test above, because the repairs there are
+     * taken in ascending order from a scan that starts at 0 — so the highest repair and the
+     * contiguous prefix coincide.
+     *
+     * They come apart the moment an operator reconciles a SUB-RANGE. Scanning from 3 repairs 3
+     * while 2 is still owed and was never examined; a cursor set from the repair would jump to 3
+     * and strand 2 permanently, which is the overshoot this task was (wrongly) opened about and
+     * would have been a real one.
+     */
+    const worldId = 'ac2-subrange';
+    const now = 10_000_000;
+    const tables = seedHoledWorld(worldId, now);
+    const ctx = makeCtx(tables, freshReadStats());
+
+    const result = await (reconcilePostCommit as unknown as Registered)._handler(ctx, {
+      worldId, now, dryRun: false, fromSequenceNumber: 3,
+    }) as Reconcile;
+
+    expect(result.repaired).toEqual([3]);
+    // Event 2 is below the scan and still owes work. The cursor must not move at all.
+    expect(result.cursorAfter).toBe(-1);
+    expect(tables.postCommitCursors).toHaveLength(0);
+  });
 });
