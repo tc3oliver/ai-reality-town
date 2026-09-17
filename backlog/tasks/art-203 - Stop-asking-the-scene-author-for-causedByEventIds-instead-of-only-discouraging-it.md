@@ -7,7 +7,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-09-17 20:18'
-updated_date: '2026-09-17 20:18'
+updated_date: '2026-09-17 20:22'
 labels: []
 dependencies: []
 priority: high
@@ -73,3 +73,13 @@ This lowers no validation threshold. Canon's rule is unchanged and still enforce
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Verification: npm run check exit 0, 4830 tests (baseline 4826 + 4).
+Three fault injections, each failing the named test it should; 47/47 restored after each:
+  1 put the field back in the request schema -> 2 failed
+  2 stop filling an omitted field            -> 1 failed
+  3 overwrite a supplied value               -> 1 failed
+<!-- SECTION:NOTES:END -->
