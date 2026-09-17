@@ -46,6 +46,7 @@ import { cloneProjection } from '../canon/snapshots';
 import { resolveWorldBaseline } from '../canon/snapshotManager';
 import { validateCanon, validateEventStructure } from '../canon/validators';
 import { CanonError, type CanonErrorCode } from '../shared/errors';
+import type { FailureDetail } from '../shared/failureDetail';
 import { CANON_SCHEMA_VERSION } from '../shared/constants';
 import {
   findEnvironmentVoteCandidate,
@@ -1011,6 +1012,14 @@ export type AuthoringAttemptDraft = {
   outcome: AuthoringAttemptOutcome;
   /** The stable code the failure carried, or null on success. */
   errorCode: string | null;
+  /**
+   * ART-195. The sanitized failure behind `errorCode`, or null on a parsed attempt.
+   *
+   * Separate from `errorCode` because they go to different places: the code is written to
+   * `llmTraces`, whose contract is a bounded machine code and no free text, and this is written to
+   * `authoringFailures`, which exists precisely so that contract did not have to be widened.
+   */
+  failure: FailureDetail | null;
   /** The model the reservation was taken under, which may be a routing alias. */
   requestedModel: string;
   /** What the gateway said served the call, when it said. */
