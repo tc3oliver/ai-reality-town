@@ -147,6 +147,23 @@ export function parseWholeSceneOutput(value: unknown, scene: GroupedScene): Whol
   if (root.sceneId === undefined) root.sceneId = scene.sceneId;
   if (root.sceneId !== scene.sceneId) throw new SceneSimulationError('SCENE_OUTPUT_PROVENANCE_MISMATCH', 'output Scene ID does not match', 'sceneId');
   const proposedEvents = array(root.proposedEvents, 'proposedEvents').map((event, eventIndex) => {
+    /**
+     * ART-203. `causedByEventIds` is filled when ABSENT, exactly as ART-139 fills `schemaVersion`
+     * and `sceneId`: a field whose only valid value the caller already knows.
+     *
+     * A scene author is given no event ids, so `[]` is the only value it can correctly hold — and
+     * the request no longer asks for it, because a field with one valid value should not be one the
+     * model is invited to invent. ART-201 said so in prose; the next live slot obeyed and the one
+     * after it did not, failing with `UNKNOWN_EVENT_REFERENCE`.
+     *
+     * A value the model DID supply is left alone and still validated. Filling an omitted field is a
+     * parse; overwriting a supplied one is a repair that changes meaning, and an invented causal
+     * link should be refused rather than quietly erased.
+     */
+    if (event !== null && typeof event === 'object' && !Array.isArray(event)
+        && (event as Record<string, unknown>).causedByEventIds === undefined) {
+      (event as Record<string, unknown>).causedByEventIds = [];
+    }
     const parsed = normalizeProposedEventOutput(event);
     if (parsed.worldId !== scene.worldId || parsed.worldDay !== scene.worldDay || parsed.timeSlot !== scene.timeSlot
         || parsed.participantIds.some((id) => !scene.participantIds.includes(id))) {
@@ -252,7 +269,7 @@ const proposedEventItem = strictObject({
   schemaVersion: { type: 'integer', const: 1 }, worldId: text, idempotencyKey: text,
   proposedBy: strictObject({ type: enumOf(PROPOSED_BY_TYPES) }),
   worldDay: integer, timeSlot: enumOf(TIME_SLOTS), eventType: enumOf(EVENT_TYPES),
-  locationId: text, participantIds: textArray, causedByEventIds: textArray, publicSummary: text,
+  locationId: text, participantIds: textArray, publicSummary: text,
   // ART-196: `minItems`, because `validateEventStructure` refuses an event carrying no state
   // change and the request never said so. The schema is serialized into the prompt verbatim, so
   // stating it here states it to the model as well as to any gateway that enforces the schema.
@@ -459,7 +476,7 @@ export const wholeSceneSystemPrompt = (scene: GroupedScene, context: WholeSceneP
      * and strict mode makes every one of their properties mandatory. Making them usable is
      * separate work — see ART-198.
      */
-    `These identifiers are checked against the world and you have not been given them, so use exactly these values and nothing else. causedByEventIds must be an empty array on every proposedEvents item: you have no event ids, and any id you write will not exist. locationId must be ${JSON.stringify(scene.locationId)}. A fact_created or a rumor claim may only be about a character in ${JSON.stringify(scene.participantIds)}, or about the location ${JSON.stringify(scene.locationId)}, or about the world itself -- and a world subject must use subjectId ${JSON.stringify(scene.worldId)}. Never use subjectType "item", and never emit item_transferred, location_state_changed or organization_state_changed: each needs an entity id and its current recorded state -- an item and its owner, a location with all of its properties, an organization -- and you have not been given any of them. One event may not create two facts with the same subject and predicate.`,
+    `These identifiers are checked against the world and you have not been given them, so use exactly these values and nothing else. causedByEventIds must be an empty array, exactly as the worked example shows: you have no event ids, and any id you write will not exist. locationId must be ${JSON.stringify(scene.locationId)}. A fact_created or a rumor claim may only be about a character in ${JSON.stringify(scene.participantIds)}, or about the location ${JSON.stringify(scene.locationId)}, or about the world itself -- and a world subject must use subjectId ${JSON.stringify(scene.worldId)}. Never use subjectType "item", and never emit item_transferred, location_state_changed or organization_state_changed: each needs an entity id and its current recorded state -- an item and its owner, a location with all of its properties, an organization -- and you have not been given any of them. One event may not create two facts with the same subject and predicate.`,
     `Every proposedEvents item must copy this scene's own identity exactly: worldId ${JSON.stringify(scene.worldId)}, worldDay ${scene.worldDay}, timeSlot ${JSON.stringify(scene.timeSlot)}. Its participantIds must contain only characters from ${JSON.stringify(scene.participantIds)}, and so must every characterId, sourceCharacterId and targetCharacterId in keyActions, dialogueHighlights, relationshipChanges, knowledgeChanges, memories and rumors -- a character who is only mentioned in passing is not a participant and will be refused. Each proposedEvents item needs its own unique idempotencyKey, and continuityWarnings must not repeat a string. Provide at least one keyActions entry.`,
     `Canon will reject the entire scene unless every stateChanges entry obeys these rules. Every characterId named anywhere in stateChanges must be one of this scene's participants: ${JSON.stringify(scene.participantIds)}. A relationship_changed must set visibility to "public" -- every event here carries a publicSummary, and a private relationship change on an event with a public summary is refused; its sourceCharacterId and targetCharacterId must differ, and at least one of its six deltas must be non-zero. Never emit character_state_changed or character_knowledge_learned: the first must state the character's current recorded value and the second must cite an existing causal event id, and this request gives you neither. Use character_memory_formed, relationship_changed, fact_created, item_transferred, the rumor_* changes, or character_location_changed instead.`,
     movementRule,

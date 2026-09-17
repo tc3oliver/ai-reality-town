@@ -526,8 +526,8 @@ describe('the prompt constrains every identifier the author cannot know', () => 
     expect(validateCanon(event() as never, worldWithParticipants(), ruleContext)).toBeNull();
   });
 
-  it('refuses an invented causal event id, and requires an empty array', () => {
-    // The live failure.
+  it('refuses an invented causal event id, and tells the model not to emit the field', () => {
+    // The live failure, twice: ART-201 asked in prose and one slot obeyed while the next did not.
     const invalid = event({ causedByEventIds: ['mistwood#event#999'] });
     expect(validateCanon(invalid as never, worldWithParticipants(), ruleContext))
       .toMatchObject({ code: 'UNKNOWN_EVENT_REFERENCE' });
@@ -589,5 +589,71 @@ describe('the prompt constrains every identifier the author cannot know', () => 
 
   it('pins the event location to the scene location', () => {
     expect(prompt).toContain(`locationId must be ${JSON.stringify(scene.locationId)}`);
+  });
+});
+
+// =============================================================================
+// A field with one valid value is not asked for (ART-203)
+// =============================================================================
+
+describe('causedByEventIds is filled in rather than requested', () => {
+  const sceneOutput = (event: Record<string, unknown>) => ({
+    schemaVersion: 1, sceneId: scene.sceneId, sceneSummary: '兩人對質。',
+    keyActions: [{ characterId: scene.participantIds[0], action: '推出帳冊。' }],
+    dialogueHighlights: [],
+    proposedEvents: [event],
+    relationshipChanges: [], knowledgeChanges: [], memories: [], rumors: [], continuityWarnings: [],
+  });
+
+  const baseEvent = (overrides: Record<string, unknown> = {}) => ({
+    schemaVersion: 1, worldId: scene.worldId, idempotencyKey: `${scene.sceneId}:1`,
+    proposedBy: { type: 'system' }, worldDay: scene.worldDay, timeSlot: scene.timeSlot,
+    eventType: 'conversation', locationId: scene.locationId,
+    participantIds: [scene.participantIds[0]], publicSummary: '兩人對質。',
+    stateChanges: [{
+      type: 'character_memory_formed', characterId: scene.participantIds[0],
+      content: '停頓。', interpretation: '有所隱瞞。',
+      importance: 0.5, emotionalWeight: 0.4, confidence: 0.7, visibility: 'private',
+    }],
+    ...overrides,
+  });
+
+  it('is absent from the schema, so the model is never asked for it', () => {
+    const item = ((WHOLE_SCENE_JSON_SCHEMA.properties as Record<string, Record<string, unknown>>)
+      .proposedEvents.items as Record<string, Record<string, unknown>>);
+    expect(Object.keys(item.properties)).not.toContain('causedByEventIds');
+    // `strictObject` derives `required` from `properties`, so absent from one is absent from both.
+    expect(item.required as unknown as string[]).not.toContain('causedByEventIds');
+  });
+
+  it('is absent from the SCHEMA the prompt serializes, while the example still shows the value', () => {
+    /**
+     * The two do different jobs and must agree. The schema no longer DEMANDS the field — a field
+     * with one valid value should not be one the model is invited to invent — while the worked
+     * example still demonstrates `[]`, which is the value the model should write if it writes one
+     * at all. An instruction that contradicted the example would be worse than either alone.
+     */
+    const prompt = wholeSceneSystemPrompt(scene, { legalDestinationIds: [] });
+    const serializedSchema = JSON.stringify(WHOLE_SCENE_JSON_SCHEMA);
+    expect(serializedSchema).not.toContain('causedByEventIds');
+    expect(prompt).toContain(serializedSchema);
+    expect(prompt).toContain('"causedByEventIds":[]');
+  });
+
+  it('parses an event that omits it, filling the only value it could correctly hold', () => {
+    // The ART-139 rule, applied to a third field: the caller already knows the answer.
+    const parsed = parseWholeSceneOutput(sceneOutput(baseEvent()), scene);
+    expect(parsed.proposedEvents[0].causedByEventIds).toEqual([]);
+  });
+
+  it('does NOT overwrite a value the model did supply', () => {
+    /**
+     * Filling an omitted field is a parse; overwriting a supplied one is a repair that changes
+     * meaning. An invented causal link should be refused by Canon, not quietly erased here —
+     * erasing it would make a hallucination invisible.
+     */
+    const parsed = parseWholeSceneOutput(
+      sceneOutput(baseEvent({ causedByEventIds: ['mistwood#event#999'] })), scene);
+    expect(parsed.proposedEvents[0].causedByEventIds).toEqual(['mistwood#event#999']);
   });
 });
