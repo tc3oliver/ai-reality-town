@@ -26,7 +26,9 @@
  */
 
 import { EVENT_TYPES } from '../canon/eventTypes';
-import { validateEventStructure } from '../canon/validators';
+import { emptyProjection } from '../canon/model';
+import type { WorldProjection } from '../canon/model';
+import { validateCanon, validateEventStructure } from '../canon/validators';
 import type { GroupedScene } from './sceneGrouping';
 import { WHOLE_SCENE_JSON_SCHEMA, wholeSceneSystemPrompt } from './sceneSimulation';
 
@@ -134,5 +136,102 @@ describe('the request states the rule as well as demonstrating it', () => {
   it('says the rule in prose too', () => {
     expect(wholeSceneSystemPrompt(scene, { legalDestinationIds: [] }))
       .toContain('must carry at least one entry in stateChanges');
+  });
+});
+
+// =============================================================================
+// validateCanon, not only validateEventStructure (ART-197)
+// =============================================================================
+
+/**
+ * The gap ART-196 fell into, closed.
+ *
+ * Its tests put the example through `validateEventStructure` and stopped there — so the example it
+ * shipped, a `character_state_changed` on `emotion`, passed every check while `validateCanon`
+ * would have refused it in any scene where the character's emotion was not the literal shown.
+ * `fromValue` has to equal the projected value, and a worked example cannot know one.
+ *
+ * The slot the world actually failed on failed HERE, at `validate_canon`, one stage past where
+ * ART-196's tests were looking.
+ */
+function worldWithParticipants(): WorldProjection {
+  const projection = emptyProjection(scene.worldId);
+  for (const characterId of scene.participantIds) {
+    projection.characterAlive[characterId] = true;
+    projection.characterLocations[characterId] = scene.locationId;
+  }
+  projection.locations[scene.locationId] = {
+    locationId: scene.locationId, name: '鎮公所', description: '',
+    locationType: 'civic', capacity: 8, connectedLocationIds: ['mistwood-mill'], active: true,
+    lastUpdatedEventId: 'seed',
+  };
+  projection.locations['mistwood-mill'] = {
+    locationId: 'mistwood-mill', name: '磨坊', description: '',
+    locationType: 'work', capacity: 8, connectedLocationIds: [scene.locationId], active: true,
+    lastUpdatedEventId: 'seed',
+  };
+  return projection;
+}
+
+describe('the worked example survives Canon validation, not only structural validation', () => {
+  it('is accepted with no legal destination', () => {
+    const example = exampleFrom(wholeSceneSystemPrompt(scene, { legalDestinationIds: [] }));
+    expect(validateEventStructure(example)).toBeNull();
+    expect(validateCanon(example as never, worldWithParticipants())).toBeNull();
+  });
+
+  it('is accepted with a legal destination', () => {
+    const example = exampleFrom(wholeSceneSystemPrompt(scene, { legalDestinationIds: ['mistwood-mill'] }));
+    expect(validateEventStructure(example)).toBeNull();
+    expect(validateCanon(example as never, worldWithParticipants())).toBeNull();
+  });
+
+  it('demonstrates a change that needs no knowledge of projected state', () => {
+    /**
+     * `character_memory_formed` has exactly two canon rules and both are about the character being
+     * a scene participant. `character_state_changed` — what ART-196 chose — additionally requires
+     * `fromValue` to equal the projection, which no static example can guarantee.
+     */
+    const example = exampleFrom(wholeSceneSystemPrompt(scene, { legalDestinationIds: [] })) as {
+      stateChanges: Array<{ type: string }>;
+    };
+    expect(example.stateChanges.map(({ type }) => type)).toEqual(['character_memory_formed']);
+  });
+});
+
+describe('the prompt states the Canon rules a scene author can break', () => {
+  const prompt = () => wholeSceneSystemPrompt(scene, { legalDestinationIds: [] });
+
+  it('says a relationship change must be public, which is why the live slot failed', () => {
+    // Strict mode makes `publicSummary` mandatory on every event, and `validateCanon` refuses a
+    // `private` relationship change on an event that has one. The schema offered both values.
+    expect(prompt()).toContain('visibility to "public"');
+  });
+
+  it('names the scene participants as the only characters a stateChange may name', () => {
+    const text = prompt();
+    expect(text).toContain('must be one of this scene');
+    for (const characterId of scene.participantIds) expect(text).toContain(characterId);
+  });
+
+  it('states the two relationship rules that refuse a whole scene', () => {
+    expect(prompt()).toContain('must differ');
+    expect(prompt()).toContain('non-zero');
+  });
+
+  it('stops asking for the two variants this request cannot support', () => {
+    /**
+     * `character_state_changed` needs the character's current recorded value and
+     * `character_knowledge_learned` needs a causal event id. The request supplies neither, so
+     * asking for them produced nothing but rejections.
+     */
+    expect(prompt()).toContain('Never emit character_state_changed or character_knowledge_learned');
+  });
+
+  it('still names the alternatives, so the prohibition is not a dead end', () => {
+    const text = prompt();
+    for (const variant of ['character_memory_formed', 'relationship_changed', 'fact_created']) {
+      expect(text).toContain(variant);
+    }
   });
 });
