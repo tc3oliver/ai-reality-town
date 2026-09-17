@@ -76,7 +76,7 @@ const plan = (scenes: GroupedScene[], requestedModel = 'auto'): SceneAuthoringPl
   requestedModel,
   legalDestinationIds: Object.fromEntries(scenes.map((entry) => [entry.sceneId, ['mistwood-square']])),
   // ART-91: no fallback configured, so rung 2 keeps the requested model.
-  fallbackModel: null,
+  fallbackModel: null, promptVersion: null,
   maxConcurrentScenes: 1,
 });
 

@@ -85,6 +85,7 @@ import {
   type WorldDayBudgetPort,
 } from './sceneBudget';
 import { wholeSceneOptionsFor } from './moduleConfig';
+import { selectWholeScenePrompt } from './promptVersions';
 import type { ConfigurableModule, EffectiveModuleConfig } from '../shared/moduleModelConfig';
 import type { LanguageModelProvider } from './provider';
 import {
@@ -917,6 +918,15 @@ export type SceneAuthoringPlan = {
   readonly scenes: readonly GroupedScene[];
   readonly options: WholeSceneSimulationOptions;
   /**
+   * FR-K005 「Prompt Version」 as DATA, resolved to a builder only on the authoring side (ART-194).
+   *
+   * It used to travel already resolved, as `options.buildSystemPrompt`. A function is not a Convex
+   * value and this plan crosses an action boundary, so every live slot that needed a provider died
+   * inside `convexToJson`. `null` means the module expressed no preference and
+   * `simulateWholeScene`'s own default applies.
+   */
+  readonly promptVersion: string | null;
+  /**
    * The model the reservation is keyed on, resolved BEFORE the call.
    *
    * FR-M003's per-model daily cap has to name a model, and ART-52's `model` is `null` for a module
@@ -1055,6 +1065,7 @@ export async function buildSceneAuthoringPlan(
     groupingRunId: grouping.groupingRunId,
     scenes: grouping.result.scenes,
     options: wholeSceneOptionsFor(config),
+    promptVersion: config.promptVersion,
     requestedModel: config.model ?? await port.budget.deploymentModelId(),
     fallbackModel: config.fallbackModel ?? null,
     legalDestinationIds,
@@ -1102,6 +1113,15 @@ export async function authorSlotScenes(
     }
     const result = await simulateWholeScene(provider, simulationRunId, scene, {
       ...plan.options,
+      /**
+       * ART-194. Resolved HERE, not on the plan: `buildSystemPrompt` is a function, the plan is
+       * serialized across the live path's action boundary, and a function is not a Convex value.
+       * This sits beside `onAttempt` and `budget` because all three are the same kind of thing —
+       * behaviour the authoring side supplies, which must never travel as data.
+       */
+      ...(plan.promptVersion === null
+        ? {}
+        : { buildSystemPrompt: selectWholeScenePrompt(plan.promptVersion) }),
       /**
        * ART-90. One row per semantic attempt, so §16.2's structured-output rate has a denominator.
        *
