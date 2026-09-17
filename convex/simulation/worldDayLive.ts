@@ -421,6 +421,51 @@ export function legalDestinationsFrom(
     .sort((left, right) => left.localeCompare(right));
 }
 
+/**
+ * Where one participant actually stands, and where Canon would let them go (ART-200).
+ *
+ * ART-157 computed ONE destination list per scene, from `scene.locationId`, and the movement rule
+ * told the model `fromLocationId` must be that location. A scene groups characters by INTENT;
+ * Canon tracks where each character actually is, and nothing makes the two agree. For a participant
+ * projected somewhere else the prompt was instructing a value `validateCanon` refuses
+ * (`LOCATION_PRECONDITION_FAILED`), and the destinations offered were not connected to where they
+ * stood, so `TELEPORTATION_NOT_ALLOWED` would have refused the corrected move too.
+ *
+ * Deriving it per character is not a refinement — it is what makes the rule true. It also settles
+ * four canon rules with one computation: the origin matches the projection, the destinations are
+ * that origin's own connections, inactive and full locations are already filtered out, and the
+ * origin itself is excluded so a move always changes location.
+ */
+export type ParticipantMovement = {
+  /** The character's projected location. The ONLY value Canon accepts as `fromLocationId`. */
+  readonly fromLocationId: string;
+  /** Legal destinations from that location. Empty means this character may not move at all. */
+  readonly destinations: readonly string[];
+};
+
+/**
+ * One scene's participants, each with their own origin and destinations.
+ *
+ * A participant the snapshot does not know is omitted rather than defaulted to the scene's
+ * location: inventing an origin is exactly the assumption this replaces.
+ */
+export function participantMovementFor(
+  snapshot: Pick<LiveWorldSnapshot, 'characters' | 'locations'>,
+  scene: Pick<GroupedScene, 'participantIds'>,
+): Record<string, ParticipantMovement> {
+  const byId = new Map(snapshot.characters.map((character) => [character.characterId, character]));
+  const movement: Record<string, ParticipantMovement> = {};
+  for (const characterId of scene.participantIds) {
+    const character = byId.get(characterId);
+    if (!character) continue;
+    movement[characterId] = {
+      fromLocationId: character.currentLocationId,
+      destinations: legalDestinationsFrom(snapshot.locations, character.currentLocationId),
+    };
+  }
+  return movement;
+}
+
 /** Share of the recent window taken by its single most common event type (0…1). */
 export function repetitionScore(eventTypes: readonly string[]): number {
   if (eventTypes.length === 0) return 0;
@@ -939,6 +984,14 @@ export type SceneAuthoringPlan = {
   /** ART-157, per scene: the destinations Canon will accept from that scene's location. */
   readonly legalDestinationIds: Readonly<Record<string, readonly string[]>>;
   /**
+   * ART-200, per scene and then per character: where each participant actually stands.
+   *
+   * Authoritative over {@link legalDestinationIds} wherever it has an entry. The scene-level list
+   * is right only when every participant is at the scene's location, and a scene groups characters
+   * by intent rather than by position.
+   */
+  readonly participantMovement: Readonly<Record<string, Readonly<Record<string, ParticipantMovement>>>>;
+  /**
    * FR-M003 最大並行數, as the number of scenes that may be in flight at once (ART-161).
    *
    * `1` means sequential and is what an UNCONFIGURED world gets: `TokenBudgetPolicy`'s default is
@@ -1066,8 +1119,12 @@ export async function buildSceneAuthoringPlan(
   const config = await port.loadModuleConfig(slot.worldId, 'scene_simulation');
   const configuredLimit = await port.loadConcurrencyLimit(slot.worldId);
   const legalDestinationIds: Record<string, readonly string[]> = {};
+  const participantMovement: Record<string, Record<string, ParticipantMovement>> = {};
   for (const scene of grouping.result.scenes) {
     legalDestinationIds[scene.sceneId] = legalDestinationsFrom(snapshot.locations, scene.locationId);
+    // ART-200. From the SAME stage-1 snapshot, so what the author is told about a character's
+    // position is what Canon will validate the result against.
+    participantMovement[scene.sceneId] = participantMovementFor(snapshot, scene);
   }
   return {
     slot,
@@ -1078,6 +1135,7 @@ export async function buildSceneAuthoringPlan(
     requestedModel: config.model ?? await port.budget.deploymentModelId(),
     fallbackModel: config.fallbackModel ?? null,
     legalDestinationIds,
+    participantMovement,
     // Clamped to at least 1: a configured 0 would author nothing while looking like a setting.
     maxConcurrentScenes: Math.max(1, configuredLimit ?? 1),
   };
@@ -1148,6 +1206,9 @@ export async function authorSlotScenes(
       // against, so the author is told exactly what Canon will accept. Before this the
       // prompt named no location at all and every movement it proposed was refused.
       legalDestinationIds: [...(plan.legalDestinationIds[scene.sceneId] ?? [])],
+      // ART-200. Each participant's OWN origin and destinations, which is what makes the movement
+      // rule true for a participant who is not standing at the scene's location.
+      participantMovement: plan.participantMovement[scene.sceneId] ?? {},
       budget: {
         gate: store.budget,
         reservation: {
