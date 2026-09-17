@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-09-17 18:37'
-updated_date: '2026-09-17 18:37'
+updated_date: '2026-09-17 18:39'
 labels: []
 dependencies: []
 priority: high
@@ -90,3 +90,15 @@ so `character_state_changed` becomes usable again is real work and is its own ta
 3. The test drives the real prompt example through validateCanon with a seeded projection, not only validateEventStructure -- that gap is what let ART-196 ship the riskier example.
 4. Follow-up task for supplying character state so character_state_changed becomes usable again.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Verification: npm run check exit 0, 4800 tests (baseline 4792 + 8).
+Two fault injections, each failing the named test it should:
+  1 revert the example to ART-196's character_state_changed -> 2 failed, INCLUDING
+    'is accepted with no legal destination' under validateCanon. That is the gap ART-196
+    fell into, demonstrated: the old structural-only test passed on the same example.
+  2 drop the canon rules paragraph -> 4 failed.
+Follow-up recorded as ART-198 for the two removed variants.
+<!-- SECTION:NOTES:END -->
