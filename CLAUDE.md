@@ -100,6 +100,15 @@ regenerates it offline — `npx convex codegen` contacts a deployment and is not
 skip rules explain most surprises: a file named `schema.ts` is excluded at ANY depth, and a basename
 with more than one dot is excluded, which is what keeps `*.test.ts` and `auth.config.ts` out.
 
+**Two Convex deployments back this project, and the CLI's names for them are the opposite of
+their roles.** `colorless-deer-917` is **Public Acceptance / Staging** and is the CLI's `dev` slot;
+`glorious-grasshopper-417` is **real production** and is the `prod` slot. So `npx convex run` and
+`npx convex env` hit ACCEPTANCE by default, `npx convex dev --once` updates acceptance, and
+`npx convex deploy` deploys PRODUCTION — never use it to update acceptance. Every qualification
+reading records the deployment name and role; acceptance evidence never closes a criterion whose
+text requires real production. `docs/deployment-environments.md` is the reference, and
+`npm run check:deployment-environments` holds the docs to it.
+
 **`npm run e2e` is NOT part of `check`, and is not a required CI status check.** Run it
 separately (`build:e2e` → Playwright) before claiming a change is verified — especially for
 anything touching routes, fixtures, or the post-commit pipeline. It is slow enough that it

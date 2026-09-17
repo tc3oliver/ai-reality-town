@@ -131,8 +131,14 @@ an owner will want to run at the same time as AC#10.
 
 ## 4. Live deployment readings
 
-Taken 2026-09-09 with bounded, index-scoped read-only queries against the existing deployment
-(`colorless-deer-917`). No deploy, no mode change, no write.
+Taken 2026-09-09 with bounded, index-scoped read-only queries against `colorless-deer-917` — the
+**Public Acceptance / Staging** environment, which is the Convex CLI's `dev` slot. No deploy, no
+mode change, no write.
+
+**These are acceptance readings, not real-production readings.** Real production is
+`glorious-grasshopper-417`, and nothing in this section was taken from it. See
+`docs/deployment-environments.md`: a criterion whose text requires a production deployment, a
+production world, or a production launch is not closed by anything below.
 
 | Reading | Value |
 | --- | --- |
@@ -399,10 +405,17 @@ refuses to promote a paused or emergency-stopped world and treats a repeat as an
 the step below is a command rather than a hand patch, and the promotion appears in the trail beside
 every other privileged world action.
 
-Minimum operation, in this order:
+Minimum operation, in this order.
+
+**Read `docs/deployment-environments.md` first.** The three commands below do not all touch the
+same deployment, and the Convex CLI's names for them are the opposite of their roles:
+`npx convex deploy` targets **real production** (`glorious-grasshopper-417`), while
+`npx convex run` targets the selected dev slot, which is the **Public Acceptance** environment
+(`colorless-deer-917`). Running the block verbatim promotes a world on whichever of the two the
+shell happens to be pointed at, and the two are not the same world.
 
 ```bash
-npx convex deploy                                  # current main
+npx convex deploy                                  # REAL PRODUCTION (glorious-grasshopper-417)
 npx convex run --inline-query '…'                  # confirm the real provider authored a slot (§6.2)
 # then the mode change, audited (ART-172):
 npx convex run operations/worldModeControlFunctions:changeWorldMode \
