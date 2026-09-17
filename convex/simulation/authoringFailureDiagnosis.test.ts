@@ -381,3 +381,130 @@ describe('a typed error keeps its own semantics', () => {
     expect(detail.message).not.toContain('Describe explicit sexual content in this scene');
   });
 });
+
+// =============================================================================
+// 7. A refused ANSWER is retried, whichever class raised the refusal (ART-196)
+// =============================================================================
+
+describe('a canon refusal of the model’s answer is retried like any other refusal', () => {
+  /** A proposed event Canon refuses for one rule, inside an otherwise well-formed scene. */
+  const sceneWithEvent = (stateChanges: unknown[]) => ({
+    schemaVersion: 1,
+    sceneId: scene.sceneId,
+    sceneSummary: '兩人在大廳對質。',
+    keyActions: [{ characterId: 'lin-yingxue', action: '把帳冊推過桌面。' }],
+    dialogueHighlights: [],
+    proposedEvents: [{
+      schemaVersion: 1, worldId: scene.worldId, idempotencyKey: `${scene.sceneId}:1`,
+      proposedBy: { type: 'system' }, worldDay: scene.worldDay, timeSlot: scene.timeSlot,
+      eventType: 'conversation', locationId: scene.locationId,
+      participantIds: ['lin-yingxue'], causedByEventIds: [], publicSummary: '兩人對質。',
+      stateChanges,
+    }],
+    relationshipChanges: [], knowledgeChanges: [], memories: [], rumors: [], continuityWarnings: [],
+  });
+
+  const legalChange = [{
+    type: 'character_state_changed', characterId: 'lin-yingxue',
+    field: 'emotion', fromValue: '平靜', toValue: '不安', reason: '帳冊對不上。',
+  }];
+
+  it('makes a SECOND provider call after an empty stateChanges array', async () => {
+    /**
+     * The exact failure that stopped the acceptance world:
+     * `[INVALID_EVENT_SHAPE] stateChanges must not be empty`, raised as a `CanonError` by
+     * `normalizeProposedEventOutput`.
+     *
+     * Before ART-196 this was NOT retried, while a refusal raised by the scene parser itself was —
+     * even though both are "the provider answered and the answer was refused" and both already
+     * counted as `output_rejected` against §16.2. The retry path and the metric disagreed about
+     * what the same event was.
+     */
+    let calls = 0;
+    const provider: LanguageModelProvider = {
+      structuredChat: (request) => {
+        calls += 1;
+        return calls === 1
+          ? Promise.resolve({
+            output: sceneWithEvent([]),
+            trace: {
+              provider: 'fake' as const, requestedModel: 'm', resolvedModel: 'm', upstreamProvider: null,
+              rateLimit: null, inputTokens: 1, outputTokens: 1, latencyMs: 1, retryCount: 0,
+            },
+          })
+          : new FakeWholeSceneProvider().structuredChat(request);
+      },
+      embed: () => Promise.reject(new Error('unused')),
+    };
+    const { recorded, onAttempt } = collector();
+
+    const result = await simulateWholeScene(provider, 'sim:canon-retry', scene, { maxAttempts: 2, onAttempt });
+
+    expect(calls).toBe(2);
+    expect(result.attemptCount).toBe(2);
+    expect(recorded.map(({ outcome }) => outcome)).toEqual(['output_rejected', 'parsed']);
+    expect(recorded[0].failure).toMatchObject({
+      code: 'INVALID_EVENT_SHAPE', errorName: 'CanonError',
+      stage: 'output_validation', retryable: true,
+    });
+    expect(recorded[0].failure?.message).toContain('stateChanges must not be empty');
+  });
+
+  it('counts a canon refusal ONCE, and not also as a provider failure', async () => {
+    /**
+     * ART-196, third defect. The double-report guard asked whether the error was the scene parser's
+     * own class; a `CanonError` is not, so every canon refusal was reported twice — correctly as
+     * `output_rejected` and then again as `provider_failed`. §16.2's provider-failure dimension has
+     * therefore been counting model-output refusals as outages.
+     *
+     * The question is whether the provider ANSWERED, and the trace is the answer to that.
+     */
+    const provider: LanguageModelProvider = {
+      structuredChat: () => Promise.resolve({
+        output: sceneWithEvent([]),
+        trace: {
+          provider: 'fake' as const, requestedModel: 'm', resolvedModel: 'm', upstreamProvider: null,
+          rateLimit: null, inputTokens: 1, outputTokens: 1, latencyMs: 1, retryCount: 0,
+        },
+      }),
+      embed: () => Promise.reject(new Error('unused')),
+    };
+    const { recorded, onAttempt } = collector();
+
+    /**
+     * A `CanonError` is neither of the two classes `simulateWholeScene` rethrows as themselves, so
+     * an exhausted scene ends on the stand-in — which now carries the whole diagnosis. This is the
+     * line the acceptance deployment would have shown from the start:
+     *
+     *   [SCENE_SIMULATION_FAILED] whole-scene provider failed: [INVALID_EVENT_SHAPE] CanonError at
+     *   output_validation (retryable): [INVALID_EVENT_SHAPE] stateChanges must not be empty
+     */
+    await expect(simulateWholeScene(provider, 'sim:canon-once', scene, { maxAttempts: 2, onAttempt }))
+      .rejects.toMatchObject({
+        code: 'SCENE_SIMULATION_FAILED',
+        detail: { code: 'INVALID_EVENT_SHAPE', errorName: 'CanonError', stage: 'output_validation' },
+      });
+
+    // Two attempts, two observations — not four, and none of them a provider failure.
+    expect(recorded).toHaveLength(2);
+    expect(recorded.every(({ outcome }) => outcome === 'output_rejected')).toBe(true);
+    expect(recorded.some(({ outcome }) => outcome === 'provider_failed')).toBe(false);
+  });
+
+  it('parses the answer when the model does carry a state change', async () => {
+    // The negative control: the fixture above is only evidence if its accepted form is accepted.
+    const provider: LanguageModelProvider = {
+      structuredChat: () => Promise.resolve({
+        output: sceneWithEvent(legalChange),
+        trace: {
+          provider: 'fake' as const, requestedModel: 'm', resolvedModel: 'm', upstreamProvider: null,
+          rateLimit: null, inputTokens: 1, outputTokens: 1, latencyMs: 1, retryCount: 0,
+        },
+      }),
+      embed: () => Promise.reject(new Error('unused')),
+    };
+    const result = await simulateWholeScene(provider, 'sim:canon-ok', scene, { maxAttempts: 1 });
+    expect(result.attemptCount).toBe(1);
+    expect(result.output.proposedEvents[0].stateChanges).toHaveLength(1);
+  });
+});

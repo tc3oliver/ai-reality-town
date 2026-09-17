@@ -281,3 +281,98 @@ describe('describeFailure keeps what the old rule discarded', () => {
     expect(formatFailureDetail(describeFailure(new Error()))).toContain('(no message)');
   });
 });
+
+// =============================================================================
+// Corrections found by the first live run this mechanism was built for
+// =============================================================================
+
+/**
+ * The run returned, verbatim:
+ *
+ *     "[SCENE_SIMULATION_FAILED] whole-scene provider failed: [[REDACTED]] CanonError at
+ *      provider_transport: [INVALID_EVENT_SHAPE] stateChanges must not be empty"
+ *
+ * Three things were wrong with that line, and all three are pinned below. The diagnosis it carried
+ * was nevertheless correct and actionable, which is the point — but a redacted code, a wrong stage
+ * and a class-derived code where the error had a real one are each a step back toward the constant
+ * this task replaced.
+ */
+describe('ART-195 corrections: what the first live failure exposed', () => {
+  /** A `CanonError`, structurally: its verdict is nested on `.error`, not on `.code`. */
+  const canonError = (code: string, message: string) => {
+    const error = new Error(`[${code}] ${message}`) as Error & { error: { code: string; message: string } };
+    error.name = 'CanonError';
+    error.error = { code, message };
+    return error;
+  };
+
+  it('does not redact the machine codes it just derived', () => {
+    // `PROVIDER_EXCEPTION_CANON_ERROR` is 30 characters of exactly the alphabet an opaque run is
+    // made of, and `PROVIDER_EXCEPTION_ERROR` is 24 — the most common derived code of all.
+    expect(sanitizeFailureText('failed with PROVIDER_EXCEPTION_CANON_ERROR at stage'))
+      .toContain('PROVIDER_EXCEPTION_CANON_ERROR');
+    expect(sanitizeFailureText('failed with PROVIDER_EXCEPTION_ERROR'))
+      .toContain('PROVIDER_EXCEPTION_ERROR');
+  });
+
+  it('still redacts a credential of the same length, so the exemption is not a hole', () => {
+    // The exemption requires upper case, digits and an underscore. None of these qualifies.
+    for (const secret of [
+      'ZmFrZS1rZXktdmFsdWUtMTIzNDU2Nzg5MA',
+      'sk-live-abcdef0123456789abcdef',
+      'AbCdEfGhIjKlMnOpQrStUvWxYz012345',
+    ]) {
+      expect(sanitizeFailureText(`token ${secret} refused`)).not.toContain(secret);
+    }
+  });
+
+  it('keeps the canon code a CanonError nests on `.error`, rather than naming its class', () => {
+    // This is the failure the live run actually hit. Reporting it as
+    // `PROVIDER_EXCEPTION_CANON_ERROR` names the class and loses WHICH rule refused the proposal.
+    const detail = describeFailure(canonError('INVALID_EVENT_SHAPE', 'stateChanges must not be empty'));
+    expect(detail.code).toBe('INVALID_EVENT_SHAPE');
+    expect(detail.errorName).toBe('CanonError');
+    expect(detail.message).toContain('stateChanges must not be empty');
+  });
+
+  it('puts a canon refusal at output_validation, not at the caller’s transport fallback', () => {
+    // The live line said `provider_transport`, which sends an operator to the network for a fault
+    // that is entirely in the model's answer.
+    expect(describeFailure(canonError('INVALID_EVENT_SHAPE', 'x'), 'provider_transport').stage)
+      .toBe('output_validation');
+  });
+
+  it('inherits the stage from a stand-in error that already carries a detail', () => {
+    /**
+     * `SCENE_SIMULATION_FAILED` names no stage of its own — it is the stand-in for an error of an
+     * unrecognised class — so without this it takes whatever fallback the caller passed. A
+     * confidently wrong stage is worse than `unknown`.
+     */
+    const inner = describeFailure(canonError('INVALID_EVENT_SHAPE', 'x'));
+    const outer = new Error('[SCENE_SIMULATION_FAILED] whole-scene provider failed') as Error & {
+      code: string; detail: typeof inner;
+    };
+    outer.name = 'SceneSimulationError';
+    outer.code = 'SCENE_SIMULATION_FAILED';
+    outer.detail = inner;
+
+    expect(describeFailure(outer, 'provider_transport').stage).toBe('output_validation');
+  });
+
+  it('still honours the caller fallback when there is no detail to inherit', () => {
+    const outer = new Error('[SCENE_SIMULATION_FAILED] whole-scene provider failed') as Error & { code: string };
+    outer.name = 'SceneSimulationError';
+    outer.code = 'SCENE_SIMULATION_FAILED';
+    expect(describeFailure(outer, 'provider_transport').stage).toBe('provider_transport');
+  });
+
+  it('never lets an inherited stage override one the error itself settled', () => {
+    const wrong = describeFailure(new Error('x'));
+    const outer = new Error('timeout') as Error & { code: string; kind: string; detail: typeof wrong };
+    outer.name = 'SimulationProviderError';
+    outer.code = 'LLM_TIMEOUT';
+    outer.kind = 'transient';
+    outer.detail = { ...wrong, stage: 'budget' };
+    expect(describeFailure(outer).stage).toBe('provider_transport');
+  });
+});

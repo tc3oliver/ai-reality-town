@@ -102,6 +102,21 @@ const CODE_PATTERN = /^[A-Z][A-Z0-9_]{0,63}$/u;
  */
 const OPAQUE_RUN = /[A-Za-z0-9+/=_-]{24,}/gu;
 
+/**
+ * An UPPER_SNAKE machine code, which {@link OPAQUE_RUN} must not eat.
+ *
+ * Found on the acceptance deployment, by the first run this mechanism was built for: the failure
+ * read `[[REDACTED]] CanonError at …` because `PROVIDER_EXCEPTION_CANON_ERROR` is 30 characters of
+ * exactly the alphabet an opaque run is made of. The sanitizer was redacting the codes the
+ * classifier had just derived — and `PROVIDER_EXCEPTION_ERROR`, at 24 characters, is the most
+ * common one of all.
+ *
+ * The exemption is narrow on purpose: upper case, digits and AT LEAST ONE underscore, nothing else.
+ * A base64 key, a hex digest and a `sk-` token all fail it — the first two carry lower case or
+ * mixed case, and none of the three is underscore-separated.
+ */
+const MACHINE_CODE = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/u;
+
 /** `Authorization: Bearer …`, in a message or in a stringified header dump. */
 const BEARER = /\b(bearer)\s+\S+/giu;
 
@@ -125,7 +140,7 @@ export function sanitizeFailureText(value: unknown): string {
   const redacted = value
     .replace(BEARER, `$1 ${REDACTED}`)
     .replace(CREDENTIAL_PARAM, (_match, name: string) => `${name}=${REDACTED}`)
-    .replace(OPAQUE_RUN, REDACTED)
+    .replace(OPAQUE_RUN, (run) => (MACHINE_CODE.test(run) ? run : REDACTED))
     // Newlines and runs of space collapse so one failure is one readable line. A stack trace that
     // arrived inside a message becomes a single line rather than reformatting every reader.
     .replace(/\s+/gu, ' ')
@@ -210,14 +225,23 @@ function codeFromName(name: string): string {
  *
  *  1. `error.code`, when it is already a bounded machine code. Every `SimulationProviderError`,
  *     `SceneSimulationError`, `SceneBudgetError` and `CanonError` in this repository has one.
- *  2. `error.rejection.code` — `PreGenerationSafetyError` puts its category THERE rather than on
+ *  2. `error.error.code` — `CanonError` nests its verdict one level down, so the code that names
+ *     WHICH canon rule refused a proposal is not on `code` at all. The first live run after this
+ *     mechanism shipped was a `CanonError`, and it was reported as an unidentified exception
+ *     because nothing looked here.
+ *  3. `error.rejection.code` — `PreGenerationSafetyError` puts its category THERE rather than on
  *     `code`, which is why a policy refusal used to read as an unidentified failure.
- *  3. The constructor name, via {@link codeFromName}.
+ *  4. The constructor name, via {@link codeFromName}.
  */
 export function stableFailureCode(error: unknown): string {
   if (isObject(error)) {
     const own = (error as { code?: unknown }).code;
     if (typeof own === 'string' && CODE_PATTERN.test(own)) return own;
+    const nested = (error as { error?: unknown }).error;
+    if (isObject(nested)) {
+      const nestedCode = (nested as { code?: unknown }).code;
+      if (typeof nestedCode === 'string' && CODE_PATTERN.test(nestedCode)) return nestedCode;
+    }
     const rejection = (error as { rejection?: unknown }).rejection;
     if (isObject(rejection) && typeof (rejection as { code?: unknown }).code === 'string') {
       return PRE_GENERATION_BLOCKED_CODE;
@@ -246,6 +270,11 @@ function stageForCode(code: string, errorName: string): FailureStage {
   if (code.startsWith('LLM_')) return 'provider_response';
   if (code.startsWith('SCENE_BUDGET_')) return 'budget';
   if (code.startsWith('SCENE_OUTPUT_')) return 'output_validation';
+  // A `CanonError` reaching the authoring path is `normalizeProposedEventOutput` refusing a
+  // proposal the model wrote, which is validation of the OUTPUT however far down it was thrown.
+  // Its codes are canon's own vocabulary (`INVALID_EVENT_SHAPE`, `UNKNOWN_LOCATION_REFERENCE`) and
+  // share no prefix with anything above, so the class is what identifies them.
+  if (errorName === 'CanonError') return 'output_validation';
   return 'unknown';
 }
 
@@ -262,20 +291,26 @@ function stageForCode(code: string, errorName: string): FailureStage {
  *  - a budget refusal is never retried: retrying spends the retry budget arguing with the limit
  *    that just refused the call. Checked FIRST, because `SceneBudgetError`'s codes also begin
  *    `SCENE_` and the prefix rule would otherwise claim it;
+ *  - a `CanonError` raised while parsing a model's answer is retried for the same reason as a
+ *    `SceneSimulationError`, and ART-196 made it so. Both mean "the provider answered and the
+ *    answer was refused", both are already counted as `output_rejected` against §16.2's
+ *    structured-output rate, and until then the retry path and the metric disagreed about what the
+ *    same event was: a refusal raised by the scene parser got a second sample and one raised by
+ *    `normalizeProposedEventOutput` did not;
  *  - anything unidentified is NOT retried. Spending a free-tier allowance on a guess is the more
  *    expensive mistake, and it is the same reading `isRouteLevelFailure` takes one layer down.
  *
  * Matched case for case against the `instanceof` chain it replaces, which is what makes it safe to
  * have `simulateWholeScene` call this instead of repeating the rule.
  */
-function retryabilityOf(error: unknown, code: string): boolean {
+function retryabilityOf(error: unknown, code: string, errorName: string): boolean {
   if (code.startsWith('SCENE_BUDGET_')) return false;
   if (isObject(error)) {
     const kind = (error as { kind?: unknown }).kind;
     if (kind === 'transient') return true;
     if (kind === 'permanent') return false;
   }
-  return code.startsWith('SCENE_');
+  return code.startsWith('SCENE_') || errorName === 'CanonError';
 }
 
 /**
@@ -288,6 +323,21 @@ function retryabilityOf(error: unknown, code: string): boolean {
 export function describeFailure(error: unknown, fallbackStage: FailureStage = 'unknown'): FailureDetail {
   const code = stableFailureCode(error);
   const errorName = nameOf(error);
+  /**
+   * An error that already carries a detail knows better than this function does.
+   *
+   * `SCENE_SIMULATION_FAILED` is the stand-in `simulateWholeScene` throws for an error of a class
+   * it does not recognise, so it names no stage of its own and would otherwise take the caller's
+   * fallback. On the first live run after this shipped that fallback read `provider_transport` for
+   * a failure that was in fact `output_validation` — a confidently wrong stage, which is worse than
+   * `unknown` because it sends an operator to the network instead of to the model.
+   */
+  const inherited = isObject(error) ? (error as { detail?: unknown }).detail : undefined;
+  const inheritedStage = isObject(inherited)
+    && typeof (inherited as { stage?: unknown }).stage === 'string'
+    && (FAILURE_STAGES as readonly string[]).includes((inherited as { stage: string }).stage)
+    ? (inherited as { stage: FailureStage }).stage
+    : null;
   const derived = stageForCode(code, errorName);
   const cause = isObject(error) ? (error as { cause?: unknown }).cause : undefined;
   const hasCause = cause !== undefined && cause !== null;
@@ -295,13 +345,13 @@ export function describeFailure(error: unknown, fallbackStage: FailureStage = 'u
     code,
     errorName,
     message: sanitizeFailureText(isObject(error) ? (error as { message?: unknown }).message : error),
-    stage: derived === 'unknown' ? fallbackStage : derived,
+    stage: derived !== 'unknown' ? derived : inheritedStage ?? fallbackStage,
     causeName: hasCause ? nameOf(cause) : null,
     causeCode: hasCause ? stableFailureCode(cause) : null,
     causeMessage: hasCause
       ? sanitizeFailureText(isObject(cause) ? (cause as { message?: unknown }).message : cause)
       : null,
-    retryable: retryabilityOf(error, code),
+    retryable: retryabilityOf(error, code, errorName),
   };
 }
 

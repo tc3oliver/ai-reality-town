@@ -253,7 +253,10 @@ const proposedEventItem = strictObject({
   proposedBy: strictObject({ type: enumOf(PROPOSED_BY_TYPES) }),
   worldDay: integer, timeSlot: enumOf(TIME_SLOTS), eventType: enumOf(EVENT_TYPES),
   locationId: text, participantIds: textArray, causedByEventIds: textArray, publicSummary: text,
-  stateChanges: { type: 'array', items: { anyOf: stateChangeVariants } },
+  // ART-196: `minItems`, because `validateEventStructure` refuses an event carrying no state
+  // change and the request never said so. The schema is serialized into the prompt verbatim, so
+  // stating it here states it to the model as well as to any gateway that enforces the schema.
+  stateChanges: { type: 'array', minItems: 1, items: { anyOf: stateChangeVariants } },
 });
 
 export const WHOLE_SCENE_JSON_SCHEMA: Record<string, unknown> = strictObject({
@@ -300,17 +303,43 @@ export const wholeSceneSystemPrompt = (scene: GroupedScene, context: WholeSceneP
   const example = {
     schemaVersion: 1, worldId: scene.worldId, idempotencyKey: `${scene.sceneId}:1`,
     proposedBy: { type: 'system' }, worldDay: scene.worldDay, timeSlot: scene.timeSlot,
-    eventType: exampleDestination === undefined ? 'interaction' : 'movement', locationId: scene.locationId,
+    // ART-196: `conversation`, not `interaction`. `interaction` is not in `EVENT_TYPES` and never
+    // was, so the no-destination branch of this example was refused with
+    // `[INVALID_EVENT_SHAPE] eventType is not supported` on top of its empty `stateChanges` — the
+    // one worked example the model got was invalid in two independent ways. Nothing compared the
+    // two branches, and only the movement branch had ever been exercised against Canon.
+    eventType: exampleDestination === undefined ? 'conversation' : 'movement', locationId: scene.locationId,
     participantIds: scene.participantIds.slice(0, 1), causedByEventIds: [],
     publicSummary: exampleDestination === undefined
       ? '角色留在原地，與同場的人交談。'
       : '角色離開原本的地點，前往下一個場所。',
-    // With no legal destination there is nothing honest to demonstrate, so the example stops
-    // demonstrating a movement rather than showing one that cannot be accepted.
-    stateChanges: exampleDestination === undefined ? [] : [{
-      type: 'character_location_changed', characterId: scene.participantIds[0] ?? 'character-id',
-      fromLocationId: scene.locationId, toLocationId: exampleDestination,
-    }],
+    /**
+     * ART-196. With no legal destination the example demonstrates a different change — never an
+     * EMPTY list.
+     *
+     * ART-157 stopped the example demonstrating a movement Canon could not accept, which was right.
+     * It achieved that by emptying the array, which replaced an illegal movement with an illegal
+     * EVENT: `validateEventStructure` requires every Proposed Event to carry at least one state
+     * change, so the one worked example the model was given was rejected unconditionally. That is
+     * what stopped the live world — every authored slot failed with
+     * `[INVALID_EVENT_SHAPE] stateChanges must not be empty`.
+     *
+     * A `character_state_changed` on `emotion` is the substitute because it is legal in EVERY
+     * scene: it needs no destination, no second participant and no prior canon, so there is no
+     * scene for which this example is the wrong thing to show.
+     *
+     * Nothing caught it because the deterministic author knows the canon rules independently of the
+     * prompt — the same blind spot ART-157 recorded about itself.
+     */
+    stateChanges: exampleDestination === undefined
+      ? [{
+        type: 'character_state_changed', characterId: scene.participantIds[0] ?? 'character-id',
+        field: 'emotion', fromValue: '平靜', toValue: '不安', reason: '對方的話讓他心神不寧。',
+      }]
+      : [{
+        type: 'character_location_changed', characterId: scene.participantIds[0] ?? 'character-id',
+        fromLocationId: scene.locationId, toLocationId: exampleDestination,
+      }],
   };
   const movementRule = destinations.length === 0
     // Said explicitly rather than left as an empty list: an empty list invites the model to fill
@@ -322,6 +351,10 @@ export const wholeSceneSystemPrompt = (scene: GroupedScene, context: WholeSceneP
     'Write every narrative text field (sceneSummary, keyActions, dialogueHighlights, relationshipChanges, knowledgeChanges, memories, rumors, continuityWarnings, and each proposedEvents publicSummary) in Traditional Chinese (zh-TW). Field names and JSON structure stay in English.',
     `The response must conform exactly to this JSON Schema. Use only the field names and enum values it declares, include every required field, and never invent fields: ${JSON.stringify(WHOLE_SCENE_JSON_SCHEMA)}`,
     `Each proposedEvents item is a canonical world-state event, not a narrative beat: it carries the structured stateChanges that move the world forward. Never emit fields such as eventId, trigger or probability. A well-formed item for this scene looks like: ${JSON.stringify(example)}`,
+    // ART-196. Said in prose as well as in the schema and the example, because this rule is the one
+    // that stopped the world: every event the model proposed with an empty stateChanges array was
+    // refused by Canon, and nothing in the request had told it that such an event is not a thing.
+    'Every proposedEvents item must carry at least one entry in stateChanges. An event that changes nothing is rejected, so if a beat moves no world state, write it as a memories, knowledgeChanges or rumors note about another event instead of proposing an event of its own.',
     movementRule,
     'The memories, knowledgeChanges and rumors collections are short narrative notes about a proposed event, not state changes. Each memories or knowledgeChanges item has exactly characterId, content and proposedEventIndex; each rumors item has exactly sourceCharacterId, content and proposedEventIndex, where proposedEventIndex is the zero-based position in proposedEvents. Never give them interpretation, importance, emotionalWeight, confidence or visibility -- those belong only to a character_memory_formed entry inside proposedEvents stateChanges.',
     // FR-E005. Said explicitly because the two things share a word: a `rumors` note is colour a
@@ -584,7 +617,18 @@ export async function simulateWholeScene(provider: LanguageModelProvider, simula
        * `.rejection.code`. All of those were recorded as one thing.
        */
       lastFailure = describeFailure(error, 'provider_transport');
-      if (!(error instanceof SceneSimulationError && attemptTrace !== null)) {
+      /**
+       * ART-196. The question is whether the provider ANSWERED, and `attemptTrace` is the answer:
+       * it is assigned from `response.trace` and nothing after that point can reach here without a
+       * call having returned.
+       *
+       * The rule this replaces asked `!(error instanceof SceneSimulationError && attemptTrace !==
+       * null)`, which suppressed the double report only for the scene parser's OWN error class. A
+       * refusal raised by `normalizeProposedEventOutput` is a `CanonError`, so it was reported
+       * twice — once correctly as `output_rejected`, then again as `provider_failed` — and §16.2's
+       * provider-failure dimension has been counting every canon refusal as an outage.
+       */
+      if (attemptTrace === null) {
         report('provider_failed', lastFailure);
       }
       // A budget refusal is NOT retryable. Retrying it would spend the retry budget arguing with
