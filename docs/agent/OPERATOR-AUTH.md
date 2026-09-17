@@ -39,6 +39,12 @@ In Clerk → **JWT Templates** → New → name it **exactly `convex`** (this ma
 `applicationID: "convex"` in `auth.config.ts`). No claims customization is required.
 
 ### 3. Set the backend env
+
+`--dev` is the **Public Acceptance / Staging** environment (`colorless-deer-917`) and `--prod` is
+**real production** (`glorious-grasshopper-417`). They are separate Clerk configurations and
+separate operator registries; configuring one says nothing about the other. See
+`docs/deployment-environments.md`.
+
 ```bash
 npx convex env --prod set CLERK_JWT_ISSUER_DOMAIN https://<your-app>.clerk.accounts.dev
 npx convex env --dev  set CLERK_JWT_ISSUER_DOMAIN https://<your-app>.clerk.accounts.dev
@@ -66,7 +72,16 @@ scratch query) once signed in, then copy that `subject` verbatim into the entry.
 fields can be removed once identity is working.
 
 ## Verifying it took effect
+
+Record which deployment you verified against — the answer is per-environment, and an acceptance
+PASS is not a production PASS.
+
 1. Sign in via the frontend; `describeOperatorSession` returns a principal with
    `source: "identity"`.
 2. A privileged call without a signed-in identity is rejected with `OPS_UNAUTHORIZED` even
    if the old token is supplied — confirming the token branch is closed.
+
+If an authenticated call returns `401 NoAuthProvider` instead, the env var is not the problem:
+`convex/auth.config.ts` resolves `CLERK_JWT_ISSUER_DOMAIN` when the code is PUSHED, so a
+deployment that has never been pushed to has an empty `providers` list no matter what its
+environment says.
