@@ -244,3 +244,42 @@ recorded about itself, three more times.
 
 The tests added across these three tasks are the comparison: they drive the real prompt builder and
 put what it produces through the real validators.
+
+## The movement rule has to be true for the character it names (ART-200)
+
+Fourth stop of the same class:
+
+```
+mistwood day 5 noon — LOCATION_PRECONDITION_FAILED at validate_canon
+"movement fromLocationId does not match current location"
+```
+
+ART-157's rule ends *"fromLocationId must be `<scene.locationId>`"*. That is true only when every
+participant is standing at the scene's location — and **a scene groups characters by intent while
+Canon tracks position**. Nothing makes the two agree. For a participant projected elsewhere the
+prompt was instructing a value `validateCanon` refuses, and the scene-level destination list was
+computed from the scene's location, so even a corrected origin would then have failed
+`TELEPORTATION_NOT_ALLOWED`.
+
+`participantMovementFor` derives each participant's own origin and the destinations legal **from
+it**. `legalDestinationsFrom` always could compute this; it was only ever called with the scene's
+location. One computation settles four canon rules:
+
+| Rule | How |
+| --- | --- |
+| `LOCATION_PRECONDITION_FAILED` (origin) | the origin *is* the projected location |
+| `TELEPORTATION_NOT_ALLOWED` | destinations are that origin's own connections |
+| `UNKNOWN_LOCATION_REFERENCE` | inactive and full destinations are filtered out |
+| `LOCATION_PRECONDITION_FAILED` (no-op) | the origin is excluded, so a move always moves |
+
+A participant who cannot move is told so by name. A character absent from a list of who *may* move
+is a character the model reads as unconstrained — the same reasoning ART-157 gives for stating the
+empty case explicitly.
+
+The worked example follows the character it **names**: that character's own origin and their own
+first destination, or no movement at all when they have none. Combining `participantIds[0]` with the
+scene's location and the scene-level list was the ART-196 failure in another form — an example that
+could not be accepted.
+
+The ART-157 scene-level rule is kept for callers that supply no positions, which is how every pure
+scene-parsing test calls it. This adds precision where it is available and removes nothing.

@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-09-17 19:25'
-updated_date: '2026-09-17 19:25'
+updated_date: '2026-09-17 19:29'
 labels: []
 dependencies: []
 priority: high
@@ -92,3 +92,13 @@ scene author proposes, Canon decides.
 5. The worked example demonstrates a movement only for a participant who actually has a destination, and otherwise falls back to the ART-197 memory example.
 6. Tests: a scene whose participant is projected somewhere other than the scene location must not be told to write the scene location as fromLocationId; the example must pass validateCanon against a projection where that is true.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Verification: npm run check exit 0, 4818 tests (baseline 4809 + 9).
+Three fault injections, each failing the named test it should; 35/35 restored after each:
+  1 ignore per-participant movement          -> 3 failed
+  2 example origin back to the scene location -> 1 failed
+  3 destinations computed from the scene      -> 1 failed
+<!-- SECTION:NOTES:END -->
