@@ -314,3 +314,35 @@ Making them usable is separate work — ART-198.
 Each test pairs the prompt sentence with the validator that enforces it. A rule stated to the model
 with no validator behind it is decoration; a validator the prompt never mentions is what stopped
 this world five times running.
+
+## A field with one valid value is not asked for (ART-203)
+
+ART-201 told the model in prose that `causedByEventIds` must be empty. The next live slot obeyed and
+committed six events — the first successful live slot in this repository. The one after it did not:
+
+```
+mistwood day 5 night — UNKNOWN_EVENT_REFERENCE at validate_canon
+"causal event does not exist"
+```
+
+A rule that holds only as often as the model chooses to follow it is not a rule.
+
+`causedByEventIds` is removed from `proposedEventItem`, so the request stops **demanding** a field a
+scene author can never fill, and `parseWholeSceneOutput` fills `[]` when it is absent — exactly the
+treatment ART-139 gave `schemaVersion` and `sceneId`, fields whose only valid value the caller
+already knows.
+
+### The schema and the example do different jobs, and must agree
+
+The schema stops demanding the field; the worked example still shows `causedByEventIds: []`, which
+is the value to write if one is written at all. An instruction that contradicted the example would
+be worse than either alone.
+
+### What is filled, and what is not
+
+| Case | Behaviour | Why |
+| --- | --- | --- |
+| field omitted | filled with `[]` | a parse: the caller knows the only valid value |
+| field supplied | left alone, validated, refused if invented | a repair that changes meaning would make a hallucination invisible |
+
+No validation threshold is lowered. Canon's rule is unchanged and still enforced.
