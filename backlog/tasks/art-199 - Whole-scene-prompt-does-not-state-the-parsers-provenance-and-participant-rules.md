@@ -7,7 +7,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-09-17 19:01'
-updated_date: '2026-09-17 19:01'
+updated_date: '2026-09-17 19:04'
 labels: []
 dependencies: []
 priority: high
@@ -80,3 +80,12 @@ Do NOT relax the parser, the schema or Canon.
 <!-- SECTION:PLAN:BEGIN -->
 One paragraph in wholeSceneSystemPrompt stating every parseWholeSceneOutput rule a model can break, with the scene's literal values inlined the way ART-157 inlined legal destinations. Tests drive parseWholeSceneOutput with a model-shaped output breaking each rule, so the prompt text and the parser cannot drift: a rule the prompt states must be a rule the parser enforces, and the test fails if either side moves.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Verification: npm run check exit 0, 4809 tests (baseline 4800 + 9).
+Fault injection: drop the parser-rules paragraph -> 7 named tests failed; baseline 26/26 restored.
+Each case asserts both halves, so a prompt sentence with no parser behind it and a parser rule the
+prompt does not state are both test failures.
+<!-- SECTION:NOTES:END -->

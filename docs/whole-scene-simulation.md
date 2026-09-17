@@ -203,3 +203,44 @@ exactly two canon rules and both are satisfied by naming a scene participant.
 **The tests now run the example through `validateCanon` against a seeded projection.** Stopping at
 `validateEventStructure` is precisely what let the riskier example ship, and the live slot failed at
 the stage the tests were not looking at.
+
+## The prompt has to state what the PARSER enforces too (ART-199)
+
+Third failure of the same class, from the live slot after ART-197:
+
+```
+mistwood day 5 noon — SCENE_OUTPUT_PROVENANCE_MISMATCH at output_validation
+"Proposed Event must remain within the Scene world, slot, and participants"
+```
+
+`parseWholeSceneOutput` requires every proposed event to copy the scene's `worldId`, `worldDay` and
+`timeSlot` verbatim and to name only its participants. The scene payload carries all four and the
+worked example uses them — but nothing said they must be **copied**. ART-197 had stated the
+participants rule for `stateChanges`; the event's own `participantIds` is a different field.
+
+Every parser rule that refuses a whole scene is now stated, in one pass rather than one live slot at
+a time: the provenance triple, participants across all six narrative collections *and* the event's
+own `participantIds`, unique `idempotencyKey`s, non-repeating `continuityWarnings`, at least one
+`keyActions` entry. They are inlined as literals for the reason ART-157 gives about destinations — a
+value the model must derive from elsewhere in the payload is a value it can derive wrongly.
+
+### The tests assert each rule twice
+
+Once that the parser refuses the violation, once that the prompt states the rule. A prompt sentence
+with no parser behind it is decoration; a parser rule the prompt never states is what stopped this
+world three times running. The failure mode here has always been one side moving without the other,
+so both are pinned in the same test.
+
+## The pattern behind ART-196, ART-197 and ART-199
+
+Three separate stops, one cause: **the request asked for something the system would refuse, and
+nothing compared the two.** The schema, the worked example and the prose are the contract the model
+sees; `parseWholeSceneOutput`, `validateEventStructure` and `validateCanon` are the contract it is
+held to. Nothing tested that they agreed.
+
+They stayed invisible because the deterministic author knows the rules independently of the prompt.
+Every suite was green while the prompt told a real model something false — the blind spot ART-157
+recorded about itself, three more times.
+
+The tests added across these three tasks are the comparison: they drive the real prompt builder and
+put what it produces through the real validators.
