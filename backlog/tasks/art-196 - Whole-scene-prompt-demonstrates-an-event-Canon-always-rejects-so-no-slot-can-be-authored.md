@@ -7,7 +7,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-09-17 18:06'
-updated_date: '2026-09-17 18:06'
+updated_date: '2026-09-17 18:12'
 labels: []
 dependencies: []
 priority: high
@@ -93,3 +93,29 @@ for something invalid; the fix is to ask correctly.
 5. Tests: drive the REAL prompt for a no-destination scene, extract its example, and put it through validateEventStructure -- the check that actually refused the live slot. Assert minItems travels in the serialized schema. Assert the retry loop makes a second call for a CanonError.
 6. Fault injection: restore the empty array and watch the named test fail.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Root cause established from a real live slot on colorless-deer-917 (acceptance), 2026-09-17, using the ART-195 failure detail:
+
+  code INVALID_EVENT_SHAPE / CanonError / output_validation / 'stateChanges must not be empty'
+  slot mistwood day 5 morning, scene grouping:mistwood:5:morning:scene:2
+
+The no-destination worked example was invalid in TWO ways, not one: empty stateChanges AND
+eventType 'interaction', which is not in EVENT_TYPES. Only the movement branch had ever been
+put through Canon by anything.
+
+Two further defects found while fixing it, both pre-existing:
+- a CanonError refusal was not retried while a SceneSimulationError refusal was;
+- a canon refusal was reported twice, so Sec 16.2's provider-failure dimension has been counting
+  model-output refusals as outages.
+
+Verification: npm run check exit 0, 276 suites, 4792 tests (baseline 4773 + 19).
+Five fault injections, each failing the named test it should, baseline restored after each:
+  1 restore stateChanges: []          -> 2 failed
+  2 restore eventType 'interaction'   -> 3 failed
+  3 drop minItems from the schema     -> 2 failed
+  4 stop retrying a canon refusal     -> 2 failed
+  5 restore the class-based guard     -> 2 failed
+<!-- SECTION:NOTES:END -->

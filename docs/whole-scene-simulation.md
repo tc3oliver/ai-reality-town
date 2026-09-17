@@ -113,3 +113,50 @@ npm test -- --runTestsByPath convex/simulation/sceneSimulation.test.ts
 The suite covers valid output, malformed retries, exhausted retries, transient and
 permanent provider errors, provenance rejection, high-risk review routing, and the
 absence of Canon/public-write surfaces.
+
+## The worked example must be an event Canon accepts (ART-196)
+
+The prompt ends by showing the model one example Proposed Event — "A well-formed item for this
+scene looks like: …". For scenes whose location had no legal destination, that example was invalid
+in two independent ways:
+
+- `stateChanges: []` — `validateEventStructure` refuses an event that changes nothing.
+- `eventType: 'interaction'` — not in `EVENT_TYPES`, and never was.
+
+So the single worked example the model was given could not be committed under any circumstances,
+and the model copied it. Every live slot authored on the acceptance deployment failed with
+`[INVALID_EVENT_SHAPE] stateChanges must not be empty`, which is what stopped the Mistwood world.
+
+ART-157 emptied the array for a good reason: it had stopped the example demonstrating a movement to
+a destination Canon would reject. Replacing an illegal movement with an illegal *event* went
+unnoticed for the reason ART-157's own notes give — the deterministic author knows the canon rules
+independently of the prompt, so every suite stayed green while the prompt told a real model
+something false. Only the movement branch had ever been put through Canon by anything.
+
+The no-destination example now demonstrates a `character_state_changed` on `emotion`. That change
+is legal in **every** scene — it needs no destination, no second participant and no prior canon — so
+there is no scene for which it is the wrong thing to show.
+
+The rule is stated three times over, because once was demonstrably not enough: in the example, in
+the schema (`stateChanges` carries `minItems: 1`, and the schema is serialized into the prompt
+verbatim), and in prose. No validation threshold was relaxed — the model was being asked for
+something invalid, and it is now asked correctly.
+
+`convex/simulation/wholeScenePromptCanonLegality.test.ts` runs the real prompt builder, recovers the
+example from the string the model actually receives, and puts it through `validateEventStructure` —
+the same function that refused the live slot. Asserting against a copy of the example would only
+have proved the copy was legal.
+
+### Two smaller defects found with it
+
+- **A canon refusal was not retried.** A refusal raised as a `SceneSimulationError` got a second
+  sample; one raised as a `CanonError` by `normalizeProposedEventOutput` did not, although both mean
+  "the provider answered and the answer was refused" and both already counted as `output_rejected`
+  against §16.2. The retry path and the metric disagreed about the same event.
+- **A canon refusal was counted twice.** The guard against double-reporting asked whether the error
+  was the scene parser's own class, rather than whether the provider had answered — so every canon
+  refusal was recorded as `output_rejected` *and* as `provider_failed`, and §16.2's provider-failure
+  dimension has been counting model-output refusals as outages. The question is answered by
+  `attemptTrace`, which exists only once a call has returned.
+
+See `docs/authoring-failure-diagnosis.md` for how the failure was made legible enough to find.
