@@ -379,6 +379,23 @@ export const wholeSceneSystemPrompt = (scene: GroupedScene, context: WholeSceneP
      * produced nothing but rejections. Supplying the context they need is real work and is its own
      * task; until then the request stops asking for what it cannot support.
      */
+    /**
+     * ART-199. The rules `parseWholeSceneOutput` enforces, stated with this scene's literal values.
+     *
+     * Every one of these refuses the WHOLE scene, and none of them was stated anywhere. The first
+     * is what stopped the live world the third time: the scene payload carries `worldDay` and
+     * `timeSlot`, and the worked example uses them, but nothing said they must be COPIED — so a
+     * model that wrote the slot it thought the scene was in lost the scene, twice, and then the
+     * slot failed.
+     *
+     * The participants rule is repeated here for a different FIELD than the one ART-197 named.
+     * That one was about `stateChanges`; this is the event's own `participantIds`, and a model
+     * naming a character who was merely mentioned in dialogue breaks it.
+     *
+     * Inlined as literals rather than described, for the reason ART-157 gives about destinations: a
+     * rule the model must derive from elsewhere in the payload is a rule it can derive wrongly.
+     */
+    `Every proposedEvents item must copy this scene's own identity exactly: worldId ${JSON.stringify(scene.worldId)}, worldDay ${scene.worldDay}, timeSlot ${JSON.stringify(scene.timeSlot)}. Its participantIds must contain only characters from ${JSON.stringify(scene.participantIds)}, and so must every characterId, sourceCharacterId and targetCharacterId in keyActions, dialogueHighlights, relationshipChanges, knowledgeChanges, memories and rumors -- a character who is only mentioned in passing is not a participant and will be refused. Each proposedEvents item needs its own unique idempotencyKey, and continuityWarnings must not repeat a string. Provide at least one keyActions entry.`,
     `Canon will reject the entire scene unless every stateChanges entry obeys these rules. Every characterId named anywhere in stateChanges must be one of this scene's participants: ${JSON.stringify(scene.participantIds)}. A relationship_changed must set visibility to "public" -- every event here carries a publicSummary, and a private relationship change on an event with a public summary is refused; its sourceCharacterId and targetCharacterId must differ, and at least one of its six deltas must be non-zero. Never emit character_state_changed or character_knowledge_learned: the first must state the character's current recorded value and the second must cite an existing causal event id, and this request gives you neither. Use character_memory_formed, relationship_changed, fact_created, item_transferred, the rumor_* changes, or character_location_changed instead.`,
     movementRule,
     'The memories, knowledgeChanges and rumors collections are short narrative notes about a proposed event, not state changes. Each memories or knowledgeChanges item has exactly characterId, content and proposedEventIndex; each rumors item has exactly sourceCharacterId, content and proposedEventIndex, where proposedEventIndex is the zero-based position in proposedEvents. Never give them interpretation, importance, emotionalWeight, confidence or visibility -- those belong only to a character_memory_formed entry inside proposedEvents stateChanges.',

@@ -30,7 +30,7 @@ import { emptyProjection } from '../canon/model';
 import type { WorldProjection } from '../canon/model';
 import { validateCanon, validateEventStructure } from '../canon/validators';
 import type { GroupedScene } from './sceneGrouping';
-import { WHOLE_SCENE_JSON_SCHEMA, wholeSceneSystemPrompt } from './sceneSimulation';
+import { WHOLE_SCENE_JSON_SCHEMA, parseWholeSceneOutput, wholeSceneSystemPrompt } from './sceneSimulation';
 
 const scene: GroupedScene = {
   schemaVersion: 1, sceneId: 'grouping:mistwood:5:morning:scene:2', groupingRunId: 'grouping:mistwood:5:morning',
@@ -233,5 +233,118 @@ describe('the prompt states the Canon rules a scene author can break', () => {
     for (const variant of ['character_memory_formed', 'relationship_changed', 'fact_created']) {
       expect(text).toContain(variant);
     }
+  });
+});
+
+// =============================================================================
+// The prompt states what the PARSER enforces (ART-199)
+// =============================================================================
+
+/**
+ * Third failure of the same class, from the live slot after ART-197 shipped:
+ *
+ *   mistwood day 5 noon — SCENE_OUTPUT_PROVENANCE_MISMATCH at output_validation
+ *   "Proposed Event must remain within the Scene world, slot, and participants"
+ *
+ * `parseWholeSceneOutput` requires every proposed event to copy the scene's `worldId`, `worldDay`
+ * and `timeSlot` verbatim and to name only its participants. The payload carries all four and the
+ * worked example uses them — but nothing said they must be COPIED, and each of these refuses the
+ * WHOLE scene.
+ *
+ * ## Why each case asserts the rule TWICE
+ *
+ * Once that the parser refuses the violation, once that the prompt states the rule. A prompt
+ * sentence with no parser behind it is decoration; a parser rule the prompt never states is what
+ * stopped this world three times running. Pinning both in one test is what stops them drifting
+ * apart — the failure mode here has always been that one side moved and the other did not.
+ */
+describe('every parser rule that refuses a whole scene is stated in the prompt', () => {
+  const prompt = wholeSceneSystemPrompt(scene, { legalDestinationIds: [] });
+
+  /** A minimal well-formed scene output, for one field at a time to be broken. */
+  const wellFormed = () => ({
+    schemaVersion: 1,
+    sceneId: scene.sceneId,
+    sceneSummary: '兩人在大廳對質。',
+    keyActions: [{ characterId: scene.participantIds[0], action: '推出帳冊。' }] as Array<{ characterId: string; action: string }>,
+    dialogueHighlights: [] as unknown[],
+    proposedEvents: [{
+      schemaVersion: 1, worldId: scene.worldId, idempotencyKey: `${scene.sceneId}:1`,
+      proposedBy: { type: 'system' }, worldDay: scene.worldDay, timeSlot: scene.timeSlot,
+      eventType: 'conversation', locationId: scene.locationId,
+      participantIds: [scene.participantIds[0]], causedByEventIds: [], publicSummary: '兩人對質。',
+      stateChanges: [{
+        type: 'character_memory_formed', characterId: scene.participantIds[0],
+        content: '停頓。', interpretation: '有所隱瞞。',
+        importance: 0.5, emotionalWeight: 0.4, confidence: 0.7, visibility: 'private',
+      }],
+    }],
+    relationshipChanges: [] as unknown[], knowledgeChanges: [] as unknown[],
+    memories: [] as unknown[], rumors: [] as unknown[], continuityWarnings: [] as string[],
+  });
+
+  it('accepts the well-formed baseline, so every case below is about the one field it breaks', () => {
+    // The negative control. Without it a broken fixture would make all the rules below "pass".
+    expect(() => parseWholeSceneOutput(wellFormed(), scene)).not.toThrow();
+  });
+
+  it('refuses a proposed event carrying a different timeSlot, and says so', () => {
+    const output = wellFormed();
+    output.proposedEvents[0].timeSlot = 'night';
+    expect(() => parseWholeSceneOutput(output, scene))
+      .toThrow(/SCENE_OUTPUT_PROVENANCE_MISMATCH/u);
+    expect(prompt).toContain(`timeSlot ${JSON.stringify(scene.timeSlot)}`);
+  });
+
+  it('refuses a proposed event carrying a different worldDay, and says so', () => {
+    const output = wellFormed();
+    output.proposedEvents[0].worldDay = scene.worldDay + 1;
+    expect(() => parseWholeSceneOutput(output, scene))
+      .toThrow(/SCENE_OUTPUT_PROVENANCE_MISMATCH/u);
+    expect(prompt).toContain(`worldDay ${scene.worldDay}`);
+  });
+
+  it('refuses a proposed event naming a character who is not a scene participant, and says so', () => {
+    // The likeliest real violation: a character mentioned in the dialogue but not in the scene.
+    const output = wellFormed();
+    output.proposedEvents[0].participantIds = [scene.participantIds[0], 'wu-zhen'];
+    expect(() => parseWholeSceneOutput(output, scene))
+      .toThrow(/SCENE_OUTPUT_PROVENANCE_MISMATCH/u);
+    expect(prompt).toContain('only mentioned in passing is not a participant');
+  });
+
+  it('refuses a keyActions entry naming a non-participant, and says so', () => {
+    const output = wellFormed();
+    output.keyActions = [{ characterId: 'wu-zhen', action: '插話。' }];
+    expect(() => parseWholeSceneOutput(output, scene)).toThrow(/SCENE_OUTPUT_INVALID/u);
+    expect(prompt).toContain('keyActions');
+  });
+
+  it('refuses duplicate idempotencyKeys within one scene, and says so', () => {
+    const output = wellFormed();
+    output.proposedEvents = [output.proposedEvents[0], { ...output.proposedEvents[0] }];
+    expect(() => parseWholeSceneOutput(output, scene)).toThrow(/SCENE_OUTPUT_INVALID/u);
+    expect(prompt).toContain('unique idempotencyKey');
+  });
+
+  it('refuses repeated continuityWarnings, and says so', () => {
+    const output = wellFormed();
+    output.continuityWarnings = ['帳冊缺頁', '帳冊缺頁'];
+    expect(() => parseWholeSceneOutput(output, scene)).toThrow(/SCENE_OUTPUT_INVALID/u);
+    expect(prompt).toContain('continuityWarnings must not repeat');
+  });
+
+  it('refuses an empty keyActions list, and says so', () => {
+    const output = wellFormed();
+    output.keyActions = [];
+    expect(() => parseWholeSceneOutput(output, scene)).toThrow(/SCENE_OUTPUT_INVALID/u);
+    expect(prompt).toContain('at least one keyActions entry');
+  });
+
+  it('inlines the scene identity as literals rather than telling the model to look it up', () => {
+    // ART-157's reasoning about destinations: a value the model must derive from elsewhere in the
+    // payload is a value it can derive wrongly.
+    expect(prompt).toContain(`worldId ${JSON.stringify(scene.worldId)}`);
+    expect(prompt).toContain(JSON.stringify(scene.participantIds));
   });
 });
