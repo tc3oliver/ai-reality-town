@@ -291,20 +291,26 @@ function stageForCode(code: string, errorName: string): FailureStage {
  *  - a budget refusal is never retried: retrying spends the retry budget arguing with the limit
  *    that just refused the call. Checked FIRST, because `SceneBudgetError`'s codes also begin
  *    `SCENE_` and the prefix rule would otherwise claim it;
+ *  - a `CanonError` raised while parsing a model's answer is retried for the same reason as a
+ *    `SceneSimulationError`, and ART-196 made it so. Both mean "the provider answered and the
+ *    answer was refused", both are already counted as `output_rejected` against §16.2's
+ *    structured-output rate, and until then the retry path and the metric disagreed about what the
+ *    same event was: a refusal raised by the scene parser got a second sample and one raised by
+ *    `normalizeProposedEventOutput` did not;
  *  - anything unidentified is NOT retried. Spending a free-tier allowance on a guess is the more
  *    expensive mistake, and it is the same reading `isRouteLevelFailure` takes one layer down.
  *
  * Matched case for case against the `instanceof` chain it replaces, which is what makes it safe to
  * have `simulateWholeScene` call this instead of repeating the rule.
  */
-function retryabilityOf(error: unknown, code: string): boolean {
+function retryabilityOf(error: unknown, code: string, errorName: string): boolean {
   if (code.startsWith('SCENE_BUDGET_')) return false;
   if (isObject(error)) {
     const kind = (error as { kind?: unknown }).kind;
     if (kind === 'transient') return true;
     if (kind === 'permanent') return false;
   }
-  return code.startsWith('SCENE_');
+  return code.startsWith('SCENE_') || errorName === 'CanonError';
 }
 
 /**
@@ -345,7 +351,7 @@ export function describeFailure(error: unknown, fallbackStage: FailureStage = 'u
     causeMessage: hasCause
       ? sanitizeFailureText(isObject(cause) ? (cause as { message?: unknown }).message : cause)
       : null,
-    retryable: retryabilityOf(error, code),
+    retryable: retryabilityOf(error, code, errorName),
   };
 }
 
