@@ -476,3 +476,118 @@ describe('participantMovementFor derives positions from the snapshot', () => {
     expect(movement).toEqual({});
   });
 });
+
+// =============================================================================
+// Identifiers the author cannot know (ART-201)
+// =============================================================================
+
+/**
+ * Fifth stop of the same class:
+ *
+ *   mistwood day 5 afternoon — UNKNOWN_EVENT_REFERENCE at validate_canon
+ *   "causal event does not exist"
+ *
+ * `validateCanon` checks `causedByEventIds` against the world's known event ids, and a scene author
+ * is given none. The worked example carries `[]` and nothing said it had to stay empty.
+ *
+ * Each case pairs the prompt sentence with the validator that enforces it. A rule stated to the
+ * model with no validator behind it is decoration, and a validator the prompt never mentions is
+ * what stopped this world five times running.
+ */
+describe('the prompt constrains every identifier the author cannot know', () => {
+  const prompt = wholeSceneSystemPrompt(scene, { legalDestinationIds: [] });
+
+  /** The well-formed baseline as a ProposedEvent, for one field at a time to be broken. */
+  const event = (overrides: Record<string, unknown> = {}) => ({
+    schemaVersion: 1, worldId: scene.worldId, idempotencyKey: `${scene.sceneId}:1`,
+    proposedBy: { type: 'system' }, worldDay: scene.worldDay, timeSlot: scene.timeSlot,
+    eventType: 'conversation', locationId: scene.locationId,
+    participantIds: [scene.participantIds[0]], causedByEventIds: [] as string[],
+    publicSummary: '兩人對質。',
+    stateChanges: [{
+      type: 'character_memory_formed', characterId: scene.participantIds[0],
+      content: '停頓。', interpretation: '有所隱瞞。',
+      importance: 0.5, emotionalWeight: 0.4, confidence: 0.7, visibility: 'private',
+    }] as unknown[],
+    ...overrides,
+  });
+
+  /** The rule context `validateCanon` is given on the live path: the world's real entity ids. */
+  const ruleContext = {
+    worldId: scene.worldId,
+    rules: [],
+    characterIds: [...scene.participantIds],
+    locationIds: [scene.locationId, 'mistwood-mill'],
+    itemIds: [],
+    knownEventIds: ['mistwood#event#1'],
+  } as never;
+
+  it('accepts the baseline, so every case below is about the one field it breaks', () => {
+    expect(validateCanon(event() as never, worldWithParticipants(), ruleContext)).toBeNull();
+  });
+
+  it('refuses an invented causal event id, and requires an empty array', () => {
+    // The live failure.
+    const invalid = event({ causedByEventIds: ['mistwood#event#999'] });
+    expect(validateCanon(invalid as never, worldWithParticipants(), ruleContext))
+      .toMatchObject({ code: 'UNKNOWN_EVENT_REFERENCE' });
+    expect(prompt).toContain('causedByEventIds must be an empty array');
+    expect(prompt).toContain('any id you write will not exist');
+  });
+
+  it('refuses a fact about a character who does not exist, and names who may be a subject', () => {
+    const invalid = event({
+      stateChanges: [{
+        type: 'fact_created', subjectType: 'character', subjectId: 'nobody',
+        predicate: 'mood', value: 'tense', visibility: 'public',
+      }],
+    });
+    expect(validateCanon(invalid as never, worldWithParticipants(), ruleContext))
+      .toMatchObject({ code: 'UNKNOWN_CHARACTER_REFERENCE' });
+    expect(prompt).toContain('A fact_created or a rumor claim may only be about a character in');
+  });
+
+  it('refuses a world fact whose subject is not the world id, and states the value to use', () => {
+    const invalid = event({
+      stateChanges: [{
+        type: 'fact_created', subjectType: 'world', subjectId: 'somewhere-else',
+        predicate: 'weather', value: 'rain', visibility: 'public',
+      }],
+    });
+    expect(validateCanon(invalid as never, worldWithParticipants(), ruleContext))
+      .toMatchObject({ code: 'INVALID_FACT_SUBJECT' });
+    expect(prompt).toContain(`a world subject must use subjectId ${JSON.stringify(scene.worldId)}`);
+  });
+
+  it('refuses two facts with the same subject and predicate in one event, and says so', () => {
+    const fact = {
+      type: 'fact_created', subjectType: 'world', subjectId: scene.worldId,
+      predicate: 'weather', value: 'rain', visibility: 'public',
+    };
+    const invalid = event({ stateChanges: [fact, { ...fact, value: 'clear' }] });
+    expect(validateCanon(invalid as never, worldWithParticipants(), ruleContext))
+      .toMatchObject({ code: 'INVALID_FACT_SUBJECT' });
+    expect(prompt).toContain('may not create two facts with the same subject and predicate');
+  });
+
+  it('forbids the item variants, which need an id and an owner the author has not been given', () => {
+    // Not a validator pairing: the point is that the request stops ASKING, as ART-197 did for
+    // character_state_changed. An item fact would fail UNKNOWN_ITEM_REFERENCE against a world with
+    // no items, and item_transferred additionally needs the unique current owner.
+    expect(prompt).toContain('Never use subjectType "item", and never emit item_transferred');
+  });
+
+  it('forbids the other whole-entity variants for the same reason', () => {
+    /**
+     * `location_state_changed` and `organization_state_changed` are required by strict mode to
+     * carry EVERY property of the entity — a location's name, description, type, capacity and
+     * connection list — and the author is given none of them. They would fail for the same reason
+     * `character_state_changed` does: the request asks for a current value it never supplied.
+     */
+    expect(prompt).toContain('location_state_changed or organization_state_changed');
+  });
+
+  it('pins the event location to the scene location', () => {
+    expect(prompt).toContain(`locationId must be ${JSON.stringify(scene.locationId)}`);
+  });
+});

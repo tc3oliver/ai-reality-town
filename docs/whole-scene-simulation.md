@@ -283,3 +283,34 @@ could not be accepted.
 
 The ART-157 scene-level rule is kept for callers that supply no positions, which is how every pure
 scene-parsing test calls it. This adds precision where it is available and removes nothing.
+
+## Identifiers the author cannot know (ART-201)
+
+Fifth stop of the same class:
+
+```
+mistwood day 5 afternoon — UNKNOWN_EVENT_REFERENCE at validate_canon
+"causal event does not exist"
+```
+
+`validateCanon` checks `causedByEventIds` against the world's known event ids. A scene author is
+given none; the worked example carries `[]` and nothing said it had to stay empty.
+
+The four earlier tasks each fixed one instance of the same question, one live slot at a time. The
+rest are stated together:
+
+| Field | What Canon checks | What the prompt now says |
+| --- | --- | --- |
+| `causedByEventIds` | every id is a known event | must be `[]` |
+| `locationId` | the location exists | must be the scene's location |
+| `fact_created` subject | character / location / item existence; a `world` subject must equal the event's `worldId` | a scene participant, the scene's location, or the world id |
+| rumor claim subject | the same existence checks | the same rule |
+| `item_transferred`, `location_state_changed`, `organization_state_changed` | a real entity id plus its current recorded state, with every property mandatory under strict mode | not emittable |
+
+The last row is the same judgement ART-197 made about `character_state_changed`: the request stops
+asking for what it cannot supply the context for, rather than asking and collecting rejections.
+Making them usable is separate work — ART-198.
+
+Each test pairs the prompt sentence with the validator that enforces it. A rule stated to the model
+with no validator behind it is decoration; a validator the prompt never mentions is what stopped
+this world five times running.

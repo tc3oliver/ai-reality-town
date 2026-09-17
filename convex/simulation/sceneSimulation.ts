@@ -443,6 +443,23 @@ export const wholeSceneSystemPrompt = (scene: GroupedScene, context: WholeSceneP
      * Inlined as literals rather than described, for the reason ART-157 gives about destinations: a
      * rule the model must derive from elsewhere in the payload is a rule it can derive wrongly.
      */
+    /**
+     * ART-201. Every identifier the author is asked for but has no way to fill correctly.
+     *
+     * Four earlier tasks each fixed one instance of this, one live slot at a time. These are the
+     * rest, stated together: `validateCanon` checks each of these against the world's real
+     * entities, and a scene author is given none of them. The worked example happens to satisfy
+     * them all, which is exactly why they went unnoticed — nothing said they were rules.
+     *
+     * `causedByEventIds` is the one that stopped the world the fifth time. It is checked against
+     * the known event ids; the example carries `[]` and nothing said it had to stay empty.
+     *
+     * The last clause forbids the whole-entity variants for the same reason ART-197 forbids
+     * `character_state_changed`: each needs an entity id and that entity's current recorded state,
+     * and strict mode makes every one of their properties mandatory. Making them usable is
+     * separate work — see ART-198.
+     */
+    `These identifiers are checked against the world and you have not been given them, so use exactly these values and nothing else. causedByEventIds must be an empty array on every proposedEvents item: you have no event ids, and any id you write will not exist. locationId must be ${JSON.stringify(scene.locationId)}. A fact_created or a rumor claim may only be about a character in ${JSON.stringify(scene.participantIds)}, or about the location ${JSON.stringify(scene.locationId)}, or about the world itself -- and a world subject must use subjectId ${JSON.stringify(scene.worldId)}. Never use subjectType "item", and never emit item_transferred, location_state_changed or organization_state_changed: each needs an entity id and its current recorded state -- an item and its owner, a location with all of its properties, an organization -- and you have not been given any of them. One event may not create two facts with the same subject and predicate.`,
     `Every proposedEvents item must copy this scene's own identity exactly: worldId ${JSON.stringify(scene.worldId)}, worldDay ${scene.worldDay}, timeSlot ${JSON.stringify(scene.timeSlot)}. Its participantIds must contain only characters from ${JSON.stringify(scene.participantIds)}, and so must every characterId, sourceCharacterId and targetCharacterId in keyActions, dialogueHighlights, relationshipChanges, knowledgeChanges, memories and rumors -- a character who is only mentioned in passing is not a participant and will be refused. Each proposedEvents item needs its own unique idempotencyKey, and continuityWarnings must not repeat a string. Provide at least one keyActions entry.`,
     `Canon will reject the entire scene unless every stateChanges entry obeys these rules. Every characterId named anywhere in stateChanges must be one of this scene's participants: ${JSON.stringify(scene.participantIds)}. A relationship_changed must set visibility to "public" -- every event here carries a publicSummary, and a private relationship change on an event with a public summary is refused; its sourceCharacterId and targetCharacterId must differ, and at least one of its six deltas must be non-zero. Never emit character_state_changed or character_knowledge_learned: the first must state the character's current recorded value and the second must cite an existing causal event id, and this request gives you neither. Use character_memory_formed, relationship_changed, fact_created, item_transferred, the rumor_* changes, or character_location_changed instead.`,
     movementRule,
