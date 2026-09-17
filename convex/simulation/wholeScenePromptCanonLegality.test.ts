@@ -30,6 +30,7 @@ import { emptyProjection } from '../canon/model';
 import type { WorldProjection } from '../canon/model';
 import { validateCanon, validateEventStructure } from '../canon/validators';
 import type { GroupedScene } from './sceneGrouping';
+import { participantMovementFor } from './worldDayLive';
 import { WHOLE_SCENE_JSON_SCHEMA, parseWholeSceneOutput, wholeSceneSystemPrompt } from './sceneSimulation';
 
 const scene: GroupedScene = {
@@ -346,5 +347,132 @@ describe('every parser rule that refuses a whole scene is stated in the prompt',
     // payload is a value it can derive wrongly.
     expect(prompt).toContain(`worldId ${JSON.stringify(scene.worldId)}`);
     expect(prompt).toContain(JSON.stringify(scene.participantIds));
+  });
+});
+
+// =============================================================================
+// The movement rule is true for the character it names (ART-200)
+// =============================================================================
+
+/**
+ * Fourth stop of the same class, from the live slot after ART-199:
+ *
+ *   mistwood day 5 noon — LOCATION_PRECONDITION_FAILED at validate_canon
+ *   "movement fromLocationId does not match current location"
+ *
+ * ART-157's rule ends "fromLocationId must be <scene.locationId>". That is true only when every
+ * participant is standing at the scene's location — and a scene groups characters by INTENT while
+ * Canon tracks position. For anyone projected elsewhere the prompt was instructing a value
+ * `validateCanon` refuses, and the destinations offered were not connected to where they stood, so
+ * a corrected origin would then have failed `TELEPORTATION_NOT_ALLOWED`.
+ */
+describe('a participant who is not standing at the scene location', () => {
+  /** `lin-yingxue` is at the mill; the scene is at the hall. The live situation. */
+  const elsewhere = {
+    'gao-wenrui': { fromLocationId: 'mistwood-hall', destinations: ['mistwood-mill'] },
+    'lin-yingxue': { fromLocationId: 'mistwood-mill', destinations: ['mistwood-hall'] },
+  };
+
+  it('is never told to use the scene location as their origin', () => {
+    const prompt = wholeSceneSystemPrompt(scene, {
+      legalDestinationIds: ['mistwood-mill'], participantMovement: elsewhere,
+    });
+    expect(prompt).toContain('lin-yingxue is at mistwood-mill');
+    // The ART-157 sentence, which asserted one origin for everyone, must be gone when per-character
+    // positions are known — it is the sentence that was false.
+    expect(prompt).not.toContain(`fromLocationId must be ${JSON.stringify(scene.locationId)}.`);
+  });
+
+  it('is offered only destinations connected to where they actually are', () => {
+    const prompt = wholeSceneSystemPrompt(scene, {
+      legalDestinationIds: ['mistwood-mill'], participantMovement: elsewhere,
+    });
+    // From the mill, the hall. NOT the scene-level list, which is computed from the hall.
+    expect(prompt).toContain('lin-yingxue is at mistwood-mill; if lin-yingxue moves');
+    expect(prompt).toContain('["mistwood-hall"]');
+  });
+
+  it('is told plainly when they may not move, rather than being left out', () => {
+    // A character absent from a list of who MAY move is a character the model reads as
+    // unconstrained — the same reasoning ART-157 gives for saying so explicitly.
+    const prompt = wholeSceneSystemPrompt(scene, {
+      legalDestinationIds: [],
+      participantMovement: {
+        'gao-wenrui': { fromLocationId: 'mistwood-hall', destinations: [] },
+        'lin-yingxue': { fromLocationId: 'mistwood-mill', destinations: ['mistwood-hall'] },
+      },
+    });
+    expect(prompt).toContain('gao-wenrui is at mistwood-hall and may not move in this scene');
+  });
+
+  it('demonstrates a movement the NAMED character can actually make', () => {
+    /**
+     * The example names `scene.participantIds[0]`. Before ART-200 it combined that character with
+     * the scene's location and the scene-level destination list, so for a character standing
+     * elsewhere the one worked example was an illegal move — the ART-196 failure, again.
+     */
+    const example = exampleFrom(wholeSceneSystemPrompt(scene, {
+      legalDestinationIds: ['mistwood-mill'],
+      participantMovement: {
+        'gao-wenrui': { fromLocationId: 'mistwood-paper', destinations: ['mistwood-hall'] },
+        'lin-yingxue': { fromLocationId: 'mistwood-mill', destinations: ['mistwood-hall'] },
+      },
+    })) as { stateChanges: Array<{ type: string; fromLocationId?: string; toLocationId?: string }> };
+
+    const move = example.stateChanges.find(({ type }) => type === 'character_location_changed');
+    expect(move).toBeDefined();
+    expect(move?.fromLocationId).toBe('mistwood-paper');
+    expect(move?.toLocationId).toBe('mistwood-hall');
+  });
+
+  it('demonstrates no movement at all when the named character cannot make one', () => {
+    const example = exampleFrom(wholeSceneSystemPrompt(scene, {
+      // The scene-level list is non-empty, and before ART-200 that alone decided the example.
+      legalDestinationIds: ['mistwood-mill'],
+      participantMovement: {
+        'gao-wenrui': { fromLocationId: 'mistwood-paper', destinations: [] },
+      },
+    })) as { stateChanges: Array<{ type: string }> };
+
+    expect(example.stateChanges.map(({ type }) => type)).toEqual(['character_memory_formed']);
+  });
+
+  it('keeps the ART-157 scene-level rule for callers that supply no positions', () => {
+    // Every pure scene-parsing test calls it that way, and the rule is correct under its own
+    // assumption. This change adds precision where it is available; it removes nothing.
+    const prompt = wholeSceneSystemPrompt(scene, { legalDestinationIds: ['mistwood-mill'] });
+    expect(prompt).toContain(`fromLocationId must be ${JSON.stringify(scene.locationId)}.`);
+  });
+});
+
+describe('participantMovementFor derives positions from the snapshot', () => {
+  const snapshot = {
+    characters: [
+      { characterId: 'gao-wenrui', currentLocationId: 'mistwood-hall' },
+      { characterId: 'lin-yingxue', currentLocationId: 'mistwood-mill' },
+    ],
+    locations: [
+      { locationId: 'mistwood-hall', active: true, capacity: 8, occupancy: 1, connectedLocationIds: ['mistwood-mill'] },
+      { locationId: 'mistwood-mill', active: true, capacity: 8, occupancy: 1, connectedLocationIds: ['mistwood-hall'] },
+      { locationId: 'mistwood-shut', active: false, capacity: 8, occupancy: 0, connectedLocationIds: ['mistwood-mill'] },
+    ],
+  } as never;
+
+  it('gives each participant their own origin, not the scene’s', () => {
+    const movement = participantMovementFor(snapshot, scene);
+    expect(movement['gao-wenrui'].fromLocationId).toBe('mistwood-hall');
+    expect(movement['lin-yingxue'].fromLocationId).toBe('mistwood-mill');
+  });
+
+  it('computes destinations from that origin, and filters an inactive one', () => {
+    const movement = participantMovementFor(snapshot, scene);
+    // From the mill: the hall is connected and open; `mistwood-shut` is connected and inactive.
+    expect(movement['lin-yingxue'].destinations).toEqual(['mistwood-hall']);
+  });
+
+  it('omits a participant the snapshot does not know, rather than inventing an origin', () => {
+    // Defaulting to the scene's location is precisely the assumption this replaces.
+    const movement = participantMovementFor(snapshot, { participantIds: ['nobody'] });
+    expect(movement).toEqual({});
   });
 });

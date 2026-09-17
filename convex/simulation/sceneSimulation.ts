@@ -286,6 +286,19 @@ export const WHOLE_SCENE_JSON_SCHEMA: Record<string, unknown> = strictObject({
 export type WholeScenePromptContext = {
   /** Destinations `validateCanon` will accept for this scene. Empty means "nobody may leave". */
   legalDestinationIds?: readonly string[];
+  /**
+   * ART-200. Where each participant actually stands, and where they may go from there.
+   *
+   * Authoritative over {@link legalDestinationIds} for any character it names. That list is
+   * computed from the SCENE's location and is right only when every participant is standing there
+   * — a scene groups characters by intent, and Canon tracks position. For a participant projected
+   * elsewhere, the ART-157 rule "fromLocationId must be <scene.locationId>" instructed a value
+   * `validateCanon` refuses, which is what stopped the live world a fourth time.
+   *
+   * Absent means no per-character information was supplied, and the scene-level rule applies
+   * unchanged — which is how every pure scene-parsing test calls this.
+   */
+  participantMovement?: Readonly<Record<string, { fromLocationId: string; destinations: readonly string[] }>>;
 };
 
 export const wholeSceneSystemPrompt = (scene: GroupedScene, context: WholeScenePromptContext = {}): string => {
@@ -299,7 +312,21 @@ export const wholeSceneSystemPrompt = (scene: GroupedScene, context: WholeSceneP
    * because the fake provider knows the world independently of the prompt.
    */
   const destinations = context.legalDestinationIds ?? [];
-  const exampleDestination = destinations[0];
+  /**
+   * ART-200. The character the worked example demonstrates a movement for, and from where.
+   *
+   * The example must be legal for the character it NAMES. `scene.participantIds[0]` is that
+   * character, so when per-participant movement is known the example uses that character's own
+   * origin and their own first destination — and when they have none, it demonstrates no movement
+   * at all rather than one Canon would refuse.
+   */
+  const movement = context.participantMovement;
+  const exampleCharacterId = scene.participantIds[0] ?? 'character-id';
+  const exampleMovement = movement?.[exampleCharacterId];
+  const exampleOrigin = exampleMovement?.fromLocationId ?? scene.locationId;
+  const exampleDestination = exampleMovement === undefined
+    ? destinations[0]
+    : exampleMovement.destinations[0];
   const example = {
     schemaVersion: 1, worldId: scene.worldId, idempotencyKey: `${scene.sceneId}:1`,
     proposedBy: { type: 'system' }, worldDay: scene.worldDay, timeSlot: scene.timeSlot,
@@ -347,14 +374,35 @@ export const wholeSceneSystemPrompt = (scene: GroupedScene, context: WholeSceneP
       }]
       : [{
         type: 'character_location_changed', characterId: scene.participantIds[0] ?? 'character-id',
-        fromLocationId: scene.locationId, toLocationId: exampleDestination,
+        fromLocationId: exampleOrigin, toLocationId: exampleDestination,
       }],
   };
-  const movementRule = destinations.length === 0
-    // Said explicitly rather than left as an empty list: an empty list invites the model to fill
-    // the gap, which is the behaviour being fixed.
-    ? `No character may leave ${scene.locationId} in this scene: it has no open, connected destination with room. Do not emit any character_location_changed change.`
-    : `A character_location_changed may only use a toLocationId from this exact list, and nothing else: ${JSON.stringify(destinations)}. These are the connected, open destinations with room for another character; any other value will be rejected. fromLocationId must be ${JSON.stringify(scene.locationId)}.`;
+  /**
+   * ART-200. Stated per CHARACTER when per-character positions are known.
+   *
+   * The scene-level form below is kept for callers that supply none, and it is exactly ART-157's
+   * rule. It is also exactly the rule that was wrong on the live world: it asserts every
+   * participant stands at `scene.locationId`, which a scene grouped by intent does not guarantee,
+   * so for anyone standing elsewhere it instructed a `fromLocationId` Canon refuses.
+   */
+  const perCharacterMovementRule = (
+    entries: ReadonlyArray<[string, { fromLocationId: string; destinations: readonly string[] }]>,
+  ): string => {
+    const clauses = entries.map(([characterId, { fromLocationId, destinations: allowed }]) => allowed.length === 0
+      // Said for each character rather than left out: a character absent from a list of who MAY
+      // move is a character the model can read as unconstrained.
+      ? `${characterId} is at ${fromLocationId} and may not move in this scene: it has no open, connected destination with room.`
+      : `${characterId} is at ${fromLocationId}; if ${characterId} moves, fromLocationId must be ${JSON.stringify(fromLocationId)} and toLocationId must come from this exact list and nothing else: ${JSON.stringify(allowed)}.`);
+    return `A character_location_changed must start from where the character actually is, which is not always this scene's location. ${clauses.join(' ')} Any other origin or destination is rejected.`;
+  };
+  const movementEntries = Object.entries(movement ?? {});
+  const movementRule = movementEntries.length > 0
+    ? perCharacterMovementRule(movementEntries)
+    : destinations.length === 0
+      // Said explicitly rather than left as an empty list: an empty list invites the model to fill
+      // the gap, which is the behaviour being fixed.
+      ? `No character may leave ${scene.locationId} in this scene: it has no open, connected destination with room. Do not emit any character_location_changed change.`
+      : `A character_location_changed may only use a toLocationId from this exact list, and nothing else: ${JSON.stringify(destinations)}. These are the connected, open destinations with room for another character; any other value will be rejected. fromLocationId must be ${JSON.stringify(scene.locationId)}.`;
   return [
     'Simulate the entire grouped scene once. Return structured JSON only. You may propose events but never commit or mutate Canon.',
     'Write every narrative text field (sceneSummary, keyActions, dialogueHighlights, relationshipChanges, knowledgeChanges, memories, rumors, continuityWarnings, and each proposedEvents publicSummary) in Traditional Chinese (zh-TW). Field names and JSON structure stay in English.',
@@ -538,6 +586,13 @@ export type WholeSceneSimulationOptions = {
    */
   legalDestinationIds?: readonly string[];
   /**
+   * ART-200. Each participant's own projected location and legal destinations.
+   *
+   * Supplied by the live path from the stage-1 snapshot; absent for callers that have not worked
+   * out per-character positions, in which case the scene-level rule applies unchanged.
+   */
+  participantMovement?: Readonly<Record<string, { fromLocationId: string; destinations: readonly string[] }>>;
+  /**
    * FR-M003 / ART-59 budget enforcement, applied ONCE PER ATTEMPT.
    *
    * Per attempt rather than per scene because that is the only granularity at which the Retry
@@ -570,8 +625,19 @@ export async function simulateWholeScene(provider: LanguageModelProvider, simula
   }
   // ART-157: the scene payload the model sees is widened with the world state `GroupedScene`
   // cannot carry, so "which destinations exist" is answered by the prompt rather than guessed.
-  const promptContext: WholeScenePromptContext = { legalDestinationIds: options.legalDestinationIds ?? [] };
-  const scenePayload = { ...scene, legalDestinationIds: promptContext.legalDestinationIds };
+  const promptContext: WholeScenePromptContext = {
+    legalDestinationIds: options.legalDestinationIds ?? [],
+    ...(options.participantMovement === undefined ? {} : { participantMovement: options.participantMovement }),
+  };
+  const scenePayload = {
+    ...scene,
+    legalDestinationIds: promptContext.legalDestinationIds,
+    // ART-200: in the payload as well as in the rule, so a model that reads the data rather than
+    // the prose reaches the same answer.
+    ...(promptContext.participantMovement === undefined
+      ? {}
+      : { participantMovement: promptContext.participantMovement }),
+  };
   const callProvider = (model: string | undefined) => provider.structuredChat({
     messages: [{ role: 'system', content: buildSystemPrompt(scene, promptContext) },
       { role: 'user', content: JSON.stringify(scenePayload) }],
