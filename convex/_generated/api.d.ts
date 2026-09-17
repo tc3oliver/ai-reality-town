@@ -75,6 +75,7 @@ import type * as operations_narrativeReviewSample from "../operations/narrativeR
 import type * as operations_operatorAuthorization from "../operations/operatorAuthorization.js";
 import type * as operations_opsConsole from "../operations/opsConsole.js";
 import type * as operations_opsConsoleFunctions from "../operations/opsConsoleFunctions.js";
+import type * as operations_postCommitBacklog from "../operations/postCommitBacklog.js";
 import type * as operations_postCommitLive from "../operations/postCommitLive.js";
 import type * as operations_postCommitLiveFunctions from "../operations/postCommitLiveFunctions.js";
 import type * as operations_postCommitOrchestration from "../operations/postCommitOrchestration.js";
@@ -337,6 +338,7 @@ declare const fullApi: ApiFromModules<{
   "operations/operatorAuthorization": typeof operations_operatorAuthorization;
   "operations/opsConsole": typeof operations_opsConsole;
   "operations/opsConsoleFunctions": typeof operations_opsConsoleFunctions;
+  "operations/postCommitBacklog": typeof operations_postCommitBacklog;
   "operations/postCommitLive": typeof operations_postCommitLive;
   "operations/postCommitLiveFunctions": typeof operations_postCommitLiveFunctions;
   "operations/postCommitOrchestration": typeof operations_postCommitOrchestration;
