@@ -346,3 +346,88 @@ be worse than either alone.
 | field supplied | left alone, validated, refused if invented | a repair that changes meaning would make a hallucination invisible |
 
 No validation threshold is lowered. Canon's rule is unchanged and still enforced.
+
+## Canon's refusal becomes the next attempt's instruction (ART-205)
+
+Six prompt-contract fixes each raised the chance a scene is born valid. None of them could rescue
+one that is not — and `DUPLICATE_CHARACTER_MOVEMENT` kept occurring after ART-204 stated that rule,
+because a rule a model breaks is not a rule the prompt can fix.
+
+The structural problem: the authoring retry loop only ever saw **parser** rejections. Canon
+validation is stage 8, inside the finishing mutation, after the authoring action has returned. So a
+scene that parsed but violated Canon was persisted, and ART-149 reuse replayed the identical stored
+scene into the identical refusal on every retry. The slot could not recover, however many attempts
+it was given, and no provider call was ever made to try anything different.
+
+`validateSceneProposals` asks the **same** check during authoring, sharing `canonRuleContext` with
+stage 8 so both derive the world identically. Stage 8 remains authoritative and is unchanged.
+
+### What travels back
+
+| Field | Source |
+| --- | --- |
+| `code` | the stable `CanonErrorCode` |
+| `rule` | `validateCanon`'s own message — a repository constant, never world content |
+| `path`, `proposedEventIndex` | where the refusal pointed |
+| `instruction` | keyed on the code, saying what to change |
+
+The validator's `details` payload is dropped **whole** rather than filtered: it is the one field
+that can carry world state — capacities, occupancies, ids the author was never given — and dropping
+it entirely is a stronger guarantee than deciding field by field. A refusal is a statement about the
+author's own output, so telling it what it did wrong reveals nothing it did not write.
+
+The correction goes **first** in the retry prompt. On a retry the general rules are the ones that
+were already present and were broken; burying a specific correction under them is how a model reads
+past it.
+
+### Two guards, because one window remains
+
+A refused scene never returns from `simulateWholeScene`, so it is never persisted and reuse has
+nothing to replay. But the projection can move between authoring and stage 8, so a scene accepted by
+the first check can be refused by the authoritative one. `refuseAndClearScene` marks the stored row
+`canonRejectedAt` and `findReusableSceneSimulation` skips it. **Marked, never deleted** — the row is
+the evidence of what was authored and refused, and an operator looking at a failed slot needs to
+read it.
+
+### `canon_rejected` is its own outcome
+
+Deliberately not `output_rejected`. §16.2's 「JSON 結構成功率」 is about whether a model can follow a
+schema; a canon-refused answer followed it perfectly and proposed something the world forbids.
+Folding the two together would make the metric fall for a reason it does not measure — the
+conflation this pipeline has already had to fix twice. It is excluded from that denominator exactly
+as `provider_failed` is, and gets its own reason dimension.
+
+Exhaustion throws `SCENE_CANON_REJECTED` carrying the rule, commits nothing, and lowers no
+threshold: the validator is asked on every attempt, including the last.
+
+## The author is told its own state instead of being forbidden the change (ART-198)
+
+ART-197 stopped asking for `character_state_changed`, because `validateCanon` requires `fromValue`
+to equal the projected value and strict mode makes `fromValue` mandatory — the variant could only
+ever produce rejections. Honest, and a real capability loss: live authoring could not record an
+emotion change at all.
+
+`LiveCharacter` now carries `recordedState` **beside** `emotionalState`, and the distinction is the
+whole point:
+
+| Field | Value | For |
+| --- | --- | --- |
+| `emotionalState` | `…?.emotion ?? 'steady'` | the Director, which needs a mood to plan around |
+| `recordedState` | the raw projected values, absent fields absent | the author, whose `fromValue` is compared against the raw value |
+
+`equal(undefined, 'steady')` is false, so passing the defaulted value through would have
+reintroduced `CHARACTER_STATE_PRECONDITION_FAILED` for every character whose mood Canon has never
+set — most of them, in a young world.
+
+The rule is now a **whitelist**: one clause per character, naming only the fields Canon has a value
+for and quoting that value as the one legal `fromValue`. A character or field with nothing recorded
+stays prohibited and is said so by name — the ART-157 shape, where an absent entry is a prohibition
+and never an invitation to guess.
+
+Restricted to `PUBLIC_TEXT_CHARACTER_STATE_FIELDS`. `organization_memberships` needs organization
+ids the author has not been given; `availability` and `active` are structural, and `active` is an
+assertion about existence a scene has no business flipping. Non-string values are omitted rather
+than coerced — a value that cannot be quoted back as a `fromValue` cannot be changed correctly.
+
+`character_knowledge_learned` stays forbidden, now for a sharper reason: ART-203 removed
+`causedByEventIds` from the request entirely, so the author has no event id to cite.
