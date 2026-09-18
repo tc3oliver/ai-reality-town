@@ -1,8 +1,10 @@
 import { normalizeProposedEventOutput } from '../canon/proposedEvent';
 import {
-  CHARACTER_STATE_FIELDS, EVENT_TYPES, FACT_SUBJECT_TYPES, FACT_VISIBILITIES, KNOWLEDGE_SHAREABILITIES,
-  KNOWLEDGE_SOURCE_TYPES, KNOWLEDGE_TRUTH_STATUSES, PROPOSED_BY_TYPES,
-  PUBLIC_TEXT_CHARACTER_STATE_FIELDS, RUMOR_STANCES, TIME_SLOTS,
+  CHARACTER_STATE_FIELDS, FACT_SUBJECT_TYPES, FACT_VISIBILITIES, isEventType, isProposedByType,
+  isSceneAuthorEventType, isSceneAuthorProposedByType, KNOWLEDGE_SHAREABILITIES,
+  KNOWLEDGE_SOURCE_TYPES, KNOWLEDGE_TRUTH_STATUSES,
+  PUBLIC_TEXT_CHARACTER_STATE_FIELDS, RUMOR_STANCES, SCENE_AUTHOR_EVENT_TYPES,
+  SCENE_AUTHOR_PROPOSED_BY_TYPES, TIME_SLOTS,
 } from '../canon/eventTypes';
 import type { ProposedEvent } from '../canon/model';
 import { classifyPostGeneration, type PostGenerationClassification } from '../safety/postGeneration';
@@ -108,6 +110,45 @@ const participant = (value: unknown, scene: GroupedScene, path: string): string 
   return id;
 };
 
+/**
+ * Refuse a proposal that used a word outside the scene author's vocabulary (ART-209).
+ *
+ * Runs BEFORE `normalizeProposedEventOutput`, and that order is the whole point in both directions:
+ *
+ *  - a remediation type is refused by `validateEventStructure` first, so a check placed after
+ *    normalization would be dead code for the exact case it was written for, and the retry would go
+ *    on being told `remediation events must be proposed by an administrator` — a rule about
+ *    administrators, addressed to something that is not one;
+ *  - `admin` on an ordinary `conversation` is ACCEPTED by `validateEventStructure`, because Canon
+ *    only gates what the authority unlocks, not the claim itself. Nothing downstream would ever
+ *    refuse it.
+ *
+ * This is not belt-and-braces over the JSON Schema. ART-141 established against the real gateway
+ * that `strict: true` is accepted and not enforced — a request carrying only the proposedEvents
+ * schema came back as an entirely invented document — so a narrowed enum is a statement of intent
+ * and this is the only place the narrowing is a fact.
+ *
+ * A value that is not an event type or proposer AT ALL is left to normalization, which already says
+ * `eventType is not supported` and points at the field. Saying "not available to you" about a string
+ * that does not exist anywhere would be a worse answer, not a stricter one.
+ */
+function assertSceneAuthorVocabulary(event: unknown, path: string): void {
+  if (event === null || typeof event !== 'object' || Array.isArray(event)) return;
+  const row = event as Record<string, unknown>;
+  if (isEventType(row.eventType) && !isSceneAuthorEventType(row.eventType)) {
+    throw new SceneSimulationError('SCENE_OUTPUT_INVALID',
+      'this eventType is not available to a scene author', `${path}.eventType`);
+  }
+  const proposedBy = row.proposedBy;
+  if (proposedBy !== null && typeof proposedBy === 'object' && !Array.isArray(proposedBy)) {
+    const type = (proposedBy as Record<string, unknown>).type;
+    if (isProposedByType(type) && !isSceneAuthorProposedByType(type)) {
+      throw new SceneSimulationError('SCENE_OUTPUT_INVALID',
+        'this proposedBy.type is not available to a scene author', `${path}.proposedBy.type`);
+    }
+  }
+}
+
 function parseActions(value: unknown, scene: GroupedScene): SceneAction[] {
   const actions = array(value, 'keyActions').map((item, itemIndex) => {
     const path = `keyActions[${itemIndex}]`; const row = record(item, path, ['characterId', 'action']);
@@ -174,6 +215,7 @@ export function parseWholeSceneOutput(value: unknown, scene: GroupedScene): Whol
         && (event as Record<string, unknown>).causedByEventIds === undefined) {
       (event as Record<string, unknown>).causedByEventIds = [];
     }
+    assertSceneAuthorVocabulary(event, `proposedEvents[${eventIndex}]`);
     const parsed = normalizeProposedEventOutput(event);
     if (parsed.worldId !== scene.worldId || parsed.worldDay !== scene.worldDay || parsed.timeSlot !== scene.timeSlot
         || parsed.participantIds.some((id) => !scene.participantIds.includes(id))) {
@@ -290,8 +332,20 @@ const characterLinkedItem = strictObject({ characterId: text, content: text, pro
 const rumorItem = strictObject({ sourceCharacterId: text, content: text, proposedEventIndex: integer });
 const proposedEventItem = strictObject({
   schemaVersion: { type: 'integer', const: 1 }, worldId: text, idempotencyKey: text,
-  proposedBy: strictObject({ type: enumOf(PROPOSED_BY_TYPES) }),
-  worldDay: integer, timeSlot: enumOf(TIME_SLOTS), eventType: enumOf(EVENT_TYPES),
+  /**
+   * ART-209. The scene author's OWN vocabulary, not Canon's whole vocabulary.
+   *
+   * `enumOf(EVENT_TYPES)` and `enumOf(PROPOSED_BY_TYPES)` offered `correction`, `compensation`,
+   * `retcon` and the `admin` authority that unlocks them — four values `validateEventStructure`
+   * exists specifically to refuse an author holding no operator capability. A live slot spent an
+   * attempt on `[INVALID_EVENT_SHAPE] remediation events must be proposed by an administrator`.
+   *
+   * Both enums are derived from `EVENT_TYPE_AUTHORITY`, so "exposed is a subset of authorized" is a
+   * property of the table rather than of anyone remembering to edit two lists. Nothing is relaxed:
+   * Canon's rules are untouched and the request stops offering words the author may not say.
+   */
+  proposedBy: strictObject({ type: enumOf(SCENE_AUTHOR_PROPOSED_BY_TYPES) }),
+  worldDay: integer, timeSlot: enumOf(TIME_SLOTS), eventType: enumOf(SCENE_AUTHOR_EVENT_TYPES),
   locationId: text, participantIds: textArray, publicSummary: text,
   // ART-196: `minItems`, because `validateEventStructure` refuses an event carrying no state
   // change and the request never said so. The schema is serialized into the prompt verbatim, so

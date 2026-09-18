@@ -120,6 +120,10 @@ const INSTRUCTIONS: Record<string, string> = {
  * path is what says which rule was broken.
  */
 const PARSER_INSTRUCTIONS: ReadonlyArray<readonly [RegExp, string]> = [
+  // ART-209. First, because its message is specific and several later patterns are broad enough to
+  // claim it — `/unknown fields|must be an object|must be an array/u` in particular.
+  [/is not available to a scene author/u,
+    'Use only the eventType and proposedBy.type values this scene\'s schema lists. The administrator remediation types and the admin authority are not yours: you narrate the world forward, you do not correct its record. Say the same thing as an ordinary event.'],
   [/relationship endpoints must differ|relationshipChanges/u,
     'Give every relationshipChanges entry two DIFFERENT characters for sourceCharacterId and targetCharacterId. A character cannot have a relationship change with themselves.'],
   [/is not a Scene participant|characterId|sourceCharacterId|targetCharacterId/u,
