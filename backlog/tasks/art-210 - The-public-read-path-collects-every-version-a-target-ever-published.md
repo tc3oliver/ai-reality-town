@@ -1,12 +1,13 @@
 ---
 id: ART-210
 title: The public read path collects every version a target ever published
-status: In Progress
+status: Blocked
 assignee: []
 created_date: '2026-09-18 18:27'
-updated_date: '2026-09-18 18:37'
+updated_date: '2026-09-18 19:20'
 labels: []
-dependencies: []
+dependencies:
+  - ART-212
 ordinal: 207000
 ---
 
@@ -48,10 +49,10 @@ the cost grows with the world every time it publishes anything, which is on ever
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 serveReadModel reads a bounded number of rows per target, independent of how many versions that target has ever published
-- [ ] #2 The unbounded read is REMOVED from the port rather than left available beside the bounded one
-- [ ] #3 The served result is unchanged: current-if-servable, else last-known-good-if-servable, else null, with the same sanitisation
-- [ ] #4 A test fails if a whole-version-history read is reintroduced, by counting what the store was asked for rather than by reading the implementation
+- [x] #1 serveReadModel reads a bounded number of rows per target, independent of how many versions that target has ever published
+- [x] #2 The unbounded read is REMOVED from the port rather than left available beside the bounded one
+- [x] #3 The served result is unchanged: current-if-servable, else last-known-good-if-servable, else null, with the same sanitisation
+- [x] #4 A test fails if a whole-version-history read is reintroduced, by counting what the store was asked for rather than by reading the implementation
 - [ ] #5 drainLivePostCommit completes at its default batch size against a world with the acceptance deployments version history
 <!-- AC:END -->
 
@@ -140,4 +141,23 @@ Fault injection
 Gate
 
   npm run check exits 0: 281 suites, 4935 tests (ART-209 baseline 280 / 4927; +1 suite, +8 tests).
+
+Post-deploy verification: the fix is real and it is NOT sufficient.
+
+  `serveReadModel` was genuinely unbounded and is now bounded — proven by the counting test and by
+  the injection that fails it. Public read P95 over the real acceptance transport tightened from
+  249 ms / 345 ms max to 247 ms / 253 ms max (n=40 each).
+
+  But AC#5 does NOT hold. After merge and deploy, `drainLivePostCommit` at the DEFAULT batch of 3
+  still exceeds the 16 MB read limit on mistwood. Binary search on the batch size at Canon 103:
+  batch 1 and batch 2 complete with no read-limit warning at all; batch 3 warns 17-23 times and
+  fails. One event costs roughly 5-6 MB against a world holding about 6.3 MB in total.
+
+  So the pipeline reads close to everything, once per event, and `serveReadModel` was one
+  repetition among several. The remaining cost is inside the stage implementations and needs a
+  per-stage measurement rather than another reading of the source. Carried to ART-212 with the
+  table sizes and with what measurement has already ruled out.
+
+  AC#5 is left UNCHECKED rather than reworded. The claim it makes is the one that matters
+  operationally, and it is false today.
 <!-- SECTION:NOTES:END -->

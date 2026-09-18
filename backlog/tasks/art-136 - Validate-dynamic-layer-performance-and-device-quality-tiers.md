@@ -5,7 +5,7 @@ status: Blocked
 assignee:
   - '@claude'
 created_date: '2026-08-04 16:00'
-updated_date: '2026-09-13 16:34'
+updated_date: '2026-09-18 19:20'
 labels:
   - prd-2.0
   - v2-j
@@ -60,7 +60,7 @@ ordinal: 136000
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 Live view shell P95 time to interactive is under four seconds on desktop and six seconds on mobile
-- [ ] #2 Public dynamic query P95 is under five hundred milliseconds
+- [x] #2 Public dynamic query P95 is under five hundred milliseconds
 - [ ] #3 Runtime to public screen update latency is normally under five seconds
 - [x] #4 Desktop averages at least forty five frames per second and mid-tier mobile at least thirty
 - [x] #5 Reduced frame rate never changes a character semantic position
@@ -277,6 +277,33 @@ The documented acceptance command, unmodified, on a tree whose `HEAD` was `e63a3
 **The renderer was SwiftShader and that does not weaken this criterion.** AC#7 measures `performance.memory.usedJSHeapSize` — the JS heap, not GPU memory — as a trend across the minima of six time windows. Software rasterisation raises CPU-side cost, so if it biases the figure it biases it upward. 6.2 KB/min against 512 KB/min is not a number a renderer swap rescues.
 
 No threshold, workload, sampling or scoring logic was changed. The working tree was clean for the whole run; the only files it wrote are the two benchmark artifacts.
+
+AC#2 measured against the REAL acceptance transport (2026-09-19), which is what
+`requires_deployment` was waiting for.
+
+  Public dynamic query: `publicRead/liveStateFunctions:getPublicDynamicProjection`, worldId
+  mistwood, over HTTPS to colorless-deer-917 from a residential connection. Full round trip,
+  including TLS, so the figure is conservative against a browser holding a persistent websocket.
+
+    before ART-210   n=40   min 221   p50 236   p95 249   max 345   (ms)
+    after  ART-210   n=40   min 213   p50 230   p95 247   max 253   (ms)
+
+  Threshold is 500 ms. PASS on both, with the tail tightened by ART-210. A keep-alive run over one
+  connection gave p50 ~210 ms, so the transport is not dominated by handshake cost.
+
+AC#3 is NOT measured and stays unchecked.
+
+  `runtimeProjectionLatency` is `latencyMs = now - dynamic.updatedAt`, where `updatedAt` is the last
+  accepted event`s `acceptedAt` — so it is genuinely end-to-end, Canon fact to public projection,
+  and its value depends on how promptly post-commit runs after the event is accepted. Under
+  `mode: development` nothing schedules post-commit, so every drain here was an operator invoking a
+  mutation minutes later and any number derived from it would measure my typing speed.
+
+  Reading the recorded rollup instead needs `inspectDynamicViewMetrics`, which is gated on
+  `schedule.inspect` and returns OPS_UNAUTHORIZED from the CLI.
+
+  So AC#3 needs the world in `public` mode with the cron driving it, which needs an operator
+  credential AND needs ART-212 fixed first — the cron`s default batch exceeds the read limit today.
 <!-- SECTION:NOTES:END -->
 
 ## Comments
