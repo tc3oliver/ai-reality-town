@@ -3,11 +3,11 @@ id: ART-207
 title: >-
   Retry feedback covers Canon refusals but not the parser refusals that dominate
   live failures
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-09-18 02:34'
-updated_date: '2026-09-18 02:34'
+updated_date: '2026-09-18 03:00'
 labels: []
 dependencies: []
 priority: high
@@ -56,10 +56,10 @@ is NOT assumed to be fixed by this task.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A parser refusal becomes the next attempt's instruction, as a Canon refusal already does
-- [ ] #2 The instruction table covers the SCENE_OUTPUT_* codes the live world actually produces
-- [ ] #3 A test drives a parser refusal and asserts the correction reaches the retry request
-- [ ] #4 The existing Canon-refusal path is unchanged
+- [x] #1 A parser refusal becomes the next attempt's instruction, as a Canon refusal already does
+- [x] #2 The instruction table covers the SCENE_OUTPUT_* codes the live world actually produces
+- [x] #3 A test drives a parser refusal and asserts the correction reaches the retry request
+- [x] #4 The existing Canon-refusal path is unchanged
 <!-- AC:END -->
 
 ## Definition of Done
@@ -79,3 +79,9 @@ is NOT assumed to be fixed by this task.
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Shipped in #317. ART-205 built the feedback loop and wired it to Canon refusals only; 13 of the 20 most recent live authoring failures were PARSER refusals and zero were Canon refusals, so the loop was fixing the rare half. Parser refusals now produce the same correction block, matched on the rule text and field path because SCENE_OUTPUT_INVALID is one code for many rules. Sec 16.2 is unaffected: a schema refusal is still output_rejected. Two fault injections; the second initially bit only one test because the other assertion matched a general ART-199 rule present in every prompt -- it now targets the correction block itself. The open question about the in-authoring Canon check producing no live rejections is recorded on this task and is NOT claimed fixed.
+<!-- SECTION:FINAL_SUMMARY:END -->

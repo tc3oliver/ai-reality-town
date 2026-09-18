@@ -3,9 +3,10 @@ id: ART-198
 title: >-
   Live scene authoring cannot use character_state_changed or
   character_knowledge_learned
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-17 18:39'
+updated_date: '2026-09-18 03:00'
 labels: []
 dependencies: []
 priority: medium
@@ -56,9 +57,9 @@ variants -- if scenes are rich enough, this is lower priority than it looks.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The scene author is given the participants' raw projected state for the fields it may change
-- [ ] #2 An absent recorded value means that field may not be changed, rather than being defaulted
-- [ ] #3 A test proves a character with no recorded emotion is not offered an emotion change
+- [x] #1 The scene author is given the participants' raw projected state for the fields it may change
+- [x] #2 An absent recorded value means that field may not be changed, rather than being defaulted
+- [x] #3 A test proves a character with no recorded emotion is not offered an emotion change
 <!-- AC:END -->
 
 ## Definition of Done
@@ -78,3 +79,9 @@ variants -- if scenes are rich enough, this is lower priority than it looks.
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Shipped in #314. LiveCharacter carries recordedState beside emotionalState: the latter is '?? steady' and right for the Director, and unusable for an author because validateCanon compares fromValue against the RAW value and equal(undefined, 'steady') is false. The rule is now a whitelist quoting the legal fromValue per character and field; anything unrecorded stays prohibited by name. Restricted to the narrative-text fields; non-string values omitted rather than coerced. character_knowledge_learned stays forbidden for a sharper reason -- ART-203 removed causedByEventIds, so there is no event id to cite. Four fault injections; one exposed that the field filter had no test of its own.
+<!-- SECTION:FINAL_SUMMARY:END -->
