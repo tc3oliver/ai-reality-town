@@ -4,7 +4,7 @@ title: The public read path collects every version a target ever published
 status: In Progress
 assignee: []
 created_date: '2026-09-18 18:27'
-updated_date: '2026-09-18 18:27'
+updated_date: '2026-09-18 18:37'
 labels: []
 dependencies: []
 ordinal: 207000
@@ -99,3 +99,45 @@ the cost grows with the world every time it publishes anything, which is on ever
 7. npm run check, PR, auto-merge, deploy acceptance, then drain at the DEFAULT batch size and
    confirm it no longer exceeds the read limit.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Diagnosis
+
+  Guessed wrong first. `loadWorldState` collects four whole-world `storyArc*` tables plus every
+  `worldCharacters` row on a per-event path, which reads exactly like the CLAUDE.md section 9
+  violation — and measuring it gave 0.12 MB across 127 rows, memoised once per drain. It was not
+  the cause.
+
+  Measuring the rest settled it: every distinct byte the drain can touch is about 3.5 MB, so 13.5 MB
+  of reads is the same rows re-read. `serveReadModel` -> `loadTargetVersions` was the repetition:
+  a `.collect()` of a target’s whole version history, of which it used two rows.
+
+    publishedReadModels           415 rows   3.19 MB
+      timeline|timeline:mistwood   82 rows   1.48 MB   <- +1 version per accepted event
+      liveState|live:mistwood      33 rows   0.40 MB
+      world|world:mistwood         14 rows   0.29 MB
+    canonEvents                    99 rows   0.24 MB
+    storyArc* + worldCharacters   127 rows   0.12 MB
+
+  Callers paying it once per event: publishedEventSummaries, resolveDisplayName (per character),
+  the runtime snapshot reader. Plus every public page view.
+
+Fault injection
+
+  1. A history-proportional read reintroduced inside serveReadModel ->
+     "reads the same number of rows for three versions and for three hundred" FAILS. The other two
+     bound cases still pass, which is the point of having the count case: a caller can abuse a
+     bounded method without ever naming an unbounded one.
+  2. The two bounded reads concatenated in the reverse order -> NOTHING failed.
+
+  Injection 2 caught a defect in my own comment rather than in the code. It claimed the current row
+  had to be offered first "because the selection rule is a find". `selectServedVersion` makes two
+  passes keyed on the FLAGS, so position is irrelevant. The comment was corrected to say so, and the
+  case now asserts the stronger property — either order serves the current version.
+
+Gate
+
+  npm run check exits 0: 281 suites, 4935 tests (ART-209 baseline 280 / 4927; +1 suite, +8 tests).
+<!-- SECTION:NOTES:END -->
