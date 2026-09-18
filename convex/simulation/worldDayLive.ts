@@ -38,15 +38,19 @@ import {
   type WorldProjection,
 } from '../canon/model';
 import { proposalSceneId, type ProposalValidationDraft } from './validationOutcome';
-import { commitProposedEvent, type CanonCommitStore, type CommitResult } from '../canon/commit';
-import { TIME_SLOTS, type TimeSlot } from '../canon/eventTypes';
+import { commitProposedEvent, type CanonCommitStore, type CanonReadStore, type CommitResult } from '../canon/commit';
+import {
+  PUBLIC_TEXT_CHARACTER_STATE_FIELDS, TIME_SLOTS,
+  type PublicTextCharacterStateField, type TimeSlot,
+} from '../canon/eventTypes';
 import { degradedPlan, policyFor, type LevelPolicy } from './degradation';
 import { replayWorldEvents } from '../canon/replay';
 import { cloneProjection } from '../canon/snapshots';
 import { resolveWorldBaseline } from '../canon/snapshotManager';
 import { validateCanon, validateEventStructure } from '../canon/validators';
-import { CanonError, type CanonErrorCode } from '../shared/errors';
+import { CanonError, type CanonErrorCode, type CanonValidationError } from '../shared/errors';
 import type { FailureDetail } from '../shared/failureDetail';
+import type { CanonRejectionFeedback } from './canonFeedback';
 import { CANON_SCHEMA_VERSION } from '../shared/constants';
 import {
   findEnvironmentVoteCandidate,
@@ -148,6 +152,20 @@ export type LiveCharacter = {
   personaSummary: string;
   currentGoal: string;
   emotionalState: string;
+  /**
+   * The character state fields Canon has a RECORDED value for, raw (ART-198).
+   *
+   * Distinct from {@link emotionalState}, which defaults to `'steady'` when the projection records
+   * nothing. That default is right for the Director — a character with no recorded mood still needs
+   * one to plan around — and wrong for an author: `validateCanon` compares a
+   * `character_state_changed`'s `fromValue` against the RAW projected value, and
+   * `equal(undefined, 'steady')` is false. Passing the defaulted value through would refuse every
+   * such change for every character whose mood Canon has never set.
+   *
+   * A field with no recorded value is ABSENT here, and absent means "this field may not be
+   * changed" — exactly as an empty `legalDestinationIds` means "nobody may leave".
+   */
+  recordedState?: Readonly<Partial<Record<PublicTextCharacterStateField, string>>>;
   currentLocationId: string;
   reachableLocationIds: string[];
   slotsSinceMajorAppearance: number;
@@ -262,6 +280,14 @@ export interface WorldDayLivePort {
    * `(worldId, idempotencyKey, stage)`, so a retried slot re-records rather than re-counts.
    */
   recordProposalValidations(outcomes: readonly ProposalValidationDraft[]): Promise<void>;
+  /**
+   * ART-205. Mark a stored scene as refused by Canon so the next attempt re-authors it.
+   *
+   * OPTIONAL: a port that does not implement it behaves exactly as before, which is how every
+   * in-memory test port written before ART-205 still works. On the deployed path it is what stops
+   * ART-149 reuse replaying a refused scene into the same refusal forever.
+   */
+  markSceneCanonRejected?(worldId: string, sceneId: string, code: string): Promise<void>;
   /**
    * FR-M002 (ART-90). Record one whole-scene authoring ATTEMPT: which model, how many transport
    * retries, whether its structured output parsed, and how the attempt ended.
@@ -422,6 +448,51 @@ export function legalDestinationsFrom(
 }
 
 /**
+ * The recorded values for the character state fields a scene author may change (ART-198).
+ *
+ * Restricted to {@link PUBLIC_TEXT_CHARACTER_STATE_FIELDS} — health, emotion, finance, occupation.
+ * The rest of `CHARACTER_STATE_FIELDS` is not narrative text an author can meaningfully rewrite:
+ * `organization_memberships` needs organization ids it has not been given, `availability` and
+ * `active` are structural flags, and `active` in particular is an assertion about existence that a
+ * scene has no business flipping.
+ *
+ * Non-string values are omitted rather than coerced. A field whose projected value is not a string
+ * cannot be quoted back as a `fromValue`, and offering it would be offering a change that cannot
+ * be made correctly — the defect this function exists to stop.
+ */
+export function recordedCharacterState(
+  state: Record<string, unknown> | undefined,
+): Partial<Record<PublicTextCharacterStateField, string>> | undefined {
+  if (!state) return undefined;
+  const recorded: Partial<Record<PublicTextCharacterStateField, string>> = {};
+  for (const field of PUBLIC_TEXT_CHARACTER_STATE_FIELDS) {
+    const value = state[field];
+    if (typeof value === 'string' && value.length > 0) recorded[field] = value;
+  }
+  return Object.keys(recorded).length > 0 ? recorded : undefined;
+}
+
+/**
+ * One scene's participants, each with the state fields they may actually be given a new value for.
+ *
+ * A participant with nothing recorded is omitted, and so is a field with nothing recorded. The
+ * author is then told it may not change what it was not given, which is the ART-157 shape: an
+ * absent entry is a prohibition, never an invitation to guess.
+ */
+export function participantStateFor(
+  snapshot: Pick<LiveWorldSnapshot, 'characters'>,
+  scene: Pick<GroupedScene, 'participantIds'>,
+): Record<string, Readonly<Record<string, string>>> {
+  const byId = new Map(snapshot.characters.map((character) => [character.characterId, character]));
+  const states: Record<string, Readonly<Record<string, string>>> = {};
+  for (const characterId of scene.participantIds) {
+    const recorded = byId.get(characterId)?.recordedState;
+    if (recorded && Object.keys(recorded).length > 0) states[characterId] = { ...recorded };
+  }
+  return states;
+}
+
+/**
  * Where one participant actually stands, and where Canon would let them go (ART-200).
  *
  * ART-157 computed ONE destination list per scene, from `scene.locationId`, and the movement rule
@@ -506,6 +577,8 @@ export function buildLiveWorldSnapshot(sources: WorldSnapshotSources): LiveWorld
       personaSummary: seed.personaSummary,
       currentGoal: seed.currentGoal,
       emotionalState: projection.characterStates[seed.characterId]?.emotion ?? 'steady',
+      // ART-198: the RAW values, with absent fields left absent. See `recordedState`.
+      recordedState: recordedCharacterState(projection.characterStates[seed.characterId]),
       currentLocationId,
       reachableLocationIds: [...(projection.locations[currentLocationId]?.connectedLocationIds
         ?? sources.locationConnections[currentLocationId] ?? [])],
@@ -918,7 +991,16 @@ function slotOf(context: StageContext): WorldDaySlotIdentity {
   return { worldId: context.worldId, worldDay: context.worldDay, timeSlot };
 }
 
-async function canonRuleContext(store: CanonCommitStore, worldId: string) {
+/**
+ * The projection and rule context Canon validation is performed against.
+ *
+ * Exported since ART-205 so the authoring-time validator and stage 8 share ONE derivation. Two
+ * would be two opinions about what the world looks like, and a scene accepted by one and refused by
+ * the other is exactly the shape that made a slot unrecoverable.
+ *
+ * Takes the READ half of the store: this derives a projection and appends nothing.
+ */
+export async function canonRuleContext(store: CanonReadStore, worldId: string) {
   const events = await store.loadAcceptedEvents(worldId);
   const persisted = await store.loadCanonRuleContext(worldId);
   const ruleContext: CanonRuleContext = {
@@ -992,6 +1074,13 @@ export type SceneAuthoringPlan = {
    */
   readonly participantMovement: Readonly<Record<string, Readonly<Record<string, ParticipantMovement>>>>;
   /**
+   * ART-198, per scene and then per character: the state fields with a recorded value.
+   *
+   * Empty for a character whose state Canon has never set, which the prompt reads as "this
+   * character's state may not be changed" rather than as "change whatever you like".
+   */
+  readonly participantState: Readonly<Record<string, Readonly<Record<string, Readonly<Record<string, string>>>>>>;
+  /**
    * FR-M003 最大並行數, as the number of scenes that may be in flight at once (ART-161).
    *
    * `1` means sequential and is what an UNCONFIGURED world gets: `TokenBudgetPolicy`'s default is
@@ -1037,6 +1126,14 @@ export type SceneAuthoringStore = {
   persistSceneSimulation(groupingRunId: string, result: SceneSimulationResult): Promise<void>;
   /** ART-90: one row per provider attempt; see {@link WorldDayLivePort.recordAuthoringAttempt}. */
   recordAuthoringAttempt(attempt: AuthoringAttemptDraft): Promise<void>;
+  /**
+   * ART-205. Canon's verdict on a parsed scene, asked for while another attempt is still possible.
+   *
+   * Optional so a store written before ART-205 still authors — absent means unchecked, which is the
+   * behaviour every such caller already had. The authoritative check remains stage 8 in the
+   * finishing mutation; this one exists so a refusal can reach the author at all.
+   */
+  validateProposals?(worldId: string, events: readonly ProposedEvent[]): Promise<CanonRejectionFeedback | null>;
   budget: SceneBudgetGate;
 };
 
@@ -1047,11 +1144,17 @@ export type SceneAuthoringStore = {
  *  - `parsed` — the provider answered and `parseWholeSceneOutput` accepted the answer;
  *  - `output_rejected` — the provider answered and the runtime schema validation refused it. This
  *    is the numerator's complement, and the only outcome §16.2's 「JSON 結構成功率」 is about;
+ *  - `canon_rejected` — the provider answered, the SCHEMA accepted it, and Canon refused the
+ *    content (ART-205). Deliberately NOT `output_rejected`: §16.2's rate is about whether a model
+ *    can follow a schema, and a scene that followed the schema perfectly and proposed something the
+ *    world forbids is evidence about neither the schema nor the gateway. Folding it in would have
+ *    made the metric fall for a reason it does not measure — the same conflation this file already
+ *    warns about twice;
  *  - `provider_failed` — no answer to validate. A timeout, a refused credential, an exhausted route
  *    chain or a budget refusal is not a structured-output failure, and counting it as one would
  *    report a network outage as a model that cannot follow a schema.
  */
-export const AUTHORING_ATTEMPT_OUTCOMES = ['parsed', 'output_rejected', 'provider_failed'] as const;
+export const AUTHORING_ATTEMPT_OUTCOMES = ['parsed', 'output_rejected', 'canon_rejected', 'provider_failed'] as const;
 export type AuthoringAttemptOutcome = (typeof AUTHORING_ATTEMPT_OUTCOMES)[number];
 
 export type AuthoringAttemptDraft = {
@@ -1120,11 +1223,15 @@ export async function buildSceneAuthoringPlan(
   const configuredLimit = await port.loadConcurrencyLimit(slot.worldId);
   const legalDestinationIds: Record<string, readonly string[]> = {};
   const participantMovement: Record<string, Record<string, ParticipantMovement>> = {};
+  const participantState: Record<string, Record<string, Readonly<Record<string, string>>>> = {};
   for (const scene of grouping.result.scenes) {
     legalDestinationIds[scene.sceneId] = legalDestinationsFrom(snapshot.locations, scene.locationId);
     // ART-200. From the SAME stage-1 snapshot, so what the author is told about a character's
     // position is what Canon will validate the result against.
     participantMovement[scene.sceneId] = participantMovementFor(snapshot, scene);
+    // ART-198. From the same stage-1 snapshot, so a `fromValue` the author is told to use is the
+    // value `validateCanon` will compare against.
+    participantState[scene.sceneId] = participantStateFor(snapshot, scene);
   }
   return {
     slot,
@@ -1136,6 +1243,7 @@ export async function buildSceneAuthoringPlan(
     fallbackModel: config.fallbackModel ?? null,
     legalDestinationIds,
     participantMovement,
+    participantState,
     // Clamped to at least 1: a configured 0 would author nothing while looking like a setting.
     maxConcurrentScenes: Math.max(1, configuredLimit ?? 1),
   };
@@ -1202,6 +1310,17 @@ export async function authorSlotScenes(
           sceneId: scene.sceneId, simulationRunId, ...attempt,
         }).catch(() => undefined);
       },
+      /**
+       * ART-205. Canon's verdict, inside the retry loop.
+       *
+       * A scene refused here never returns from `simulateWholeScene`, so it is never persisted and
+       * can never be replayed by the reuse below — which is what made a refused slot permanently
+       * unrecoverable however many attempts it was given.
+       */
+      ...(store.validateProposals === undefined ? {} : {
+        validateProposals: (events: readonly ProposedEvent[]) =>
+          store.validateProposals!(plan.slot.worldId, events),
+      }),
       // ART-157. Derived per scene from the SAME stage-1 snapshot the Director planned
       // against, so the author is told exactly what Canon will accept. Before this the
       // prompt named no location at all and every movement it proposed was refused.
@@ -1209,6 +1328,8 @@ export async function authorSlotScenes(
       // ART-200. Each participant's OWN origin and destinations, which is what makes the movement
       // rule true for a participant who is not standing at the scene's location.
       participantMovement: plan.participantMovement[scene.sceneId] ?? {},
+      // ART-198. The recorded values a `character_state_changed` may legally quote as `fromValue`.
+      participantState: plan.participantState[scene.sceneId] ?? {},
       budget: {
         gate: store.budget,
         reservation: {
@@ -1291,6 +1412,33 @@ export async function authorSlotScenes(
 }
 
 // --- stage handlers ---------------------------------------------------------
+
+/**
+ * Refuse the slot, and clear the stored scene so the retry re-authors it (ART-205).
+ *
+ * Used by BOTH validation stages, because both refuse a scene the author already produced and
+ * reuse would replay either of them identically. A first draft of this put it in stage 7 only —
+ * the two blocks are textually identical and the edit matched the wrong one — and the case that
+ * caught it is `stage 8 marks the scene it refused`.
+ *
+ * Marking is best-effort and deliberately not allowed to mask the refusal: the slot must still
+ * fail with the validation error, which is the thing an operator needs to see. A port that does
+ * not implement the marker behaves exactly as it did before.
+ *
+ * Always throws.
+ */
+async function refuseAndClearScene(
+  port: Pick<WorldDayLivePort, 'markSceneCanonRejected'>,
+  worldId: string,
+  rejected: { proposed: ProposedEvent; error: CanonValidationError | null },
+): Promise<never> {
+  if (!rejected.error) throw new Error('refuseAndClearScene called without a refusal');
+  const sceneId = proposalSceneId(rejected.proposed);
+  if (sceneId !== null && port.markSceneCanonRejected) {
+    await port.markSceneCanonRejected(worldId, sceneId, rejected.error.code).catch(() => undefined);
+  }
+  throw new CanonError(rejected.error);
+}
 
 /**
  * Build the ten PRD §12 stage handlers for {@link executeWorldDay}. Every stage is a thin
@@ -1455,7 +1603,7 @@ export function createWorldDayStageHandlers(
       await port.recordProposalValidations(verdicts.map(({ proposed, error }) =>
         validationDraft(slot, proposed, 'structural', error)));
       const rejected = verdicts.find(({ error }) => error !== null);
-      if (rejected?.error) throw new CanonError(rejected.error);
+      if (rejected?.error) await refuseAndClearScene(port, context.worldId, rejected);
       const keys = proposedEvents.map(({ idempotencyKey }) => idempotencyKey);
       if (new Set(keys).size !== keys.length) {
         throw new WorldDayOrchestrationError('PROPOSAL_KEY_CONFLICT', 'slot proposals must have unique idempotency keys');
@@ -1479,7 +1627,7 @@ export function createWorldDayStageHandlers(
       await port.recordProposalValidations(verdicts.map(({ proposed, error }) =>
         validationDraft(slot, proposed, 'canon', error)));
       const rejected = verdicts.find(({ error }) => error !== null);
-      if (rejected?.error) throw new CanonError(rejected.error);
+      if (rejected?.error) await refuseAndClearScene(port, context.worldId, rejected);
       return { validatedIdempotencyKeys: proposedEvents.map(({ idempotencyKey }) => idempotencyKey) };
     },
 

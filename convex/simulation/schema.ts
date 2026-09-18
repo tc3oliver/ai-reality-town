@@ -282,6 +282,26 @@ export const simulationTables = {
     schemaVersion: v.literal(1), worldId: v.string(), simulationRunId: v.string(), groupingRunId: v.string(),
     sceneId: v.string(), status: v.union(v.literal('validated'), v.literal('review_required')),
     result: v.any(), createdAt: v.number(),
+    /**
+     * Canon refused this stored scene, so it must never be reused (ART-205).
+     *
+     * ART-149 reuse exists so a slot that failed on scene 3 does not re-pay for scenes 1 and 2, and
+     * it is load-bearing for cost and for determinism. It also meant that a scene whose proposals
+     * Canon refused was replayed into the identical refusal on every retry: the slot could not
+     * recover however many attempts it was given, and no provider call was ever made to try
+     * anything different. Day 5 morning on the acceptance world sat failed at four attempts for
+     * exactly this reason.
+     *
+     * ART-205 stops most of these being stored at all, by asking Canon during authoring. This
+     * covers the remainder: the projection can move between authoring and stage 8, so a scene can
+     * be accepted by the first check and refused by the authoritative one. Marking it is what makes
+     * that a retry rather than a permanent park.
+     *
+     * OPTIONAL for migration safety: rows written before ART-205 carry no flag and are read as not
+     * rejected, which is how they were already treated.
+     */
+    canonRejectedAt: v.optional(v.number()),
+    canonRejectionCode: v.optional(v.string()),
   })
     .index('by_world_and_run', ['worldId', 'simulationRunId'])
     .index('by_grouping_run', ['worldId', 'groupingRunId'])

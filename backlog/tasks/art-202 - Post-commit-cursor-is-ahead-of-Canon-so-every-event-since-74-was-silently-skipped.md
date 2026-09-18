@@ -6,6 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-09-17 20:17'
+updated_date: '2026-09-17 23:40'
 labels: []
 dependencies: []
 priority: critical
@@ -104,3 +105,46 @@ weeks later.
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+CORRECTION: the original diagnosis in this task was WRONG. There was no cursor overshoot.
+
+Established 2026-09-17 by running drainLivePostCommit repeatedly on colorless-deer-917:
+
+  call 1 -> []            call 5 -> 78,79,80 completed
+  call 2 -> []            call 6 -> 81,82,83 completed
+  call 3 -> []            call 7 -> 84,85,86 completed
+  call 4 -> 75,76,77      call 8 -> 87,88    completed
+                          call 9 -> []  (genuinely caught up)
+
+All 14 events post-committed with status completed, and liveState advanced 19 -> 30 with dynamic
+present. The cursor invariant is correctly implemented and never crossed a hole.
+
+## What was actually happening
+
+drainPostCommitBacklog reads ONE bounded page: page = DEFAULT_MAX_POST_COMMIT_EVENTS (3) +
+POST_COMMIT_CURSOR_CATCHUP (32) = 35. A call whose whole page is already settled advances the
+cursor by 35 and returns [] without doing any work. Starting from an absent cursor row (-1) it took
+three such calls to walk the settled prefix of events 0..74 before the fourth reached event 75.
+
+I called it twice, got [] twice, and concluded the cursor was ahead of Canon. It was behind.
+
+## The real defects
+
+1. drainLivePostCommit returns [] for two states that need opposite responses: 'caught up, nothing
+   to do' and 'the cursor advanced, call me again'. Nothing distinguishes them. That ambiguity is
+   what produced a wrong CRITICAL diagnosis, and it is the defect to fix.
+
+2. The six-week stall has a different cause entirely: drivableWorldIds filters
+   mode === 'public' && status === 'running'. The mistwood schedule row is mode: 'development', so
+   BOTH crons -- driveLiveWorlds and drainAllLivePostCommit -- have always skipped this world. A
+   non-public world accumulates an unbounded post-commit backlog and nothing reports it.
+
+3. Nothing reports post-commit backlog or holes at all. No query answers 'which accepted events
+   have no completed run'.
+
+Re-scoped accordingly: pin the invariant that was already correct, fix the ambiguity, make the
+backlog observable, and provide the dry-run + reconciliation surface.
+<!-- SECTION:NOTES:END -->

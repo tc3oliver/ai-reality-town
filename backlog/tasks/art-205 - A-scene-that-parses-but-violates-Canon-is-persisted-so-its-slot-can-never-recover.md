@@ -3,9 +3,11 @@ id: ART-205
 title: >-
   A scene that parses but violates Canon is persisted, so its slot can never
   recover
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-09-17 21:07'
+updated_date: '2026-09-18 00:06'
 labels: []
 dependencies: []
 priority: high

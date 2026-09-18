@@ -75,7 +75,9 @@ import { rebuildViewerKnowledgeProjections } from '../publicRead/viewerKnowledge
 import { reassessMajorActiveArcEntries } from '../story/entryRecommendationFunctions';
 import { refreshArcStagnationPrompts } from '../story/resolutionFunctions';
 import { generateIncrementalRecap } from '../recaps/functions';
-import { runLiveWorldDayCycle, runPostCommitPipeline } from './postCommitLiveFunctions';
+import {
+  drainLivePostCommit, reconcilePostCommit, runLiveWorldDayCycle, runPostCommitPipeline,
+} from './postCommitLiveFunctions';
 
 type Row = Record<string, unknown>;
 type Tables = Record<string, Row[]>;
@@ -1043,5 +1045,216 @@ describe('ART-100 AC#2 — runLiveWorldDayCycle over a whole time slot', () => {
     // event and not an infinite loop.
     expect(calls).toBeLessThanOrEqual(5);
     expect(calls).toBeGreaterThan(1);
+  });
+
+  it('says whether an empty result means caught up or means call again (ART-202)', async () => {
+    /**
+     * The test above proves the catch-up makes progress ACROSS calls. What had no expression was
+     * telling the two states apart WITHIN one call, and that is what went wrong in practice: the
+     * drain was invoked twice against the acceptance deployment, returned `[]` twice, and was read
+     * as "the pipeline is caught up". It was three pages behind. The conclusion drawn from those
+     * two empty arrays was a CRITICAL defect report about a cursor overshoot that did not exist.
+     *
+     * An empty `outcomes` with `caughtUp: false` is now a different value from an empty `outcomes`
+     * with `caughtUp: true`, and the cursor's movement says which.
+     */
+    const worldId = 'ac2-ambiguous';
+    const now = 10_000_000;
+    const tables = seedWorld(worldId, 200, now);
+    for (let sequenceNumber = 0; sequenceNumber <= 99; sequenceNumber += 1) {
+      tables.postCommitRuns.push({
+        runId: `${worldId}:${sequenceNumber}`, worldId,
+        sourceEventId: `${worldId}#event#${sequenceNumber}`,
+        sourceEventSequenceNumber: sequenceNumber, worldDay: Math.floor(sequenceNumber / 5),
+        status: 'completed', attemptCount: 1, createdAt: now, updatedAt: now,
+      });
+    }
+    const ctx = makeCtx(tables, freshReadStats());
+    const drain = () => (drainLivePostCommit as unknown as Registered)._handler(ctx, {
+      worldId, now, maxPostCommitEvents: 1,
+    }) as Promise<{
+      outcomes: unknown[]; cursorBefore: number; cursorAfter: number;
+      caughtUp: boolean; remaining: number;
+    }>;
+
+    const first = await drain();
+
+    // Nothing was processed — and the call was NOT idle. It moved the cursor, and says so.
+    expect(first.outcomes).toHaveLength(0);
+    expect(first.caughtUp).toBe(false);
+    expect(first.cursorAfter).toBeGreaterThan(first.cursorBefore);
+
+    let result = first;
+    for (let call = 0; call < 10 && result.outcomes.length === 0; call += 1) result = await drain();
+    // Once it reaches real work it reports it, and still does not claim to be caught up.
+    expect(result.outcomes).toHaveLength(1);
+    expect(result.caughtUp).toBe(false);
+  });
+
+  it('claims caughtUp only when the page is short AND owes nothing (ART-202)', async () => {
+    /**
+     * A FULL page owes nothing about what lies beyond it, so claiming to be caught up on the
+     * strength of one would put the original ambiguity back in the one case where the caller most
+     * needs to call again.
+     */
+    const worldId = 'ac2-caught-up';
+    const now = 10_000_000;
+    const tables = seedWorld(worldId, 3, now);
+    for (const sequenceNumber of [0, 1, 2]) {
+      tables.postCommitRuns.push({
+        runId: `${worldId}:${sequenceNumber}`, worldId,
+        sourceEventId: `${worldId}#event#${sequenceNumber}`,
+        sourceEventSequenceNumber: sequenceNumber, worldDay: 0,
+        status: 'completed', attemptCount: 1, createdAt: now, updatedAt: now,
+      });
+    }
+    const ctx = makeCtx(tables, freshReadStats());
+    const result = await (drainLivePostCommit as unknown as Registered)._handler(ctx, {
+      worldId, now,
+    }) as { outcomes: unknown[]; caughtUp: boolean; remaining: number };
+
+    expect(result.outcomes).toHaveLength(0);
+    expect(result.caughtUp).toBe(true);
+    expect(result.remaining).toBe(0);
+  });
+
+  // ===========================================================================
+  // Reconciliation (ART-202)
+  // ===========================================================================
+
+  /**
+   * A world with a hole: events 0–4 accepted, 0 and 1 completed, 2 and 3 never attempted, 4
+   * completed out of order by a direct `runPostCommitPipeline`.
+   */
+  const seedHoledWorld = (worldId: string, now: number) => {
+    const tables = seedWorld(worldId, 5, now);
+    for (const sequenceNumber of [0, 1, 4]) {
+      tables.postCommitRuns.push({
+        runId: `postcommit:${worldId}:${sequenceNumber}`, worldId,
+        sourceEventId: `${worldId}#event#${sequenceNumber}`,
+        sourceEventSequenceNumber: sequenceNumber, worldDay: 0,
+        status: 'completed', attemptCount: 1, createdAt: now, updatedAt: now,
+      });
+    }
+    return tables;
+  };
+
+  type Reconcile = {
+    dryRun: boolean; cursorBefore: number; cursorAfter: number;
+    missing: number[]; unfinished: number[]; wouldRepair: number[];
+    repaired: number[]; skipped: number[]; caughtUp: boolean; remainingAfter: number;
+    cursorOvershot: boolean;
+  };
+
+  const reconcile = (ctx: ReturnType<typeof makeCtx>, worldId: string, now: number, dryRun: boolean) =>
+    (reconcilePostCommit as unknown as Registered)._handler(ctx, {
+      worldId, now, dryRun, maxRepairs: 25,
+    }) as Promise<Reconcile>;
+
+  it('dry-runs by default and writes nothing', async () => {
+    // A reconciliation that repaired by default would be a destructive default on the one surface
+    // whose whole purpose is to be run before deciding.
+    const worldId = 'ac2-dry';
+    const now = 10_000_000;
+    const tables = seedHoledWorld(worldId, now);
+    const ctx = makeCtx(tables, freshReadStats());
+    const runsBefore = tables.postCommitRuns.length;
+
+    const plan = await (reconcilePostCommit as unknown as Registered)._handler(ctx, { worldId, now }) as Reconcile;
+
+    expect(plan.dryRun).toBe(true);
+    expect(plan.missing).toEqual([2, 3]);
+    expect(plan.wouldRepair).toEqual([2, 3]);
+    expect(plan.repaired).toEqual([]);
+    expect(tables.postCommitRuns).toHaveLength(runsBefore);
+    expect(tables.postCommitCursors).toHaveLength(0);
+  });
+
+  it('repairs only what is missing and leaves the completed runs alone', async () => {
+    const worldId = 'ac2-repair';
+    const now = 10_000_000;
+    const tables = seedHoledWorld(worldId, now);
+    const ctx = makeCtx(tables, freshReadStats());
+
+    const result = await reconcile(ctx, worldId, now, false);
+
+    expect(result.repaired).toEqual([2, 3]);
+    expect(result.skipped).toEqual([]);
+    expect(result.caughtUp).toBe(true);
+    // The cursor may now cross the repaired hole, and reaches the event that completed out of order.
+    expect(result.cursorAfter).toBe(4);
+  });
+
+  it('is a NO-OP the second time, by construction rather than by luck', async () => {
+    /**
+     * The guarantee that makes reconciliation safe to run: each event is checked individually and
+     * skipped when its run already completed. "Re-run everything from N and hope the downstream
+     * writes dedupe" would be a different and much weaker claim.
+     */
+    const worldId = 'ac2-idempotent';
+    const now = 10_000_000;
+    const tables = seedHoledWorld(worldId, now);
+    const ctx = makeCtx(tables, freshReadStats());
+
+    await reconcile(ctx, worldId, now, false);
+    const runsAfterFirst = tables.postCommitRuns.length;
+
+    const second = await reconcile(ctx, worldId, now, false);
+
+    expect(second.repaired).toEqual([]);
+    expect(second.missing).toEqual([]);
+    expect(second.unfinished).toEqual([]);
+    expect(second.caughtUp).toBe(true);
+    expect(second.remainingAfter).toBe(0);
+    // No duplicate run rows: one per accepted event, still.
+    expect(tables.postCommitRuns).toHaveLength(runsAfterFirst);
+  });
+
+  it('does not carry the cursor past an event it could not repair', async () => {
+    /**
+     * Repairing 3 while 2 is still owed must not move the cursor over 2. The advance is re-derived
+     * from the world after the repairs, never from the repairs themselves.
+     */
+    const worldId = 'ac2-partial';
+    const now = 10_000_000;
+    const tables = seedHoledWorld(worldId, now);
+    const ctx = makeCtx(tables, freshReadStats());
+
+    const result = await (reconcilePostCommit as unknown as Registered)._handler(ctx, {
+      worldId, now, dryRun: false, maxRepairs: 1,
+    }) as Reconcile;
+
+    expect(result.repaired).toEqual([2]);
+    // 3 is still missing, so the cursor stops at 2 rather than reaching the completed 4.
+    expect(result.missing).toEqual([3]);
+    expect(result.cursorAfter).toBe(2);
+    expect(result.caughtUp).toBe(false);
+  });
+
+  it('does not carry the cursor over a range the scan never looked at', async () => {
+    /**
+     * Added because a fault injection proved the previous case could not tell the difference.
+     * Setting the cursor to `max(repaired)` passes every test above, because the repairs there are
+     * taken in ascending order from a scan that starts at 0 — so the highest repair and the
+     * contiguous prefix coincide.
+     *
+     * They come apart the moment an operator reconciles a SUB-RANGE. Scanning from 3 repairs 3
+     * while 2 is still owed and was never examined; a cursor set from the repair would jump to 3
+     * and strand 2 permanently, which is the overshoot this task was (wrongly) opened about and
+     * would have been a real one.
+     */
+    const worldId = 'ac2-subrange';
+    const now = 10_000_000;
+    const tables = seedHoledWorld(worldId, now);
+    const ctx = makeCtx(tables, freshReadStats());
+
+    const result = await (reconcilePostCommit as unknown as Registered)._handler(ctx, {
+      worldId, now, dryRun: false, fromSequenceNumber: 3,
+    }) as Reconcile;
+
+    expect(result.repaired).toEqual([3]);
+    // Event 2 is below the scan and still owes work. The cursor must not move at all.
+    expect(result.cursorAfter).toBe(-1);
+    expect(tables.postCommitCursors).toHaveLength(0);
   });
 });

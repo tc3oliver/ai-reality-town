@@ -7,6 +7,7 @@ import {
 import type { ProposedEvent } from '../canon/model';
 import { classifyPostGeneration, type PostGenerationClassification } from '../safety/postGeneration';
 import { describeFailure, formatFailureDetail, type FailureDetail } from '../shared/failureDetail';
+import { renderCanonRejection, type CanonRejectionFeedback } from './canonFeedback';
 import { SimulationProviderError, type LanguageModelProvider, type ProviderTraceMetadata } from './provider';
 import { runBudgetedAttempt, SceneBudgetError, type SceneBudgetGate } from './sceneBudget';
 import type { BudgetReservationRequest } from '../shared/tokenBudget';
@@ -45,7 +46,7 @@ export type SceneSimulationResult = {
 };
 
 /** See `AUTHORING_ATTEMPT_OUTCOMES`; restated here so this module stays free of `worldDayLive`. */
-export type AttemptOutcome = 'parsed' | 'output_rejected' | 'provider_failed';
+export type AttemptOutcome = 'parsed' | 'output_rejected' | 'canon_rejected' | 'provider_failed';
 
 export class SceneSimulationError extends Error {
   /**
@@ -65,6 +66,15 @@ export class SceneSimulationError extends Error {
 
 /** The code the fallback throw carries when nothing more specific could be established. */
 export const SCENE_SIMULATION_FAILED = 'SCENE_SIMULATION_FAILED';
+
+/**
+ * The code a scene carries when Canon refused its proposals during authoring (ART-205).
+ *
+ * Distinct from `SCENE_OUTPUT_INVALID`, which means the runtime schema refused the shape. This one
+ * means the shape was fine and the WORLD refused the content, and an operator reading the two needs
+ * to look in different places.
+ */
+export const SCENE_CANON_REJECTED = 'SCENE_CANON_REJECTED';
 
 const record = (value: unknown, path: string, keys: readonly string[]): Record<string, unknown> => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SceneSimulationError('SCENE_OUTPUT_INVALID', 'must be an object', path);
@@ -316,6 +326,27 @@ export type WholeScenePromptContext = {
    * unchanged — which is how every pure scene-parsing test calls this.
    */
   participantMovement?: Readonly<Record<string, { fromLocationId: string; destinations: readonly string[] }>>;
+  /**
+   * ART-198. Per participant, the state fields Canon has a recorded value for, and that value.
+   *
+   * `validateCanon` requires a `character_state_changed`'s `fromValue` to EQUAL the projected
+   * value, and strict mode makes `fromValue` mandatory — so the variant was unusable by any author
+   * that had not been told the current value, and ART-197 stopped asking for it rather than
+   * collecting rejections. This is what makes it askable again.
+   *
+   * A character or a field that is absent may not be changed. That is the ART-157 shape: an absent
+   * entry is a prohibition, not an invitation to guess.
+   */
+  participantState?: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  /**
+   * ART-205. Why Canon refused the PREVIOUS attempt at this scene, when there was one.
+   *
+   * Absent on a first attempt. Present only on a retry that follows a Canon rejection, which is the
+   * whole point: a general rule that was already in the prompt on the attempt that broke it does
+   * not become more persuasive by being repeated, and every rule fix from ART-196 to ART-204 could
+   * only improve the chance a scene is born valid, never rescue one that is not.
+   */
+  priorRejection?: CanonRejectionFeedback;
 };
 
 export const wholeSceneSystemPrompt = (scene: GroupedScene, context: WholeScenePromptContext = {}): string => {
@@ -412,6 +443,26 @@ export const wholeSceneSystemPrompt = (scene: GroupedScene, context: WholeSceneP
       : `${characterId} is at ${fromLocationId}; if ${characterId} moves, fromLocationId must be ${JSON.stringify(fromLocationId)} and toLocationId must come from this exact list and nothing else: ${JSON.stringify(allowed)}.`);
     return `A character_location_changed must start from where the character actually is, which is not always this scene's location. ${clauses.join(' ')} Any other origin or destination is rejected.`;
   };
+  /**
+   * ART-198. `character_state_changed`, offered exactly where it can be used correctly.
+   *
+   * `validateCanon` requires `fromValue` to equal the character's projected value and strict mode
+   * makes `fromValue` mandatory, so ART-197 stopped asking for the variant at all — it could only
+   * ever produce rejections. Now that the recorded values travel with the scene, the rule is a
+   * whitelist instead of a prohibition: one clause per character, naming only the fields Canon has
+   * a value for and quoting that value as the one legal `fromValue`.
+   *
+   * A character or a field with nothing recorded stays prohibited, and is said so by name. The
+   * alternative — offering the field and letting the author guess — is the defect this replaces.
+   */
+  const stateEntries = Object.entries(context.participantState ?? {})
+    .filter(([, fields]) => Object.keys(fields).length > 0);
+  const stateChangeRule = stateEntries.length === 0
+    ? 'Never emit character_state_changed: this scene records no current value for any participant, and the change must state the value it is replacing.'
+    : `A character_state_changed is allowed ONLY for these characters and fields, and fromValue must be exactly the value given here, with toValue different from it: ${
+      stateEntries.map(([characterId, fields]) => `${characterId} -> ${JSON.stringify(fields)}`).join('; ')
+    }. Any other character, any other field, or any other fromValue is rejected.`;
+
   const movementEntries = Object.entries(movement ?? {});
   const movementRule = movementEntries.length > 0
     ? perCharacterMovementRule(movementEntries)
@@ -420,7 +471,18 @@ export const wholeSceneSystemPrompt = (scene: GroupedScene, context: WholeSceneP
       // the gap, which is the behaviour being fixed.
       ? `No character may leave ${scene.locationId} in this scene: it has no open, connected destination with room. Do not emit any character_location_changed change.`
       : `A character_location_changed may only use a toLocationId from this exact list, and nothing else: ${JSON.stringify(destinations)}. These are the connected, open destinations with room for another character; any other value will be rejected. fromLocationId must be ${JSON.stringify(scene.locationId)}.`;
+  /**
+   * ART-205. The correction block, FIRST, so it is the first thing read.
+   *
+   * Placed ahead of the general rules deliberately: on a retry the general rules are the ones that
+   * were already present and were broken, and burying a specific correction under them is how a
+   * model reads past it.
+   */
+  const correction = context.priorRejection === undefined
+    ? null
+    : renderCanonRejection(context.priorRejection);
   return [
+    ...(correction === null ? [] : [correction]),
     'Simulate the entire grouped scene once. Return structured JSON only. You may propose events but never commit or mutate Canon.',
     'Write every narrative text field (sceneSummary, keyActions, dialogueHighlights, relationshipChanges, knowledgeChanges, memories, rumors, continuityWarnings, and each proposedEvents publicSummary) in Traditional Chinese (zh-TW). Field names and JSON structure stay in English.',
     `The response must conform exactly to this JSON Schema. Use only the field names and enum values it declares, include every required field, and never invent fields: ${JSON.stringify(WHOLE_SCENE_JSON_SCHEMA)}`,
@@ -492,7 +554,7 @@ export const wholeSceneSystemPrompt = (scene: GroupedScene, context: WholeSceneP
      */
     'Some changes may happen at most once per event, and proposing a second one refuses the whole scene. One character may have at most one character_location_changed in a single event -- to narrate two hops, propose two separate events, and even then a character may move at most ONCE in this whole scene, so choose the destination that matters. The same at-most-once rule applies per character to character_life_changed, and per rumor to rumor_belief_changed for one character and to rumor_corrected.',
     `Every proposedEvents item must copy this scene's own identity exactly: worldId ${JSON.stringify(scene.worldId)}, worldDay ${scene.worldDay}, timeSlot ${JSON.stringify(scene.timeSlot)}. Its participantIds must contain only characters from ${JSON.stringify(scene.participantIds)}, and so must every characterId, sourceCharacterId and targetCharacterId in keyActions, dialogueHighlights, relationshipChanges, knowledgeChanges, memories and rumors -- a character who is only mentioned in passing is not a participant and will be refused. Each proposedEvents item needs its own unique idempotencyKey, and continuityWarnings must not repeat a string. Provide at least one keyActions entry.`,
-    `Canon will reject the entire scene unless every stateChanges entry obeys these rules. Every characterId named anywhere in stateChanges must be one of this scene's participants: ${JSON.stringify(scene.participantIds)}. A relationship_changed must set visibility to "public" -- every event here carries a publicSummary, and a private relationship change on an event with a public summary is refused; its sourceCharacterId and targetCharacterId must differ, and at least one of its six deltas must be non-zero. Never emit character_state_changed or character_knowledge_learned: the first must state the character's current recorded value and the second must cite an existing causal event id, and this request gives you neither. Use character_memory_formed, relationship_changed, fact_created, item_transferred, the rumor_* changes, or character_location_changed instead.`,
+    `Canon will reject the entire scene unless every stateChanges entry obeys these rules. Every characterId named anywhere in stateChanges must be one of this scene's participants: ${JSON.stringify(scene.participantIds)}. A relationship_changed must set visibility to "public" -- every event here carries a publicSummary, and a private relationship change on an event with a public summary is refused; its sourceCharacterId and targetCharacterId must differ, and at least one of its six deltas must be non-zero. ${stateChangeRule} Never emit character_knowledge_learned: it must cite an existing causal event id and this request gives you none -- write the same idea as a knowledgeChanges note about another event instead. Use character_memory_formed, relationship_changed, fact_created, the rumor_* changes, or character_location_changed.`,
     movementRule,
     'The memories, knowledgeChanges and rumors collections are short narrative notes about a proposed event, not state changes. Each memories or knowledgeChanges item has exactly characterId, content and proposedEventIndex; each rumors item has exactly sourceCharacterId, content and proposedEventIndex, where proposedEventIndex is the zero-based position in proposedEvents. Never give them interpretation, importance, emotionalWeight, confidence or visibility -- those belong only to a character_memory_formed entry inside proposedEvents stateChanges.',
     // FR-E005. Said explicitly because the two things share a word: a `rumors` note is colour a
@@ -640,6 +702,20 @@ export type WholeSceneSimulationOptions = {
    * out per-character positions, in which case the scene-level rule applies unchanged.
    */
   participantMovement?: Readonly<Record<string, { fromLocationId: string; destinations: readonly string[] }>>;
+  /** ART-198. Per participant, the state fields with a recorded value. See the prompt context. */
+  participantState?: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  /**
+   * ART-205. Canon's verdict on a parsed answer, asked for BEFORE the scene is returned.
+   *
+   * Canon validation is authoritative in the finishing mutation and stays there; this is the same
+   * check moved early so its refusal can reach the author while another attempt is still possible.
+   * A scene refused here never returns, so it is never persisted and can never be replayed by
+   * ART-149 reuse — which is what made a refused slot unrecoverable.
+   *
+   * Absent means unchecked, which is how every pure scene-parsing test calls this and how the
+   * deterministic path behaved before ART-205.
+   */
+  validateProposals?: (events: readonly ProposedEvent[]) => Promise<CanonRejectionFeedback | null>;
   /**
    * FR-M003 / ART-59 budget enforcement, applied ONCE PER ATTEMPT.
    *
@@ -673,10 +749,18 @@ export async function simulateWholeScene(provider: LanguageModelProvider, simula
   }
   // ART-157: the scene payload the model sees is widened with the world state `GroupedScene`
   // cannot carry, so "which destinations exist" is answered by the prompt rather than guessed.
-  const promptContext: WholeScenePromptContext = {
+  /**
+   * ART-205. Rebuilt per ATTEMPT, because the prior Canon rejection changes between them.
+   *
+   * It used to be built once outside the loop, which was correct while nothing in it could change.
+   */
+  const promptContextFor = (priorRejection: CanonRejectionFeedback | null): WholeScenePromptContext => ({
     legalDestinationIds: options.legalDestinationIds ?? [],
     ...(options.participantMovement === undefined ? {} : { participantMovement: options.participantMovement }),
-  };
+    ...(options.participantState === undefined ? {} : { participantState: options.participantState }),
+    ...(priorRejection === null ? {} : { priorRejection }),
+  });
+  const promptContext = promptContextFor(null);
   const scenePayload = {
     ...scene,
     legalDestinationIds: promptContext.legalDestinationIds,
@@ -685,9 +769,12 @@ export async function simulateWholeScene(provider: LanguageModelProvider, simula
     ...(promptContext.participantMovement === undefined
       ? {}
       : { participantMovement: promptContext.participantMovement }),
+    ...(promptContext.participantState === undefined
+      ? {}
+      : { participantState: promptContext.participantState }),
   };
-  const callProvider = (model: string | undefined) => provider.structuredChat({
-    messages: [{ role: 'system', content: buildSystemPrompt(scene, promptContext) },
+  const callProvider = (model: string | undefined, priorRejection: CanonRejectionFeedback | null) => provider.structuredChat({
+    messages: [{ role: 'system', content: buildSystemPrompt(scene, promptContextFor(priorRejection)) },
       { role: 'user', content: JSON.stringify(scenePayload) }],
     schemaName: 'whole_scene_output', jsonSchema: WHOLE_SCENE_JSON_SCHEMA, temperature, maxTokens,
     ...(model === undefined ? {} : { model }),
@@ -698,6 +785,8 @@ export async function simulateWholeScene(provider: LanguageModelProvider, simula
   let lastError: unknown;
   /** ART-195: what the last failure was, kept so the fallback throw is not empty. */
   let lastFailure: FailureDetail | null = null;
+  /** ART-205: why Canon refused the previous attempt, carried into the next one's prompt. */
+  let priorRejection: CanonRejectionFeedback | null = null;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     /**
      * ART-90. What this attempt asked for and what came back, reported to the caller's recorder
@@ -739,13 +828,13 @@ export async function simulateWholeScene(provider: LanguageModelProvider, simula
             // only when the gate actually CHANGED the model — an AC#5 routing decision or an
             // over-budget downgrade — which is exactly when the call must not use the default.
             const changed = model !== budget.reservation.requestedModel;
-            const result = await callProvider(changed ? model : options.model);
+            const result = await callProvider(changed ? model : options.model, priorRejection);
             return { value: result, trace: result.trace };
           },
         });
         response = budgeted.value;
       } else {
-        response = await callProvider(options.model);
+        response = await callProvider(options.model, priorRejection);
       }
       attemptTrace = response.trace;
       let output;
@@ -756,6 +845,29 @@ export async function simulateWholeScene(provider: LanguageModelProvider, simula
         // is what §16.2's 「JSON 結構成功率」 counts against.
         report('output_rejected', describeFailure(error, 'output_validation'));
         throw error;
+      }
+      /**
+       * ART-205. Canon's verdict, asked for BEFORE this scene is returned and therefore before it
+       * can be persisted.
+       *
+       * A refusal here is an `output_rejected` attempt exactly as a schema refusal is: the provider
+       * ANSWERED and the answer was refused. It is retried for the same reason, and the refusal is
+       * carried into the next attempt's prompt instead of being discovered again two stages later
+       * by a pass that has no way to ask for anything different.
+       */
+      const rejection = await options.validateProposals?.(output.proposedEvents) ?? null;
+      if (rejection) {
+        priorRejection = rejection;
+        const refusal = new SceneSimulationError(
+          SCENE_CANON_REJECTED,
+          `${rejection.code}: ${rejection.rule}`,
+          rejection.path ?? undefined,
+        );
+        report('canon_rejected', describeFailure(refusal, 'output_validation'));
+        lastError = refusal;
+        lastFailure = describeFailure(refusal, 'output_validation');
+        if (attempt === maxAttempts) break;
+        continue;
       }
       report('parsed', null);
       return finalizeWholeSceneOutput(simulationRunId, scene, output, attempt,

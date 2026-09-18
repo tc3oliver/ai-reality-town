@@ -60,6 +60,7 @@ import type {
   failScheduledSlot as failScheduledSlotExport,
 } from './schedulerOperations';
 import { commitProposedEvent, createConvexCanonStore } from '../canon/commit';
+import type { markSceneCanonRejected as markSceneCanonRejectedExport } from './sceneSimulationFunctions';
 import { validateEventStructure } from '../canon/validators';
 import { CanonError } from '../shared/errors';
 import { TIME_SLOTS, type TimeSlot } from '../canon/eventTypes';
@@ -121,6 +122,9 @@ const recordProposalValidationsRef = internalFunctionRef<typeof recordProposalVa
 );
 const recordAuthoringAttemptRef = internalFunctionRef<typeof recordAuthoringAttemptExport>(
   'simulation/qualityEvidenceFunctions:recordAuthoringAttempt',
+);
+const markSceneCanonRejectedRef = internalFunctionRef<typeof markSceneCanonRejectedExport>(
+  'simulation/sceneSimulationFunctions:markSceneCanonRejected',
 );
 const findReusableSceneSimulationRef = internalFunctionRef<typeof findReusableSceneSimulationExport>(
   'simulation/sceneSimulationFunctions:findReusableSceneSimulation',
@@ -411,6 +415,11 @@ function createConvexWorldDayLivePort(
     },
     recordAuthoringAttempt: async (attempt) => {
       await ctx.runMutation(recordAuthoringAttemptRef, { ...attempt, now });
+    },
+    // ART-205. Stage 8's refusal reaches the stored scene, so the retry re-authors instead of
+    // replaying it. The row is marked, never deleted: it is the evidence of what was refused.
+    markSceneCanonRejected: async (worldId, sceneId, code) => {
+      await ctx.runMutation(markSceneCanonRejectedRef, { worldId, sceneId, code, now });
     },
   };
 }

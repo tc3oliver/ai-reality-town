@@ -178,3 +178,52 @@ timeline and arc read models whose every entry traces to an accepted event.
 ART-60 drives the same two halves for 7 and 30 consecutive world days and machine-checks the
 result against PRD Section 19.3 — see
 [`long-run-simulation-harness.md`](./long-run-simulation-harness.md).
+
+## Knowing whether post-commit is caught up (ART-202)
+
+`drainLivePostCommit` used to return a bare array of outcomes, and an **empty** array meant two
+opposite things:
+
+- every accepted event has a completed run; and
+- this call spent its page advancing the cursor over already-settled events, and there is more to
+  do — call again.
+
+The drain reads one bounded page: `DEFAULT_MAX_POST_COMMIT_EVENTS` (3) + `POST_COMMIT_CURSOR_CATCHUP`
+(32) = 35. A world whose cursor row is absent starts at `-1` and needs one call per 35 settled
+events before it reaches the first unprocessed one.
+
+That ambiguity produced a wrong `CRITICAL` defect report. The drain was called twice against the
+acceptance deployment, returned `[]` twice, and was read as "the pipeline is caught up". It was three
+pages behind: the fourth call processed event 75 and the next four worked through to 88, all
+`completed`, and liveState advanced from v19 to v30. The cursor invariant it was accused of breaking
+was correctly implemented and already tested.
+
+The drain now returns `cursorBefore`, `cursorAfter`, `caughtUp` and `remaining`. `caughtUp` requires
+the page to be **short** as well as owing nothing — a full page says nothing about what lies beyond
+it, and claiming otherwise would put the ambiguity back in the one case where the caller most needs
+to call again.
+
+### Why the world sat still for six weeks
+
+A different cause, and one nothing reported: `drivableWorldIds` selects `mode: 'public'` **and**
+`status: 'running'`. A world in development mode is skipped by **both** crons — the live driver and
+the post-commit drain. The acceptance world was in exactly that state while fourteen accepted events
+accumulated with no derived work.
+
+`inspectPostCommitBacklog` answers that directly. `cronWillNeverDrain` is the shape of a world that
+cannot catch up on its own, however long it is left.
+
+### Reconciliation
+
+`reconcilePostCommit` repairs only what is owed. It touches **no Canon**: no accepted event is
+modified, deleted, re-sequenced or superseded, and no correction or retcon is written. The accepted
+events are facts; what is missing is the derived work stages 11–21 owe them.
+
+It is not "re-run everything from N and hope dedup holds". Each event is checked individually and
+skipped when its run already completed, so a second call over the same range is a no-op **by
+construction** rather than by the downstream writes happening to be idempotent. It dry-runs by
+default.
+
+The cursor is advanced last and re-derived from the world, never from the repairs. Repairing event 3
+while 2 is still owed must not carry the cursor over 2 — and a sub-range reconciliation must not
+carry it over the range below the scan at all, which is what `scanCoversCursor` states.

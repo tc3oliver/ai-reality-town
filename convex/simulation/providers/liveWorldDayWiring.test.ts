@@ -29,7 +29,9 @@ import type { AcceptedEvent } from '../../canon/model';
 import { assertPreGenerationSafe } from '../../safety/preGeneration';
 import type { GroupedScene, SceneGroupingResult } from '../sceneGrouping';
 import { authorSlotScenes, SCENE_AUTHORING_DEFERRED, type SceneAuthoringPlan } from '../worldDayLive';
-import { persistValidatedSceneSimulation, findReusableSceneSimulation } from '../sceneSimulationFunctions';
+import {
+  persistValidatedSceneSimulation, findReusableSceneSimulation, validateSceneProposals,
+} from '../sceneSimulationFunctions';
 import {
   reserveSceneBudget, settleSceneBudget, releaseSceneBudget,
 } from '../tokenBudgetGateFunctions';
@@ -75,7 +77,7 @@ const plan = (scenes: GroupedScene[], requestedModel = 'auto'): SceneAuthoringPl
   options: { maxAttempts: 1, temperature: 0.4, maxTokens: 4_000 },
   requestedModel,
   legalDestinationIds: Object.fromEntries(scenes.map((entry) => [entry.sceneId, ['mistwood-square']])),
-  participantMovement: {},
+  participantMovement: {}, participantState: {},
   // ART-91: no fallback configured, so rung 2 keeps the requested model.
   fallbackModel: null, promptVersion: null,
   maxConcurrentScenes: 1,
@@ -172,6 +174,8 @@ const handlerFor = (fn: unknown): Registered => fn as Registered;
  */
 const FUNCTION_PATHS = {
   findReusable: 'simulation/sceneSimulationFunctions:findReusableSceneSimulation',
+  /** ART-205: Canon's verdict, asked for from inside the authoring retry loop. */
+  validateProposals: 'simulation/sceneSimulationFunctions:validateSceneProposals',
   persist: 'simulation/sceneSimulationFunctions:persistValidatedSceneSimulation',
   reserve: 'simulation/tokenBudgetGateFunctions:reserveSceneBudget',
   settle: 'simulation/tokenBudgetGateFunctions:settleSceneBudget',
@@ -194,6 +198,7 @@ function actionCtx(tables: Tables) {
   const calls: string[] = [];
   const registry = new Map<string, Registered>([
     [FUNCTION_PATHS.findReusable, handlerFor(findReusableSceneSimulation)],
+    [FUNCTION_PATHS.validateProposals, handlerFor(validateSceneProposals)],
     [FUNCTION_PATHS.persist, handlerFor(persistValidatedSceneSimulation)],
     [FUNCTION_PATHS.reserve, handlerFor(reserveSceneBudget)],
     [FUNCTION_PATHS.settle, handlerFor(settleSceneBudget)],
@@ -442,6 +447,27 @@ describe('AC#7 — an exhausted key is not a routing problem and is not treated 
 
 // --- AC#8: the budget really runs on this path ------------------------------
 
+describe('ART-205 — the deployed action asks Canon before it persists', () => {
+  it('calls validateSceneProposals on every parsed scene, before persisting it', async () => {
+    /**
+     * Found by fault injection: unwiring `validateProposals` from `actionAuthoringStore` failed no
+     * test at all. The registry above proved the function EXISTS and the retry-loop suite proved
+     * the loop uses one when given it — and nothing connected the two, which is precisely the
+     * "built, tested and unreachable" shape ART-159 was opened about.
+     *
+     * Order matters as much as presence: validating after persisting would store a scene Canon
+     * refuses, which is the defect ART-205 exists to close.
+     */
+    const { calls } = await authorLive({ responses: [served(scene(1), 'deepseek-v4-pro')] });
+
+    const validate = calls.indexOf(FUNCTION_PATHS.validateProposals);
+    const persist = calls.indexOf(FUNCTION_PATHS.persist);
+    expect(validate).toBeGreaterThanOrEqual(0);
+    expect(persist).toBeGreaterThanOrEqual(0);
+    expect(validate).toBeLessThan(persist);
+  });
+});
+
 describe('AC#8 — reserve / settle / release execute on the live wiring', () => {
   it('reserves before the call and settles the provider\'s own reported usage after it', async () => {
     const target = scene(1);
@@ -585,11 +611,24 @@ describe('AC#10 — the action cannot bypass safety, and does not touch Canon', 
   it('writes NOTHING to Canon: authoring touches only its own tables', async () => {
     const { tables } = await authorLive({ responses: [served(scene(1), 'deepseek-v4-pro')] });
 
-    // The action's entire write surface. `canonEvents` is absent because nothing in the authoring
-    // half may append an event — that happens in the finishing mutation, behind Canon validation.
+    // The action's entire write surface. `canonEvents` is not in it because nothing in the
+    // authoring half may append an event — that happens in the finishing mutation, behind Canon
+    // validation.
     expect(Object.keys(tables).filter((table) => (tables[table] ?? []).length > 0).sort())
       .toEqual(['groupedSceneRuns', 'sceneSimulationRuns', 'tokenBudgetCounters', 'tokenBudgetLedger']);
-    expect(tables.canonEvents).toBeUndefined();
+    /**
+     * ART-205: Canon is now READ during authoring, and that is the point.
+     *
+     * This used to assert `tables.canonEvents` was `undefined` — that the action had never touched
+     * the table at all. That was a true statement of the old behaviour but a stronger claim than
+     * the guarantee: validating a proposal against the world necessarily means reading the world,
+     * and `validateSceneProposals` does exactly that so a refusal can reach the author while
+     * another attempt is still possible.
+     *
+     * The guarantee is that authoring writes NO canon event, and it is asserted as that. An empty
+     * array is a read; a non-empty one would be the violation.
+     */
+    expect(tables.canonEvents ?? []).toHaveLength(0);
   });
 
   it('a proposal the author invented is still only a PROPOSAL at this point', async () => {

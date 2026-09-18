@@ -30,7 +30,7 @@ import { emptyProjection } from '../canon/model';
 import type { WorldProjection } from '../canon/model';
 import { validateCanon, validateEventStructure } from '../canon/validators';
 import type { GroupedScene } from './sceneGrouping';
-import { participantMovementFor } from './worldDayLive';
+import { participantMovementFor, participantStateFor, recordedCharacterState } from './worldDayLive';
 import { WHOLE_SCENE_JSON_SCHEMA, parseWholeSceneOutput, wholeSceneSystemPrompt } from './sceneSimulation';
 
 const scene: GroupedScene = {
@@ -220,13 +220,45 @@ describe('the prompt states the Canon rules a scene author can break', () => {
     expect(prompt()).toContain('non-zero');
   });
 
-  it('stops asking for the two variants this request cannot support', () => {
+  it('stops asking for a variant it cannot supply the context for', () => {
     /**
-     * `character_state_changed` needs the character's current recorded value and
-     * `character_knowledge_learned` needs a causal event id. The request supplies neither, so
-     * asking for them produced nothing but rejections.
+     * `character_knowledge_learned` needs a causal event id, and ART-203 removed
+     * `causedByEventIds` from the request entirely — so the author has none and the variant cannot
+     * be used correctly from here at all.
+     *
+     * `character_state_changed` was prohibited alongside it by ART-197 for the same kind of
+     * reason. ART-198 supplies the missing context instead, so it is now a WHITELIST rather than a
+     * prohibition; this scene carries no recorded state, which is the prohibited case.
      */
-    expect(prompt()).toContain('Never emit character_state_changed or character_knowledge_learned');
+    const text = prompt();
+    expect(text).toContain('Never emit character_knowledge_learned');
+    expect(text).toContain('Never emit character_state_changed: this scene records no current value');
+  });
+
+  it('allows character_state_changed exactly where a current value is known (ART-198)', () => {
+    const text = wholeSceneSystemPrompt(scene, {
+      legalDestinationIds: [],
+      participantState: {
+        'gao-wenrui': { emotion: '平靜', occupation: '鎮長助理' },
+      },
+    });
+
+    expect(text).toContain('allowed ONLY for these characters and fields');
+    // The value is quoted, because it is the ONLY legal `fromValue` and the author cannot know it.
+    expect(text).toContain('gao-wenrui -> {"emotion":"平靜","occupation":"鎮長助理"}');
+    expect(text).toContain('toValue different from it');
+    // The blanket prohibition is gone for this scene, and only for this scene.
+    expect(text).not.toContain('Never emit character_state_changed');
+  });
+
+  it('keeps a participant with nothing recorded out of the whitelist', () => {
+    // An absent entry is a prohibition, not an invitation to guess — the ART-157 shape.
+    const text = wholeSceneSystemPrompt(scene, {
+      legalDestinationIds: [],
+      participantState: { 'gao-wenrui': { emotion: '平靜' } },
+    });
+    expect(text).toContain('gao-wenrui ->');
+    expect(text).not.toContain('lin-yingxue ->');
   });
 
   it('still names the alternatives, so the prohibition is not a dead end', () => {
@@ -720,5 +752,103 @@ describe('the at-most-once-per-event rules are stated', () => {
     expect(prompt).toContain('character_life_changed');
     expect(prompt).toContain('rumor_belief_changed');
     expect(prompt).toContain('rumor_corrected');
+  });
+});
+
+// =============================================================================
+// The recorded state the whitelist is built from (ART-198)
+// =============================================================================
+
+/**
+ * The trap this task was scoped around, and the reason `recordedState` exists beside
+ * `emotionalState` rather than replacing it.
+ *
+ * `LiveCharacter.emotionalState` is `projection.characterStates[id]?.emotion ?? 'steady'`. That
+ * default is right for the Director — a character with no recorded mood still needs one to plan
+ * around — and it cannot be shown to an author: `validateCanon` compares `fromValue` against the
+ * RAW projected value, and `equal(undefined, 'steady')` is false. Passing the defaulted value
+ * through would have reintroduced `CHARACTER_STATE_PRECONDITION_FAILED` for every character whose
+ * mood Canon has never set, which is most of them in a young world.
+ */
+describe('participantStateFor offers only what Canon actually recorded', () => {
+  const snapshotWith = (characters: Array<{ characterId: string; recordedState?: Record<string, string> }>) =>
+    ({ characters } as never);
+
+  it('offers a field Canon has a value for', () => {
+    const states = participantStateFor(
+      snapshotWith([{ characterId: 'gao-wenrui', recordedState: { emotion: '平靜' } }]), scene);
+    expect(states).toEqual({ 'gao-wenrui': { emotion: '平靜' } });
+  });
+
+  it('omits a character with nothing recorded, rather than offering a default', () => {
+    // The `?? 'steady'` trap. An offered `'steady'` would be refused by the very check it was
+    // offered to satisfy.
+    const states = participantStateFor(
+      snapshotWith([{ characterId: 'gao-wenrui' }, { characterId: 'lin-yingxue' }]), scene);
+    expect(states).toEqual({});
+  });
+
+  it('omits a character the snapshot does not know at all', () => {
+    expect(participantStateFor(snapshotWith([]), scene)).toEqual({});
+  });
+
+  it('offers only the narrative-text fields, not the structural ones', () => {
+    /**
+     * `organization_memberships` needs organization ids the author has not been given;
+     * `availability` and `active` are structural flags, and `active` is an assertion about
+     * existence that a scene has no business flipping.
+     */
+    const states = participantStateFor(snapshotWith([{
+      characterId: 'gao-wenrui',
+      recordedState: { emotion: '平靜', health: '良好', finance: '拮据', occupation: '助理' },
+    }]), scene);
+    expect(Object.keys(states['gao-wenrui']).sort())
+      .toEqual(['emotion', 'finance', 'health', 'occupation']);
+  });
+
+  it('quotes the recorded value verbatim into the rule, so fromValue can be copied', () => {
+    // End to end: what the snapshot recorded is what the author is told to write.
+    const text = wholeSceneSystemPrompt(scene, {
+      legalDestinationIds: [],
+      participantState: participantStateFor(
+        snapshotWith([{ characterId: 'lin-yingxue', recordedState: { emotion: '警惕' } }]), scene),
+    });
+    expect(text).toContain('lin-yingxue -> {"emotion":"警惕"}');
+  });
+});
+
+describe('recordedCharacterState decides which fields are offerable at all', () => {
+  it('keeps the four narrative-text fields', () => {
+    expect(recordedCharacterState({
+      emotion: '平靜', health: '良好', finance: '拮据', occupation: '助理',
+    })).toEqual({ emotion: '平靜', health: '良好', finance: '拮据', occupation: '助理' });
+  });
+
+  it('drops the structural fields, whatever the projection holds for them', () => {
+    /**
+     * Found by fault injection: the filter had no test of its own, because
+     * `participantStateFor` copies whatever it is handed and the narrowing happens one layer down.
+     *
+     * `organization_memberships` needs organization ids the author has not been given;
+     * `availability` and `active` are structural, and `active` is an assertion about existence a
+     * scene has no business flipping.
+     */
+    expect(recordedCharacterState({
+      emotion: '平靜', availability: 'free', active: true, organization_memberships: ['mill-guild'],
+    })).toEqual({ emotion: '平靜' });
+  });
+
+  it('drops a non-string value rather than coercing it', () => {
+    // A value that cannot be quoted back as a `fromValue` cannot be changed correctly, so offering
+    // it would be offering a change guaranteed to be refused.
+    expect(recordedCharacterState({ emotion: 42, health: '良好' })).toEqual({ health: '良好' });
+  });
+
+  it('returns undefined when nothing is recorded, rather than an empty object', () => {
+    // Absent means "may not be changed". An empty object would read as a character who is
+    // present in the whitelist with no fields, which is a different and confusing thing.
+    expect(recordedCharacterState(undefined)).toBeUndefined();
+    expect(recordedCharacterState({ availability: 'free' })).toBeUndefined();
+    expect(recordedCharacterState({ emotion: '' })).toBeUndefined();
   });
 });

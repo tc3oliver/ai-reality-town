@@ -30,8 +30,8 @@
  */
 
 import { v } from 'convex/values';
-import type { GenericMutationCtx } from 'convex/server';
-import { internalMutation } from '../_generated/server';
+import type { GenericMutationCtx, GenericQueryCtx } from 'convex/server';
+import { internalMutation, internalQuery } from '../_generated/server';
 import type { DataModel, Doc } from '../_generated/dataModel';
 import { internalFunctionRef } from '../shared/internalFunctionRef';
 import type {
@@ -76,6 +76,9 @@ import type { rebuildOnboardingSummary as rebuildOnboardingSummaryExport } from 
 import type { persistDailySnapshot as persistDailySnapshotExport } from '../canon/snapshotOperations';
 import type { runQueuedWorldDaySlot as runQueuedWorldDaySlotExport } from '../simulation/worldDayLiveFunctions';
 import { drivableWorldIds } from '../simulation/schedulerOperations';
+import {
+  advanceCursorOver, derivePostCommitBacklog, type PostCommitBacklog,
+} from './postCommitBacklog';
 import type { AcceptedEvent } from '../canon/model';
 import { TIME_SLOTS } from '../canon/eventTypes';
 import { rowToAcceptedEvent } from '../canon/serialize';
@@ -888,7 +891,7 @@ export const runLiveWorldDayCycle = internalMutation({
       worldId: args.worldId,
       executed: slotResult.executed,
       slots: slotResult.slots,
-      postCommit: await drainPostCommitBacklog(ctx, args.worldId, maxPostCommitEvents, now),
+      postCommit: (await drainPostCommitBacklog(ctx, args.worldId, maxPostCommitEvents, now)).outcomes,
     };
   },
 });
@@ -907,7 +910,7 @@ export const drainLivePostCommit = internalMutation({
     maxPostCommitEvents: v.optional(v.number()),
     now: v.optional(v.number()),
   },
-  handler: (ctx, args): Promise<PostCommitOutcome[]> => {
+  handler: (ctx, args): Promise<PostCommitDrain> => {
     const maxPostCommitEvents = args.maxPostCommitEvents ?? DEFAULT_MAX_POST_COMMIT_EVENTS;
     if (!Number.isSafeInteger(maxPostCommitEvents) || maxPostCommitEvents < 1 || maxPostCommitEvents > MAX_POST_COMMIT_EVENTS) {
       throw new Error('INVALID_POST_COMMIT_BATCH_SIZE');
@@ -932,13 +935,13 @@ export const drainAllLivePostCommit = internalMutation({
     maxPostCommitEvents: v.optional(v.number()),
     now: v.optional(v.number()),
   },
-  handler: async (ctx, args): Promise<{ worldId: string; postCommit: PostCommitOutcome[] }[]> => {
+  handler: async (ctx, args): Promise<{ worldId: string; postCommit: PostCommitDrain }[]> => {
     const maxPostCommitEvents = args.maxPostCommitEvents ?? DEFAULT_MAX_POST_COMMIT_EVENTS;
     if (!Number.isSafeInteger(maxPostCommitEvents) || maxPostCommitEvents < 1 || maxPostCommitEvents > MAX_POST_COMMIT_EVENTS) {
       throw new Error('INVALID_POST_COMMIT_BATCH_SIZE');
     }
     const now = args.now ?? Date.now();
-    const drained: { worldId: string; postCommit: PostCommitOutcome[] }[] = [];
+    const drained: { worldId: string; postCommit: PostCommitDrain }[] = [];
     // The SAME rule the live driver uses to decide which worlds it may advance, shared rather than
     // restated — two definitions of "a world the pipeline runs for" could disagree, and the one
     // that ran fewer would strand events with nothing saying why.
@@ -961,12 +964,35 @@ export const drainAllLivePostCommit = internalMutation({
  * having their own copy, because the cursor arithmetic below is the part that must not diverge —
  * two implementations of "how far is settled" would be two chances to strand an event.
  */
+/**
+ * What one drain call did, rather than only what it produced (ART-202).
+ *
+ * `outcomes` alone could not distinguish "caught up" from "the cursor advanced over a page of
+ * already-settled events and there is more to do". Both returned `[]`, and the acceptance
+ * deployment was diagnosed as having silently skipped 14 events on the strength of two such calls.
+ * It had skipped nothing — the cursor was three pages behind the work.
+ */
+export type PostCommitDrain = {
+  outcomes: PostCommitOutcome[];
+  cursorBefore: number;
+  cursorAfter: number;
+  /**
+   * Every accepted event this call could see has a completed run.
+   *
+   * False with an empty `outcomes` is the state that had no expression before: the call made
+   * progress by moving the cursor and the caller should call again.
+   */
+  caughtUp: boolean;
+  /** Accepted events in this page still owing work after the call. */
+  remaining: number;
+};
+
 async function drainPostCommitBacklog(
   ctx: GenericMutationCtx<DataModel>,
   worldId: string,
   maxPostCommitEvents: number,
   now: number,
-): Promise<PostCommitOutcome[]> {
+): Promise<PostCommitDrain> {
   /**
    * ART-100 AC#2. One bounded page of candidates instead of the whole accepted-event log and
    * the whole post-commit run table — both of which were read, and filtered in memory, before a
@@ -1000,12 +1026,11 @@ async function drainPostCommitBacklog(
    * from stranding its predecessors. Advancing here — before any work — is also what guarantees
    * PROGRESS: a page that turns out to be entirely settled still moves the cursor, so the next
    * call reaches new events rather than re-reading the same page forever.
+   *
+   * ART-202: that progress is now REPORTED. It was always real and always invisible, and a call
+   * that made it returned the same empty array as a call with nothing left to do.
    */
-  let settledThrough = cursor;
-  for (const row of candidateRows) {
-    if (!settled.has(row.sequenceNumber)) break;
-    settledThrough = row.sequenceNumber;
-  }
+  const settledThrough = advanceCursorOver(cursor, candidateRows, runRows);
   if (settledThrough > cursor) {
     const advanced = {
       schemaVersion: 1 as const, worldId,
@@ -1015,8 +1040,9 @@ async function drainPostCommitBacklog(
     else await ctx.db.insert('postCommitCursors', advanced);
   }
 
+  const owing = candidateRows.filter(({ sequenceNumber }) => !settled.has(sequenceNumber));
   const postCommit: PostCommitOutcome[] = [];
-  for (const row of candidateRows.filter(({ sequenceNumber }) => !settled.has(sequenceNumber))) {
+  for (const row of owing) {
     if (postCommit.length >= maxPostCommitEvents) break;
     const run = await executeLivePostCommit(ctx, {
       worldId,
@@ -1027,5 +1053,229 @@ async function drainPostCommitBacklog(
     postCommit.push(toOutcome(run));
     if (run.status !== 'completed') break;
   }
-  return postCommit;
+  const completedNow = postCommit.filter(({ status }) => status === 'completed').length;
+  const remaining = Math.max(0, owing.length - completedNow);
+  return {
+    outcomes: postCommit,
+    cursorBefore: cursor,
+    cursorAfter: settledThrough,
+    /**
+     * Caught up only when nothing in this page owes work AND the page did not fill.
+     *
+     * A full page means the scan was bounded and there may be more beyond it, so claiming to be
+     * caught up on the strength of one would reintroduce exactly the ambiguity this field exists to
+     * remove — in the one case where the caller most needs to call again.
+     */
+    caughtUp: remaining === 0 && candidateRows.length < page,
+    remaining,
+  };
 }
+
+// --- post-commit backlog: inspection and reconciliation (ART-202) -----------
+
+/** How far a backlog scan reaches by default, and the ceiling a caller may ask for. */
+const DEFAULT_BACKLOG_SCAN = 200;
+const MAX_BACKLOG_SCAN = 500;
+
+/** How many events one reconciliation call will repair. Bounded for the same reason the drain is. */
+const DEFAULT_MAX_REPAIRS = 5;
+const MAX_REPAIRS = 25;
+
+/**
+ * Read one world's accepted events and post-commit runs over a bounded range.
+ *
+ * Deliberately NOT a `.collect()` of the world: this repository's rule is that a per-event path
+ * never collects a whole world, and a backlog report is exactly the kind of read that looks
+ * harmless until a world has ten thousand events. The bound is published as `scanTruncated` rather
+ * than hidden, so a report that could not see everything cannot be read as one that could.
+ */
+async function readBacklogRange(
+  db: GenericMutationCtx<DataModel>['db'] | GenericQueryCtx<DataModel>['db'],
+  worldId: string,
+  fromSequenceNumber: number,
+  limit: number,
+): Promise<PostCommitBacklog & { cursorRowExists: boolean }> {
+  const cursorRow = await db.query('postCommitCursors')
+    .withIndex('by_world', (q) => q.eq('worldId', worldId)).unique();
+  const events = await db.query('canonEvents')
+    .withIndex('by_world_and_sequence', (q) =>
+      q.eq('worldId', worldId).gte('sequenceNumber', fromSequenceNumber))
+    .take(limit + 1);
+  const scanTruncated = events.length > limit;
+  const scanned = scanTruncated ? events.slice(0, limit) : events;
+  const runs = scanned.length === 0 ? [] : await db.query('postCommitRuns')
+    .withIndex('by_world_and_sequence', (q) => q
+      .eq('worldId', worldId)
+      .gte('sourceEventSequenceNumber', scanned[0].sequenceNumber)
+      .lte('sourceEventSequenceNumber', scanned[scanned.length - 1].sequenceNumber))
+    .collect();
+  return {
+    ...derivePostCommitBacklog({
+      cursor: cursorRow?.settledThroughSequenceNumber ?? -1,
+      events: scanned.map((row) => ({ sequenceNumber: row.sequenceNumber, worldDay: row.worldDay })),
+      runs: runs.map((row) => ({
+        sourceEventSequenceNumber: row.sourceEventSequenceNumber, status: row.status,
+      })),
+      scanTruncated,
+    }),
+    cursorRowExists: cursorRow !== null,
+  };
+}
+
+const backlogScanArgs = {
+  worldId: v.string(),
+  /** Where the audit starts. `0` — the default — is what makes a cursor overshoot detectable. */
+  fromSequenceNumber: v.optional(v.number()),
+  limit: v.optional(v.number()),
+};
+
+function boundedScan(fromSequenceNumber: number | undefined, limit: number | undefined) {
+  const from = fromSequenceNumber ?? 0;
+  const scan = limit ?? DEFAULT_BACKLOG_SCAN;
+  if (!Number.isSafeInteger(from) || from < 0) throw new Error('INVALID_BACKLOG_SCAN_START');
+  if (!Number.isSafeInteger(scan) || scan < 1 || scan > MAX_BACKLOG_SCAN) {
+    throw new Error('INVALID_BACKLOG_SCAN_SIZE');
+  }
+  return { from, scan };
+}
+
+/**
+ * What post-commit still owes this world, and whether anything is going to do it (ART-202).
+ *
+ * A read-only dry run. It answers three questions nothing in the deployment could answer before:
+ *
+ *  - which accepted events have no completed post-commit run, and whether that is because none was
+ *    ever attempted (`missing`) or because one did not finish (`unfinished`);
+ *  - whether the cursor is above the contiguous completed prefix, which is the invariant violation
+ *    that would mean events had been silently skipped;
+ *  - whether the CRONS will ever touch this world at all.
+ *
+ * The last one is not a detail. `drivableWorldIds` selects `mode: 'public'` and
+ * `status: 'running'`, so a world in development mode is skipped by BOTH the live driver and the
+ * post-commit drain. The acceptance world sat in exactly that state while 14 accepted events
+ * accumulated with no derived work, and nothing anywhere said so.
+ */
+export const inspectPostCommitBacklog = internalQuery({
+  args: backlogScanArgs,
+  handler: async (ctx, args) => {
+    const { from, scan } = boundedScan(args.fromSequenceNumber, args.limit);
+    const backlog = await readBacklogRange(ctx.db, args.worldId, from, scan);
+    const schedule = await ctx.db.query('worldSchedules')
+      .withIndex('by_world_id', (q) => q.eq('worldId', args.worldId)).unique();
+    const drivable = schedule?.mode === 'public' && schedule.status === 'running';
+    return {
+      ...backlog,
+      scannedFrom: from,
+      schedule: schedule === null ? null : { mode: schedule.mode, status: schedule.status },
+      /**
+       * Whether the crons drain this world. `false` with a non-zero `remaining` is the shape of a
+       * world that will never catch up on its own, however long it is left.
+       */
+      drivableByCron: drivable,
+      cronWillNeverDrain: !drivable && backlog.remaining > 0,
+    };
+  },
+});
+
+/**
+ * Run the post-commit stages an accepted event is missing, and nothing else (ART-202).
+ *
+ * ## What this is NOT
+ *
+ * It does not touch Canon. No accepted event is modified, deleted, re-sequenced or superseded, and
+ * no correction or retcon is written. The accepted events are facts; what is missing is the DERIVED
+ * work stages 11–21 owe them, and that is all this replays.
+ *
+ * It is also not "re-run everything from N and hope dedup holds". Each event is checked
+ * individually and skipped when its run already completed, so the second call over the same range
+ * is a no-op by construction rather than by the downstream writes happening to be idempotent.
+ *
+ * ## Why replaying is safe
+ *
+ * `executePostCommitPipeline` short-circuits a completed run and resumes a failed one at the stage
+ * that failed, and every stage's writes are keyed on identifiers derived from `(worldId,
+ * sequenceNumber)` — the run id, the arc id, the episode content ref, the recap target key, the
+ * read-model content hash. A crash midway leaves a `running` run whose next attempt resumes it.
+ *
+ * ## The cursor is advanced last, and only over a contiguous prefix
+ *
+ * Repairing event 80 while 77 is still missing must not move the cursor past 77. The advance is
+ * therefore re-derived from the scan after the repairs, never from the repairs themselves.
+ */
+export const reconcilePostCommit = internalMutation({
+  args: {
+    ...backlogScanArgs,
+    maxRepairs: v.optional(v.number()),
+    /** Report what WOULD be repaired and write nothing. The default, deliberately. */
+    dryRun: v.optional(v.boolean()),
+    now: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const { from, scan } = boundedScan(args.fromSequenceNumber, args.limit);
+    const maxRepairs = args.maxRepairs ?? DEFAULT_MAX_REPAIRS;
+    if (!Number.isSafeInteger(maxRepairs) || maxRepairs < 1 || maxRepairs > MAX_REPAIRS) {
+      throw new Error('INVALID_RECONCILE_BATCH_SIZE');
+    }
+    const now = args.now ?? Date.now();
+    // Defaults to a dry run: a reconciliation that repaired by default would be a destructive
+    // default on a surface whose whole purpose is to be run before deciding.
+    const dryRun = args.dryRun ?? true;
+    const before = await readBacklogRange(ctx.db, args.worldId, from, scan);
+
+    const plan = [...before.missing, ...before.unfinished].sort((left, right) => left - right);
+    if (dryRun) {
+      return {
+        dryRun: true, scannedFrom: from,
+        cursorBefore: before.cursor, cursorAfter: before.cursor,
+        complete: before.entries.filter(({ state }) => state === 'completed').length,
+        missing: before.missing, unfinished: before.unfinished,
+        wouldRepair: plan.slice(0, maxRepairs), repaired: [] as number[], skipped: [] as number[],
+        cursorOvershot: before.cursorOvershot, scanTruncated: before.scanTruncated,
+        remainingAfter: before.remaining, caughtUp: before.caughtUp,
+      };
+    }
+
+    const repaired: number[] = [];
+    const skipped: number[] = [];
+    for (const sequenceNumber of plan.slice(0, maxRepairs)) {
+      const row = await ctx.db.query('canonEvents').withIndex('by_world_and_sequence', (q) =>
+        q.eq('worldId', args.worldId).eq('sequenceNumber', sequenceNumber)).unique();
+      // An event the scan saw but that is no longer there is skipped rather than throwing: a
+      // reconciliation that aborts on one surprise repairs nothing, and Canon is append-only so
+      // this cannot be a deletion.
+      if (!row) { skipped.push(sequenceNumber); continue; }
+      const run = await executeLivePostCommit(ctx, {
+        worldId: args.worldId,
+        sourceEventId: deriveEventId(args.worldId, row.sequenceNumber),
+        sourceEventSequenceNumber: row.sequenceNumber,
+        worldDay: row.worldDay,
+      }, row.traceId, now);
+      if (run.status === 'completed') repaired.push(sequenceNumber);
+      else skipped.push(sequenceNumber);
+    }
+
+    // Re-derived from the world, not from what was repaired: a repair out of order must not carry
+    // the cursor over an event still owing work.
+    const after = await readBacklogRange(ctx.db, args.worldId, from, scan);
+    if (after.advanceTo > after.cursor) {
+      const cursorRow = await ctx.db.query('postCommitCursors')
+        .withIndex('by_world', (q) => q.eq('worldId', args.worldId)).unique();
+      const advanced = {
+        schemaVersion: 1 as const, worldId: args.worldId,
+        settledThroughSequenceNumber: after.advanceTo, updatedAt: now,
+      };
+      if (cursorRow) await ctx.db.patch(cursorRow._id, advanced);
+      else await ctx.db.insert('postCommitCursors', advanced);
+    }
+
+    return {
+      dryRun: false, scannedFrom: from,
+      cursorBefore: before.cursor, cursorAfter: Math.max(after.cursor, after.advanceTo),
+      complete: after.entries.filter(({ state }) => state === 'completed').length,
+      missing: after.missing, unfinished: after.unfinished,
+      wouldRepair: [] as number[], repaired, skipped,
+      cursorOvershot: after.cursorOvershot, scanTruncated: after.scanTruncated,
+      remainingAfter: after.remaining, caughtUp: after.caughtUp,
+    };
+  },
+});

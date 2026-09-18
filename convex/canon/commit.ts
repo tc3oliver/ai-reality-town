@@ -151,7 +151,7 @@ export async function commitProposedEvent(
 
 // --- Convex wiring ---------------------------------------------------------
 
-import type { GenericMutationCtx } from 'convex/server';
+import type { GenericMutationCtx, GenericQueryCtx } from 'convex/server';
 import type { DataModel } from '../_generated/dataModel';
 
 /**
@@ -159,6 +159,48 @@ import type { DataModel } from '../_generated/dataModel';
  * the public commit mutation and the foundation workflow so both run the same
  * {@link commitProposedEvent} logic.
  */
+/**
+ * The READ half of a canon store, for callers that validate but never append (ART-205).
+ *
+ * Named as its own type so a query context can supply one: `createConvexCanonStore` takes a
+ * mutation `db` because it appends, and a validator that only needs to read should not have to
+ * pretend it can write to say so.
+ */
+export type CanonReadStore = Pick<
+  CanonCommitStore, 'loadAcceptedEvents' | 'loadInitialSnapshot' | 'loadCanonRuleContext'
+>;
+
+/** The read half, bound to a query context. Shares one reader with the commit path. */
+export function createConvexCanonReader(
+  db: GenericQueryCtx<DataModel>['db'],
+): CanonReadStore {
+  return {
+    async loadAcceptedEvents(worldId) {
+      const rows = await db
+        .query('canonEvents')
+        .withIndex('by_world_and_sequence', (q) => q.eq('worldId', worldId))
+        .collect();
+      return rows.map(rowToAcceptedEvent);
+    },
+    async loadInitialSnapshot(worldId) {
+      const row = await db.query('canonSnapshots')
+        .withIndex('by_world_day_and_kind', (q) => q.eq('worldId', worldId).eq('worldDay', 0).eq('kind', 'initial'))
+        .unique();
+      if (!row) return null;
+      return {
+        snapshotVersion: row.snapshotVersion as 1,
+        worldId: row.worldId,
+        worldDay: row.worldDay as number,
+        lastSequenceNumber: row.lastSequenceNumber,
+        projection: row.projection as WorldProjection,
+        projectionHash: row.projectionHash as string,
+        createdAt: row.createdAt,
+      };
+    },
+    loadCanonRuleContext: (worldId) => readCanonRuleContext(db, worldId),
+  };
+}
+
 export function createConvexCanonStore(
   db: GenericMutationCtx<DataModel>['db'],
 ): CanonCommitStore {

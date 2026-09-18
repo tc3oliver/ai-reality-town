@@ -75,6 +75,7 @@ import type * as operations_narrativeReviewSample from "../operations/narrativeR
 import type * as operations_operatorAuthorization from "../operations/operatorAuthorization.js";
 import type * as operations_opsConsole from "../operations/opsConsole.js";
 import type * as operations_opsConsoleFunctions from "../operations/opsConsoleFunctions.js";
+import type * as operations_postCommitBacklog from "../operations/postCommitBacklog.js";
 import type * as operations_postCommitLive from "../operations/postCommitLive.js";
 import type * as operations_postCommitLiveFunctions from "../operations/postCommitLiveFunctions.js";
 import type * as operations_postCommitOrchestration from "../operations/postCommitOrchestration.js";
@@ -169,6 +170,7 @@ import type * as shared_runRecord from "../shared/runRecord.js";
 import type * as shared_secretText from "../shared/secretText.js";
 import type * as shared_tokenBudget from "../shared/tokenBudget.js";
 import type * as shared_viewerKnowledgeRef from "../shared/viewerKnowledgeRef.js";
+import type * as simulation_canonFeedback from "../simulation/canonFeedback.js";
 import type * as simulation_characterIntent from "../simulation/characterIntent.js";
 import type * as simulation_characterIntentFunctions from "../simulation/characterIntentFunctions.js";
 import type * as simulation_degradation from "../simulation/degradation.js";
@@ -337,6 +339,7 @@ declare const fullApi: ApiFromModules<{
   "operations/operatorAuthorization": typeof operations_operatorAuthorization;
   "operations/opsConsole": typeof operations_opsConsole;
   "operations/opsConsoleFunctions": typeof operations_opsConsoleFunctions;
+  "operations/postCommitBacklog": typeof operations_postCommitBacklog;
   "operations/postCommitLive": typeof operations_postCommitLive;
   "operations/postCommitLiveFunctions": typeof operations_postCommitLiveFunctions;
   "operations/postCommitOrchestration": typeof operations_postCommitOrchestration;
@@ -431,6 +434,7 @@ declare const fullApi: ApiFromModules<{
   "shared/secretText": typeof shared_secretText;
   "shared/tokenBudget": typeof shared_tokenBudget;
   "shared/viewerKnowledgeRef": typeof shared_viewerKnowledgeRef;
+  "simulation/canonFeedback": typeof simulation_canonFeedback;
   "simulation/characterIntent": typeof simulation_characterIntent;
   "simulation/characterIntentFunctions": typeof simulation_characterIntentFunctions;
   "simulation/degradation": typeof simulation_degradation;

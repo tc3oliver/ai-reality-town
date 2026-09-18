@@ -25,7 +25,9 @@ import type { ProviderTraceMetadata } from './provider';
 import type { GroupedScene, SceneGroupingResult } from './sceneGrouping';
 import { FakeWholeSceneProvider, FAKE_SCENE_MODEL } from './fakeSceneNarrator';
 import { simulateWholeScene } from './sceneSimulation';
-import { persistValidatedSceneSimulation } from './sceneSimulationFunctions';
+import {
+  findReusableSceneSimulation, markSceneCanonRejected, persistValidatedSceneSimulation,
+} from './sceneSimulationFunctions';
 
 type Row = Record<string, unknown>;
 
@@ -75,8 +77,15 @@ function fakeDb(tables: { sceneSimulationRuns: Row[]; groupedSceneRuns: Row[] })
       return chain;
     },
     insert(table: 'sceneSimulationRuns' | 'groupedSceneRuns', row: Row) {
-      tables[table].push(row);
+      tables[table].push({ ...row, _id: `${table}-${tables[table].length + 1}` });
       return Promise.resolve(`${table}-${tables[table].length}`);
+    },
+    patch(id: string, fields: Row) {
+      for (const table of ['sceneSimulationRuns', 'groupedSceneRuns'] as const) {
+        const row = tables[table].find((candidate) => candidate._id === id);
+        if (row) Object.assign(row, fields);
+      }
+      return Promise.resolve();
     },
   };
 }
@@ -259,5 +268,71 @@ describe('ART-159 — the provider port and the persisted trace cannot drift', (
 
     await expect(persist(tables, { output, trace: null }))
       .rejects.toMatchObject({ code: 'SCENE_SIMULATION_INVALID' });
+  });
+});
+
+// =============================================================================
+// A Canon-refused scene is not reusable (ART-205)
+// =============================================================================
+
+/**
+ * The half of ART-205 that covers the window its authoring-time check cannot.
+ *
+ * `simulateWholeScene` asks Canon before returning, so a refused scene is normally never stored at
+ * all. But the projection can move between authoring and stage 8, so a scene accepted by the first
+ * check can still be refused by the authoritative one — and before this, ART-149 reuse handed that
+ * stored scene to every later attempt unchanged. Day 5 morning on the acceptance world sat `failed`
+ * at four attempts for exactly that reason, with nothing differing between them.
+ */
+describe('ART-205 — reuse skips a scene Canon refused', () => {
+  const reuseFn = findReusableSceneSimulation as unknown as Registered;
+  const markFn = markSceneCanonRejected as unknown as Registered;
+
+  const reuse = (tables: ReturnType<typeof emptyTables>) =>
+    reuseFn._handler({ db: fakeDb(tables) }, {
+      worldId: WORLD_ID, simulationRunId: SIMULATION_RUN_ID, groupingRunId: GROUPING_RUN_ID,
+    });
+
+  const mark = (tables: ReturnType<typeof emptyTables>, code: string) =>
+    markFn._handler({ db: fakeDb(tables) }, {
+      worldId: WORLD_ID, sceneId: scene.sceneId, code, now: 2_000,
+    });
+
+  it('reuses a stored scene that Canon has not refused — the behaviour that must not change', async () => {
+    // The negative control. ART-149 reuse is load-bearing for cost and determinism, and this
+    // guard must not quietly disable it.
+    const tables = emptyTables();
+    await persist(tables, await authored());
+    expect(await reuse(tables)).not.toBeNull();
+  });
+
+  it('refuses to reuse it once it is marked', async () => {
+    const tables = emptyTables();
+    await persist(tables, await authored());
+
+    expect(await mark(tables, 'PRIVATE_RELATIONSHIP_DISCLOSURE')).toEqual({ marked: true });
+    expect(await reuse(tables)).toBeNull();
+  });
+
+  it('marks rather than deletes, so the refused scene stays readable as evidence', async () => {
+    // An operator looking at a failed slot needs to see WHAT was authored and refused. Deleting
+    // the row would leave them with a failure and nothing to read.
+    const tables = emptyTables();
+    await persist(tables, await authored());
+    await mark(tables, 'DUPLICATE_CHARACTER_MOVEMENT');
+
+    expect(tables.sceneSimulationRuns).toHaveLength(1);
+    expect(tables.sceneSimulationRuns[0].canonRejectionCode).toBe('DUPLICATE_CHARACTER_MOVEMENT');
+    expect(tables.sceneSimulationRuns[0].canonRejectedAt).toBe(2_000);
+  });
+
+  it('is idempotent, and reports honestly when there is nothing to mark', async () => {
+    const tables = emptyTables();
+    await persist(tables, await authored());
+    await mark(tables, 'A_RULE');
+    await mark(tables, 'A_RULE');
+    expect(tables.sceneSimulationRuns).toHaveLength(1);
+
+    expect(await mark(emptyTables(), 'A_RULE')).toEqual({ marked: false });
   });
 });
