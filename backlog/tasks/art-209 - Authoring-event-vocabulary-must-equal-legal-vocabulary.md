@@ -1,10 +1,10 @@
 ---
 id: ART-209
 title: Authoring event vocabulary must equal legal vocabulary
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-09-18 17:51'
-updated_date: '2026-09-18 17:52'
+updated_date: '2026-09-18 18:02'
 labels: []
 dependencies: []
 ordinal: 206000
@@ -37,13 +37,13 @@ model capability.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The scene author request schema exposes no event type the structural validator refuses to that author, and no proposedBy type that grants authority the author does not hold
-- [ ] #2 The exposed vocabulary is DERIVED from one authorization policy table, not from a second hand-written enum; the remediation set and the validator read the same table
-- [ ] #3 A complete matrix of every EVENT_TYPES member is recorded (schema exposes / prompt describes / scene author authorized / structural validator accepts / Canon validator accepts / remediation-or-operator-only / system-only)
-- [ ] #4 A contract test derives the exposed set by walking the real WHOLE_SCENE_JSON_SCHEMA and the authorized set by probing the real validateEventStructure, and asserts the subset relation without either side reading the constant under test
-- [ ] #5 An out-of-vocabulary event type or proposedBy type in a model answer is refused at parse with a feedback-carrying code, so the narrowing is enforced at runtime and not only advertised in the schema
-- [ ] #6 Fault injection: restoring a remediation event type, or admin, to the scene author schema makes a named test fail
-- [ ] #7 No validator is relaxed, no remediation authorization is widened, and no retry budget changes
+- [x] #1 The scene author request schema exposes no event type the structural validator refuses to that author, and no proposedBy type that grants authority the author does not hold
+- [x] #2 The exposed vocabulary is DERIVED from one authorization policy table, not from a second hand-written enum; the remediation set and the validator read the same table
+- [x] #3 A complete matrix of every EVENT_TYPES member is recorded (schema exposes / prompt describes / scene author authorized / structural validator accepts / Canon validator accepts / remediation-or-operator-only / system-only)
+- [x] #4 A contract test derives the exposed set by walking the real WHOLE_SCENE_JSON_SCHEMA and the authorized set by probing the real validateEventStructure, and asserts the subset relation without either side reading the constant under test
+- [x] #5 An out-of-vocabulary event type or proposedBy type in a model answer is refused at parse with a feedback-carrying code, so the narrowing is enforced at runtime and not only advertised in the schema
+- [x] #6 Fault injection: restoring a remediation event type, or admin, to the scene author schema makes a named test fail
+- [x] #7 No validator is relaxed, no remediation authorization is widened, and no retry budget changes
 <!-- AC:END -->
 
 ## Definition of Done
@@ -98,3 +98,80 @@ model capability.
 
 7. npm run check, PR, auto-merge, deploy acceptance (npx convex dev --once), one live slot.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Root cause and fix
+
+  The whole-scene request declared `eventType: enumOf(EVENT_TYPES)` and
+  `proposedBy.type: enumOf(PROPOSED_BY_TYPES)`. Four of those values are not the scene author's to
+  use: `correction`, `compensation`, `retcon`, and the `admin` authority that unlocks them.
+
+  Matrix (probed against the real `validateEventStructure`, `causedByEventIds: []`):
+
+    conversation movement relationship_change discovery rumor world_event   accepted from
+                                                                            system/director/character
+    correction compensation retcon                                          refused unless
+                                                                            proposedBy.type = admin
+                                                                            AND causal ids non-empty
+
+  `admin` + `retcon` + cited ids is the only accepting combination, and a scene author has none of
+  the three: ART-203 removed `causedByEventIds` from the request and the parser fills it with [].
+
+  One table now answers it. `EVENT_TYPE_AUTHORITY` in `convex/canon/eventTypes.ts` maps every
+  EventType to `narrative | remediation`, `as const satisfies Record<EventType, EventTypeAuthority>`
+  so TypeScript enforces exhaustiveness. `RemediationEventType` is a MAPPED TYPE over it, so the
+  hand-written tuple is gone and the union is the table. `SCENE_AUTHOR_EVENT_TYPES` and
+  `SCENE_AUTHOR_PROPOSED_BY_TYPES` are its complement; `validators.ts` compares against
+  `REMEDIATION_PROPOSED_BY_TYPE` rather than a bare literal.
+
+  Enforced at parse, not only in the schema. ART-141 established the gateway accepts strict mode and
+  does not enforce it. `assertSceneAuthorVocabulary` runs BEFORE normalization, because a remediation
+  type would otherwise be refused first by `validateEventStructure` with a rule about administrators
+  (dead code for the case it was written for), and because an `admin`-proposed `conversation` is
+  structurally ACCEPTED and has no downstream backstop at all.
+
+Fault injection (five, all restored)
+
+  1. `retcon: narrative` in the authority table
+     -> "refuses a remediation event type, naming the field rather than the administrator rule" FAILS.
+     Correctly only that one: when the authority table moves, the validator moves with it and the
+     schema is then genuinely consistent.
+  2. `enumOf([...SCENE_AUTHOR_EVENT_TYPES, retcon])` in the request only -> 5 FAIL, headed by
+     "offers no event type the validator refuses to this author".
+  3. `enumOf([...SCENE_AUTHOR_PROPOSED_BY_TYPES, admin])` -> 3 FAIL, headed by
+     "offers no proposer that grants authority beyond that vocabulary".
+  4. `assertSceneAuthorVocabulary` call deleted -> the three parse-enforcement cases FAIL.
+  5. ART-209 pattern removed from PARSER_INSTRUCTIONS ->
+     "turns the refusal into an instruction the next attempt can act on" FAILS.
+
+Gate
+
+  npm run check exits 0: 280 suites, 4927 tests (baseline 279 / 4914; +1 suite, +13 tests).
+  `npm run codegen:api` was needed once — pre-existing drift from an earlier `npx convex dev --once`.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+The scene author's request offered four values it may not use: the three FR-K003 remediation
+event types and the `admin` authority that unlocks them. A live slot spent an attempt on
+`[INVALID_EVENT_SHAPE] remediation events must be proposed by an administrator`.
+
+`EVENT_TYPE_AUTHORITY` is now the one table that answers who may propose what, made exhaustive over
+`EventType` by `as const satisfies`. `RemediationEventType` is a mapped type over it rather than a
+hand-written tuple, and the two scene-author vocabularies are its complement, so exposed-is-a-subset-
+of-authorized holds by construction. `validators.ts` compares against `REMEDIATION_PROPOSED_BY_TYPE`,
+so the rule granting the authority and the rule deciding what may be offered are one fact.
+
+Because the gateway accepts strict mode without enforcing it (ART-141), `assertSceneAuthorVocabulary`
+refuses an out-of-vocabulary answer at parse, before normalization, and the refusal carries an
+instruction the retry can act on.
+
+Verified by `convex/simulation/authoringVocabularyContract.test.ts`, which builds the exposed set by
+walking the real `WHOLE_SCENE_JSON_SCHEMA` and the authorized set by probing the real
+`validateEventStructure`, so neither side reads the constant under test; and by five fault injections
+that each fail a named case (recorded in the notes). `npm run check` exits 0 at 280 suites / 4927
+tests. No validator was relaxed and no retry budget changed.
+<!-- SECTION:FINAL_SUMMARY:END -->
