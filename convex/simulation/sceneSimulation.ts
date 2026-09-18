@@ -230,6 +230,27 @@ const stateFieldValue = { anyOf: [text, boolean, textArray] };
 // `metadata` and `correctsKnowledgeId` are deliberately absent: an open-ended object cannot be
 // expressed under strict mode at all, and both fields are optional in the canon contract, so
 // omitting them from the request keeps every remaining node strictly satisfiable.
+/**
+ * ART-206. Four variants are absent from this list, and their absence is the point.
+ *
+ * `character_knowledge_learned`, `item_transferred`, `location_state_changed` and
+ * `organization_state_changed` each need an identifier and a current recorded state the request
+ * never supplies — a causal event id, an item's unique owner, a location's full properties, an
+ * organization's state. ART-197 and ART-201 told the model not to emit them, in prose, while this
+ * list went on offering them. A live slot then died on a `character_knowledge_learned` with an
+ * invented `sourceEventId`.
+ *
+ * ART-203 settled the principle one level down, for `causedByEventIds`: a field the author cannot
+ * fill correctly should not be one the model is invited to fill. The same holds for a whole
+ * variant. Prose is weaker than structure, and a request that offers and forbids the same thing is
+ * asking to be misread.
+ *
+ * `character_state_changed` deliberately REMAINS: ART-198 supplies the recorded values, so it is
+ * usable for exactly the characters and fields the scene names. Removing it would undo that.
+ *
+ * This lowers no threshold. Canon's rules are unchanged; the request stops asking for what it
+ * cannot support.
+ */
 const stateChangeVariants = [
   strictObject({ type: { const: 'character_location_changed' }, characterId: text, fromLocationId: text, toLocationId: text }),
   strictObject({ type: { const: 'relationship_changed' }, sourceCharacterId: text, targetCharacterId: text,
@@ -238,18 +259,10 @@ const stateChangeVariants = [
   strictObject({ type: { const: 'fact_created' }, subjectType: enumOf(FACT_SUBJECT_TYPES), subjectId: text,
     predicate: text, value: primitive, visibility: enumOf(FACT_VISIBILITIES) }),
   strictObject({ type: { const: 'character_life_changed' }, characterId: text, alive: boolean, reason: text }),
-  strictObject({ type: { const: 'character_knowledge_learned' }, characterId: text, factId: text,
-    sourceType: enumOf(KNOWLEDGE_SOURCE_TYPES), sourceEventId: text, beliefValue: primitive,
-    truthStatus: enumOf(KNOWLEDGE_TRUTH_STATUSES), confidence: number, shareability: enumOf(KNOWLEDGE_SHAREABILITIES) }),
   strictObject({ type: { const: 'character_memory_formed' }, characterId: text, content: text, interpretation: text,
     importance: number, emotionalWeight: number, confidence: number, visibility: enumOf(KNOWLEDGE_SHAREABILITIES) }),
-  strictObject({ type: { const: 'item_transferred' }, itemId: text, fromOwnerId: nullableText, toOwnerId: text, reason: text }),
   strictObject({ type: { const: 'character_state_changed' }, characterId: text, field: enumOf(CHARACTER_STATE_FIELDS),
     fromValue: stateFieldValue, toValue: stateFieldValue, reason: text }),
-  strictObject({ type: { const: 'location_state_changed' }, locationId: text, name: text, description: text,
-    locationType: text, capacity: integer, connectedLocationIds: textArray, active: boolean, reason: text }),
-  strictObject({ type: { const: 'organization_state_changed' }, organizationId: text, name: text, description: text,
-    organizationType: text, headquartersLocationId: nullableText, active: boolean, reason: text }),
   // FR-E005. Present so a rumor can be PROPOSED at all: the `rumors` collection below is
   // narrative colour and touches no domain state, so without these variants the rumor chain
   // would be a projection nothing in production could ever write to.
@@ -538,7 +551,7 @@ export const wholeSceneSystemPrompt = (scene: GroupedScene, context: WholeSceneP
      * and strict mode makes every one of their properties mandatory. Making them usable is
      * separate work — see ART-198.
      */
-    `These identifiers are checked against the world and you have not been given them, so use exactly these values and nothing else. causedByEventIds must be an empty array, exactly as the worked example shows: you have no event ids, and any id you write will not exist. locationId must be ${JSON.stringify(scene.locationId)}. A fact_created or a rumor claim may only be about a character in ${JSON.stringify(scene.participantIds)}, or about the location ${JSON.stringify(scene.locationId)}, or about the world itself -- and a world subject must use subjectId ${JSON.stringify(scene.worldId)}. Never use subjectType "item", and never emit item_transferred, location_state_changed or organization_state_changed: each needs an entity id and its current recorded state -- an item and its owner, a location with all of its properties, an organization -- and you have not been given any of them. One event may not create two facts with the same subject and predicate.`,
+    `These identifiers are checked against the world and you have not been given them, so use exactly these values and nothing else. causedByEventIds must be an empty array, exactly as the worked example shows: you have no event ids, and any id you write will not exist. locationId must be ${JSON.stringify(scene.locationId)}. A fact_created or a rumor claim may only be about a character in ${JSON.stringify(scene.participantIds)}, or about the location ${JSON.stringify(scene.locationId)}, or about the world itself -- and a world subject must use subjectId ${JSON.stringify(scene.worldId)}. Never use subjectType "item": you have not been given item ids. One event may not create two facts with the same subject and predicate.`,
     /**
      * ART-204. The at-most-once-per-event family, which `validateCanon` enforces and the prompt
      * stated none of.
@@ -554,7 +567,7 @@ export const wholeSceneSystemPrompt = (scene: GroupedScene, context: WholeSceneP
      */
     'Some changes may happen at most once per event, and proposing a second one refuses the whole scene. One character may have at most one character_location_changed in a single event -- to narrate two hops, propose two separate events, and even then a character may move at most ONCE in this whole scene, so choose the destination that matters. The same at-most-once rule applies per character to character_life_changed, and per rumor to rumor_belief_changed for one character and to rumor_corrected.',
     `Every proposedEvents item must copy this scene's own identity exactly: worldId ${JSON.stringify(scene.worldId)}, worldDay ${scene.worldDay}, timeSlot ${JSON.stringify(scene.timeSlot)}. Its participantIds must contain only characters from ${JSON.stringify(scene.participantIds)}, and so must every characterId, sourceCharacterId and targetCharacterId in keyActions, dialogueHighlights, relationshipChanges, knowledgeChanges, memories and rumors -- a character who is only mentioned in passing is not a participant and will be refused. Each proposedEvents item needs its own unique idempotencyKey, and continuityWarnings must not repeat a string. Provide at least one keyActions entry.`,
-    `Canon will reject the entire scene unless every stateChanges entry obeys these rules. Every characterId named anywhere in stateChanges must be one of this scene's participants: ${JSON.stringify(scene.participantIds)}. A relationship_changed must set visibility to "public" -- every event here carries a publicSummary, and a private relationship change on an event with a public summary is refused; its sourceCharacterId and targetCharacterId must differ, and at least one of its six deltas must be non-zero. ${stateChangeRule} Never emit character_knowledge_learned: it must cite an existing causal event id and this request gives you none -- write the same idea as a knowledgeChanges note about another event instead. Use character_memory_formed, relationship_changed, fact_created, the rumor_* changes, or character_location_changed.`,
+    `Canon will reject the entire scene unless every stateChanges entry obeys these rules. Every characterId named anywhere in stateChanges must be one of this scene's participants: ${JSON.stringify(scene.participantIds)}. A relationship_changed must set visibility to "public" -- every event here carries a publicSummary, and a private relationship change on an event with a public summary is refused; its sourceCharacterId and targetCharacterId must differ, and at least one of its six deltas must be non-zero. ${stateChangeRule} The schema lists every stateChanges type you may use; there is no knowledge, item, location or organization change among them, because this request cannot give you the ids and current values those need -- write such a beat as a knowledgeChanges or memories note about another event instead.`,
     movementRule,
     'The memories, knowledgeChanges and rumors collections are short narrative notes about a proposed event, not state changes. Each memories or knowledgeChanges item has exactly characterId, content and proposedEventIndex; each rumors item has exactly sourceCharacterId, content and proposedEventIndex, where proposedEventIndex is the zero-based position in proposedEvents. Never give them interpretation, importance, emotionalWeight, confidence or visibility -- those belong only to a character_memory_formed entry inside proposedEvents stateChanges.',
     // FR-E005. Said explicitly because the two things share a word: a `rumors` note is colour a

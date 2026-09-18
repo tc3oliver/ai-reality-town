@@ -385,11 +385,38 @@ describe('FR-C005 whole-scene simulation', () => {
       visit(WHOLE_SCENE_JSON_SCHEMA, '$');
     });
 
-    it('describes every canon state-change variant so the model cannot invent one', () => {
+    it('describes every state-change variant the request can SUPPORT, and no others (ART-206)', () => {
+      /**
+       * This asserted `[...STATE_CHANGE_TYPES]` — every canon variant — under the heading "so the
+       * model cannot invent one". That reasoning was right about invention and wrong about
+       * coverage, and a live slot showed the difference: the model emitted a
+       * `character_knowledge_learned` with a fabricated `sourceEventId`, because the schema offered
+       * the variant while the prompt forbade it.
+       *
+       * Four variants need an identifier and a current state this request never supplies — a
+       * causal event id, an item's unique owner, a location's full properties, an organization's
+       * state. Offering them cannot produce a valid scene; it can only produce a refusal. So the
+       * guarantee is now the narrower and truer one: the schema describes exactly the variants an
+       * author can fill from what the scene gave it.
+       *
+       * Invention is still impossible. `strictObject` sets `additionalProperties: false` and the
+       * list is an `anyOf` of closed objects, so an omitted variant is schema-invalid rather than
+       * loosely specified — which is a stronger prohibition than a sentence of prose.
+       */
       const properties = WHOLE_SCENE_JSON_SCHEMA.properties as Record<string, Record<string, unknown>>;
       const event = properties.proposedEvents.items as Record<string, Record<string, unknown>>;
       const variants = (event.properties.stateChanges as Record<string, Record<string, unknown>>).items.anyOf as Record<string, Record<string, Record<string, string>>>[];
-      expect(variants.map((variant): string => variant.properties.type.const)).toEqual([...STATE_CHANGE_TYPES]);
+      const offered = variants.map((variant): string => variant.properties.type.const);
+
+      /** Needs context the whole-scene request does not carry. See ART-198 and ART-206. */
+      const unsupported = [
+        'character_knowledge_learned', 'item_transferred',
+        'location_state_changed', 'organization_state_changed',
+      ];
+      expect(offered).toEqual(STATE_CHANGE_TYPES.filter((type) => !unsupported.includes(type)));
+      // Derived from the canon list rather than hard-coded, so a NEW canon variant is offered by
+      // default and has to be excluded deliberately — the direction that fails safe.
+      expect(offered.length).toBe(STATE_CHANGE_TYPES.length - unsupported.length);
     });
   });
 });
