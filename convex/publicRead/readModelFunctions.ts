@@ -85,37 +85,18 @@ function rowToStored(row: PublishedReadModelRow): StoredReadModel {
   };
 }
 
-/** Read-only store adapter backed by a Convex query context (exported for public queries). */
-export function readStore(db: GenericQueryCtx<DataModel>['db']): PublicReadReadStore {
+/**
+ * The two bounded lookups a served read is allowed to make (ART-210).
+ *
+ * Shared by the read-only and the full adapter rather than written twice: they are the same
+ * question, and the version that drifted would be the one nobody was looking at. Both are point
+ * reads on indexes that already existed — `by_current` and `by_lkg` — which is what makes a public
+ * read cost the same on a target published once and a target published ten thousand times.
+ */
+function boundedTargetReads(
+  db: GenericQueryCtx<DataModel>['db'] | GenericMutationCtx<DataModel>['db'],
+): PublicReadReadStore {
   return {
-    async loadTargetVersions(worldId, modelKind, modelRef) {
-      const rows = await db
-        .query('publishedReadModels')
-        .withIndex('by_target_and_version', (q) => q.eq('worldId', worldId).eq('modelKind', modelKind).eq('modelRef', modelRef))
-        .collect();
-      return rows.map(rowToStored);
-    },
-  };
-}
-
-/** Full store adapter backed by a Convex mutation context (exported for projection builders). */
-export function writeStore(db: GenericMutationCtx<DataModel>['db']): PublicReadStore {
-  return {
-    /**
-     * ART-162. The world's automatic publication gate — the SAME rule the editorial publication
-     * transition applies, shared rather than restated. Two copies could disagree about what an
-     * unscheduled world does, and the disagreement would be invisible: one surface would freeze
-     * while the other kept publishing.
-     */
-    publicationEnabled: async (worldId) => isPublicationEnabled(
-      await db.query('worldSchedules').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).unique()),
-    async loadTargetVersions(worldId, modelKind, modelRef) {
-      const rows = await db
-        .query('publishedReadModels')
-        .withIndex('by_target_and_version', (q) => q.eq('worldId', worldId).eq('modelKind', modelKind).eq('modelRef', modelRef))
-        .collect();
-      return rows.map(rowToStored);
-    },
     async findCurrent(worldId, modelKind, modelRef) {
       const row = await db
         .query('publishedReadModels')
@@ -130,6 +111,26 @@ export function writeStore(db: GenericMutationCtx<DataModel>['db']): PublicReadS
         .collect();
       return rows.map(rowToStored);
     },
+  };
+}
+
+/** Read-only store adapter backed by a Convex query context (exported for public queries). */
+export function readStore(db: GenericQueryCtx<DataModel>['db']): PublicReadReadStore {
+  return boundedTargetReads(db);
+}
+
+/** Full store adapter backed by a Convex mutation context (exported for projection builders). */
+export function writeStore(db: GenericMutationCtx<DataModel>['db']): PublicReadStore {
+  return {
+    ...boundedTargetReads(db),
+    /**
+     * ART-162. The world's automatic publication gate — the SAME rule the editorial publication
+     * transition applies, shared rather than restated. Two copies could disagree about what an
+     * unscheduled world does, and the disagreement would be invisible: one surface would freeze
+     * while the other kept publishing.
+     */
+    publicationEnabled: async (worldId) => isPublicationEnabled(
+      await db.query('worldSchedules').withIndex('by_world_id', (q) => q.eq('worldId', worldId)).unique()),
     async insertVersion(record) {
       return db.insert('publishedReadModels', {
         schemaVersion: record.schemaVersion,

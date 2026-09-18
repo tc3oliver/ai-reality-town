@@ -141,12 +141,17 @@ async function seedWorldWithWork(db: FakeDb) {
  * page keeps serving while the simulation is halted.
  */
 function publicReadStore(db: FakeDb): PublicReadReadStore {
+  // ART-210: the two bounded reads the port now offers, over the same rows. A fake that still
+  // returned the whole version history would let this suite pass on a store shape production no
+  // longer has.
+  const target = (worldId: string, modelKind: string, modelRef: string) => db.rowsOf('publishedReadModels')
+    .filter((row) => row.worldId === worldId && row.modelKind === modelKind && row.modelRef === modelRef)
+    .map((row) => row as unknown as StoredReadModel);
   return {
-    loadTargetVersions: (worldId, modelKind, modelRef) => Promise.resolve(
-      db.rowsOf('publishedReadModels')
-        .filter((row) => row.worldId === worldId && row.modelKind === modelKind && row.modelRef === modelRef)
-        .map((row) => row as unknown as StoredReadModel),
-    ),
+    findCurrent: (worldId, modelKind, modelRef) => Promise.resolve(
+      target(worldId, modelKind, modelRef).find((row) => row.isCurrent) ?? null),
+    loadLastKnownGood: (worldId, modelKind, modelRef) => Promise.resolve(
+      target(worldId, modelKind, modelRef).filter((row) => row.isLastKnownGood)),
   };
 }
 

@@ -259,7 +259,29 @@ export type StoredReadModel = PublishedReadModel & { id: string };
  * here that reads canon, simulation, or invokes a provider (AC#1/#3).
  */
 export interface PublicReadReadStore {
-  loadTargetVersions(worldId: string, modelKind: ReadModelKind, modelRef: string): Promise<readonly StoredReadModel[]>;
+  /**
+   * The row currently serving for a target, or `null`.
+   *
+   * One indexed row. There is deliberately no method here that returns a target's whole version
+   * history (ART-210): `loadTargetVersions` was one, `serveReadModel` was its only caller, and it
+   * used exactly two of the rows it collected — this one and {@link loadLastKnownGood}.
+   *
+   * On the acceptance deployment that read had reached 3.19 MB for one world and grew by a row on
+   * every rebuild, which is every accepted event. Three events of post-commit re-read it often
+   * enough to exceed Convex's 16 MB per-transaction limit, and `drainAllLivePostCommit` — the cron
+   * — uses exactly that batch size. The method is removed rather than left beside a bounded
+   * sibling, because a port that still offers the whole history is a port someone reaches for.
+   */
+  findCurrent(worldId: string, modelKind: ReadModelKind, modelRef: string): Promise<StoredReadModel | null>;
+  /**
+   * Retained last-known-good versions for a target. At most one survives
+   * {@link commitReadModelVersion}, which clears older fallbacks as it publishes.
+   *
+   * Already bounded, and already the read the COMMIT path uses for exactly this reason: "a
+   * projection rebuilt on every accepted event would otherwise re-read every prior payload it ever
+   * published." That argument was written here and applied to one of the two sides.
+   */
+  loadLastKnownGood(worldId: string, modelKind: ReadModelKind, modelRef: string): Promise<readonly StoredReadModel[]>;
 }
 
 /**
@@ -268,14 +290,6 @@ export interface PublicReadReadStore {
  * `ctx.db` to this interface; tests supply an in-memory implementation.
  */
 export interface PublicReadStore extends PublicReadReadStore {
-  findCurrent(worldId: string, modelKind: ReadModelKind, modelRef: string): Promise<StoredReadModel | null>;
-  /**
-   * Retained last-known-good versions for a target. Kept separate from
-   * {@link PublicReadReadStore.loadTargetVersions} so a commit does not have to read the
-   * target's whole version history: a projection rebuilt on every accepted event would
-   * otherwise re-read every prior payload it ever published.
-   */
-  loadLastKnownGood(worldId: string, modelKind: ReadModelKind, modelRef: string): Promise<readonly StoredReadModel[]>;
   insertVersion(row: PublishedReadModel): Promise<string>;
   /** Patch an existing row's mutable flags (isCurrent / isLastKnownGood / status / updatedAt). */
   markCurrent(rowId: string, patch: {
@@ -407,8 +421,25 @@ export async function serveReadModel(
   modelRef: string,
 ): Promise<ServedReadModel | null> {
   assertTarget(worldId, modelKind, modelRef);
-  const versions = await store.loadTargetVersions(worldId, modelKind, modelRef);
-  const served = selectServedVersion(versions);
+  /**
+   * The only two rows {@link selectServedVersion} can ever return (ART-210).
+   *
+   * The order they are concatenated in does not matter, and it is worth saying so rather than
+   * leaving a reader to assume it does: the rule makes two passes keyed on the FLAGS —
+   * `isCurrent` first, then `isLastKnownGood` — so it finds the current version wherever it sits.
+   * (An earlier version of this comment claimed the opposite, that the current row had to be
+   * offered first because the rule is a `find`. Reversing the order changed no test, which is how
+   * the claim was caught.) They are written current-first anyway, because that is the reading order
+   * of the rule below.
+   *
+   * The rule itself is unchanged. It still re-checks `status`, so a row flagged servable while
+   * withheld is refused here exactly as it was when the whole history was passed in.
+   */
+  const [current, retainedFallbacks] = await Promise.all([
+    store.findCurrent(worldId, modelKind, modelRef),
+    store.loadLastKnownGood(worldId, modelKind, modelRef),
+  ]);
+  const served = selectServedVersion([...(current ? [current] : []), ...retainedFallbacks]);
   if (!served) return null;
   // The same allowlist the write side applied. A read that used the default would strip the
   // viewer-known secrets back out on the way to the page — the payload would be stored correctly

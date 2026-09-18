@@ -227,3 +227,68 @@ default.
 The cursor is advanced last and re-derived from the world, never from the repairs. Repairing event 3
 while 2 is still owed must not carry the cursor over 2 — and a sub-range reconciliation must not
 carry it over the range below the scan at all, which is what `scanCoversCursor` states.
+
+## ART-210 — a public read must not cost more because the world is older
+
+`drainLivePostCommit` at its **default** batch of three events exceeded Convex's 16 MB
+per-transaction read limit on the acceptance deployment, after two live slots:
+
+```
+Uncaught Error: Too many bytes read in a single function execution (limit: 16777216 bytes)
+```
+
+One event at a time still worked, so the world was drained by hand. That is not a workaround:
+`drainAllLivePostCommit` — the cron — uses the same default, so the pipeline would have failed on
+every tick the moment the world was promoted to `public`, and nothing would have advanced.
+
+### Measured, not guessed
+
+Whole-world reads for mistwood at Canon sequence 98:
+
+| table / target | rows | bytes |
+| --- | ---: | ---: |
+| `publishedReadModels` (all) | 415 | 3.19 MB |
+| — `timeline\|timeline:mistwood` | 82 | 1.48 MB |
+| — `liveState\|live:mistwood` | 33 | 0.40 MB |
+| — `world\|world:mistwood` | 14 | 0.29 MB |
+| `canonEvents` | 99 | 0.24 MB |
+| `storyArc*` + `worldCharacters` | 127 | 0.12 MB |
+
+Every distinct byte the drain can touch is about **3.5 MB**. Thirteen megabytes of reads against
+three and a half megabytes of data means the same rows, read again and again — which is what ruled
+out the obvious suspects. The four whole-world `storyArc*` collects in `loadWorldState` look like
+the violation and are 0.12 MB; they are also memoised per drain.
+
+### The repetition
+
+`serveReadModel` called `loadTargetVersions` — a `.collect()` of every version a target had ever
+published — and then used exactly **two** of those rows: the current one and the last-known-good
+one. Both already had their own index, `by_current` and `by_lkg`, and the commit path already used
+them for precisely this reason. `PublicReadStore.loadLastKnownGood` says so in its own docblock:
+*"a projection rebuilt on every accepted event would otherwise re-read every prior payload it ever
+published."* That argument was written down and applied to one of the two sides.
+
+Every internal caller paid it once per event — `publishedEventSummaries`, the display-name resolver
+once per character, the runtime snapshot reader — and so did every public page view.
+
+### The fix
+
+`loadTargetVersions` is **removed** from `PublicReadReadStore` rather than left beside a bounded
+sibling; the read-only port now carries `findCurrent` and `loadLastKnownGood`, which the write port
+already had. A port that still offers the whole history is a port someone reaches for again.
+
+`selectServedVersion` is unchanged. It makes two passes keyed on the flags — `isCurrent`, then
+`isLastKnownGood` — and re-checks `status` on both, so a row flagged servable while withheld is
+refused exactly as before.
+
+### What the test counts
+
+`convex/publicRead/boundedPublicRead.test.ts` counts the rows the store was **asked** for rather
+than reading the implementation, so a reintroduced whole-history read fails whatever it is called.
+The decisive case is not "few rows" — it is that a target with three versions and a target with
+three hundred cost the **same**.
+
+One injection is worth recording because it did *not* bite. An earlier comment claimed the current
+row had to be concatenated first, "because the selection rule is a `find`". Reversing the order
+changed no test: the rule keys on flags, not on position. The comment was wrong and is now corrected,
+and the case asserts the stronger property — either order serves the current version.

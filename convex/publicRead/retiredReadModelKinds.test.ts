@@ -62,7 +62,8 @@ describe('the retired kind has left the live vocabulary', () => {
       isLastKnownGood: false,
     };
     const store: PublicReadReadStore = {
-      loadTargetVersions: () => Promise.resolve([legacy]),
+      findCurrent: () => Promise.resolve(legacy),
+      loadLastKnownGood: () => Promise.resolve([]),
     };
     await expect(serveReadModel(store, 'mistwood', 'relationship' as never, legacy.modelRef))
       .rejects.toThrow(ReadModelError);

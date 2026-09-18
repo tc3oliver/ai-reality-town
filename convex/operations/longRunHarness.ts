@@ -734,9 +734,6 @@ export class MemoryReadStore implements PublicReadStore {
     return this.byTarget.get(MemoryReadStore.key(worldId, modelKind, modelRef)) ?? [];
   }
 
-  loadTargetVersions(worldId: string, modelKind: ReadModelKind, modelRef: string): Promise<readonly StoredReadModel[]> {
-    return Promise.resolve(this.target(worldId, modelKind, modelRef));
-  }
   findCurrent(worldId: string, modelKind: ReadModelKind, modelRef: string): Promise<StoredReadModel | null> {
     return Promise.resolve(this.target(worldId, modelKind, modelRef).find((row) => row.isCurrent) ?? null);
   }
