@@ -3,10 +3,10 @@ id: ART-208
 title: >-
   Live world authors scenes but does not commit: the model breaks scene-contract
   rules within its retry budget
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-18 03:00'
-updated_date: '2026-09-18 13:11'
+updated_date: '2026-09-18 14:00'
 labels: []
 dependencies: []
 priority: high
@@ -63,8 +63,8 @@ checks disagree is unexplained. Investigating it needs per-call instrumentation 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The disagreement between the in-authoring Canon check and stage 8 is explained from evidence
-- [ ] #2 A decision is recorded on the retry budget and the route, with their allowance cost
+- [x] #1 The disagreement between the in-authoring Canon check and stage 8 is explained from evidence
+- [x] #2 A decision is recorded on the retry budget and the route, with their allowance cost
 - [ ] #3 A slot commits end to end on acceptance
 <!-- AC:END -->
 
@@ -141,3 +141,25 @@ Two fault injections, each failing the named test it should:
   1 remove the authored-movement skip -> 3 failed
   2 skip per EVENT instead of per scene -> bit nothing until a multi-event case was added, then 1 failed
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Shipped in #319. ROOT CAUSE: B -- the candidate is mutated between the two validations. simulate_scenes applies withArrivalStateChanges AFTER authorSlotScenes returns, prepending a character_location_changed to the first proposed event for every participant whose projected location differs from the scene's. The ART-205 in-authoring check runs inside simulateWholeScene and never sees it, so when the author had already moved that character -- which ART-200 actively encourages -- the merged event carried two movements and Canon refused it. All three contradictory observations follow from that one fact.
+
+The injection's own docblock stated the premise it was built on: 'The author never sees the world projection, so it cannot state the movement precondition.' ART-200 made that false.
+
+FIX: an authored movement wins; the arrival is skipped for any character the author already moved anywhere in the scene. Per scene, not per event, because an arrival in event 1 plus an authored move in event 2 is CHARACTER_ALREADY_MOVED_THIS_SLOT rather than a duplicate. Nothing is lowered: Canon unchanged, stage 8 unchanged, no retry added, and the arrival is still injected for a character the author did not move.
+
+crossStageValidatorAgreement.test.ts drives the real functions in the real order with nothing mocked and reproduced the live DUPLICATE_CHARACTER_MOVEMENT before the fix. Two fault injections; the second bit nothing until a multi-event case was added, because every fixture had a single event so per-event and per-scene coincided.
+
+LIVE CONFIRMATION on colorless-deer-917 after deploy:
+  - no stage-8 DUPLICATE_CHARACTER_MOVEMENT on any slot run after the fix; every such slot failure
+    predates it (days 6 and 7 morning-afternoon).
+  - SCENE_CANON_REJECTED rows now EXIST for the first time -- 13:50:13, scene 3 attempt 1,
+    UNSUPPORTED_PERSONA_REVERSAL -- proving the in-authoring check fires and feeds back. It had
+    never refused before because the only rule being broken was created after it ran.
+
+The world still does not commit, and the reason is now isolated to model compliance: every failure
+is a DIFFERENT contract violation on each regenerated attempt.
+<!-- SECTION:FINAL_SUMMARY:END -->
