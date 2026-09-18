@@ -35,7 +35,8 @@
  */
 
 import { v } from 'convex/values';
-import { internalMutation } from '../_generated/server';
+import { internalMutation, internalQuery } from '../_generated/server';
+import type { Doc } from '../_generated/dataModel';
 import { normalizeLlmTraceDraft } from '../observability/llmTrace';
 import { reconcileValidationOutcome, ValidationOutcomeError } from './validationOutcome';
 
@@ -214,5 +215,64 @@ export const recordAuthoringAttempt = internalMutation({
     });
     await ctx.db.insert('llmTraces', { ...draft, recordedAt: args.now });
     return { traceId, deduplicated: false };
+  },
+});
+
+/** How many authoring failures one read returns, and the ceiling a caller may ask for. */
+const DEFAULT_FAILURE_PAGE = 20;
+const MAX_FAILURE_PAGE = 100;
+
+/**
+ * The most recent authoring failures for a world, newest first.
+ *
+ * ART-195 created `authoringFailures` and the writer, and nothing could READ it. That is the
+ * "built, tested and unreachable" shape this repository has been caught by before — and it
+ * defeated the task's own purpose, which was that an operator could name the cause of a failed
+ * slot WITHOUT deploying new code. The action's return value answers that for a manual run; a
+ * cron-driven failure left rows nobody could look at.
+ *
+ * Bounded and indexed rather than collected: `by_world_and_time` is ordered by `createdAt`, so
+ * newest-first is a reverse page and not a sort of the whole table.
+ *
+ * Every field is already sanitized and secret-redacted at write time — see
+ * `convex/shared/failureDetail.ts` and the two-pass redaction in `convex/simulation/providers/`.
+ * This adds no new exposure; it makes the existing record legible.
+ */
+export const inspectAuthoringFailures = internalQuery({
+  args: {
+    worldId: v.string(),
+    limit: v.optional(v.number()),
+    /** Narrow to one code, for "how often is THIS still happening". */
+    code: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const limit = args.limit ?? DEFAULT_FAILURE_PAGE;
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_FAILURE_PAGE) {
+      throw new Error('INVALID_AUTHORING_FAILURE_PAGE');
+    }
+    const rows = await ctx.db.query('authoringFailures')
+      .withIndex('by_world_and_time', (q) => q.eq('worldId', args.worldId))
+      .order('desc')
+      .take(args.code === undefined ? limit : MAX_FAILURE_PAGE);
+    const matching = args.code === undefined
+      ? rows
+      : rows.filter((row: Doc<'authoringFailures'>) => row.code === args.code);
+    return {
+      failures: matching.slice(0, limit).map((row) => ({
+        attemptId: row.attemptId, worldDay: row.worldDay, timeSlot: row.timeSlot,
+        sceneId: row.sceneId, attempt: row.attempt,
+        code: row.code, errorName: row.errorName, message: row.message, stage: row.stage,
+        causeName: row.causeName, causeCode: row.causeCode, causeMessage: row.causeMessage,
+        retryable: row.retryable, createdAt: row.createdAt,
+      })),
+      /** How many of the scanned rows carried each code, newest page only. */
+      byCode: [...rows.reduce(
+        (counts: Map<string, number>, row: Doc<'authoringFailures'>) =>
+          counts.set(row.code, (counts.get(row.code) ?? 0) + 1),
+        new Map<string, number>())]
+        .map(([code, count]) => ({ code, count }))
+        .sort((left, right) => right.count - left.count || left.code.localeCompare(right.code)),
+      scanned: rows.length,
+    };
   },
 });
