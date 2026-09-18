@@ -6,7 +6,7 @@ title: >-
 status: Blocked
 assignee: []
 created_date: '2026-09-15 12:20'
-updated_date: '2026-09-17 21:08'
+updated_date: '2026-09-18 19:20'
 labels: []
 dependencies:
   - ART-183
@@ -121,4 +121,41 @@ only through mistwood#event#74 while Canon holds events up to #88, and drainLive
 
 Remains Blocked. Do not close on the manual rebuild -- an operator running a mutation by hand is not
 the freshness guarantee this task is about.
+
+Acceptance qualification 2026-09-18/19, on colorless-deer-917 (Public Acceptance / Staging), deployed
+commit 9681fbd.
+
+  AC#1  PASS  current main deployed; four live slots run (day 7 evening, day 7 night, day 8 morning
+              twice — the first failed, the second committed).
+  AC#2  PASS  served liveState is version 33 (was 19), servedFrom current, publishedAt moved from
+              2026-08-04 to 2026-09-18, and the payload carries a non-null `dynamic`.
+  AC#3  PASS  getPublicDynamicProjection returns a projection: worldDay 7, timeSlot evening,
+              worldStatus running, mapId mistwood-v1, snapshotSequence 93, 12 characters, each with
+              a semanticLocationId and a from/to position.
+  AC#4  PASS  the live map RENDERS. Screenshot evidence desktop 1440x900 and mobile 393x851: tiles,
+              named buildings (Mistwood Station, Lantern Square), character sprites drawn in the
+              square. No informational rung, no `no-positions`.
+  AC#5  PASS  home reports 第 7 天 / 傍晚 and the live map reports 現在 第 7 天 · 傍晚. 世界時間未知
+              does not appear.
+  AC#6  PASS  `locations` holds exactly `mistwood-station` — the one location an event has described.
+              Confirmed as the correct, deliberate behaviour recorded in the precheck above, not a
+              symptom. The character page reads 所在地:Mistwood Chronicle and the live map names
+              Mistwood Station, which is ART-186 naming from the client bundle.
+  AC#7  N/A   no seed-location defect to classify; see AC#6.
+
+What is still NOT satisfied is the thing this task said it was really about: that the PIPELINE keeps
+the projection fresh, rather than an operator running a mutation by hand.
+
+  The world is still `mode: development`, so `drivableWorldIds` excludes it from both crons and
+  every drain above was invoked manually. Promoting it needs `changeWorldMode`, which is gated on
+  `world.change_mode` and returns OPS_UNAUTHORIZED from the CLI — `CLERK_JWT_ISSUER_DOMAIN` is set
+  on acceptance and `SIMULATION_OPS_ALLOW_TOKEN_FALLBACK` is not, so the token branch is closed and
+  there is no operator console in `src/` to sign in to. That is a credential blocker, not a
+  repository defect.
+
+  And it must not be promoted yet regardless: ART-212. `drainAllLivePostCommit` — the cron — uses a
+  default batch of 3 events, which exceeds the Convex 16 MB read limit for this world. The cron
+  would fail on every tick.
+
+Remains Blocked, now on ART-212 and on an operator credential rather than on ART-202.
 <!-- SECTION:NOTES:END -->
