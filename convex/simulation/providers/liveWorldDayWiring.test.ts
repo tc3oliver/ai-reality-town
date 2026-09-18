@@ -447,6 +447,27 @@ describe('AC#7 — an exhausted key is not a routing problem and is not treated 
 
 // --- AC#8: the budget really runs on this path ------------------------------
 
+describe('ART-205 — the deployed action asks Canon before it persists', () => {
+  it('calls validateSceneProposals on every parsed scene, before persisting it', async () => {
+    /**
+     * Found by fault injection: unwiring `validateProposals` from `actionAuthoringStore` failed no
+     * test at all. The registry above proved the function EXISTS and the retry-loop suite proved
+     * the loop uses one when given it — and nothing connected the two, which is precisely the
+     * "built, tested and unreachable" shape ART-159 was opened about.
+     *
+     * Order matters as much as presence: validating after persisting would store a scene Canon
+     * refuses, which is the defect ART-205 exists to close.
+     */
+    const { calls } = await authorLive({ responses: [served(scene(1), 'deepseek-v4-pro')] });
+
+    const validate = calls.indexOf(FUNCTION_PATHS.validateProposals);
+    const persist = calls.indexOf(FUNCTION_PATHS.persist);
+    expect(validate).toBeGreaterThanOrEqual(0);
+    expect(persist).toBeGreaterThanOrEqual(0);
+    expect(validate).toBeLessThan(persist);
+  });
+});
+
 describe('AC#8 — reserve / settle / release execute on the live wiring', () => {
   it('reserves before the call and settles the provider\'s own reported usage after it', async () => {
     const target = scene(1);

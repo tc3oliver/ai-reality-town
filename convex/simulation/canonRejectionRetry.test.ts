@@ -317,3 +317,95 @@ describe('feedback carries no world state and no secret', () => {
     expect(rendered).toContain('proposedEvents[2]');
   });
 });
+
+// =============================================================================
+// Stage 8 clears the stored scene so the retry re-authors it
+// =============================================================================
+
+/**
+ * The half ART-205's authoring-time check cannot cover.
+ *
+ * `simulateWholeScene` asks Canon before returning, so a refused scene is normally never stored.
+ * The projection can still move between authoring and stage 8, so a scene accepted by the first
+ * check can be refused by the authoritative one — and ART-149 reuse would then hand that stored
+ * scene to every later attempt unchanged. Day 5 morning on the acceptance world sat `failed` at
+ * four attempts for exactly that, with nothing differing between them.
+ */
+describe('ART-205 — stage 8 marks the scene it refused', () => {
+  /** A proposal Canon refuses: a relationship change whose endpoints are the same character. */
+  const selfRelationship = {
+    schemaVersion: 1, worldId: scene.worldId, idempotencyKey: `${scene.sceneId}:1`,
+    proposedBy: { type: 'system' }, worldDay: scene.worldDay, timeSlot: scene.timeSlot,
+    eventType: 'relationship_change', locationId: scene.locationId,
+    participantIds: ['gao-wenrui'], causedByEventIds: [], publicSummary: '他對自己改觀。',
+    metadata: { sceneId: scene.sceneId },
+    stateChanges: [{
+      type: 'relationship_changed', sourceCharacterId: 'gao-wenrui', targetCharacterId: 'gao-wenrui',
+      trustDelta: 1, affectionDelta: 0, resentmentDelta: 0, fearDelta: 0,
+      dependencyDelta: 0, familiarityDelta: 0, reason: '自省', visibility: 'public',
+    }],
+  };
+
+  const runStage8 = async (port: Record<string, unknown>) => {
+    const { createWorldDayStageHandlers } = await import('./worldDayLive');
+    const handlers = createWorldDayStageHandlers(port as never, null);
+    return handlers.validate_canon({
+      worldId: scene.worldId, worldDay: scene.worldDay, timeSlot: scene.timeSlot,
+      artifacts: { validate_structured_output: { proposedEvents: [selfRelationship] } },
+    } as never);
+  };
+
+  /** The reads `canonRuleContext` makes, with an empty world so the proposal is refused on content. */
+  const readOnlyCanonStore = {
+    loadAcceptedEvents: () => Promise.resolve([]),
+    loadCanonRuleContext: () => Promise.resolve(null),
+    loadInitialSnapshot: () => Promise.resolve(null),
+  };
+
+  it('tells the store which scene to clear, and still fails the slot', async () => {
+    const marked: Array<{ sceneId: string; code: string }> = [];
+    const port = {
+      canonStore: readOnlyCanonStore,
+      recordProposalValidations: () => Promise.resolve(),
+      markSceneCanonRejected: (_worldId: string, sceneId: string, code: string) => {
+        marked.push({ sceneId, code });
+        return Promise.resolve();
+      },
+    };
+
+    // The refusal still propagates: clearing the scene must not swallow the reason the slot failed.
+    await expect(runStage8(port)).rejects.toMatchObject({
+      error: { code: 'INVALID_RELATIONSHIP_TARGET' },
+    });
+    expect(marked).toEqual([{ sceneId: scene.sceneId, code: 'INVALID_RELATIONSHIP_TARGET' }]);
+  });
+
+  it('does not mark anything when Canon accepts', async () => {
+    // The negative control: a port that marked on every pass would "pass" the case above while
+    // disabling ART-149 reuse entirely.
+    const marked: string[] = [];
+    const port = {
+      canonStore: readOnlyCanonStore,
+      recordProposalValidations: () => Promise.resolve(),
+      markSceneCanonRejected: (_w: string, sceneId: string) => { marked.push(sceneId); return Promise.resolve(); },
+    };
+    const { createWorldDayStageHandlers } = await import('./worldDayLive');
+    const handlers = createWorldDayStageHandlers(port as never, null);
+
+    await handlers.validate_canon({
+      worldId: scene.worldId, worldDay: scene.worldDay, timeSlot: scene.timeSlot,
+      artifacts: { validate_structured_output: { proposedEvents: [] } },
+    } as never);
+
+    expect(marked).toEqual([]);
+  });
+
+  it('works with a port that does not implement the marker at all', async () => {
+    // Optional on the port, so every in-memory fixture written before ART-205 still behaves
+    // exactly as it did.
+    await expect(runStage8({
+      canonStore: readOnlyCanonStore,
+      recordProposalValidations: () => Promise.resolve(),
+    })).rejects.toMatchObject({ error: { code: 'INVALID_RELATIONSHIP_TARGET' } });
+  });
+});

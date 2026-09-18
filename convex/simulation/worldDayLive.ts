@@ -45,7 +45,7 @@ import { replayWorldEvents } from '../canon/replay';
 import { cloneProjection } from '../canon/snapshots';
 import { resolveWorldBaseline } from '../canon/snapshotManager';
 import { validateCanon, validateEventStructure } from '../canon/validators';
-import { CanonError, type CanonErrorCode } from '../shared/errors';
+import { CanonError, type CanonErrorCode, type CanonValidationError } from '../shared/errors';
 import type { FailureDetail } from '../shared/failureDetail';
 import type { CanonRejectionFeedback } from './canonFeedback';
 import { CANON_SCHEMA_VERSION } from '../shared/constants';
@@ -1336,6 +1336,33 @@ export async function authorSlotScenes(
 // --- stage handlers ---------------------------------------------------------
 
 /**
+ * Refuse the slot, and clear the stored scene so the retry re-authors it (ART-205).
+ *
+ * Used by BOTH validation stages, because both refuse a scene the author already produced and
+ * reuse would replay either of them identically. A first draft of this put it in stage 7 only —
+ * the two blocks are textually identical and the edit matched the wrong one — and the case that
+ * caught it is `stage 8 marks the scene it refused`.
+ *
+ * Marking is best-effort and deliberately not allowed to mask the refusal: the slot must still
+ * fail with the validation error, which is the thing an operator needs to see. A port that does
+ * not implement the marker behaves exactly as it did before.
+ *
+ * Always throws.
+ */
+async function refuseAndClearScene(
+  port: Pick<WorldDayLivePort, 'markSceneCanonRejected'>,
+  worldId: string,
+  rejected: { proposed: ProposedEvent; error: CanonValidationError | null },
+): Promise<never> {
+  if (!rejected.error) throw new Error('refuseAndClearScene called without a refusal');
+  const sceneId = proposalSceneId(rejected.proposed);
+  if (sceneId !== null && port.markSceneCanonRejected) {
+    await port.markSceneCanonRejected(worldId, sceneId, rejected.error.code).catch(() => undefined);
+  }
+  throw new CanonError(rejected.error);
+}
+
+/**
  * Build the ten PRD §12 stage handlers for {@link executeWorldDay}. Every stage is a thin
  * adapter over an already-tested capability; a stage that throws leaves Canon untouched
  * because nothing is written before {@link commitProposedEvent} runs in the final stage.
@@ -1498,25 +1525,7 @@ export function createWorldDayStageHandlers(
       await port.recordProposalValidations(verdicts.map(({ proposed, error }) =>
         validationDraft(slot, proposed, 'structural', error)));
       const rejected = verdicts.find(({ error }) => error !== null);
-      if (rejected?.error) {
-        /**
-         * ART-205. Clear the stored scene so the retry re-authors instead of replaying it.
-         *
-         * ART-149 reuse would otherwise hand the next attempt the identical scene and it would be
-         * refused identically, forever — which is what parked day 5 morning on the acceptance world
-         * at four attempts with nothing changing between them.
-         *
-         * Best-effort and deliberately not allowed to mask the refusal: the slot must still fail
-         * with the Canon error, which is the thing an operator needs to see. A port that does not
-         * implement the marker behaves exactly as before.
-         */
-        const rejectedSceneId = proposalSceneId(rejected.proposed);
-        if (rejectedSceneId !== null && port.markSceneCanonRejected) {
-          await port.markSceneCanonRejected(context.worldId, rejectedSceneId, rejected.error.code)
-            .catch(() => undefined);
-        }
-        throw new CanonError(rejected.error);
-      }
+      if (rejected?.error) await refuseAndClearScene(port, context.worldId, rejected);
       const keys = proposedEvents.map(({ idempotencyKey }) => idempotencyKey);
       if (new Set(keys).size !== keys.length) {
         throw new WorldDayOrchestrationError('PROPOSAL_KEY_CONFLICT', 'slot proposals must have unique idempotency keys');
@@ -1540,7 +1549,7 @@ export function createWorldDayStageHandlers(
       await port.recordProposalValidations(verdicts.map(({ proposed, error }) =>
         validationDraft(slot, proposed, 'canon', error)));
       const rejected = verdicts.find(({ error }) => error !== null);
-      if (rejected?.error) throw new CanonError(rejected.error);
+      if (rejected?.error) await refuseAndClearScene(port, context.worldId, rejected);
       return { validatedIdempotencyKeys: proposedEvents.map(({ idempotencyKey }) => idempotencyKey) };
     },
 
