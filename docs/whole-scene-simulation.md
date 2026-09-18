@@ -484,3 +484,109 @@ before the fix, without a provider.
 It also asserts the author's `stateChange` survives the boundary **unmodified**. A fix that deleted
 the authored movement would make the two validators agree by removing the thing they disagreed
 about, which is the shape of a fix that hides a defect.
+
+## ART-209 — the authoring vocabulary must equal the legal vocabulary
+
+A live slot spent an authoring attempt on
+
+```
+[INVALID_EVENT_SHAPE] remediation events must be proposed by an administrator
+```
+
+The request declared `eventType: enumOf(EVENT_TYPES)`. `EVENT_TYPES` is Canon's **whole**
+vocabulary, and three of its nine members — `correction`, `compensation`, `retcon` — are FR-K003
+administrative remediations that `validateEventStructure` exists specifically to refuse anyone but
+an administrator. One field away, `proposedBy: { type: enumOf(PROPOSED_BY_TYPES) }` offered `admin`,
+which is the authority that unlocks them.
+
+The model picked a word it had been handed, and lost the scene for it.
+
+### The matrix
+
+Probed against the real `validateEventStructure`, with the `causedByEventIds: []` a scene author
+always has (ART-203 removed the field from the request and the parser fills it in):
+
+| event type | schema exposed (before) | schema exposes (after) | prompt describes | scene author authorized | structural validator | Canon validator | who may propose it |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `conversation` | yes | yes | yes | yes | accepts | accepts | any author |
+| `movement` | yes | yes | yes | yes | accepts | accepts | any author |
+| `relationship_change` | yes | yes | yes | yes | accepts | accepts | any author |
+| `discovery` | yes | yes | yes | yes | accepts | accepts | any author |
+| `rumor` | yes | yes | yes | yes | accepts | accepts (plus FR-E005 AC#1: may not also establish a fact) | any author |
+| `world_event` | yes | yes | yes | yes | accepts | accepts | any author |
+| `correction` | **yes** | no | no | **no** | refuses unless `proposedBy.type === 'admin'` **and** `causedByEventIds` is non-empty | supersedes history | administrator, `canon.correct` |
+| `compensation` | **yes** | no | no | **no** | same | forward rules still apply | administrator, `canon.compensate` |
+| `retcon` | **yes** | no | no | **no** | same | supersedes history, `publicSummary` required | administrator, `canon.retcon` |
+
+And the proposer, which is the other half of the same rule:
+
+| proposedBy.type | schema exposed (before) | schema exposes (after) | what it is |
+| --- | --- | --- | --- |
+| `system` | yes | yes | a source — the world proposes |
+| `director` | yes | yes | a source — the plan proposes |
+| `character` | yes | yes | a source — a character proposes |
+| `admin` | **yes** | no | an **authority** — the one value that makes a remediation pass validation |
+
+Nothing is world-state dependent here except two rules that are deliberately left out of the table
+because they are not vocabulary: `forbid_event_type` lets an immutable world rule forbid any event
+type at runtime, and `rumor` carries the FR-E005 fact restriction. Neither can be answered by a
+static enum, and both are enforced where they belong.
+
+### One table, not two lists
+
+`EVENT_TYPE_AUTHORITY` in `convex/canon/eventTypes.ts` maps every `EventType` to the authority
+proposing it requires. `as const satisfies Record<EventType, EventTypeAuthority>` makes TypeScript
+enforce exhaustiveness, so adding an event type forces the decision rather than defaulting it.
+
+Everything else is derived from it:
+
+- `RemediationEventType` — a mapped type over the table, so the union **is** the table rather than a
+  copy of it. The hand-written tuple is gone.
+- `REMEDIATION_EVENT_TYPES` — what `validateEventStructure` already reads.
+- `SCENE_AUTHOR_EVENT_TYPES` — the complement, and what the request's enum is built from.
+- `SCENE_AUTHOR_PROPOSED_BY_TYPES` — `PROPOSED_BY_TYPES` minus `REMEDIATION_PROPOSED_BY_TYPE`, the
+  same symbol `validators.ts` now compares against instead of a bare `'admin'`.
+
+"Exposed is a subset of authorized" is therefore a property of one table, not of anyone remembering
+to edit two lists in the same commit.
+
+### Enforced, not advertised
+
+ART-141 established against the real gateway that `strict: true` is accepted and **not enforced**.
+A narrowed enum is a statement of intent; `assertSceneAuthorVocabulary` in `parseWholeSceneOutput`
+is where the narrowing is a fact. It runs **before** `normalizeProposedEventOutput`, and the order
+matters in both directions:
+
+- a remediation type is refused by `validateEventStructure` first, so a check placed after
+  normalization would be dead code for the exact case it was written for — and the retry would go
+  on being told a rule about administrators;
+- `admin` on an ordinary `conversation` is **accepted** by `validateEventStructure`, because Canon
+  gates what the authority unlocks and not the claim itself. Nothing downstream would ever refuse
+  it, and it would have committed with a provenance the world never granted.
+
+A value that is not a Canon word at all is still left to normalization: `eventType is not supported`
+is the right answer about a string that does not exist, and "you may not use that" would be a worse
+one.
+
+### The contract test
+
+`convex/simulation/authoringVocabularyContract.test.ts` builds the two sets from opposite ends and
+never introduces them:
+
+- **exposed** is walked out of the real `WHOLE_SCENE_JSON_SCHEMA`;
+- **authorized** is probed out of the real `validateEventStructure`, over every combination in
+  `EVENT_TYPES × PROPOSED_BY_TYPES`.
+
+Neither side reads `SCENE_AUTHOR_EVENT_TYPES`. Comparing the schema against the constant the schema
+is built from would be the tautology this repository's conventions name — it would pass however
+wrong the constant was.
+
+The privileged proposer is derived rather than listed: a proposer is an *authority* iff there is an
+event type the validator accepts from it and refuses from some other proposer. `admin` qualifies
+because `retcon` is accepted from it and not from `system` — observable without knowing the word
+means anything. Retire FR-K003 from Canon and that set empties by itself.
+
+Two assertions guard the guard: the probe must find at least one privileged proposer and at least
+one refused event type, or every subset assertion below it would be vacuous; and the relation is
+asserted as **equality**, because an empty enum satisfies "subset" perfectly while taking live
+authoring down.

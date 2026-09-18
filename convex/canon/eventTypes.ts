@@ -24,12 +24,72 @@ export const EVENT_TYPES = [
 export type EventType = (typeof EVENT_TYPES)[number];
 
 /**
- * Administrative remediation event types (FR-K003). They are ordinary appended
- * events — accepted history is never edited or deleted — but they must be proposed
- * by an administrator and must cite the accepted events they remediate.
+ * What proposing an event type requires of its author (ART-209).
+ *
+ * ## Why this is a table and not three tuples
+ *
+ * `EVENT_TYPES` says what the world's vocabulary IS; it says nothing about who may speak each word.
+ * That second question was answered in two places that had no way to check each other: a hand-written
+ * `REMEDIATION_EVENT_TYPES` tuple here, and the `enumOf(EVENT_TYPES)` the whole-scene request handed
+ * the model in `convex/simulation/sceneSimulation.ts`. The request therefore offered a scene author
+ * `correction`, `compensation` and `retcon` — three types {@link isRemediationEventType} exists
+ * specifically to refuse it — and a live slot died on
+ * `[INVALID_EVENT_SHAPE] remediation events must be proposed by an administrator`.
+ *
+ * Deriving both the remediation set and the authoring vocabulary from one table is what makes
+ * "exposed is a subset of authorized" hold by construction. Adding an event type forces a decision
+ * here, because the `satisfies` clause makes the table exhaustive over `EventType`; there is no
+ * second list to forget.
+ *
+ * - `narrative`   — anything narrating the world forward. No authority beyond authoring is needed.
+ * - `remediation` — FR-K003. Ordinary APPENDED events (accepted history is never edited or deleted)
+ *   that state the record was wrong, so they must be proposed by {@link REMEDIATION_PROPOSED_BY_TYPE}
+ *   and must cite the accepted events they remediate.
  */
-export const REMEDIATION_EVENT_TYPES = ['correction', 'compensation', 'retcon'] as const;
-export type RemediationEventType = (typeof REMEDIATION_EVENT_TYPES)[number];
+export type EventTypeAuthority = 'narrative' | 'remediation';
+
+export const EVENT_TYPE_AUTHORITY = {
+  conversation: 'narrative',
+  movement: 'narrative',
+  relationship_change: 'narrative',
+  discovery: 'narrative',
+  rumor: 'narrative',
+  world_event: 'narrative',
+  correction: 'remediation',
+  compensation: 'remediation',
+  retcon: 'remediation',
+} as const satisfies Record<EventType, EventTypeAuthority>;
+
+/**
+ * The proposer authority a remediation requires.
+ *
+ * Named rather than written as a bare `'admin'` in `validators.ts` so that the rule which GRANTS the
+ * capability and the rule which decides what an unprivileged author may be offered are the same
+ * symbol. `convex/operations/canonCorrection.ts` carries the matching operator-capability policy
+ * (`canon.correct` / `canon.compensate` / `canon.retcon`); a scene author holds none of them.
+ */
+export const REMEDIATION_PROPOSED_BY_TYPE = 'admin' as const;
+
+/** Event types derived from {@link EVENT_TYPE_AUTHORITY}; the union is the table's, not a copy. */
+export type RemediationEventType = {
+  [K in EventType]: (typeof EVENT_TYPE_AUTHORITY)[K] extends 'remediation' ? K : never;
+}[EventType];
+export const REMEDIATION_EVENT_TYPES: readonly RemediationEventType[] = EVENT_TYPES.filter(
+  (eventType): eventType is RemediationEventType => EVENT_TYPE_AUTHORITY[eventType] === 'remediation',
+);
+
+/**
+ * The event types an author holding no operator capability may propose (ART-209).
+ *
+ * This is the set the whole-scene request's `eventType` enum must be drawn from. It is the
+ * complement of the remediation set by construction, so the two cannot drift apart, and narrowing
+ * the request to it relaxes nothing: Canon's rules are unchanged and the author simply stops being
+ * offered words it was never allowed to say.
+ */
+export type SceneAuthorEventType = Exclude<EventType, RemediationEventType>;
+export const SCENE_AUTHOR_EVENT_TYPES: readonly SceneAuthorEventType[] = EVENT_TYPES.filter(
+  (eventType): eventType is SceneAuthorEventType => EVENT_TYPE_AUTHORITY[eventType] === 'narrative',
+);
 
 /**
  * The remediation types that SUPERSEDE the events they cite: they restate what the
@@ -47,6 +107,25 @@ export type SupersedingEventType = (typeof SUPERSEDING_EVENT_TYPES)[number];
 /** Source/authority that proposed an event. */
 export const PROPOSED_BY_TYPES = ['system', 'director', 'character', 'admin'] as const;
 export type ProposedByType = (typeof PROPOSED_BY_TYPES)[number];
+
+/**
+ * The proposer values a scene author may claim (ART-209).
+ *
+ * `admin` is excluded because it is not a source, it is an AUTHORITY: it is the single value that
+ * makes {@link REMEDIATION_EVENT_TYPES} pass structural validation. Offering it on an authoring
+ * request lets a model assert an operator capability nothing granted it — and the whole-scene
+ * request did offer it, alongside the remediation types it unlocks.
+ *
+ * Every remaining value is a source the world genuinely has: `system` proposes on the world's
+ * behalf, `director` on the plan's, `character` on a character's. None of them widens what Canon
+ * will accept, which is exactly what makes them safe to offer and `admin` not.
+ */
+export type SceneAuthorProposedByType = Exclude<ProposedByType, typeof REMEDIATION_PROPOSED_BY_TYPE>;
+export const SCENE_AUTHOR_PROPOSED_BY_TYPES: readonly SceneAuthorProposedByType[] =
+  PROPOSED_BY_TYPES.filter(
+    (proposedByType): proposedByType is SceneAuthorProposedByType =>
+      proposedByType !== REMEDIATION_PROPOSED_BY_TYPE,
+  );
 
 /** Visibility levels for a canonical fact. */
 export const FACT_VISIBILITIES = ['canon', 'public', 'private'] as const;
@@ -154,6 +233,8 @@ export const EXISTENCE_CHARACTER_STATE_FIELDS = ['active'] as const;
 const TIME_SLOT_SET = new Set<string>(TIME_SLOTS);
 const EVENT_TYPE_SET = new Set<string>(EVENT_TYPES);
 const REMEDIATION_EVENT_TYPE_SET = new Set<string>(REMEDIATION_EVENT_TYPES);
+const SCENE_AUTHOR_EVENT_TYPE_SET = new Set<string>(SCENE_AUTHOR_EVENT_TYPES);
+const SCENE_AUTHOR_PROPOSED_BY_TYPE_SET = new Set<string>(SCENE_AUTHOR_PROPOSED_BY_TYPES);
 const SUPERSEDING_EVENT_TYPE_SET = new Set<string>(SUPERSEDING_EVENT_TYPES);
 const PROPOSED_BY_TYPE_SET = new Set<string>(PROPOSED_BY_TYPES);
 const FACT_VISIBILITY_SET = new Set<string>(FACT_VISIBILITIES);
@@ -172,6 +253,12 @@ export const isEventType = (v: unknown): v is EventType =>
   typeof v === 'string' && EVENT_TYPE_SET.has(v);
 export const isRemediationEventType = (v: unknown): v is RemediationEventType =>
   typeof v === 'string' && REMEDIATION_EVENT_TYPE_SET.has(v);
+/** ART-209. True for an event type a scene author is entitled to propose. */
+export const isSceneAuthorEventType = (v: unknown): v is SceneAuthorEventType =>
+  typeof v === 'string' && SCENE_AUTHOR_EVENT_TYPE_SET.has(v);
+/** ART-209. True for a proposer a scene author is entitled to claim. */
+export const isSceneAuthorProposedByType = (v: unknown): v is SceneAuthorProposedByType =>
+  typeof v === 'string' && SCENE_AUTHOR_PROPOSED_BY_TYPE_SET.has(v);
 export const isSupersedingEventType = (v: unknown): v is SupersedingEventType =>
   typeof v === 'string' && SUPERSEDING_EVENT_TYPE_SET.has(v);
 export const isProposedByType = (v: unknown): v is ProposedByType =>

@@ -29,6 +29,7 @@ import {
   isStateChangeType,
   isSupersedingEventType,
   isTimeSlot,
+  REMEDIATION_PROPOSED_BY_TYPE,
 } from './eventTypes';
 import type { CanonRuleContext, ProposedEvent, WorldProjection } from './model';
 import { assessPersonaDeviations, PERSONA_JUSTIFICATIONS } from './personaDeviation';
@@ -435,7 +436,9 @@ export function validateEventStructure(event: unknown): CanonValidationError | n
   if (!isEventType(event.eventType))
     return canonError('INVALID_EVENT_SHAPE', 'eventType is not supported', { eventType: event.eventType }, 'eventType');
 
-  if (isRemediationEventType(event.eventType) && event.proposedBy.type !== 'admin')
+  // ART-209: the same symbol the authoring vocabulary is derived from. The rule that GRANTS the
+  // authority and the rule that decides what an unprivileged author may be offered must be one fact.
+  if (isRemediationEventType(event.eventType) && event.proposedBy.type !== REMEDIATION_PROPOSED_BY_TYPE)
     return canonError('INVALID_EVENT_SHAPE', 'remediation events must be proposed by an administrator', undefined, 'proposedBy.type');
 
   if (event.locationId !== undefined && !isReference(event.locationId))
