@@ -33,6 +33,7 @@ import type { OpenAICompatibleConfig } from './providers/config';
 import type { GroupedScene } from './sceneGrouping';
 import { SceneSimulationError, simulateWholeScene, type WholeSceneSimulationOptions } from './sceneSimulation';
 import { PRE_GENERATION_BLOCKED_CODE, redactFailureDetail, type FailureDetail } from '../shared/failureDetail';
+import { inspectAuthoringFailures } from './qualityEvidenceFunctions';
 
 const scene: GroupedScene = {
   schemaVersion: 1, sceneId: 'group-1:scene:1', groupingRunId: 'group-1', directorRunId: 'director-1',
@@ -506,5 +507,102 @@ describe('a canon refusal of the model’s answer is retried like any other refu
     const result = await simulateWholeScene(provider, 'sim:canon-ok', scene, { maxAttempts: 1 });
     expect(result.attemptCount).toBe(1);
     expect(result.output.proposedEvents[0].stateChanges).toHaveLength(1);
+  });
+});
+
+// =============================================================================
+// 8. The durable record can actually be read (ART-195)
+// =============================================================================
+
+/**
+ * `authoringFailures` and its writer shipped with nothing able to READ them.
+ *
+ * That is the "built, tested and unreachable" shape this repository has been caught by before —
+ * `parseFreeRouteChain` had no caller until ART-159, and `recordTrace` wrote to a table two
+ * consumers read as permanently empty. Here it defeated the task's own purpose: an operator was
+ * supposed to be able to name the cause of a failed slot WITHOUT deploying new code, and a
+ * cron-driven failure left rows nobody could look at.
+ */
+describe('the authoring-failure record is readable', () => {
+  type Row = Record<string, unknown>;
+  type Registered = { _handler: (ctx: unknown, args: unknown) => Promise<never> };
+
+  const failureRow = (overrides: Row = {}): Row => ({
+    schemaVersion: 1, attemptId: 'sim:1:attempt:1', worldId: 'mistwood', worldDay: 6,
+    timeSlot: 'night', sceneId: 'scene:1', simulationRunId: 'sim:1', attempt: 1,
+    code: 'LLM_HTTP_REJECTED', errorName: 'SimulationProviderError',
+    message: 'provider rejected the request with HTTP 401', stage: 'provider_transport',
+    causeName: null, causeCode: null, causeMessage: null, retryable: false, createdAt: 1_000,
+    ...overrides,
+  });
+
+  /** Newest-first over `by_world_and_time`, which is what `.order('desc')` means on that index. */
+  const fakeDb = (rows: Row[]) => ({
+    query() {
+      let selected = [...rows];
+      const chain = {
+        withIndex(_name: string, build: (q: unknown) => unknown) {
+          const constraints: Array<[string, unknown]> = [];
+          const q = { eq(field: string, value: unknown) { constraints.push([field, value]); return q; } };
+          build(q);
+          selected = selected.filter((row) => constraints.every(([f, v]) => row[f] === v));
+          return chain;
+        },
+        order(direction: 'asc' | 'desc') {
+          selected.sort((left, right) => direction === 'desc'
+            ? (right.createdAt as number) - (left.createdAt as number)
+            : (left.createdAt as number) - (right.createdAt as number));
+          return chain;
+        },
+        take(limit: number) { return Promise.resolve(selected.slice(0, limit)); },
+      };
+      return chain;
+    },
+  });
+
+  const read = (rows: Row[], args: Row = {}) =>
+    (inspectAuthoringFailures as unknown as Registered)._handler(
+      { db: fakeDb(rows) }, { worldId: 'mistwood', ...args },
+    ) as unknown as Promise<{
+      failures: Array<{ code: string; message: string; attemptId: string }>;
+      byCode: Array<{ code: string; count: number }>;
+      scanned: number;
+    }>;
+
+  it('returns the newest failures first, with the detail an operator needs', async () => {
+    const result = await read([
+      failureRow({ attemptId: 'old', createdAt: 1_000, code: 'LLM_TIMEOUT' }),
+      failureRow({ attemptId: 'new', createdAt: 9_000, code: 'INVALID_EVENT_SHAPE' }),
+    ]);
+
+    expect(result.failures.map(({ attemptId }) => attemptId)).toEqual(['new', 'old']);
+    expect(result.failures[0].code).toBe('INVALID_EVENT_SHAPE');
+    expect(result.failures[0].message).toContain('HTTP 401');
+  });
+
+  it('tallies the codes, so a repeating rule is visible without reading every row', async () => {
+    const result = await read([
+      failureRow({ attemptId: 'a', code: 'DUPLICATE_CHARACTER_MOVEMENT', createdAt: 3 }),
+      failureRow({ attemptId: 'b', code: 'DUPLICATE_CHARACTER_MOVEMENT', createdAt: 2 }),
+      failureRow({ attemptId: 'c', code: 'LLM_TIMEOUT', createdAt: 1 }),
+    ]);
+    expect(result.byCode).toEqual([
+      { code: 'DUPLICATE_CHARACTER_MOVEMENT', count: 2 },
+      { code: 'LLM_TIMEOUT', count: 1 },
+    ]);
+  });
+
+  it('narrows to one code when asked', async () => {
+    const result = await read([
+      failureRow({ attemptId: 'a', code: 'DUPLICATE_CHARACTER_MOVEMENT', createdAt: 3 }),
+      failureRow({ attemptId: 'b', code: 'LLM_TIMEOUT', createdAt: 2 }),
+    ], { code: 'LLM_TIMEOUT' });
+    expect(result.failures.map(({ attemptId }) => attemptId)).toEqual(['b']);
+  });
+
+  it('refuses an unbounded page rather than collecting the table', async () => {
+    // The per-event path rule: never collect a whole world.
+    await expect(read([], { limit: 5_000 })).rejects.toThrow('INVALID_AUTHORING_FAILURE_PAGE');
+    await expect(read([], { limit: 0 })).rejects.toThrow('INVALID_AUTHORING_FAILURE_PAGE');
   });
 });
