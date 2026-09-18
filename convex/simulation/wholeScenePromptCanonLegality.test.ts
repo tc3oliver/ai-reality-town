@@ -30,7 +30,7 @@ import { emptyProjection } from '../canon/model';
 import type { WorldProjection } from '../canon/model';
 import { validateCanon, validateEventStructure } from '../canon/validators';
 import type { GroupedScene } from './sceneGrouping';
-import { participantMovementFor, participantStateFor } from './worldDayLive';
+import { participantMovementFor, participantStateFor, recordedCharacterState } from './worldDayLive';
 import { WHOLE_SCENE_JSON_SCHEMA, parseWholeSceneOutput, wholeSceneSystemPrompt } from './sceneSimulation';
 
 const scene: GroupedScene = {
@@ -814,5 +814,41 @@ describe('participantStateFor offers only what Canon actually recorded', () => {
         snapshotWith([{ characterId: 'lin-yingxue', recordedState: { emotion: '警惕' } }]), scene),
     });
     expect(text).toContain('lin-yingxue -> {"emotion":"警惕"}');
+  });
+});
+
+describe('recordedCharacterState decides which fields are offerable at all', () => {
+  it('keeps the four narrative-text fields', () => {
+    expect(recordedCharacterState({
+      emotion: '平靜', health: '良好', finance: '拮据', occupation: '助理',
+    })).toEqual({ emotion: '平靜', health: '良好', finance: '拮据', occupation: '助理' });
+  });
+
+  it('drops the structural fields, whatever the projection holds for them', () => {
+    /**
+     * Found by fault injection: the filter had no test of its own, because
+     * `participantStateFor` copies whatever it is handed and the narrowing happens one layer down.
+     *
+     * `organization_memberships` needs organization ids the author has not been given;
+     * `availability` and `active` are structural, and `active` is an assertion about existence a
+     * scene has no business flipping.
+     */
+    expect(recordedCharacterState({
+      emotion: '平靜', availability: 'free', active: true, organization_memberships: ['mill-guild'],
+    })).toEqual({ emotion: '平靜' });
+  });
+
+  it('drops a non-string value rather than coercing it', () => {
+    // A value that cannot be quoted back as a `fromValue` cannot be changed correctly, so offering
+    // it would be offering a change guaranteed to be refused.
+    expect(recordedCharacterState({ emotion: 42, health: '良好' })).toEqual({ health: '良好' });
+  });
+
+  it('returns undefined when nothing is recorded, rather than an empty object', () => {
+    // Absent means "may not be changed". An empty object would read as a character who is
+    // present in the whitelist with no fields, which is a different and confusing thing.
+    expect(recordedCharacterState(undefined)).toBeUndefined();
+    expect(recordedCharacterState({ availability: 'free' })).toBeUndefined();
+    expect(recordedCharacterState({ emotion: '' })).toBeUndefined();
   });
 });

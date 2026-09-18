@@ -460,7 +460,7 @@ export function legalDestinationsFrom(
  * cannot be quoted back as a `fromValue`, and offering it would be offering a change that cannot
  * be made correctly — the defect this function exists to stop.
  */
-function recordedCharacterState(
+export function recordedCharacterState(
   state: Record<string, unknown> | undefined,
 ): Partial<Record<PublicTextCharacterStateField, string>> | undefined {
   if (!state) return undefined;
