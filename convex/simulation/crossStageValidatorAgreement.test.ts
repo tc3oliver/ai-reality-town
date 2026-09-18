@@ -220,6 +220,55 @@ describe('the boundary between the two validations', () => {
     }
   });
 
+  it('skips the arrival when the author moves the character in a LATER event', () => {
+    /**
+     * Added because a fault injection proved the per-EVENT form of the skip passed every case
+     * above: they all have a single event, so per-event and per-scene coincide.
+     *
+     * They come apart here. An arrival prepended to event 1 plus an authored move in event 2 is
+     * two movements for one character in one world time slot. Both events validate cleanly on
+     * their own against the pre-slot projection — `lastCharacterMovement` is only updated by
+     * replay — so stage 8 does NOT catch it. `commitProposedEvent` replays between commits and
+     * refuses the second with `CHARACTER_ALREADY_MOVED_THIS_SLOT`, which is a worse place to find
+     * out: the first event is already in Canon.
+     *
+     * So the property is asserted on the CANDIDATE, across the whole scene.
+     */
+    const twoEvents = {
+      ...modelAnswer([{
+        type: 'character_memory_formed', characterId: 'gao-wenrui',
+        content: '停頓。', interpretation: '有所隱瞞。',
+        importance: 0.5, emotionalWeight: 0.4, confidence: 0.7, visibility: 'private',
+      }], 'conversation'),
+    } as { proposedEvents: Array<Record<string, unknown>> };
+    twoEvents.proposedEvents = [
+      twoEvents.proposedEvents[0],
+      {
+        ...twoEvents.proposedEvents[0],
+        idempotencyKey: `${scene.sceneId}:2`,
+        eventType: 'movement',
+        stateChanges: [{
+          type: 'character_location_changed', characterId: 'gao-wenrui',
+          fromLocationId: MILL, toLocationId: PAPER,
+        }],
+      },
+    ];
+
+    const { commitCandidate } = runPipeline(twoEvents);
+
+    const movesAcrossScene = commitCandidate
+      .flatMap((event) => Object.entries(movementsIn(event)))
+      .reduce<Record<string, number>>((total, [characterId, count]) => ({
+        ...total, [characterId]: (total[characterId] ?? 0) + count,
+      }), {});
+    // One movement for the character, and it is the one the AUTHOR wrote.
+    expect(movesAcrossScene).toEqual({ 'gao-wenrui': 1 });
+    expect(commitCandidate[1].stateChanges).toContainEqual({
+      type: 'character_location_changed', characterId: 'gao-wenrui',
+      fromLocationId: MILL, toLocationId: PAPER,
+    });
+  });
+
   it('does not discard or rewrite a stateChange the author wrote', () => {
     /**
      * The other half of "the candidate must not be mutated": the fix must skip the INJECTION, not

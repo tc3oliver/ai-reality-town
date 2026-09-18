@@ -6,7 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-09-18 03:00'
-updated_date: '2026-09-18 13:04'
+updated_date: '2026-09-18 13:11'
 labels: []
 dependencies: []
 priority: high
@@ -123,3 +123,21 @@ withSceneProvenance -> stage 7 -> stage 8 with the real functions, and assert th
 in-authoring check accepted is not refused later by the same rule, plus that the authored
 stateChanges survive the boundary unmodified.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Root cause: B -- the candidate is mutated between the two validations.
+
+withArrivalStateChanges prepends a character_location_changed to the first proposed event AFTER
+authorSlotScenes returns, so the ART-205 in-authoring check never sees it. When the author has
+already moved that character -- which ART-200 actively encourages -- the merged event carries two
+movements and Canon refuses it. All three contradictory observations follow from that single fact.
+
+Verified: npm run check exit 0, 4914 tests (baseline 4907 + 7).
+crossStageValidatorAgreement.test.ts reproduced the live DUPLICATE_CHARACTER_MOVEMENT with no
+provider before the fix.
+Two fault injections, each failing the named test it should:
+  1 remove the authored-movement skip -> 3 failed
+  2 skip per EVENT instead of per scene -> bit nothing until a multi-event case was added, then 1 failed
+<!-- SECTION:NOTES:END -->
