@@ -431,3 +431,56 @@ than coerced — a value that cannot be quoted back as a `fromValue` cannot be c
 
 `character_knowledge_learned` stays forbidden, now for a sharper reason: ART-203 removed
 `causedByEventIds` from the request entirely, so the author has no event id to cite.
+
+## The two validators must see the same candidate (ART-208)
+
+Three things were true on acceptance at once, and could not be:
+
+- the ART-205 in-authoring Canon check **passed** every scene it saw;
+- stage 8 then **refused** those scenes with `DUPLICATE_CHARACTER_MOVEMENT`;
+- `authoringFailures` held **zero** `SCENE_CANON_REJECTED` rows, across every slot ever run.
+
+They are not validating the same candidate. `simulate_scenes` runs
+
+```ts
+withSceneProvenance(withArrivalStateChanges(result, world.snapshot))
+```
+
+**after** `authorSlotScenes` returns. `withArrivalStateChanges` prepends a
+`character_location_changed` to the first proposed event for every participant whose projected
+location differs from the scene's, and the in-authoring check — which runs inside
+`simulateWholeScene` — never sees it. Canon allows one movement per event, so a character the
+author already moved now has two.
+
+### Why it started mattering when it did
+
+`withArrivalStateChanges` states its own premise: *"The author never sees the world projection, so
+it cannot state the movement precondition."* **ART-200 made that false.** Each participant is now
+told their own projected origin and their own legal destinations, so the author proposes movements
+itself — and the orchestrator injects a second one for the same character.
+
+A function whose justification has quietly expired is worth more suspicion than one that never had
+a good reason.
+
+### The rule
+
+An authored movement wins. It is authored content validated on its own merits; an arrival is
+orchestrator inference about a character the author said nothing about. The arrival is still
+injected for a character the author did **not** move, which is what the function is for.
+
+Skipped per **scene**, not per event: an arrival in event 1 plus an authored move in event 2 is two
+movements in one world time slot. Both events validate cleanly on their own against the pre-slot
+projection — `lastCharacterMovement` is only updated by replay — so stage 8 does not catch it;
+`commitProposedEvent` refuses the second with `CHARACTER_ALREADY_MOVED_THIS_SLOT`, by which point
+the first is already in Canon.
+
+### The cross-stage invariant test
+
+`convex/simulation/crossStageValidatorAgreement.test.ts` drives the real functions in the real order
+with **nothing between them mocked**: parse → in-authoring validation → `withArrivalStateChanges` →
+`withSceneProvenance` → stage 7 → stage 8. It reproduced the live `DUPLICATE_CHARACTER_MOVEMENT`
+before the fix, without a provider.
+
+It also asserts the author's `stateChange` survives the boundary **unmodified**. A fix that deleted
+the authored movement would make the two validators agree by removing the thing they disagreed
+about, which is the shape of a fix that hides a defect.

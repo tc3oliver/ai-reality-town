@@ -6,6 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-09-18 03:00'
+updated_date: '2026-09-18 13:11'
 labels: []
 dependencies: []
 priority: high
@@ -84,3 +85,59 @@ checks disagree is unexplained. Investigating it needs per-call instrumentation 
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+ROOT CAUSE (B): the candidate is mutated between the two validations.
+
+simulate_scenes does, AFTER authorSlotScenes returns:
+  results.push(withSceneProvenance(withArrivalStateChanges(result, world.snapshot)))
+
+withArrivalStateChanges PREPENDS a character_location_changed to the FIRST proposed event for
+every participant whose projected location differs from the scene's. The ART-205 in-authoring check
+runs inside simulateWholeScene, BEFORE that injection, so it validates the author's events and
+never sees the injected one. Stage 8 validates the merged event.
+
+If the author also moved that character -- which ART-200 now actively encourages, because each
+participant is told their own origin and their own legal destinations -- the merged event carries
+TWO character_location_changed for one character and Canon refuses it with
+DUPLICATE_CHARACTER_MOVEMENT.
+
+That is exactly the three-way contradiction: in-authoring PASS, stage 8 refuse, zero
+SCENE_CANON_REJECTED rows. All three hold because the two checks are not looking at the same event.
+
+The injection's own docblock states the premise it was built on: 'The author never sees the world
+projection, so it cannot state the movement precondition.' ART-200 made that false.
+
+FIX: withArrivalStateChanges must not inject an arrival for a character the author already moved
+anywhere in the scene. The authored movement stands; the orchestrator stops contradicting it.
+Per-scene rather than per-event, because an arrival in event 1 plus an authored move in event 2 is
+CHARACTER_ALREADY_MOVED_THIS_SLOT rather than a duplicate.
+
+Lowers no threshold: Canon is unchanged, stage 8 is unchanged, and the author's own proposal is
+still fully validated.
+
+CROSS-STAGE TEST: drive parsed scene -> in-authoring validation -> withArrivalStateChanges ->
+withSceneProvenance -> stage 7 -> stage 8 with the real functions, and assert that a candidate the
+in-authoring check accepted is not refused later by the same rule, plus that the authored
+stateChanges survive the boundary unmodified.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Root cause: B -- the candidate is mutated between the two validations.
+
+withArrivalStateChanges prepends a character_location_changed to the first proposed event AFTER
+authorSlotScenes returns, so the ART-205 in-authoring check never sees it. When the author has
+already moved that character -- which ART-200 actively encourages -- the merged event carries two
+movements and Canon refuses it. All three contradictory observations follow from that single fact.
+
+Verified: npm run check exit 0, 4914 tests (baseline 4907 + 7).
+crossStageValidatorAgreement.test.ts reproduced the live DUPLICATE_CHARACTER_MOVEMENT with no
+provider before the fix.
+Two fault injections, each failing the named test it should:
+  1 remove the authored-movement skip -> 3 failed
+  2 skip per EVENT instead of per scene -> bit nothing until a multi-event case was added, then 1 failed
+<!-- SECTION:NOTES:END -->
