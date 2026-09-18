@@ -891,6 +891,26 @@ export function generateCharacterIntent(
  * appended to a PROPOSED event that still passes through {@link validateEventStructure},
  * {@link validateCanon} (connectivity, capacity, one move per slot, participant membership)
  * and {@link commitProposedEvent} exactly like every other proposal (ADR-0001).
+ *
+ * ## The author moving a character itself is NOT a case this may override (ART-208)
+ *
+ * The paragraph above is still the reason this exists, and its premise stopped being universally
+ * true at ART-200: each participant is now told their own projected origin and their own legal
+ * destinations, so the author states movement preconditions perfectly well and frequently does.
+ *
+ * Injecting an arrival for a character the author already moved gives one character TWO
+ * `character_location_changed` entries, and Canon allows one per event. That is what produced the
+ * contradiction ART-208 was opened for: the ART-205 in-authoring check ran BEFORE this function and
+ * passed, stage 8 ran after it and refused with `DUPLICATE_CHARACTER_MOVEMENT`, and no
+ * `SCENE_CANON_REJECTED` row was ever written because the two were not looking at the same event.
+ *
+ * So an authored movement wins. It is authored content validated on its own merits; an arrival is
+ * orchestrator inference about a character the author said nothing about. Skipping the inference
+ * when the author HAS spoken is the only reading under which both can be true at once.
+ *
+ * Per SCENE, not per event: an arrival prepended to event 1 plus an authored move in event 2 is
+ * two movements in one world time slot, which Canon refuses as
+ * `CHARACTER_ALREADY_MOVED_THIS_SLOT` rather than as a duplicate.
  */
 export function withArrivalStateChanges(
   result: SceneSimulationResult,
@@ -899,8 +919,20 @@ export function withArrivalStateChanges(
   const origins = new Map(snapshot.characters.map(({ characterId, currentLocationId }) => [characterId, currentLocationId]));
   const [first, ...rest] = result.output.proposedEvents;
   if (!first) return result;
+  /**
+   * ART-208. Every character the AUTHOR already moved, anywhere in this scene.
+   *
+   * Collected across all of the scene's events, not just the first, because Canon's per-slot rule
+   * refuses a second movement wherever it sits.
+   */
+  const authorMoved = new Set(result.output.proposedEvents.flatMap((proposed) =>
+    proposed.stateChanges
+      .filter((change): change is Extract<StateChange, { type: 'character_location_changed' }> =>
+        change.type === 'character_location_changed')
+      .map(({ characterId }) => characterId)));
   const arrivals: StateChange[] = result.scene.participantIds
     .filter((characterId) => {
+      if (authorMoved.has(characterId)) return false;
       const from = origins.get(characterId);
       return from !== undefined && from !== result.scene.locationId;
     })
