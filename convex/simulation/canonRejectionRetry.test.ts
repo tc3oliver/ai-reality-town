@@ -502,8 +502,17 @@ describe('a parser refusal becomes the next attempt’s instruction', () => {
 
     await simulateWholeScene(provider, 'sim:participant-feedback', scene, { maxAttempts: 2 });
 
-    expect(provider.prompts[1]).toContain('must be one of this scene');
-    expect(provider.prompts[1]).toContain('mentioned in passing is not a participant');
+    /**
+     * Asserted against the CORRECTION BLOCK, not the whole prompt.
+     *
+     * Found by fault injection: removing the parser-instruction matching left this test passing,
+     * because the phrases it looked for also appear in the general ART-199 rules that are in every
+     * prompt. A retry assertion that a general rule is present proves nothing about the retry.
+     */
+    const correction = provider.prompts[1].slice(0, provider.prompts[1].indexOf('Simulate the entire'));
+    expect(correction).toContain('was REJECTED');
+    expect(correction).toContain('Correction:');
+    expect(correction).toContain('exactly as the scene listed them');
   });
 
   it('still counts as output_rejected, so §16.2 is unaffected', async () => {
