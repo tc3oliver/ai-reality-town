@@ -1,11 +1,11 @@
 ---
 id: ART-206
 title: Forbidden stateChange variants are still offered by the request schema
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-09-18 00:56'
-updated_date: '2026-09-18 00:56'
+updated_date: '2026-09-18 03:00'
 labels: []
 dependencies: []
 priority: high
@@ -54,10 +54,10 @@ threshold.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The request schema offers no stateChange variant the request cannot supply the context for
-- [ ] #2 character_state_changed remains offered, because ART-198 supplies what it needs
-- [ ] #3 A test asserts the removed variants are absent from the serialized schema the model reads
-- [ ] #4 The prose prohibition and the schema agree, rather than contradicting each other
+- [x] #1 The request schema offers no stateChange variant the request cannot supply the context for
+- [x] #2 character_state_changed remains offered, because ART-198 supplies what it needs
+- [x] #3 A test asserts the removed variants are absent from the serialized schema the model reads
+- [x] #4 The prose prohibition and the schema agree, rather than contradicting each other
 <!-- AC:END -->
 
 ## Definition of Done
@@ -77,3 +77,9 @@ threshold.
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Shipped in #315. A live slot died on a character_knowledge_learned with an invented sourceEventId: the prompt forbade the variant and the schema went on offering it. Removed the four variants the request cannot supply context for; character_state_changed stays because ART-198 supplies what it needs. The ART-141 test asserting the schema describes EVERY canon variant is updated rather than deleted and says why -- invention is still impossible because an omitted variant is schema-invalid under additionalProperties: false, which is stronger than the prose it replaces. The expectation is derived from STATE_CHANGE_TYPES minus an explicit exclusion list, so a new canon variant is offered by default.
+<!-- SECTION:FINAL_SUMMARY:END -->

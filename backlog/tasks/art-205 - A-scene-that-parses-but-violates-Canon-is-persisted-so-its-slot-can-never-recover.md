@@ -3,11 +3,11 @@ id: ART-205
 title: >-
   A scene that parses but violates Canon is persisted, so its slot can never
   recover
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-09-17 21:07'
-updated_date: '2026-09-18 00:06'
+updated_date: '2026-09-18 03:00'
 labels: []
 dependencies: []
 priority: high
@@ -73,9 +73,9 @@ committed slot produces no public read model.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A slot whose stored scene Canon refuses can make progress rather than replaying the same refusal
-- [ ] #2 The chosen approach is recorded with its cost, since both candidates spend provider allowance
-- [ ] #3 A test drives a canon-invalid scene through a slot retry and asserts the second attempt differs from the first
+- [x] #1 A slot whose stored scene Canon refuses can make progress rather than replaying the same refusal
+- [x] #2 The chosen approach is recorded with its cost, since both candidates spend provider allowance
+- [x] #3 A test drives a canon-invalid scene through a slot retry and asserts the second attempt differs from the first
 <!-- AC:END -->
 
 ## Definition of Done
@@ -95,3 +95,9 @@ committed slot produces no public read model.
 - [ ] #13 Changes are committed and pushed
 - [ ] #14 Pull request is merged or explicitly blocked
 <!-- DOD:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Shipped in #314. validateSceneProposals asks Canon during authoring, sharing canonRuleContext with stage 8; a refused scene never returns, so it is never persisted and ART-149 reuse has nothing to replay. The refusal travels back as bounded facts with the validator's details payload dropped WHOLE, and the correction is placed first in the retry prompt. The remaining window is covered by marking the stored row canonRejectedAt so reuse skips it -- marked, never deleted. canon_rejected is its own outcome, excluded from Sec 16.2's denominator as provider_failed is. Six fault injections; three exposed gaps in my own work (the stage-8 marking landed in stage 7, the action wiring was unpinned, the reuse guard was untested) and were fixed before landing. LIVE CAVEAT: no SCENE_CANON_REJECTED row has ever been written on acceptance while stage 8 refuses DUPLICATE_CHARACTER_MOVEMENT on the same scenes. The wiring is present and the query returns correct feedback when called directly. Unexplained, and recorded on ART-207.
+<!-- SECTION:FINAL_SUMMARY:END -->

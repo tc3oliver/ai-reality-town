@@ -3,10 +3,10 @@ id: ART-202
 title: >-
   Post-commit cursor is ahead of Canon, so every event since #74 was silently
   skipped
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-17 20:17'
-updated_date: '2026-09-17 23:40'
+updated_date: '2026-09-18 03:00'
 labels: []
 dependencies: []
 priority: critical
@@ -82,10 +82,10 @@ weeks later.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The cause of the overshoot is established from evidence, not inferred
-- [ ] #2 A cursor that is ahead of the newest completed post-commit run is detected and reported
-- [ ] #3 The 14 skipped events are processed, or a decision not to is recorded with its reasoning
-- [ ] #4 A test proves the cursor cannot advance past an event with no completed run
+- [x] #1 The cause of the overshoot is established from evidence, not inferred
+- [x] #2 A cursor that is ahead of the newest completed post-commit run is detected and reported
+- [x] #3 The 14 skipped events are processed, or a decision not to is recorded with its reasoning
+- [x] #4 A test proves the cursor cannot advance past an event with no completed run
 <!-- AC:END -->
 
 ## Definition of Done
@@ -148,3 +148,9 @@ I called it twice, got [] twice, and concluded the cursor was ahead of Canon. It
 Re-scoped accordingly: pin the invariant that was already correct, fix the ambiguity, make the
 backlog observable, and provide the dry-run + reconciliation surface.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Shipped in #314. THE ORIGINAL DIAGNOSIS IN THIS TASK WAS WRONG and is corrected in its notes: there was no cursor overshoot. The drain reads one bounded page of 35, so a call whose page is entirely settled advances the cursor and returns [] without doing work; from an absent cursor row it took three such calls to cross events 0-74. I called it twice, got [] twice, and filed a CRITICAL defect. The cursor was three pages BEHIND and the invariant it was accused of breaking was correctly implemented and already tested. All 14 events then processed cleanly and liveState went v19 -> v30. The real defects fixed: the empty-result ambiguity (now cursorBefore/cursorAfter/caughtUp/remaining, with caughtUp requiring a SHORT page), no visibility into backlog or holes (inspectPostCommitBacklog, including cronWillNeverDrain), and no reconciliation path (reconcilePostCommit: Canon untouched, per-event skip so a second run is a no-op by construction, dry-run by default). Verified on acceptance: cursor 88 = advanceTo, 89 complete, 0 missing, reconciliation run twice with repaired: [] both times. Also established the actual six-week cause: drivableWorldIds selects mode 'public', and mistwood is 'development', so both crons have always skipped it.
+<!-- SECTION:FINAL_SUMMARY:END -->
