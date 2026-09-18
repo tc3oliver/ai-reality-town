@@ -327,6 +327,18 @@ export type WholeScenePromptContext = {
    */
   participantMovement?: Readonly<Record<string, { fromLocationId: string; destinations: readonly string[] }>>;
   /**
+   * ART-198. Per participant, the state fields Canon has a recorded value for, and that value.
+   *
+   * `validateCanon` requires a `character_state_changed`'s `fromValue` to EQUAL the projected
+   * value, and strict mode makes `fromValue` mandatory — so the variant was unusable by any author
+   * that had not been told the current value, and ART-197 stopped asking for it rather than
+   * collecting rejections. This is what makes it askable again.
+   *
+   * A character or a field that is absent may not be changed. That is the ART-157 shape: an absent
+   * entry is a prohibition, not an invitation to guess.
+   */
+  participantState?: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  /**
    * ART-205. Why Canon refused the PREVIOUS attempt at this scene, when there was one.
    *
    * Absent on a first attempt. Present only on a retry that follows a Canon rejection, which is the
@@ -431,6 +443,26 @@ export const wholeSceneSystemPrompt = (scene: GroupedScene, context: WholeSceneP
       : `${characterId} is at ${fromLocationId}; if ${characterId} moves, fromLocationId must be ${JSON.stringify(fromLocationId)} and toLocationId must come from this exact list and nothing else: ${JSON.stringify(allowed)}.`);
     return `A character_location_changed must start from where the character actually is, which is not always this scene's location. ${clauses.join(' ')} Any other origin or destination is rejected.`;
   };
+  /**
+   * ART-198. `character_state_changed`, offered exactly where it can be used correctly.
+   *
+   * `validateCanon` requires `fromValue` to equal the character's projected value and strict mode
+   * makes `fromValue` mandatory, so ART-197 stopped asking for the variant at all — it could only
+   * ever produce rejections. Now that the recorded values travel with the scene, the rule is a
+   * whitelist instead of a prohibition: one clause per character, naming only the fields Canon has
+   * a value for and quoting that value as the one legal `fromValue`.
+   *
+   * A character or a field with nothing recorded stays prohibited, and is said so by name. The
+   * alternative — offering the field and letting the author guess — is the defect this replaces.
+   */
+  const stateEntries = Object.entries(context.participantState ?? {})
+    .filter(([, fields]) => Object.keys(fields).length > 0);
+  const stateChangeRule = stateEntries.length === 0
+    ? 'Never emit character_state_changed: this scene records no current value for any participant, and the change must state the value it is replacing.'
+    : `A character_state_changed is allowed ONLY for these characters and fields, and fromValue must be exactly the value given here, with toValue different from it: ${
+      stateEntries.map(([characterId, fields]) => `${characterId} -> ${JSON.stringify(fields)}`).join('; ')
+    }. Any other character, any other field, or any other fromValue is rejected.`;
+
   const movementEntries = Object.entries(movement ?? {});
   const movementRule = movementEntries.length > 0
     ? perCharacterMovementRule(movementEntries)
@@ -522,7 +554,7 @@ export const wholeSceneSystemPrompt = (scene: GroupedScene, context: WholeSceneP
      */
     'Some changes may happen at most once per event, and proposing a second one refuses the whole scene. One character may have at most one character_location_changed in a single event -- to narrate two hops, propose two separate events, and even then a character may move at most ONCE in this whole scene, so choose the destination that matters. The same at-most-once rule applies per character to character_life_changed, and per rumor to rumor_belief_changed for one character and to rumor_corrected.',
     `Every proposedEvents item must copy this scene's own identity exactly: worldId ${JSON.stringify(scene.worldId)}, worldDay ${scene.worldDay}, timeSlot ${JSON.stringify(scene.timeSlot)}. Its participantIds must contain only characters from ${JSON.stringify(scene.participantIds)}, and so must every characterId, sourceCharacterId and targetCharacterId in keyActions, dialogueHighlights, relationshipChanges, knowledgeChanges, memories and rumors -- a character who is only mentioned in passing is not a participant and will be refused. Each proposedEvents item needs its own unique idempotencyKey, and continuityWarnings must not repeat a string. Provide at least one keyActions entry.`,
-    `Canon will reject the entire scene unless every stateChanges entry obeys these rules. Every characterId named anywhere in stateChanges must be one of this scene's participants: ${JSON.stringify(scene.participantIds)}. A relationship_changed must set visibility to "public" -- every event here carries a publicSummary, and a private relationship change on an event with a public summary is refused; its sourceCharacterId and targetCharacterId must differ, and at least one of its six deltas must be non-zero. Never emit character_state_changed or character_knowledge_learned: the first must state the character's current recorded value and the second must cite an existing causal event id, and this request gives you neither. Use character_memory_formed, relationship_changed, fact_created, item_transferred, the rumor_* changes, or character_location_changed instead.`,
+    `Canon will reject the entire scene unless every stateChanges entry obeys these rules. Every characterId named anywhere in stateChanges must be one of this scene's participants: ${JSON.stringify(scene.participantIds)}. A relationship_changed must set visibility to "public" -- every event here carries a publicSummary, and a private relationship change on an event with a public summary is refused; its sourceCharacterId and targetCharacterId must differ, and at least one of its six deltas must be non-zero. ${stateChangeRule} Never emit character_knowledge_learned: it must cite an existing causal event id and this request gives you none -- write the same idea as a knowledgeChanges note about another event instead. Use character_memory_formed, relationship_changed, fact_created, the rumor_* changes, or character_location_changed.`,
     movementRule,
     'The memories, knowledgeChanges and rumors collections are short narrative notes about a proposed event, not state changes. Each memories or knowledgeChanges item has exactly characterId, content and proposedEventIndex; each rumors item has exactly sourceCharacterId, content and proposedEventIndex, where proposedEventIndex is the zero-based position in proposedEvents. Never give them interpretation, importance, emotionalWeight, confidence or visibility -- those belong only to a character_memory_formed entry inside proposedEvents stateChanges.',
     // FR-E005. Said explicitly because the two things share a word: a `rumors` note is colour a
@@ -670,6 +702,8 @@ export type WholeSceneSimulationOptions = {
    * out per-character positions, in which case the scene-level rule applies unchanged.
    */
   participantMovement?: Readonly<Record<string, { fromLocationId: string; destinations: readonly string[] }>>;
+  /** ART-198. Per participant, the state fields with a recorded value. See the prompt context. */
+  participantState?: Readonly<Record<string, Readonly<Record<string, string>>>>;
   /**
    * ART-205. Canon's verdict on a parsed answer, asked for BEFORE the scene is returned.
    *
@@ -723,6 +757,7 @@ export async function simulateWholeScene(provider: LanguageModelProvider, simula
   const promptContextFor = (priorRejection: CanonRejectionFeedback | null): WholeScenePromptContext => ({
     legalDestinationIds: options.legalDestinationIds ?? [],
     ...(options.participantMovement === undefined ? {} : { participantMovement: options.participantMovement }),
+    ...(options.participantState === undefined ? {} : { participantState: options.participantState }),
     ...(priorRejection === null ? {} : { priorRejection }),
   });
   const promptContext = promptContextFor(null);
@@ -734,6 +769,9 @@ export async function simulateWholeScene(provider: LanguageModelProvider, simula
     ...(promptContext.participantMovement === undefined
       ? {}
       : { participantMovement: promptContext.participantMovement }),
+    ...(promptContext.participantState === undefined
+      ? {}
+      : { participantState: promptContext.participantState }),
   };
   const callProvider = (model: string | undefined, priorRejection: CanonRejectionFeedback | null) => provider.structuredChat({
     messages: [{ role: 'system', content: buildSystemPrompt(scene, promptContextFor(priorRejection)) },

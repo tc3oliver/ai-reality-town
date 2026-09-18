@@ -39,7 +39,10 @@ import {
 } from '../canon/model';
 import { proposalSceneId, type ProposalValidationDraft } from './validationOutcome';
 import { commitProposedEvent, type CanonCommitStore, type CanonReadStore, type CommitResult } from '../canon/commit';
-import { TIME_SLOTS, type TimeSlot } from '../canon/eventTypes';
+import {
+  PUBLIC_TEXT_CHARACTER_STATE_FIELDS, TIME_SLOTS,
+  type PublicTextCharacterStateField, type TimeSlot,
+} from '../canon/eventTypes';
 import { degradedPlan, policyFor, type LevelPolicy } from './degradation';
 import { replayWorldEvents } from '../canon/replay';
 import { cloneProjection } from '../canon/snapshots';
@@ -149,6 +152,20 @@ export type LiveCharacter = {
   personaSummary: string;
   currentGoal: string;
   emotionalState: string;
+  /**
+   * The character state fields Canon has a RECORDED value for, raw (ART-198).
+   *
+   * Distinct from {@link emotionalState}, which defaults to `'steady'` when the projection records
+   * nothing. That default is right for the Director — a character with no recorded mood still needs
+   * one to plan around — and wrong for an author: `validateCanon` compares a
+   * `character_state_changed`'s `fromValue` against the RAW projected value, and
+   * `equal(undefined, 'steady')` is false. Passing the defaulted value through would refuse every
+   * such change for every character whose mood Canon has never set.
+   *
+   * A field with no recorded value is ABSENT here, and absent means "this field may not be
+   * changed" — exactly as an empty `legalDestinationIds` means "nobody may leave".
+   */
+  recordedState?: Readonly<Partial<Record<PublicTextCharacterStateField, string>>>;
   currentLocationId: string;
   reachableLocationIds: string[];
   slotsSinceMajorAppearance: number;
@@ -431,6 +448,51 @@ export function legalDestinationsFrom(
 }
 
 /**
+ * The recorded values for the character state fields a scene author may change (ART-198).
+ *
+ * Restricted to {@link PUBLIC_TEXT_CHARACTER_STATE_FIELDS} — health, emotion, finance, occupation.
+ * The rest of `CHARACTER_STATE_FIELDS` is not narrative text an author can meaningfully rewrite:
+ * `organization_memberships` needs organization ids it has not been given, `availability` and
+ * `active` are structural flags, and `active` in particular is an assertion about existence that a
+ * scene has no business flipping.
+ *
+ * Non-string values are omitted rather than coerced. A field whose projected value is not a string
+ * cannot be quoted back as a `fromValue`, and offering it would be offering a change that cannot
+ * be made correctly — the defect this function exists to stop.
+ */
+function recordedCharacterState(
+  state: Record<string, unknown> | undefined,
+): Partial<Record<PublicTextCharacterStateField, string>> | undefined {
+  if (!state) return undefined;
+  const recorded: Partial<Record<PublicTextCharacterStateField, string>> = {};
+  for (const field of PUBLIC_TEXT_CHARACTER_STATE_FIELDS) {
+    const value = state[field];
+    if (typeof value === 'string' && value.length > 0) recorded[field] = value;
+  }
+  return Object.keys(recorded).length > 0 ? recorded : undefined;
+}
+
+/**
+ * One scene's participants, each with the state fields they may actually be given a new value for.
+ *
+ * A participant with nothing recorded is omitted, and so is a field with nothing recorded. The
+ * author is then told it may not change what it was not given, which is the ART-157 shape: an
+ * absent entry is a prohibition, never an invitation to guess.
+ */
+export function participantStateFor(
+  snapshot: Pick<LiveWorldSnapshot, 'characters'>,
+  scene: Pick<GroupedScene, 'participantIds'>,
+): Record<string, Readonly<Record<string, string>>> {
+  const byId = new Map(snapshot.characters.map((character) => [character.characterId, character]));
+  const states: Record<string, Readonly<Record<string, string>>> = {};
+  for (const characterId of scene.participantIds) {
+    const recorded = byId.get(characterId)?.recordedState;
+    if (recorded && Object.keys(recorded).length > 0) states[characterId] = { ...recorded };
+  }
+  return states;
+}
+
+/**
  * Where one participant actually stands, and where Canon would let them go (ART-200).
  *
  * ART-157 computed ONE destination list per scene, from `scene.locationId`, and the movement rule
@@ -515,6 +577,8 @@ export function buildLiveWorldSnapshot(sources: WorldSnapshotSources): LiveWorld
       personaSummary: seed.personaSummary,
       currentGoal: seed.currentGoal,
       emotionalState: projection.characterStates[seed.characterId]?.emotion ?? 'steady',
+      // ART-198: the RAW values, with absent fields left absent. See `recordedState`.
+      recordedState: recordedCharacterState(projection.characterStates[seed.characterId]),
       currentLocationId,
       reachableLocationIds: [...(projection.locations[currentLocationId]?.connectedLocationIds
         ?? sources.locationConnections[currentLocationId] ?? [])],
@@ -1010,6 +1074,13 @@ export type SceneAuthoringPlan = {
    */
   readonly participantMovement: Readonly<Record<string, Readonly<Record<string, ParticipantMovement>>>>;
   /**
+   * ART-198, per scene and then per character: the state fields with a recorded value.
+   *
+   * Empty for a character whose state Canon has never set, which the prompt reads as "this
+   * character's state may not be changed" rather than as "change whatever you like".
+   */
+  readonly participantState: Readonly<Record<string, Readonly<Record<string, Readonly<Record<string, string>>>>>>;
+  /**
    * FR-M003 最大並行數, as the number of scenes that may be in flight at once (ART-161).
    *
    * `1` means sequential and is what an UNCONFIGURED world gets: `TokenBudgetPolicy`'s default is
@@ -1152,11 +1223,15 @@ export async function buildSceneAuthoringPlan(
   const configuredLimit = await port.loadConcurrencyLimit(slot.worldId);
   const legalDestinationIds: Record<string, readonly string[]> = {};
   const participantMovement: Record<string, Record<string, ParticipantMovement>> = {};
+  const participantState: Record<string, Record<string, Readonly<Record<string, string>>>> = {};
   for (const scene of grouping.result.scenes) {
     legalDestinationIds[scene.sceneId] = legalDestinationsFrom(snapshot.locations, scene.locationId);
     // ART-200. From the SAME stage-1 snapshot, so what the author is told about a character's
     // position is what Canon will validate the result against.
     participantMovement[scene.sceneId] = participantMovementFor(snapshot, scene);
+    // ART-198. From the same stage-1 snapshot, so a `fromValue` the author is told to use is the
+    // value `validateCanon` will compare against.
+    participantState[scene.sceneId] = participantStateFor(snapshot, scene);
   }
   return {
     slot,
@@ -1168,6 +1243,7 @@ export async function buildSceneAuthoringPlan(
     fallbackModel: config.fallbackModel ?? null,
     legalDestinationIds,
     participantMovement,
+    participantState,
     // Clamped to at least 1: a configured 0 would author nothing while looking like a setting.
     maxConcurrentScenes: Math.max(1, configuredLimit ?? 1),
   };
@@ -1252,6 +1328,8 @@ export async function authorSlotScenes(
       // ART-200. Each participant's OWN origin and destinations, which is what makes the movement
       // rule true for a participant who is not standing at the scene's location.
       participantMovement: plan.participantMovement[scene.sceneId] ?? {},
+      // ART-198. The recorded values a `character_state_changed` may legally quote as `fromValue`.
+      participantState: plan.participantState[scene.sceneId] ?? {},
       budget: {
         gate: store.budget,
         reservation: {
