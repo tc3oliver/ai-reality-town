@@ -76,6 +76,7 @@ import type { recordAuthoringAttempt as recordAuthoringAttemptExport } from '../
 import type {
   findReusableSceneSimulation as findReusableSceneSimulationExport,
   persistValidatedSceneSimulation as persistValidatedSceneSimulationExport,
+  validateSceneProposals as validateSceneProposalsExport,
 } from '../sceneSimulationFunctions';
 import type {
   reserveSceneBudget as reserveSceneBudgetExport,
@@ -108,6 +109,9 @@ const findReusableSceneSimulationRef = internalFunctionRef<typeof findReusableSc
 );
 const persistValidatedSceneSimulationRef = internalFunctionRef<typeof persistValidatedSceneSimulationExport>(
   'simulation/sceneSimulationFunctions:persistValidatedSceneSimulation',
+);
+const validateSceneProposalsRef = internalFunctionRef<typeof validateSceneProposalsExport>(
+  'simulation/sceneSimulationFunctions:validateSceneProposals',
 );
 const reserveSceneBudgetRef = internalFunctionRef<typeof reserveSceneBudgetExport>(
   'simulation/tokenBudgetGateFunctions:reserveSceneBudget',
@@ -147,6 +151,16 @@ export function actionAuthoringStore(ctx: ActionCtx, now: number): SceneAuthorin
         trace: result.trace, createdAt: now,
       });
     },
+    /**
+     * ART-205. Canon's verdict, from inside the authoring action's retry loop.
+     *
+     * A query rather than anything cached: the projection it validates against has to be the world
+     * as it stands, and `canonRuleContext` is shared with stage 8 so both derive it identically.
+     * One round trip per parsed attempt, which is nothing beside the provider call that produced
+     * the answer being checked.
+     */
+    validateProposals: (worldId, events) =>
+      ctx.runQuery(validateSceneProposalsRef, { worldId, proposedEvents: [...events] }),
     // FR-M002 / ART-90. The action authors, so the action is where a per-attempt record can be
     // written at all — the finishing mutation only ever sees results that already parsed.
     recordAuthoringAttempt: async (attempt) => {

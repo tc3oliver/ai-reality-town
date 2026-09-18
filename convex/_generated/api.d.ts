@@ -170,6 +170,7 @@ import type * as shared_runRecord from "../shared/runRecord.js";
 import type * as shared_secretText from "../shared/secretText.js";
 import type * as shared_tokenBudget from "../shared/tokenBudget.js";
 import type * as shared_viewerKnowledgeRef from "../shared/viewerKnowledgeRef.js";
+import type * as simulation_canonFeedback from "../simulation/canonFeedback.js";
 import type * as simulation_characterIntent from "../simulation/characterIntent.js";
 import type * as simulation_characterIntentFunctions from "../simulation/characterIntentFunctions.js";
 import type * as simulation_degradation from "../simulation/degradation.js";
@@ -433,6 +434,7 @@ declare const fullApi: ApiFromModules<{
   "shared/secretText": typeof shared_secretText;
   "shared/tokenBudget": typeof shared_tokenBudget;
   "shared/viewerKnowledgeRef": typeof shared_viewerKnowledgeRef;
+  "simulation/canonFeedback": typeof simulation_canonFeedback;
   "simulation/characterIntent": typeof simulation_characterIntent;
   "simulation/characterIntentFunctions": typeof simulation_characterIntentFunctions;
   "simulation/degradation": typeof simulation_degradation;

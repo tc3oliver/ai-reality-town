@@ -7,6 +7,7 @@ import {
 import type { ProposedEvent } from '../canon/model';
 import { classifyPostGeneration, type PostGenerationClassification } from '../safety/postGeneration';
 import { describeFailure, formatFailureDetail, type FailureDetail } from '../shared/failureDetail';
+import { renderCanonRejection, type CanonRejectionFeedback } from './canonFeedback';
 import { SimulationProviderError, type LanguageModelProvider, type ProviderTraceMetadata } from './provider';
 import { runBudgetedAttempt, SceneBudgetError, type SceneBudgetGate } from './sceneBudget';
 import type { BudgetReservationRequest } from '../shared/tokenBudget';
@@ -45,7 +46,7 @@ export type SceneSimulationResult = {
 };
 
 /** See `AUTHORING_ATTEMPT_OUTCOMES`; restated here so this module stays free of `worldDayLive`. */
-export type AttemptOutcome = 'parsed' | 'output_rejected' | 'provider_failed';
+export type AttemptOutcome = 'parsed' | 'output_rejected' | 'canon_rejected' | 'provider_failed';
 
 export class SceneSimulationError extends Error {
   /**
@@ -65,6 +66,15 @@ export class SceneSimulationError extends Error {
 
 /** The code the fallback throw carries when nothing more specific could be established. */
 export const SCENE_SIMULATION_FAILED = 'SCENE_SIMULATION_FAILED';
+
+/**
+ * The code a scene carries when Canon refused its proposals during authoring (ART-205).
+ *
+ * Distinct from `SCENE_OUTPUT_INVALID`, which means the runtime schema refused the shape. This one
+ * means the shape was fine and the WORLD refused the content, and an operator reading the two needs
+ * to look in different places.
+ */
+export const SCENE_CANON_REJECTED = 'SCENE_CANON_REJECTED';
 
 const record = (value: unknown, path: string, keys: readonly string[]): Record<string, unknown> => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SceneSimulationError('SCENE_OUTPUT_INVALID', 'must be an object', path);
@@ -316,6 +326,15 @@ export type WholeScenePromptContext = {
    * unchanged — which is how every pure scene-parsing test calls this.
    */
   participantMovement?: Readonly<Record<string, { fromLocationId: string; destinations: readonly string[] }>>;
+  /**
+   * ART-205. Why Canon refused the PREVIOUS attempt at this scene, when there was one.
+   *
+   * Absent on a first attempt. Present only on a retry that follows a Canon rejection, which is the
+   * whole point: a general rule that was already in the prompt on the attempt that broke it does
+   * not become more persuasive by being repeated, and every rule fix from ART-196 to ART-204 could
+   * only improve the chance a scene is born valid, never rescue one that is not.
+   */
+  priorRejection?: CanonRejectionFeedback;
 };
 
 export const wholeSceneSystemPrompt = (scene: GroupedScene, context: WholeScenePromptContext = {}): string => {
@@ -420,7 +439,18 @@ export const wholeSceneSystemPrompt = (scene: GroupedScene, context: WholeSceneP
       // the gap, which is the behaviour being fixed.
       ? `No character may leave ${scene.locationId} in this scene: it has no open, connected destination with room. Do not emit any character_location_changed change.`
       : `A character_location_changed may only use a toLocationId from this exact list, and nothing else: ${JSON.stringify(destinations)}. These are the connected, open destinations with room for another character; any other value will be rejected. fromLocationId must be ${JSON.stringify(scene.locationId)}.`;
+  /**
+   * ART-205. The correction block, FIRST, so it is the first thing read.
+   *
+   * Placed ahead of the general rules deliberately: on a retry the general rules are the ones that
+   * were already present and were broken, and burying a specific correction under them is how a
+   * model reads past it.
+   */
+  const correction = context.priorRejection === undefined
+    ? null
+    : renderCanonRejection(context.priorRejection);
   return [
+    ...(correction === null ? [] : [correction]),
     'Simulate the entire grouped scene once. Return structured JSON only. You may propose events but never commit or mutate Canon.',
     'Write every narrative text field (sceneSummary, keyActions, dialogueHighlights, relationshipChanges, knowledgeChanges, memories, rumors, continuityWarnings, and each proposedEvents publicSummary) in Traditional Chinese (zh-TW). Field names and JSON structure stay in English.',
     `The response must conform exactly to this JSON Schema. Use only the field names and enum values it declares, include every required field, and never invent fields: ${JSON.stringify(WHOLE_SCENE_JSON_SCHEMA)}`,
@@ -641,6 +671,18 @@ export type WholeSceneSimulationOptions = {
    */
   participantMovement?: Readonly<Record<string, { fromLocationId: string; destinations: readonly string[] }>>;
   /**
+   * ART-205. Canon's verdict on a parsed answer, asked for BEFORE the scene is returned.
+   *
+   * Canon validation is authoritative in the finishing mutation and stays there; this is the same
+   * check moved early so its refusal can reach the author while another attempt is still possible.
+   * A scene refused here never returns, so it is never persisted and can never be replayed by
+   * ART-149 reuse — which is what made a refused slot unrecoverable.
+   *
+   * Absent means unchecked, which is how every pure scene-parsing test calls this and how the
+   * deterministic path behaved before ART-205.
+   */
+  validateProposals?: (events: readonly ProposedEvent[]) => Promise<CanonRejectionFeedback | null>;
+  /**
    * FR-M003 / ART-59 budget enforcement, applied ONCE PER ATTEMPT.
    *
    * Per attempt rather than per scene because that is the only granularity at which the Retry
@@ -673,10 +715,17 @@ export async function simulateWholeScene(provider: LanguageModelProvider, simula
   }
   // ART-157: the scene payload the model sees is widened with the world state `GroupedScene`
   // cannot carry, so "which destinations exist" is answered by the prompt rather than guessed.
-  const promptContext: WholeScenePromptContext = {
+  /**
+   * ART-205. Rebuilt per ATTEMPT, because the prior Canon rejection changes between them.
+   *
+   * It used to be built once outside the loop, which was correct while nothing in it could change.
+   */
+  const promptContextFor = (priorRejection: CanonRejectionFeedback | null): WholeScenePromptContext => ({
     legalDestinationIds: options.legalDestinationIds ?? [],
     ...(options.participantMovement === undefined ? {} : { participantMovement: options.participantMovement }),
-  };
+    ...(priorRejection === null ? {} : { priorRejection }),
+  });
+  const promptContext = promptContextFor(null);
   const scenePayload = {
     ...scene,
     legalDestinationIds: promptContext.legalDestinationIds,
@@ -686,8 +735,8 @@ export async function simulateWholeScene(provider: LanguageModelProvider, simula
       ? {}
       : { participantMovement: promptContext.participantMovement }),
   };
-  const callProvider = (model: string | undefined) => provider.structuredChat({
-    messages: [{ role: 'system', content: buildSystemPrompt(scene, promptContext) },
+  const callProvider = (model: string | undefined, priorRejection: CanonRejectionFeedback | null) => provider.structuredChat({
+    messages: [{ role: 'system', content: buildSystemPrompt(scene, promptContextFor(priorRejection)) },
       { role: 'user', content: JSON.stringify(scenePayload) }],
     schemaName: 'whole_scene_output', jsonSchema: WHOLE_SCENE_JSON_SCHEMA, temperature, maxTokens,
     ...(model === undefined ? {} : { model }),
@@ -698,6 +747,8 @@ export async function simulateWholeScene(provider: LanguageModelProvider, simula
   let lastError: unknown;
   /** ART-195: what the last failure was, kept so the fallback throw is not empty. */
   let lastFailure: FailureDetail | null = null;
+  /** ART-205: why Canon refused the previous attempt, carried into the next one's prompt. */
+  let priorRejection: CanonRejectionFeedback | null = null;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     /**
      * ART-90. What this attempt asked for and what came back, reported to the caller's recorder
@@ -739,13 +790,13 @@ export async function simulateWholeScene(provider: LanguageModelProvider, simula
             // only when the gate actually CHANGED the model — an AC#5 routing decision or an
             // over-budget downgrade — which is exactly when the call must not use the default.
             const changed = model !== budget.reservation.requestedModel;
-            const result = await callProvider(changed ? model : options.model);
+            const result = await callProvider(changed ? model : options.model, priorRejection);
             return { value: result, trace: result.trace };
           },
         });
         response = budgeted.value;
       } else {
-        response = await callProvider(options.model);
+        response = await callProvider(options.model, priorRejection);
       }
       attemptTrace = response.trace;
       let output;
@@ -756,6 +807,29 @@ export async function simulateWholeScene(provider: LanguageModelProvider, simula
         // is what §16.2's 「JSON 結構成功率」 counts against.
         report('output_rejected', describeFailure(error, 'output_validation'));
         throw error;
+      }
+      /**
+       * ART-205. Canon's verdict, asked for BEFORE this scene is returned and therefore before it
+       * can be persisted.
+       *
+       * A refusal here is an `output_rejected` attempt exactly as a schema refusal is: the provider
+       * ANSWERED and the answer was refused. It is retried for the same reason, and the refusal is
+       * carried into the next attempt's prompt instead of being discovered again two stages later
+       * by a pass that has no way to ask for anything different.
+       */
+      const rejection = await options.validateProposals?.(output.proposedEvents) ?? null;
+      if (rejection) {
+        priorRejection = rejection;
+        const refusal = new SceneSimulationError(
+          SCENE_CANON_REJECTED,
+          `${rejection.code}: ${rejection.rule}`,
+          rejection.path ?? undefined,
+        );
+        report('canon_rejected', describeFailure(refusal, 'output_validation'));
+        lastError = refusal;
+        lastFailure = describeFailure(refusal, 'output_validation');
+        if (attempt === maxAttempts) break;
+        continue;
       }
       report('parsed', null);
       return finalizeWholeSceneOutput(simulationRunId, scene, output, attempt,

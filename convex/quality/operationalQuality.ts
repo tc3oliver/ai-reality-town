@@ -138,7 +138,7 @@ export type AuthoringAttemptEvidence = {
   sceneId: string;
   /** `${simulationRunId}:attempt:${n}` — the identity a retried slot re-derives. */
   attemptId: string;
-  outcome: 'parsed' | 'output_rejected' | 'provider_failed';
+  outcome: 'parsed' | 'output_rejected' | 'canon_rejected' | 'provider_failed';
   errorCode: string | null;
   model: string;
   transportRetries: number;
@@ -171,6 +171,15 @@ export type OperationalQualityBreakdown = {
   withholdReasons: readonly ReasonDimension[];
   structuredOutputReasons: readonly ReasonDimension[];
   providerFailureReasons: readonly ReasonDimension[];
+  /**
+   * Which Canon rules the author had to be corrected on (ART-205).
+   *
+   * Its own dimension because it belongs to neither of the two above: the schema accepted the
+   * answer and the gateway served it, and what failed was the CONTENT against the world's rules.
+   * An operator reading a run of `DUPLICATE_CHARACTER_MOVEMENT` here is looking at a prompt or a
+   * model problem, not at a transport or schema one.
+   */
+  canonRejectionReasons: readonly ReasonDimension[];
   /** Models the attempts were served by, so a rate can be read per model when it matters. */
   models: readonly ReasonDimension[];
 };
@@ -245,8 +254,16 @@ export function evaluateOperationalQuality(evidence: OperationalQualityEvidence)
     if (!attempts.has(attempt.attemptId)) attempts.set(attempt.attemptId, attempt);
   }
   const allAttempts = [...attempts.values()];
-  const answered = allAttempts.filter(({ outcome }) => outcome !== 'provider_failed');
+  /**
+   * ART-205. A canon rejection is excluded from the structured-output denominator, for the same
+   * reason `provider_failed` is: it is not evidence about schema compliance. The schema ACCEPTED
+   * it — Canon refused the content — so counting it would make §16.2 fall when a model writes a
+   * well-formed scene the world happens to forbid.
+   */
+  const answered = allAttempts.filter(({ outcome }) =>
+    outcome !== 'provider_failed' && outcome !== 'canon_rejected');
   const parsed = answered.filter(({ outcome }) => outcome === 'parsed');
+  const canonRejected = allAttempts.filter(({ outcome }) => outcome === 'canon_rejected');
   const unanswered = allAttempts.length - answered.length;
   for (const attempt of answered) {
     if (attempt.outcome !== 'output_rejected') continue;
@@ -269,7 +286,8 @@ export function evaluateOperationalQuality(evidence: OperationalQualityEvidence)
       allScenes.length - classified.length,
       allScenes.length === classified.length ? null : 'scenes carrying no post-generation classification'),
     observeMetric(METRIC_STRUCTURED, parsed.length, answered.length, unanswered,
-      unanswered === 0 ? null : 'attempts that never received a model response, so they are not evidence about schema compliance'),
+      unanswered === 0 ? null
+        : 'attempts that never received a model response, or whose schema-valid output Canon refused, so they are not evidence about schema compliance'),
     observeMetric(METRIC_CLASSIFIED, classified.length, allScenes.length),
   ];
 
@@ -307,6 +325,8 @@ export function evaluateOperationalQuality(evidence: OperationalQualityEvidence)
       providerFailureReasons: tally(allAttempts
         .filter(({ outcome }) => outcome === 'provider_failed')
         .map(({ errorCode }) => errorCode ?? 'SCENE_ATTEMPT_FAILED')),
+      /** ART-205: which Canon rules the author had to be corrected on, kept apart from both. */
+      canonRejectionReasons: tally(canonRejected.map(({ errorCode }) => errorCode ?? 'SCENE_CANON_REJECTED')),
       models: tally(allAttempts.map(({ model }) => model)),
     },
   };

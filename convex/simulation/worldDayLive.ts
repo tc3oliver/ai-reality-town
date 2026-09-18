@@ -38,7 +38,7 @@ import {
   type WorldProjection,
 } from '../canon/model';
 import { proposalSceneId, type ProposalValidationDraft } from './validationOutcome';
-import { commitProposedEvent, type CanonCommitStore, type CommitResult } from '../canon/commit';
+import { commitProposedEvent, type CanonCommitStore, type CanonReadStore, type CommitResult } from '../canon/commit';
 import { TIME_SLOTS, type TimeSlot } from '../canon/eventTypes';
 import { degradedPlan, policyFor, type LevelPolicy } from './degradation';
 import { replayWorldEvents } from '../canon/replay';
@@ -47,6 +47,7 @@ import { resolveWorldBaseline } from '../canon/snapshotManager';
 import { validateCanon, validateEventStructure } from '../canon/validators';
 import { CanonError, type CanonErrorCode } from '../shared/errors';
 import type { FailureDetail } from '../shared/failureDetail';
+import type { CanonRejectionFeedback } from './canonFeedback';
 import { CANON_SCHEMA_VERSION } from '../shared/constants';
 import {
   findEnvironmentVoteCandidate,
@@ -262,6 +263,14 @@ export interface WorldDayLivePort {
    * `(worldId, idempotencyKey, stage)`, so a retried slot re-records rather than re-counts.
    */
   recordProposalValidations(outcomes: readonly ProposalValidationDraft[]): Promise<void>;
+  /**
+   * ART-205. Mark a stored scene as refused by Canon so the next attempt re-authors it.
+   *
+   * OPTIONAL: a port that does not implement it behaves exactly as before, which is how every
+   * in-memory test port written before ART-205 still works. On the deployed path it is what stops
+   * ART-149 reuse replaying a refused scene into the same refusal forever.
+   */
+  markSceneCanonRejected?(worldId: string, sceneId: string, code: string): Promise<void>;
   /**
    * FR-M002 (ART-90). Record one whole-scene authoring ATTEMPT: which model, how many transport
    * retries, whether its structured output parsed, and how the attempt ended.
@@ -918,7 +927,16 @@ function slotOf(context: StageContext): WorldDaySlotIdentity {
   return { worldId: context.worldId, worldDay: context.worldDay, timeSlot };
 }
 
-async function canonRuleContext(store: CanonCommitStore, worldId: string) {
+/**
+ * The projection and rule context Canon validation is performed against.
+ *
+ * Exported since ART-205 so the authoring-time validator and stage 8 share ONE derivation. Two
+ * would be two opinions about what the world looks like, and a scene accepted by one and refused by
+ * the other is exactly the shape that made a slot unrecoverable.
+ *
+ * Takes the READ half of the store: this derives a projection and appends nothing.
+ */
+export async function canonRuleContext(store: CanonReadStore, worldId: string) {
   const events = await store.loadAcceptedEvents(worldId);
   const persisted = await store.loadCanonRuleContext(worldId);
   const ruleContext: CanonRuleContext = {
@@ -1037,6 +1055,14 @@ export type SceneAuthoringStore = {
   persistSceneSimulation(groupingRunId: string, result: SceneSimulationResult): Promise<void>;
   /** ART-90: one row per provider attempt; see {@link WorldDayLivePort.recordAuthoringAttempt}. */
   recordAuthoringAttempt(attempt: AuthoringAttemptDraft): Promise<void>;
+  /**
+   * ART-205. Canon's verdict on a parsed scene, asked for while another attempt is still possible.
+   *
+   * Optional so a store written before ART-205 still authors — absent means unchecked, which is the
+   * behaviour every such caller already had. The authoritative check remains stage 8 in the
+   * finishing mutation; this one exists so a refusal can reach the author at all.
+   */
+  validateProposals?(worldId: string, events: readonly ProposedEvent[]): Promise<CanonRejectionFeedback | null>;
   budget: SceneBudgetGate;
 };
 
@@ -1047,11 +1073,17 @@ export type SceneAuthoringStore = {
  *  - `parsed` — the provider answered and `parseWholeSceneOutput` accepted the answer;
  *  - `output_rejected` — the provider answered and the runtime schema validation refused it. This
  *    is the numerator's complement, and the only outcome §16.2's 「JSON 結構成功率」 is about;
+ *  - `canon_rejected` — the provider answered, the SCHEMA accepted it, and Canon refused the
+ *    content (ART-205). Deliberately NOT `output_rejected`: §16.2's rate is about whether a model
+ *    can follow a schema, and a scene that followed the schema perfectly and proposed something the
+ *    world forbids is evidence about neither the schema nor the gateway. Folding it in would have
+ *    made the metric fall for a reason it does not measure — the same conflation this file already
+ *    warns about twice;
  *  - `provider_failed` — no answer to validate. A timeout, a refused credential, an exhausted route
  *    chain or a budget refusal is not a structured-output failure, and counting it as one would
  *    report a network outage as a model that cannot follow a schema.
  */
-export const AUTHORING_ATTEMPT_OUTCOMES = ['parsed', 'output_rejected', 'provider_failed'] as const;
+export const AUTHORING_ATTEMPT_OUTCOMES = ['parsed', 'output_rejected', 'canon_rejected', 'provider_failed'] as const;
 export type AuthoringAttemptOutcome = (typeof AUTHORING_ATTEMPT_OUTCOMES)[number];
 
 export type AuthoringAttemptDraft = {
@@ -1202,6 +1234,17 @@ export async function authorSlotScenes(
           sceneId: scene.sceneId, simulationRunId, ...attempt,
         }).catch(() => undefined);
       },
+      /**
+       * ART-205. Canon's verdict, inside the retry loop.
+       *
+       * A scene refused here never returns from `simulateWholeScene`, so it is never persisted and
+       * can never be replayed by the reuse below — which is what made a refused slot permanently
+       * unrecoverable however many attempts it was given.
+       */
+      ...(store.validateProposals === undefined ? {} : {
+        validateProposals: (events: readonly ProposedEvent[]) =>
+          store.validateProposals!(plan.slot.worldId, events),
+      }),
       // ART-157. Derived per scene from the SAME stage-1 snapshot the Director planned
       // against, so the author is told exactly what Canon will accept. Before this the
       // prompt named no location at all and every movement it proposed was refused.
@@ -1455,7 +1498,25 @@ export function createWorldDayStageHandlers(
       await port.recordProposalValidations(verdicts.map(({ proposed, error }) =>
         validationDraft(slot, proposed, 'structural', error)));
       const rejected = verdicts.find(({ error }) => error !== null);
-      if (rejected?.error) throw new CanonError(rejected.error);
+      if (rejected?.error) {
+        /**
+         * ART-205. Clear the stored scene so the retry re-authors instead of replaying it.
+         *
+         * ART-149 reuse would otherwise hand the next attempt the identical scene and it would be
+         * refused identically, forever — which is what parked day 5 morning on the acceptance world
+         * at four attempts with nothing changing between them.
+         *
+         * Best-effort and deliberately not allowed to mask the refusal: the slot must still fail
+         * with the Canon error, which is the thing an operator needs to see. A port that does not
+         * implement the marker behaves exactly as before.
+         */
+        const rejectedSceneId = proposalSceneId(rejected.proposed);
+        if (rejectedSceneId !== null && port.markSceneCanonRejected) {
+          await port.markSceneCanonRejected(context.worldId, rejectedSceneId, rejected.error.code)
+            .catch(() => undefined);
+        }
+        throw new CanonError(rejected.error);
+      }
       const keys = proposedEvents.map(({ idempotencyKey }) => idempotencyKey);
       if (new Set(keys).size !== keys.length) {
         throw new WorldDayOrchestrationError('PROPOSAL_KEY_CONFLICT', 'slot proposals must have unique idempotency keys');

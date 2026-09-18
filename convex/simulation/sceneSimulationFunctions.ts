@@ -1,6 +1,11 @@
 import { v } from 'convex/values';
 import { internalMutation, internalQuery } from '../_generated/server';
 import type { ProviderTraceMetadata } from './provider';
+import { createConvexCanonReader } from '../canon/commit';
+import type { ProposedEvent } from '../canon/model';
+import { validateCanon, validateEventStructure } from '../canon/validators';
+import { canonRejectionFeedback, type CanonRejectionFeedback } from './canonFeedback';
+import { canonRuleContext } from './worldDayLive';
 import type { SceneGroupingResult } from './sceneGrouping';
 import { finalizeWholeSceneOutput, parseWholeSceneOutput, SceneSimulationError, type SceneSimulationResult } from './sceneSimulation';
 
@@ -116,6 +121,9 @@ export const findReusableSceneSimulation = internalQuery({
     const row = await ctx.db.query('sceneSimulationRuns').withIndex('by_world_and_run',
       (q) => q.eq('worldId', args.worldId).eq('simulationRunId', args.simulationRunId)).unique();
     if (!row || row.groupingRunId !== args.groupingRunId) return null;
+    // ART-205: a scene Canon refused is not reusable. Returning it would replay the identical
+    // refusal, which is what made a refused slot unrecoverable.
+    if (row.canonRejectedAt !== undefined) return null;
     return structuredClone(row.result) as SceneSimulationResult;
   },
 });
@@ -127,5 +135,73 @@ export const getSceneSimulationForOperations = internalQuery({
     const row = await ctx.db.query('sceneSimulationRuns').withIndex('by_world_and_run',
       (q) => q.eq('worldId', args.worldId).eq('simulationRunId', args.simulationRunId)).unique();
     return row ? structuredClone(row.result) as SceneSimulationResult : null;
+  },
+});
+
+/**
+ * Canon's verdict on a scene's proposals, asked for DURING authoring (ART-205).
+ *
+ * ## Why this exists at all
+ *
+ * Canon validation is stage 8, inside the finishing mutation, after the authoring action has
+ * returned. A scene whose proposals parsed but violated Canon was therefore persisted, and ART-149
+ * reuse replayed the identical stored scene into the identical refusal on every retry — the slot
+ * could not recover however many attempts it was given, and no provider call was ever made to try
+ * anything different.
+ *
+ * This is the SAME check, asked earlier, so its refusal can reach the author while another attempt
+ * is still possible. Stage 8 remains authoritative and is unchanged: it validates against the
+ * projection as it stands when the slot finishes, which is the only moment that can decide a
+ * commit. This one runs against the projection as it stands during authoring, and the two agreeing
+ * is not assumed — `canonRuleContext` is shared so they at least derive the world the same way.
+ *
+ * ## What it returns
+ *
+ * The FIRST refusal only. A model given one specific correction fixes one thing; a list invites it
+ * to trade one violation for another, and every entry after the first is speculative anyway because
+ * fixing the first can change what follows.
+ *
+ * Structural validation runs first, for the same reason `normalizeProposedEventOutput` does it
+ * first: a malformed event has no meaningful canon verdict.
+ */
+export const validateSceneProposals = internalQuery({
+  args: { worldId: v.string(), proposedEvents: v.array(v.any()) },
+  handler: async (ctx, args): Promise<CanonRejectionFeedback | null> => {
+    const { projection, ruleContext } = await canonRuleContext(
+      createConvexCanonReader(ctx.db), args.worldId);
+    for (const [index, candidate] of args.proposedEvents.entries()) {
+      const structural = validateEventStructure(candidate);
+      if (structural) return canonRejectionFeedback(structural, index);
+      const error = validateCanon(candidate as ProposedEvent, projection, ruleContext);
+      if (error) return canonRejectionFeedback(error, index);
+    }
+    return null;
+  },
+});
+
+/**
+ * Mark a stored scene as refused by Canon, so the next attempt re-authors it (ART-205).
+ *
+ * Called by the finishing pass when stage 8 refuses a proposal, keyed on the scene that produced
+ * it. The row is MARKED rather than deleted: it is the evidence of what was authored and refused,
+ * and deleting it would leave an operator with a failed slot and nothing to read. It simply stops
+ * being reusable.
+ *
+ * Idempotent — re-marking an already-marked scene rewrites the same two fields.
+ */
+export const markSceneCanonRejected = internalMutation({
+  args: {
+    worldId: v.string(),
+    sceneId: v.string(),
+    code: v.string(),
+    now: v.number(),
+  },
+  returns: v.object({ marked: v.boolean() }),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.query('sceneSimulationRuns').withIndex('by_scene',
+      (q) => q.eq('worldId', args.worldId).eq('sceneId', args.sceneId)).unique();
+    if (!row) return { marked: false };
+    await ctx.db.patch(row._id, { canonRejectedAt: args.now, canonRejectionCode: args.code });
+    return { marked: true };
   },
 });

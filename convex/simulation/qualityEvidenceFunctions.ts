@@ -122,7 +122,8 @@ export const recordAuthoringAttempt = internalMutation({
     sceneId: v.string(),
     simulationRunId: v.string(),
     attempt: v.number(),
-    outcome: v.union(v.literal('parsed'), v.literal('output_rejected'), v.literal('provider_failed')),
+    outcome: v.union(v.literal('parsed'), v.literal('output_rejected'),
+      v.literal('canon_rejected'), v.literal('provider_failed')),
     errorCode: v.union(v.string(), v.null()),
     /**
      * ART-195. The sanitized detail behind `errorCode`, written to `authoringFailures`.
@@ -199,7 +200,10 @@ export const recordAuthoringAttempt = internalMutation({
       // Before ART-90 nothing wrote to this table at all and the panel showed null, so the zeros
       // made the answer worse than no answer. The fields are optional; absent means unobserved.
       retryCount: args.transportRetries,
-      validationResult: args.outcome === 'parsed' ? 'passed'
+      // ART-205: a canon rejection PASSED structured validation — the schema accepted it and the
+      // world refused the content. Recording it as `rejected` would put a content refusal in the
+      // field §16.2 reads for schema compliance.
+      validationResult: args.outcome === 'parsed' || args.outcome === 'canon_rejected' ? 'passed'
         : args.outcome === 'output_rejected' ? 'rejected' : 'not_run',
       finalStatus: args.outcome === 'parsed' ? 'succeeded' : 'failed',
       // The code the attempt actually failed with, kept rather than discarded (ART-166). ART-90
