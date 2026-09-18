@@ -231,7 +231,9 @@ describe('the prompt states the Canon rules a scene author can break', () => {
      * prohibition; this scene carries no recorded state, which is the prohibited case.
      */
     const text = prompt();
-    expect(text).toContain('Never emit character_knowledge_learned');
+    // ART-206 made the knowledge variant unavailable STRUCTURALLY, so the prose no longer forbids
+    // it by name — it points at the schema, which is the thing that now enforces it.
+    expect(text).toContain('there is no knowledge, item, location or organization change among them');
     expect(text).toContain('Never emit character_state_changed: this scene records no current value');
   });
 
@@ -602,21 +604,10 @@ describe('the prompt constrains every identifier the author cannot know', () => 
     expect(prompt).toContain('may not create two facts with the same subject and predicate');
   });
 
-  it('forbids the item variants, which need an id and an owner the author has not been given', () => {
-    // Not a validator pairing: the point is that the request stops ASKING, as ART-197 did for
-    // character_state_changed. An item fact would fail UNKNOWN_ITEM_REFERENCE against a world with
-    // no items, and item_transferred additionally needs the unique current owner.
-    expect(prompt).toContain('Never use subjectType "item", and never emit item_transferred');
-  });
-
-  it('forbids the other whole-entity variants for the same reason', () => {
-    /**
-     * `location_state_changed` and `organization_state_changed` are required by strict mode to
-     * carry EVERY property of the entity — a location's name, description, type, capacity and
-     * connection list — and the author is given none of them. They would fail for the same reason
-     * `character_state_changed` does: the request asks for a current value it never supplied.
-     */
-    expect(prompt).toContain('location_state_changed or organization_state_changed');
+  it('forbids item fact SUBJECTS, which the schema cannot express as a type', () => {
+    // `subjectType` is an enum the schema must keep whole, so this one stays a prose rule. The
+    // whole-entity VARIANTS are handled structurally instead — see the ART-206 block below.
+    expect(prompt).toContain('Never use subjectType "item"');
   });
 
   it('pins the event location to the scene location', () => {
@@ -850,5 +841,66 @@ describe('recordedCharacterState decides which fields are offerable at all', () 
     expect(recordedCharacterState(undefined)).toBeUndefined();
     expect(recordedCharacterState({ availability: 'free' })).toBeUndefined();
     expect(recordedCharacterState({ emotion: '' })).toBeUndefined();
+  });
+});
+
+// =============================================================================
+// The schema stops offering what the request cannot support (ART-206)
+// =============================================================================
+
+/**
+ * From a live slot, named exactly by the ART-195 detail:
+ *
+ *   [SCENE_SIMULATION_FAILED] whole-scene provider failed:
+ *   [INVALID_EVENT_SHAPE] CanonError at output_validation (retryable):
+ *   [INVALID_EVENT_SHAPE] sourceEventId has invalid reference format
+ *
+ * The model emitted a `character_knowledge_learned` with an invented `sourceEventId`. ART-197 and
+ * ART-198 told it never to emit that variant — and the schema went on listing it, so the request
+ * was offering and forbidding the same thing.
+ *
+ * ART-203 settled this shape one level down, for `causedByEventIds`. A variant the request cannot
+ * supply the context for should not be in the schema the request sends.
+ */
+describe('the request schema offers only variants it can support', () => {
+  const variantTypes = () => {
+    const properties = WHOLE_SCENE_JSON_SCHEMA.properties as Record<string, Record<string, unknown>>;
+    const item = properties.proposedEvents.items as Record<string, Record<string, unknown>>;
+    const stateChanges = item.properties.stateChanges as Record<string, Record<string, unknown>>;
+    const variants = stateChanges.items.anyOf as Array<{
+      properties: { type: { const?: string } };
+    }>;
+    return variants.map(({ properties: p }) => p.type.const);
+  };
+
+  it.each([
+    ['character_knowledge_learned', 'needs a sourceEventId, and ART-203 removed causedByEventIds'],
+    ['item_transferred', 'needs an item id and its unique current owner'],
+    ['location_state_changed', 'needs a location’s full current properties'],
+    ['organization_state_changed', 'needs an organization id and its current state'],
+  ])('does not offer %s — %s', (type) => {
+    expect(variantTypes()).not.toContain(type);
+    // …and not in the serialized copy the model actually reads, either.
+    expect(JSON.stringify(WHOLE_SCENE_JSON_SCHEMA)).not.toContain(`"${type}"`);
+  });
+
+  it('still offers character_state_changed, because ART-198 supplies what it needs', () => {
+    // The negative control. Removing this one would undo ART-198 rather than complete ART-206.
+    expect(variantTypes()).toContain('character_state_changed');
+  });
+
+  it('still offers the variants an author can fill from what the scene gave it', () => {
+    for (const type of ['character_location_changed', 'relationship_changed', 'fact_created',
+      'character_memory_formed', 'character_life_changed', 'rumor_originated']) {
+      expect(variantTypes()).toContain(type);
+    }
+  });
+
+  it('says the same thing in prose that the schema enforces, rather than contradicting it', () => {
+    // The defect was a request that offered and forbade the same variant. The prose now points at
+    // the schema instead of listing prohibitions the schema already makes impossible.
+    const text = wholeSceneSystemPrompt(scene, { legalDestinationIds: [] });
+    expect(text).toContain('The schema lists every stateChanges type you may use');
+    expect(text).toContain('there is no knowledge, item, location or organization change among them');
   });
 });
