@@ -6,8 +6,8 @@ import {
 } from '../canon/eventTypes';
 import type { ProposedEvent } from '../canon/model';
 import { classifyPostGeneration, type PostGenerationClassification } from '../safety/postGeneration';
-import { describeFailure, formatFailureDetail, type FailureDetail } from '../shared/failureDetail';
-import { renderCanonRejection, type CanonRejectionFeedback } from './canonFeedback';
+import { describeFailure, formatFailureDetail, stableFailureCode, type FailureDetail } from '../shared/failureDetail';
+import { canonRejectionFeedback, renderCanonRejection, type CanonRejectionFeedback } from './canonFeedback';
 import { SimulationProviderError, type LanguageModelProvider, type ProviderTraceMetadata } from './provider';
 import { runBudgetedAttempt, SceneBudgetError, type SceneBudgetGate } from './sceneBudget';
 import type { BudgetReservationRequest } from '../shared/tokenBudget';
@@ -857,6 +857,25 @@ export async function simulateWholeScene(provider: LanguageModelProvider, simula
         // The provider ANSWERED and the answer did not satisfy the schema. This, and only this,
         // is what §16.2's 「JSON 結構成功率」 counts against.
         report('output_rejected', describeFailure(error, 'output_validation'));
+        /**
+         * ART-207. The parser's refusal becomes the next attempt's instruction too.
+         *
+         * ART-205 built this loop and wired it to Canon refusals only. The live world produces the
+         * other kind: 13 of the 20 most recent authoring failures on acceptance were
+         * `SCENE_OUTPUT_INVALID`, against ZERO Canon refusals. Retrying with the identical prompt
+         * is a reroll, not a correction, and the evidence is that it frequently rerolls into the
+         * same rule.
+         */
+        priorRejection = canonRejectionFeedback(
+          {
+            code: stableFailureCode(error),
+            ...(error instanceof Error ? { message: error.message } : {}),
+            ...(error instanceof SceneSimulationError && error.path !== undefined
+              ? { path: error.path }
+              : {}),
+          },
+          null,
+        );
         throw error;
       }
       /**

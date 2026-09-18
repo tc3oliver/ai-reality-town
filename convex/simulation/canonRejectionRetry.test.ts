@@ -127,8 +127,8 @@ describe('the refusal reaches the next attempt', () => {
 
     const [first, second] = provider.prompts;
     // The first attempt knows nothing of a refusal that has not happened.
-    expect(first).not.toContain('REJECTED by Canon');
-    expect(second).toContain('REJECTED by Canon');
+    expect(first).not.toContain('was REJECTED');
+    expect(second).toContain('was REJECTED');
     expect(second).toContain('DUPLICATE_CHARACTER_MOVEMENT');
     expect(second).toContain('a character may move at most once per event');
     expect(second).toContain('proposedEvents[0] stateChanges[0]');
@@ -144,7 +144,7 @@ describe('the refusal reaches the next attempt', () => {
     await simulateWholeScene(provider, 'sim:order', scene, {
       maxAttempts: 2, validateProposals: refusingValidator(1).validate,
     });
-    expect(provider.prompts[1].indexOf('REJECTED by Canon')).toBeLessThan(
+    expect(provider.prompts[1].indexOf('was REJECTED')).toBeLessThan(
       provider.prompts[1].indexOf('Simulate the entire grouped scene once'));
   });
 
@@ -407,5 +407,122 @@ describe('ART-205 — stage 8 marks the scene it refused', () => {
       canonStore: readOnlyCanonStore,
       recordProposalValidations: () => Promise.resolve(),
     })).rejects.toMatchObject({ error: { code: 'INVALID_RELATIONSHIP_TARGET' } });
+  });
+});
+
+// =============================================================================
+// The parser's refusals get feedback too (ART-207)
+// =============================================================================
+
+/**
+ * ART-205 built this loop and wired it to Canon refusals only. The live world produces the other
+ * kind. From `inspectAuthoringFailures` on acceptance, 20 most recent authoring failures:
+ *
+ *   SCENE_OUTPUT_INVALID              13
+ *   INVALID_EVENT_SHAPE                4
+ *   SCENE_OUTPUT_PROVENANCE_MISMATCH   2
+ *   SCENE_CANON_REJECTED               0
+ *
+ * Every one was a parser refusal, retried with the identical prompt — the same request that
+ * produced the rejected answer. That is a reroll, not a correction.
+ */
+describe('a parser refusal becomes the next attempt’s instruction', () => {
+  /** Answers with `output` until it has been called `failFirstN` times, then authors properly. */
+  class MalformedThenGood implements LanguageModelProvider {
+    readonly prompts: string[] = [];
+    private calls = 0;
+    private readonly inner = new FakeWholeSceneProvider();
+
+    constructor(private readonly output: unknown, private readonly failFirstN: number) {}
+
+    structuredChat(request: StructuredChatRequest): Promise<StructuredChatResult> {
+      this.prompts.push(request.messages.find(({ role }) => role === 'system')?.content ?? '');
+      this.calls += 1;
+      if (this.calls > this.failFirstN) return this.inner.structuredChat(request);
+      return Promise.resolve({
+        output: this.output,
+        trace: {
+          provider: 'fake' as const, requestedModel: 'm', resolvedModel: 'm', upstreamProvider: null,
+          rateLimit: null, inputTokens: 1, outputTokens: 1, latencyMs: 1, retryCount: 0,
+        },
+      });
+    }
+
+    embed(): Promise<EmbeddingResult> { return Promise.reject(new Error('unused')); }
+  }
+
+  /** A scene whose relationship change names one character twice — the live failure, verbatim. */
+  const selfRelationshipScene = {
+    schemaVersion: 1, sceneId: scene.sceneId, sceneSummary: '兩人對質。',
+    keyActions: [{ characterId: 'gao-wenrui', action: '推出帳冊。' }],
+    dialogueHighlights: [],
+    proposedEvents: [{
+      schemaVersion: 1, worldId: scene.worldId, idempotencyKey: `${scene.sceneId}:1`,
+      proposedBy: { type: 'system' }, worldDay: scene.worldDay, timeSlot: scene.timeSlot,
+      eventType: 'conversation', locationId: scene.locationId,
+      participantIds: ['gao-wenrui'], causedByEventIds: [], publicSummary: '對質。',
+      stateChanges: [{
+        type: 'character_memory_formed', characterId: 'gao-wenrui',
+        content: '停頓。', interpretation: '有所隱瞞。',
+        importance: 0.5, emotionalWeight: 0.4, confidence: 0.7, visibility: 'private',
+      }],
+    }],
+    relationshipChanges: [{
+      sourceCharacterId: 'gao-wenrui', targetCharacterId: 'gao-wenrui',
+      summary: '他對自己改觀。', proposedEventIndex: 0,
+    }],
+    knowledgeChanges: [], memories: [], rumors: [], continuityWarnings: [],
+  };
+
+  it('tells the retry which rule it broke and what to do instead', async () => {
+    const provider = new MalformedThenGood(selfRelationshipScene, 1);
+
+    await simulateWholeScene(provider, 'sim:parser-feedback', scene, { maxAttempts: 2 });
+
+    expect(provider.prompts).toHaveLength(2);
+    const [first, second] = provider.prompts;
+    expect(first).not.toContain('was REJECTED');
+    expect(second).toContain('was REJECTED');
+    expect(second).toContain('relationship endpoints must differ');
+    expect(second).toContain('two DIFFERENT characters');
+  });
+
+  it('matches the instruction on the rule text, since one code covers many rules', async () => {
+    /**
+     * `SCENE_OUTPUT_INVALID` is a single code for every structural complaint the parser makes —
+     * unlike Canon, which has a distinct code per rule. So the path and the message are what say
+     * which rule was broken, and the instruction table is matched on those.
+     */
+    const notAParticipant = {
+      ...selfRelationshipScene,
+      relationshipChanges: [],
+      keyActions: [{ characterId: 'wu-zhen', action: '插話。' }],
+    };
+    const provider = new MalformedThenGood(notAParticipant, 1);
+
+    await simulateWholeScene(provider, 'sim:participant-feedback', scene, { maxAttempts: 2 });
+
+    expect(provider.prompts[1]).toContain('must be one of this scene');
+    expect(provider.prompts[1]).toContain('mentioned in passing is not a participant');
+  });
+
+  it('still counts as output_rejected, so §16.2 is unaffected', async () => {
+    // ART-207 changes what the retry is TOLD, not what the metric counts. A schema refusal is
+    // still a schema refusal.
+    const { recorded, onAttempt } = collector();
+    await simulateWholeScene(new MalformedThenGood(selfRelationshipScene, 1), 'sim:metric', scene, {
+      maxAttempts: 2, onAttempt,
+    });
+    expect(recorded.map(({ outcome }) => outcome)).toEqual(['output_rejected', 'parsed']);
+  });
+
+  it('leaves the Canon path exactly as ART-205 built it', async () => {
+    // The negative control for the change: a Canon refusal still produces `canon_rejected` and
+    // still carries its own instruction.
+    const { recorded, onAttempt } = collector();
+    await simulateWholeScene(new PromptRecordingProvider(), 'sim:canon-still', scene, {
+      maxAttempts: 2, onAttempt, validateProposals: refusingValidator(1).validate,
+    });
+    expect(recorded.map(({ outcome }) => outcome)).toEqual(['canon_rejected', 'parsed']);
   });
 });

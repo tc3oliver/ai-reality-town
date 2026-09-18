@@ -107,6 +107,37 @@ const INSTRUCTIONS: Record<string, string> = {
     'Do not emit item_transferred. You have not been given item ids or their current owners.',
 };
 
+/**
+ * The parser's own refusals (ART-207).
+ *
+ * `parseWholeSceneOutput` rejects an answer before Canon ever sees it, and those are the refusals
+ * the live world actually produces: 13 of the 20 most recent authoring failures on acceptance were
+ * `SCENE_OUTPUT_INVALID`, against zero Canon refusals. ART-205 built the feedback loop and wired it
+ * to the rarer half.
+ *
+ * Keyed on the PATH as well as the code, because `SCENE_OUTPUT_INVALID` is one code for every
+ * structural complaint the parser makes — unlike Canon, which has a distinct code per rule. The
+ * path is what says which rule was broken.
+ */
+const PARSER_INSTRUCTIONS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/relationship endpoints must differ|relationshipChanges/u,
+    'Give every relationshipChanges entry two DIFFERENT characters for sourceCharacterId and targetCharacterId. A character cannot have a relationship change with themselves.'],
+  [/is not a Scene participant|characterId|sourceCharacterId|targetCharacterId/u,
+    'Every characterId, sourceCharacterId and targetCharacterId in every collection must be one of this scene\'s participants, exactly as the scene listed them. A character mentioned in passing is not a participant.'],
+  [/keyActions/u,
+    'Provide at least one keyActions entry, and give each one a participant and a non-empty action.'],
+  [/must not contain duplicates|continuityWarnings/u,
+    'Do not repeat a string in continuityWarnings.'],
+  [/idempotency keys must be unique|idempotencyKey/u,
+    'Give every proposedEvents item its own unique idempotencyKey.'],
+  [/proposedEventIndex/u,
+    'Every proposedEventIndex must be the zero-based position of an entry that exists in proposedEvents.'],
+  [/must be a non-empty string/u,
+    'Fill in every text field with real content. No field may be empty or omitted.'],
+  [/unknown fields|must be an object|must be an array/u,
+    'Use only the fields the schema declares, with the types it declares. Do not add fields and do not omit required ones.'],
+];
+
 export const GENERIC_INSTRUCTION =
   'Change the proposed events so this rule is satisfied, and keep every other rule this scene stated.';
 
@@ -125,13 +156,31 @@ export function canonRejectionFeedback(
   proposedEventIndex: number | null = null,
 ): CanonRejectionFeedback {
   const rule = sanitizeFailureText(error.message ?? '').slice(0, RULE_MAX_LENGTH);
+  const path = typeof error.path === 'string' && error.path.length > 0 ? error.path : null;
   return {
     code: error.code,
     rule,
-    path: typeof error.path === 'string' && error.path.length > 0 ? error.path : null,
+    path,
     proposedEventIndex,
-    instruction: INSTRUCTIONS[error.code] ?? GENERIC_INSTRUCTION,
+    instruction: instructionFor(error.code, rule, path),
   };
+}
+
+/**
+ * What to do about this refusal.
+ *
+ * Canon's codes are one per rule, so the code alone identifies the correction. The parser's are
+ * not — `SCENE_OUTPUT_INVALID` covers every structural complaint it makes — so for those the rule
+ * text and the field path are what say which rule was broken (ART-207).
+ */
+function instructionFor(code: string, rule: string, path: string | null): string {
+  const known = INSTRUCTIONS[code];
+  if (known) return known;
+  const haystack = `${rule} ${path ?? ''}`;
+  for (const [pattern, instruction] of PARSER_INSTRUCTIONS) {
+    if (pattern.test(haystack)) return instruction;
+  }
+  return GENERIC_INSTRUCTION;
 }
 
 /**
@@ -147,7 +196,7 @@ export function renderCanonRejection(feedback: CanonRejectionFeedback): string {
     feedback.path,
   ].filter((part): part is string => part !== null).join(' ');
   return [
-    'Your previous answer for this scene was REJECTED by Canon validation and nothing was committed.',
+    'Your previous answer for this scene was REJECTED and nothing was committed.',
     where.length > 0 ? `The refusal was at ${where}.` : null,
     `Rule violated (${feedback.code}): ${feedback.rule}`,
     `Correction: ${feedback.instruction}`,
